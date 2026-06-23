@@ -1,0 +1,56 @@
+@import "tailwindcss";
+
+@theme {
+  /* 自定义颜色 */
+  --color-primary-50: #eff6ff;
+  --color-primary-100: #dbeafe;
+  --color-primary-500: #3b82f6;
+  --color-primary-600: #2563eb;
+  --color-primary-700: #1d4ed8;
+
+  --color-surface-50: #f8fafc;
+  --color-surface-100: #f1f5f9;
+  --color-surface-200: #e2e8f0;
+  --color-surface-800: #1e293b;
+  --color-surface-900: #0f172a;
+
+  /* 自定义阴影 */
+  --shadow-soft: 0 4px 20px -4px rgba(0, 0, 0, 0.08);
+  --shadow-card: 0 2px 12px rgba(0, 0, 0, 0.06);
+
+  /* 自定义圆角 */
+  --radius-2xl: 1rem;
+  --radius-3xl: 1.5rem;
+
+  /* 自定义过渡曲线 */
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@layer base {
+  /* 全局滚动条样式：纤细、圆角，符合现代网盘审美 */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 9999px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+  }
+
+  /* 选中文字颜色 */
+  ::selection {
+    background-color: #bfdbfe;
+    color: #1e3a8a;
+  }
+}
+
+

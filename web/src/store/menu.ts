@@ -1,0 +1,81 @@
+import { defineStore } from 'pinia'
+import { ref, computed } from 'vue'
+import { useUserStore } from '@/store/user'
+
+export type PrimaryModule = 'files' | 'notes' | 'todos' | 'system'
+
+export interface SecondaryMenuItem {
+  key: string
+  label: string
+  icon?: string
+  route?: string
+}
+
+/**
+ * 全局菜单状态 Store
+ * 负责一级模块切换与二级菜单联动
+ */
+export const useMenuStore = defineStore('menu', () => {
+  const userStore = useUserStore()
+
+  // 当前激活的一级模块
+  const activePrimary = ref<PrimaryModule>('files')
+
+  // 当前激活的二级菜单 key
+  const activeSecondary = ref<string>('all')
+
+  // 根据一级模块动态渲染二级菜单
+  const secondaryMenus = computed<SecondaryMenuItem[]>(() => getSecondaryMenusByPrimary(activePrimary.value))
+
+  function getSecondaryMenusByPrimary(primary: PrimaryModule): SecondaryMenuItem[] {
+    switch (primary) {
+      case 'files':
+        return [
+          { key: 'all', label: '全部文件', route: '/files' },
+          { key: 'transfer', label: '正在传输', route: '/files/transfer' },
+          { key: 'share', label: '我的分享', route: '/files/share' },
+          { key: 'trash', label: '回收站', route: '/files/trash' },
+        ]
+      case 'notes':
+        return [
+          { key: 'recent', label: '最近笔记', route: '/notes' },
+          { key: 'tags', label: '标签', route: '/notes/tags' },
+        ]
+      case 'todos':
+        return [
+          { key: 'today', label: '今日待办', route: '/todos' },
+          { key: 'archive', label: '归档', route: '/todos/archive' },
+        ]
+      case 'system':
+        return buildSystemMenus()
+      default:
+        return []
+    }
+  }
+
+  function buildSystemMenus(): SecondaryMenuItem[] {
+    const menus: SecondaryMenuItem[] = []
+    if (userStore.isAdmin || userStore.hasPermission('user:menu')) {
+      menus.push({ key: 'users', label: '用户管理', route: '/admin/users' })
+    }
+    return menus
+  }
+
+  function setPrimary(module: PrimaryModule) {
+    activePrimary.value = module
+    activeSecondary.value = secondaryMenus.value[0]?.key ?? ''
+  }
+
+  function setSecondary(key: string) {
+    activeSecondary.value = key
+  }
+
+  return {
+    activePrimary,
+    activeSecondary,
+    secondaryMenus,
+    getSecondaryMenusByPrimary,
+    setPrimary,
+    setSecondary,
+  }
+})
