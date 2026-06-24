@@ -1,8 +1,11 @@
 import { del, get, post, put } from './request'
 import type {
   BatchUserStatusDto,
+  ChangePasswordDto,
   PageResult,
   UserPageQuery,
+  UserProfileUpdateDto,
+  UserProfileVo,
   UserSaveDto,
   UserStatusDto,
   UserUpdateDto,
@@ -42,4 +45,16 @@ export function deleteUser(userId: string): Promise<boolean> {
 
 export function batchDeleteUser(userIds: string[]): Promise<string[]> {
   return del<string[]>('/users/batch', userIds)
+}
+
+export function getCurrentUserProfile(): Promise<UserProfileVo> {
+  return get<UserProfileVo>('/users/me')
+}
+
+export function updateCurrentUserProfile(dto: UserProfileUpdateDto): Promise<UserProfileVo> {
+  return put<UserProfileVo>('/users/me', dto)
+}
+
+export function changePassword(dto: ChangePasswordDto): Promise<void> {
+  return put<void>('/users/me/password', dto)
 }
