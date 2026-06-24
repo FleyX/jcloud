@@ -58,6 +58,7 @@
         SELECT id, code, name, parent_id, status, create_time, update_time
         FROM t_permission
         WHERE is_deleted = 0
+          AND status = 1
         ORDER BY create_time ASC
     </select>
 

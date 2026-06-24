@@ -20,10 +20,13 @@
                  INNER JOIN t_permission_resource pr ON pr.resource_id = r.id
                  INNER JOIN t_role_permission rp ON rp.permission_id = pr.permission_id
                  INNER JOIN t_role ro ON ro.id = rp.role_id
+                 INNER JOIN t_permission p ON p.id = rp.permission_id
         WHERE r.is_deleted = 0
           AND r.status = 1
           AND ro.is_deleted = 0
           AND ro.status = 1
+          AND p.is_deleted = 0
+          AND p.status = 1
           AND rp.role_id IN
         <foreach collection="roleIds" item="roleId" open="(" separator="," close=")">
             #{roleId}
