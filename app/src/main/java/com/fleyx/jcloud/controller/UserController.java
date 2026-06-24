@@ -3,12 +3,16 @@ package com.fleyx.jcloud.controller;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.fleyx.jcloud.common.R;
 import com.fleyx.jcloud.common.constant.CommonConstant;
+import com.fleyx.jcloud.common.context.UserContext;
 import com.fleyx.jcloud.model.dto.BatchUserStatusDto;
+import com.fleyx.jcloud.model.dto.ChangePasswordDto;
 import com.fleyx.jcloud.model.dto.UserPageQueryDto;
+import com.fleyx.jcloud.model.dto.UserProfileUpdateDto;
 import com.fleyx.jcloud.model.dto.UserSaveDto;
 import com.fleyx.jcloud.model.dto.UserStatusDto;
 import com.fleyx.jcloud.model.dto.UserUpdateDto;
 import com.fleyx.jcloud.model.dto.UserUpdateRolesDto;
+import com.fleyx.jcloud.model.vo.UserProfileVo;
 import com.fleyx.jcloud.model.vo.UserVo;
 import com.fleyx.jcloud.service.UserService;
 import jakarta.validation.Valid;
@@ -119,5 +123,30 @@ public class UserController {
     @PutMapping("/batch/status")
     public R<List<Long>> batchUpdateStatus(@Valid @RequestBody BatchUserStatusDto dto) {
         return R.ok(userService.batchUpdateStatus(dto));
+    }
+
+    /**
+     * 获取当前登录用户个人信息。
+     */
+    @GetMapping("/me")
+    public R<UserProfileVo> getCurrentProfile() {
+        return R.ok(userService.getUserProfile(UserContext.get().id()));
+    }
+
+    /**
+     * 更新当前登录用户个人信息。
+     */
+    @PutMapping("/me")
+    public R<UserProfileVo> updateCurrentProfile(@Valid @RequestBody UserProfileUpdateDto dto) {
+        return R.ok(userService.updateUserProfile(UserContext.get().id(), dto));
+    }
+
+    /**
+     * 修改当前登录用户密码。
+     */
+    @PutMapping("/me/password")
+    public R<Void> changeCurrentPassword(@Valid @RequestBody ChangePasswordDto dto) {
+        userService.changePassword(UserContext.get().id(), dto);
+        return R.ok();
     }
 }
