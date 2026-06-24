@@ -2,7 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import type { RouteRecordRaw } from 'vue-router'
 import { useUserStore } from '@/store/user'
 
-type RouteName = 'Login' | 'Register' | 'NotFound' | 'Files' | 'UserManagement'
+type RouteName = 'Login' | 'Register' | 'NotFound' | 'Files' | 'UserManagement' | 'RoleManagement' | 'PermissionManagement'
 
 /**
  * 公开静态路由
@@ -49,6 +49,18 @@ const dynamicRoutes: RouteRecordRaw[] = [
     name: 'UserManagement' as RouteName,
     component: () => import('@/views/admin/Users.vue'),
     meta: { permission: 'user:menu', title: '用户管理' },
+  },
+  {
+    path: '/admin/roles',
+    name: 'RoleManagement' as RouteName,
+    component: () => import('@/views/admin/Roles.vue'),
+    meta: { permission: 'role:menu', title: '角色管理' },
+  },
+  {
+    path: '/admin/permissions',
+    name: 'PermissionManagement' as RouteName,
+    component: () => import('@/views/admin/Permissions.vue'),
+    meta: { permission: 'permission:menu', title: '权限管理' },
   },
 ]
 
