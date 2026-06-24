@@ -129,7 +129,7 @@ async function handlePasswordSubmit(dto: ChangePasswordDto) {
           <span class="text-sm font-bold">{{ userStore.userInfo?.username?.charAt(0).toUpperCase() || 'U' }}</span>
         </button>
         <div
-          class="pointer-events-none invisible absolute right-0 top-full mt-2 w-44 origin-top-right scale-95 rounded-2xl border border-surface-200 bg-white p-1.5 opacity-0 shadow-card transition-all group-hover:pointer-events-auto group-hover:visible group-hover:scale-100 group-hover:opacity-100"
+          class="invisible absolute right-0 top-full mt-2 w-44 origin-top-right scale-95 rounded-2xl border border-surface-200 bg-white p-1.5 opacity-0 shadow-card transition-all duration-200 delay-200 group-hover:visible group-hover:scale-100 group-hover:opacity-100 group-hover:delay-0"
         >
           <div class="border-b border-surface-100 px-3 py-2">
             <p class="text-sm font-semibold text-surface-900">{{ userStore.userInfo?.username || '未登录' }}</p>
