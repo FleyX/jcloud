@@ -17,7 +17,8 @@ VALUES
 ON CONFLICT (code) DO NOTHING;
 
 -- 新增 API 资源
-INSERT INTO t_resource (id, code, name, type, status) VALUES
+INSERT INTO t_resource (id, code, name, type, status)
+VALUES
     (37, 'GET:/jcloud/api/roles/page', '角色分页查询', 'API', 1),
     (38, 'GET:/jcloud/api/roles/{id}', '角色详情', 'API', 1),
     (39, 'POST:/jcloud/api/roles', '创建角色', 'API', 1),
