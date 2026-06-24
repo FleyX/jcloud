@@ -11,6 +11,8 @@ import com.fleyx.jcloud.model.vo.RoleVo;
 import com.fleyx.jcloud.service.RoleService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+
+import java.util.List;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -30,6 +32,14 @@ import org.springframework.web.bind.annotation.RestController;
 public class RoleController {
 
     private final RoleService roleService;
+
+    /**
+     * 查询所有启用的角色。
+     */
+    @GetMapping
+    public R<List<RoleVo>> listAll() {
+        return R.ok(roleService.listAllEnabled());
+    }
 
     /**
      * 分页查询角色。

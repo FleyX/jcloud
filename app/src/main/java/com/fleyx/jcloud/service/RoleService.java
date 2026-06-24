@@ -6,6 +6,8 @@ import com.fleyx.jcloud.model.dto.RoleSaveDto;
 import com.fleyx.jcloud.model.dto.RoleUpdateDto;
 import com.fleyx.jcloud.model.vo.RoleVo;
 
+import java.util.List;
+
 /**
  * 角色业务接口。
  */
@@ -43,6 +45,13 @@ public interface RoleService {
      * @return 分页结果
      */
     IPage<RoleVo> pageRoles(RolePageQueryDto dto);
+
+    /**
+     * 查询所有启用的角色。
+     *
+     * @return 角色视图列表
+     */
+    List<RoleVo> listAllEnabled();
 
     /**
      * 删除角色。

@@ -83,6 +83,17 @@ public class RoleServiceImpl implements RoleService {
     }
 
     @Override
+    public List<RoleVo> listAllEnabled() {
+        LambdaQueryWrapper<Role> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(Role::getStatus, CommonStatus.ENABLED.getCode())
+                .eq(Role::getDeleted, 0)
+                .orderByDesc(Role::getCreateTime);
+        return roleMapper.selectList(wrapper).stream()
+                .map(this::enrichRoleVo)
+                .collect(Collectors.toList());
+    }
+
+    @Override
     public IPage<RoleVo> pageRoles(RolePageQueryDto dto) {
         Page<Role> pageParam = new Page<>(dto.getPageNum(), dto.getPageSize());
         LambdaQueryWrapper<Role> wrapper = new LambdaQueryWrapper<>();
