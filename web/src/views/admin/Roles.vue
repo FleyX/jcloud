@@ -1,0 +1,216 @@
+<script setup lang="ts">
+import { onMounted, reactive, ref } from 'vue'
+import {
+  createRole,
+  deleteRole,
+  fetchRolePage,
+  updateRole,
+  updateRoleStatus,
+} from '@/api/role'
+import { fetchPermissionTree } from '@/api/permission'
+import { useConfirmStore } from '@/store/confirm'
+import { useNotificationStore } from '@/store/notification'
+import RoleDialog from './components/RoleDialog.vue'
+import type { PageResult, PermissionTreeVo, RolePageQuery, RoleSaveDto, RoleUpdateDto, RoleVo } from '@/types/auth'
+import { Pencil, Plus, Trash2 } from '@lucide/vue'
+
+const query = reactive<RolePageQuery>({
+  code: '',
+  name: '',
+  status: undefined,
+  pageNum: 1,
+  pageSize: 10,
+})
+
+const pageData = ref<PageResult<RoleVo>>({
+  records: [],
+  total: '0',
+  size: '10',
+  current: '1',
+  pages: '0',
+})
+const loading = ref(false)
+const submitting = ref(false)
+const permissionTree = ref<PermissionTreeVo[]>([])
+const dialogOpen = ref(false)
+const isEdit = ref(false)
+const editingRole = ref<RoleVo | null>(null)
+const dialogForm = reactive<Partial<RoleSaveDto & RoleUpdateDto>>({
+  code: '',
+  name: '',
+  description: '',
+  status: 1,
+  permissionIds: [],
+})
+
+const confirmStore = useConfirmStore()
+const notificationStore = useNotificationStore()
+
+async function loadRoles() {
+  loading.value = true
+  try {
+    pageData.value = await fetchRolePage(query)
+  } finally {
+    loading.value = false
+  }
+}
+
+async function loadPermissions() {
+  permissionTree.value = await fetchPermissionTree()
+}
+
+function handleSearch() {
+  query.pageNum = 1
+  loadRoles()
+}
+
+function openCreateDialog() {
+  isEdit.value = false
+  editingRole.value = null
+  dialogForm.code = ''
+  dialogForm.name = ''
+  dialogForm.description = ''
+  dialogForm.status = 1
+  dialogForm.permissionIds = []
+  dialogOpen.value = true
+}
+
+function openEditDialog(role: RoleVo) {
+  isEdit.value = true
+  editingRole.value = role
+  dialogForm.code = role.code
+  dialogForm.name = role.name
+  dialogForm.description = role.description
+  dialogForm.status = role.status
+  dialogForm.permissionIds = role.permissionIds ? [...role.permissionIds] : []
+  dialogOpen.value = true
+}
+
+async function submitRole(dto: RoleSaveDto | RoleUpdateDto) {
+  submitting.value = true
+  try {
+    if (isEdit.value && editingRole.value) {
+      await updateRole(editingRole.value.id, dto as RoleUpdateDto)
+      notificationStore.success('角色更新成功')
+    } else {
+      await createRole(dto as RoleSaveDto)
+      notificationStore.success('角色创建成功')
+    }
+    dialogOpen.value = false
+    await loadRoles()
+  } catch (error) {
+    notificationStore.error(error instanceof Error ? error.message : '操作失败')
+  } finally {
+    submitting.value = false
+  }
+}
+
+async function handleToggleStatus(role: RoleVo) {
+  const next = role.status === 1 ? 0 : 1
+  submitting.value = true
+  try {
+    await updateRoleStatus(role.id, { status: next })
+    notificationStore.success('状态更新成功')
+    await loadRoles()
+  } catch (error) {
+    notificationStore.error(error instanceof Error ? error.message : '状态更新失败')
+  } finally {
+    submitting.value = false
+  }
+}
+
+async function handleDelete(role: RoleVo) {
+  const confirmed = await confirmStore.open({
+    title: '删除角色',
+    message: `确定要删除角色 ${role.name} 吗？`,
+    confirmText: '删除',
+    type: 'danger',
+  })
+  if (!confirmed) return
+  submitting.value = true
+  try {
+    await deleteRole(role.id)
+    notificationStore.success('角色删除成功')
+    await loadRoles()
+  } catch (error) {
+    notificationStore.error(error instanceof Error ? error.message : '删除失败')
+  } finally {
+    submitting.value = false
+  }
+}
+
+onMounted(() => {
+  loadRoles()
+  loadPermissions()
+})
+</script>
+
+<template>
+  <div class="flex h-full flex-col gap-5">
+    <div class="flex flex-col gap-4 rounded-2xl border border-surface-200 bg-white p-5 shadow-card sm:flex-row sm:items-center sm:justify-between">
+      <div>
+        <h2 class="text-lg font-bold text-surface-900">角色管理</h2>
+        <p class="text-xs text-surface-500">管理系统角色及其权限分配</p>
+      </div>
+      <div class="flex flex-wrap items-center gap-2">
+        <input v-model="query.code" type="text" placeholder="编码" class="rounded-xl border border-surface-200 px-3 py-2 text-sm" />
+        <input v-model="query.name" type="text" placeholder="名称" class="rounded-xl border border-surface-200 px-3 py-2 text-sm" />
+        <select v-model="query.status" class="rounded-xl border border-surface-200 px-3 py-2 text-sm">
+          <option :value="undefined">全部状态</option>
+          <option :value="1">启用</option>
+          <option :value="0">禁用</option>
+        </select>
+        <button class="rounded-xl bg-primary-600 px-4 py-2 text-sm font-medium text-white" @click="handleSearch">查询</button>
+        <button class="flex items-center gap-1 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-medium text-white" @click="openCreateDialog">
+          <Plus class="h-4 w-4" /> 新增角色
+        </button>
+      </div>
+    </div>
+
+    <div class="flex-1 overflow-hidden rounded-2xl border border-surface-200 bg-white shadow-card">
+      <table class="w-full text-left text-sm">
+        <thead class="bg-surface-50 text-xs uppercase text-surface-500">
+          <tr>
+            <th class="px-5 py-3">编码</th>
+            <th class="px-5 py-3">名称</th>
+            <th class="px-5 py-3">描述</th>
+            <th class="px-5 py-3">状态</th>
+            <th class="px-5 py-3">操作</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-surface-100">
+          <tr v-for="role in pageData.records" :key="role.id" class="hover:bg-surface-50/50">
+            <td class="px-5 py-3 font-medium text-surface-900">{{ role.code }}</td>
+            <td class="px-5 py-3">{{ role.name }}</td>
+            <td class="px-5 py-3 text-surface-500">{{ role.description || '-' }}</td>
+            <td class="px-5 py-3">
+              <span :class="role.status === 1 ? 'text-emerald-600' : 'text-red-600'">{{ role.status === 1 ? '启用' : '禁用' }}</span>
+            </td>
+            <td class="px-5 py-3">
+              <div class="flex items-center gap-2">
+                <button class="rounded-lg bg-surface-100 px-2.5 py-1.5 text-xs" @click="openEditDialog(role)">
+                  <Pencil class="inline h-3.5 w-3.5" /> 编辑
+                </button>
+                <button class="rounded-lg bg-surface-100 px-2.5 py-1.5 text-xs" @click="handleToggleStatus(role)">
+                  {{ role.status === 1 ? '禁用' : '启用' }}
+                </button>
+                <button class="rounded-lg bg-red-50 px-2.5 py-1.5 text-xs text-red-600" @click="handleDelete(role)">
+                  <Trash2 class="inline h-3.5 w-3.5" /> 删除
+                </button>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <RoleDialog
+      v-model:open="dialogOpen"
+      :is-edit="isEdit"
+      :initial-form="dialogForm"
+      :permission-tree="permissionTree"
+      :submitting="submitting"
+      @submit="submitRole"
+    />
+  </div>
+</template>
