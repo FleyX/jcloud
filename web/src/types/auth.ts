@@ -1,30 +1,4 @@
 /**
- * 角色视图对象
- */
-export interface RoleVo {
-  id: string
-  code: string
-  name: string
-  description?: string
-}
-
-/**
- * 权限资源类型
- */
-export type PermissionType = 'MENU' | 'BUTTON'
-
-/**
- * 权限资源视图对象
- */
-export interface Permission {
-  id: string
-  code: string
-  name: string
-  type: PermissionType
-  path?: string
-}
-
-/**
  * 用户视图对象
  */
 export interface UserVo {
@@ -151,4 +125,122 @@ export interface PageResult<T> {
   size: string
   current: string
   pages: string
+}
+
+
+/**
+ * 角色视图对象
+ */
+export interface RoleVo {
+  id: string
+  code: string
+  name: string
+  description?: string
+  status: number
+  permissionIds?: string[]
+  createTime?: string
+  updateTime?: string
+}
+
+/**
+ * 角色分页查询参数
+ */
+export interface RolePageQuery {
+  code?: string
+  name?: string
+  status?: number
+  pageNum?: number
+  pageSize?: number
+}
+
+/**
+ * 角色保存 DTO
+ */
+export interface RoleSaveDto {
+  code: string
+  name: string
+  description?: string
+  status?: number
+  permissionIds?: string[]
+}
+
+/**
+ * 角色更新 DTO
+ */
+export interface RoleUpdateDto {
+  name: string
+  description?: string
+  status?: number
+  permissionIds?: string[]
+}
+
+/**
+ * 角色状态 DTO
+ */
+export interface RoleStatusDto {
+  status: number
+}
+
+/**
+ * 权限树视图对象
+ */
+export interface PermissionTreeVo {
+  id: string
+  code: string
+  name: string
+  parentId?: string
+  status: number
+  children?: PermissionTreeVo[]
+  level?: number // 仅前端渲染使用
+}
+
+/**
+ * 权限详情视图对象
+ */
+export interface PermissionVo {
+  id: string
+  code: string
+  name: string
+  parentId?: string
+  status: number
+  resourceIds?: string[]
+}
+
+/**
+ * 权限保存 DTO
+ */
+export interface PermissionSaveDto {
+  code: string
+  name: string
+  parentId?: string
+  status: number
+  resourceIds?: string[]
+}
+
+/**
+ * 权限更新 DTO
+ */
+export interface PermissionUpdateDto {
+  name: string
+  parentId?: string
+  status: number
+  resourceIds?: string[]
+}
+
+/**
+ * 权限状态 DTO
+ */
+export interface PermissionStatusDto {
+  status: number
+}
+
+/**
+ * 资源视图对象
+ */
+export interface ResourceVo {
+  id: string
+  code: string
+  name: string
+  type: 'PUBLIC' | 'PAGE' | 'LOGIN' | 'API'
+  status: number
 }
