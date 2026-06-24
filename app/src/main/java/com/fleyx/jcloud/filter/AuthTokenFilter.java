@@ -23,7 +23,6 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.util.AntPathMatcher;
@@ -42,7 +41,6 @@ import java.util.List;
  * 4. 其它资源根据用户角色查询对应的资源 URL，判断当前请求是否在授权列表中；
  * 5. 超级管理员直接放行所有非 PUBLIC 接口。
  */
-@RequiredArgsConstructor
 public class AuthTokenFilter extends OncePerRequestFilter {
 
     private static final String BEARER_PREFIX = "Bearer ";
@@ -67,17 +65,30 @@ public class AuthTokenFilter extends OncePerRequestFilter {
 
     private final AntPathMatcher pathMatcher = new AntPathMatcher();
 
-    private volatile List<ResourceEntry> resourceEntries;
+    private final List<ResourceEntry> resourceEntries;
+
+    public AuthTokenFilter(JwtUtil jwtUtil, ObjectMapper objectMapper, ResourceMapper resourceMapper,
+                           UserMapper userMapper, UserRoleMapper userRoleMapper,
+                           UserPermissionCache userPermissionCache, PermissionResolver permissionResolver) {
+        this.jwtUtil = jwtUtil;
+        this.objectMapper = objectMapper;
+        this.resourceMapper = resourceMapper;
+        this.userMapper = userMapper;
+        this.userRoleMapper = userRoleMapper;
+        this.userPermissionCache = userPermissionCache;
+        this.permissionResolver = permissionResolver;
+        this.resourceEntries = loadResources();
+    }
 
     /**
      * 启动时加载有效资源。
      */
-    private void loadResources() {
+    private List<ResourceEntry> loadResources() {
         List<Resource> resources = resourceMapper.selectList(
                 new LambdaQueryWrapper<Resource>()
                         .eq(Resource::getStatus, CommonStatus.ENABLED.getCode())
         );
-        resourceEntries = resources.stream()
+        return resources.stream()
                 .map(r -> new ResourceEntry(r.getCode(), r.getType()))
                 .toList();
     }
@@ -91,7 +102,7 @@ public class AuthTokenFilter extends OncePerRequestFilter {
     private ResourcePermissionResult resolve(String resourceKey) {
         boolean publicResource = false;
         boolean loginResource = false;
-        for (ResourceEntry entry : getResourceEntries()) {
+        for (ResourceEntry entry : resourceEntries) {
             if (pathMatcher.match(entry.pattern(), resourceKey)) {
                 if (RESOURCE_TYPE_PUBLIC.equals(entry.type())) {
                     publicResource = true;
@@ -101,17 +112,6 @@ public class AuthTokenFilter extends OncePerRequestFilter {
             }
         }
         return new ResourcePermissionResult(publicResource, loginResource);
-    }
-
-    private List<ResourceEntry> getResourceEntries() {
-        if (resourceEntries == null) {
-            synchronized (this) {
-                if (resourceEntries == null) {
-                    loadResources();
-                }
-            }
-        }
-        return resourceEntries;
     }
 
     @Override
