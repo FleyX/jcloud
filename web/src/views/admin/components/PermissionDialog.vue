@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { DialogContent, DialogDescription, DialogOverlay, DialogPortal, DialogRoot, DialogTitle } from 'radix-vue'
 import type { PermissionSaveDto, PermissionUpdateDto, ResourceVo } from '@/types/auth'
 
@@ -31,6 +31,29 @@ const form = reactive<PermissionForm>({
   resourceIds: [],
 })
 
+const resourceTypeFilter = ref<'ALL' | ResourceVo['type']>('ALL')
+const resourceKeyword = ref('')
+
+const resourceTypeOptions: Array<{ value: 'ALL' | ResourceVo['type']; label: string }> = [
+  { value: 'ALL', label: '全部' },
+  { value: 'PUBLIC', label: '公开' },
+  { value: 'PAGE', label: '页面' },
+  { value: 'LOGIN', label: '登录' },
+  { value: 'API', label: '接口' },
+]
+
+const filteredResources = computed(() => {
+  const keyword = resourceKeyword.value.trim().toLowerCase()
+  return props.resources.filter((res) => {
+    const typeMatch = resourceTypeFilter.value === 'ALL' || res.type === resourceTypeFilter.value
+    const keywordMatch =
+      !keyword ||
+      res.name.toLowerCase().includes(keyword) ||
+      res.code.toLowerCase().includes(keyword)
+    return typeMatch && keywordMatch
+  })
+})
+
 watch(
   () => props.open,
   (open) => {
@@ -40,6 +63,8 @@ watch(
       form.parentId = props.initialForm?.parentId
       form.status = props.initialForm?.status ?? 1
       form.resourceIds = props.initialForm?.resourceIds ? [...props.initialForm.resourceIds] : []
+      resourceTypeFilter.value = 'ALL'
+      resourceKeyword.value = ''
     }
   },
 )
@@ -102,12 +127,25 @@ function handleSubmit() {
           </div>
           <div>
             <label class="mb-1 block text-sm font-medium">资源</label>
+            <div class="mb-2 flex gap-2">
+              <select v-model="resourceTypeFilter" class="rounded-xl border border-surface-200 px-3 py-2 text-sm">
+                <option v-for="opt in resourceTypeOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+              </select>
+              <input
+                v-model="resourceKeyword"
+                type="text"
+                placeholder="搜索资源名称或编码"
+                class="flex-1 rounded-xl border border-surface-200 px-3 py-2 text-sm"
+              />
+            </div>
             <div class="max-h-48 overflow-y-auto rounded-xl border border-surface-200 p-3">
-              <label v-for="res in resources" :key="res.id" class="flex items-center gap-2 py-1">
+              <label v-for="res in filteredResources" :key="res.id" class="flex items-center gap-2 py-1">
                 <input v-model="form.resourceIds" type="checkbox" :value="res.id" class="h-4 w-4 rounded border-surface-300 text-primary-600" />
                 <span class="text-sm text-surface-700">{{ res.name }}</span>
                 <span class="text-xs text-surface-400">({{ res.code }})</span>
+                <span class="ml-auto text-xs text-surface-400">{{ resourceTypeOptions.find((opt) => opt.value === res.type)?.label ?? res.type }}</span>
               </label>
+              <p v-if="filteredResources.length === 0" class="py-2 text-center text-sm text-surface-400">无匹配资源</p>
             </div>
           </div>
         </div>

@@ -40,8 +40,8 @@ async function loadTree() {
   loading.value = true
   try {
     tree.value = await fetchPermissionTree()
-  } catch (error) {
-    notificationStore.error(error instanceof Error ? error.message : '加载权限树失败')
+  } catch {
+    // request.ts 已统一处理异常提示
   } finally {
     loading.value = false
   }
@@ -50,8 +50,8 @@ async function loadTree() {
 async function loadResources() {
   try {
     resources.value = await fetchResources()
-  } catch (error) {
-    notificationStore.error(error instanceof Error ? error.message : '加载资源失败')
+  } catch {
+    // request.ts 已统一处理异常提示
   }
 }
 
@@ -89,8 +89,8 @@ async function openEditDialog(permission: PermissionTreeVo) {
     dialogForm.status = detail.status
     dialogForm.resourceIds = detail.resourceIds ? [...detail.resourceIds] : []
     dialogOpen.value = true
-  } catch (error) {
-    notificationStore.error(error instanceof Error ? error.message : '加载权限详情失败')
+  } catch {
+    // request.ts 已统一处理异常提示
   }
 }
 
@@ -106,8 +106,8 @@ async function submitPermission(dto: PermissionSaveDto | PermissionUpdateDto) {
     }
     dialogOpen.value = false
     await loadTree()
-  } catch (error) {
-    notificationStore.error(error instanceof Error ? error.message : '操作失败')
+  } catch {
+    // request.ts 已统一处理异常提示
   } finally {
     dialogSubmitting.value = false
   }
@@ -120,8 +120,8 @@ async function handleToggleStatus(permission: PermissionTreeVo) {
     await updatePermissionStatus(permission.id, { status: next })
     notificationStore.success('状态更新成功')
     await loadTree()
-  } catch (error) {
-    notificationStore.error(error instanceof Error ? error.message : '状态更新失败')
+  } catch {
+    // request.ts 已统一处理异常提示
   } finally {
     statusLoading.value = false
   }
@@ -140,8 +140,8 @@ async function handleDelete(permission: PermissionTreeVo) {
     await deletePermission(permission.id)
     notificationStore.success('权限删除成功')
     await loadTree()
-  } catch (error) {
-    notificationStore.error(error instanceof Error ? error.message : '删除失败')
+  } catch {
+    // request.ts 已统一处理异常提示
   } finally {
     deleteLoading.value = false
   }
@@ -182,6 +182,7 @@ onMounted(() => {
       <table class="w-full text-left text-sm">
         <thead class="bg-surface-50 text-xs uppercase text-surface-500">
           <tr>
+            <th class="px-5 py-3">权限ID</th>
             <th class="px-5 py-3">权限编码</th>
             <th class="px-5 py-3">权限名称</th>
             <th class="px-5 py-3">父级</th>
@@ -191,6 +192,7 @@ onMounted(() => {
         </thead>
         <tbody class="divide-y divide-surface-100">
           <tr v-for="{ node, level } in flattenedTree" :key="node.id" class="hover:bg-surface-50/50">
+            <td class="px-5 py-3 text-surface-500">{{ node.id }}</td>
             <td class="px-5 py-3 font-medium text-surface-900" :style="{ paddingLeft: `${1.25 + level * 1.5}rem` }">
               <button
                 v-if="node.children && node.children.length > 0"
