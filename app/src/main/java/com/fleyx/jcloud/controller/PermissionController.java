@@ -23,6 +23,9 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 
+/**
+ * 权限管理控制器。
+ */
 @RestController
 @RequestMapping(CommonConstant.API + "/permissions")
 @RequiredArgsConstructor
@@ -30,38 +33,59 @@ public class PermissionController {
 
     private final PermissionService permissionService;
 
+    /**
+     * 查询权限树。
+     */
     @GetMapping("/tree")
     public R<List<PermissionTreeVo>> tree() {
         return R.ok(permissionService.tree());
     }
 
+    /**
+     * 根据 ID 查询权限。
+     */
     @GetMapping("/{id}")
     public R<PermissionVo> getById(@PathVariable Long id) {
         return R.ok(permissionService.getById(id));
     }
 
+    /**
+     * 新增权限。
+     */
     @PostMapping
     public R<PermissionVo> save(@Valid @RequestBody PermissionSaveDto dto) {
         return R.ok(permissionService.savePermission(dto));
     }
 
+    /**
+     * 更新权限。
+     */
     @PutMapping("/{id}")
     public R<PermissionVo> update(@PathVariable Long id, @Valid @RequestBody PermissionUpdateDto dto) {
         return R.ok(permissionService.updatePermission(id, dto));
     }
 
+    /**
+     * 删除权限。
+     */
     @DeleteMapping("/{id}")
     public R<Void> remove(@PathVariable Long id) {
         permissionService.removeById(id);
         return R.ok();
     }
 
+    /**
+     * 修改权限状态。
+     */
     @PatchMapping("/{id}/status")
     public R<Void> updateStatus(@PathVariable Long id, @Valid @RequestBody PermissionStatusDto dto) {
         permissionService.updateStatus(id, dto.getStatus());
         return R.ok();
     }
 
+    /**
+     * 查询资源列表。
+     */
     @GetMapping("/resources")
     public R<List<Resource>> listResources() {
         return R.ok(permissionService.listResources());

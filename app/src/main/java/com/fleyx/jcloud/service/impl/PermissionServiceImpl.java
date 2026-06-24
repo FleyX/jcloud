@@ -29,6 +29,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -119,7 +120,7 @@ public class PermissionServiceImpl implements PermissionService {
         if (CollUtil.isEmpty(vos)) {
             return List.of();
         }
-        java.util.Map<Long, PermissionTreeVo> map = vos.stream()
+        Map<Long, PermissionTreeVo> map = vos.stream()
                 .collect(Collectors.toMap(PermissionTreeVo::getId, v -> v));
         List<PermissionTreeVo> roots = new ArrayList<>();
         for (PermissionTreeVo vo : vos) {
@@ -192,6 +193,9 @@ public class PermissionServiceImpl implements PermissionService {
         if (parent == null) {
             throw new BusinessException(ResultCode.PARAM_ERROR, "父级权限不存在");
         }
+        if (!parent.getStatus().equals(CommonStatus.ENABLED.getCode())) {
+            throw new BusinessException(ResultCode.PARAM_ERROR, "父级权限已禁用");
+        }
         if (currentId != null) {
             Set<Long> descendants = permissionMapper.selectDescendantIds(currentId);
             if (descendants.contains(parentId)) {
@@ -227,7 +231,7 @@ public class PermissionServiceImpl implements PermissionService {
                     pr.setCreateTime(LocalDateTime.now());
                     return pr;
                 })
-                .collect(Collectors.toList());
+                .toList();
         permissionResourceMapper.batchInsert(relations);
     }
 
