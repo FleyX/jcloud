@@ -1,4 +1,4 @@
-import type { Directive } from 'vue'
+import type { Directive, DirectiveBinding } from 'vue'
 import { useUserStore } from '@/store/user'
 import { fetchPermissionTree } from '@/api/permission'
 import type { PermissionTreeVo } from '@/types/auth'
@@ -15,17 +15,7 @@ import type { PermissionTreeVo } from '@/types/auth'
  */
 
 let permissionTreePromise: Promise<PermissionTreeVo[]> | null = null
-
-/**
- * 获取并缓存权限树。首次调用时加载，后续复用。
- * 加载失败时返回空数组，由调用方按“默认拒绝”处理。
- */
-function ensurePermissionTree(): Promise<PermissionTreeVo[]> {
-  if (!permissionTreePromise) {
-    permissionTreePromise = fetchPermissionTree().catch(() => [])
-  }
-  return permissionTreePromise
-}
+let ancestorMap: Map<string, Set<string>> | null = null
 
 /**
  * 根据权限树构建“权限编码 -> 所有祖先编码集合”的映射。
@@ -44,6 +34,31 @@ function buildAncestorMap(tree: PermissionTreeVo[]): Map<string, Set<string>> {
 }
 
 /**
+ * 获取并缓存权限树。首次调用时加载，后续复用。
+ * 加载失败时重置缓存，允许后续指令重试。
+ */
+async function ensurePermissionTree(signal?: AbortSignal): Promise<PermissionTreeVo[]> {
+  if (!permissionTreePromise) {
+    permissionTreePromise = fetchPermissionTree().catch((err) => {
+      permissionTreePromise = null
+      throw err
+    })
+  }
+
+  const tree = await permissionTreePromise
+
+  if (signal?.aborted) {
+    throw new Error('aborted')
+  }
+
+  if (!ancestorMap) {
+    ancestorMap = buildAncestorMap(tree)
+  }
+
+  return tree
+}
+
+/**
  * 判断用户是否拥有指定权限编码。
  * @param requiredCode 需要校验的权限编码
  * @param userCodes 用户拥有的权限编码列表
@@ -55,42 +70,100 @@ export function hasPermission(requiredCode: string, userCodes: string[], tree: P
     return true
   }
 
-  const ancestorMap = buildAncestorMap(tree)
+  if (!ancestorMap) {
+    ancestorMap = buildAncestorMap(tree)
+  }
 
   // 用户拥有的某个权限是 requiredCode 的后代（即 requiredCode 是该权限的祖先）
-  return userCodes.some((code) => ancestorMap.get(code)?.has(requiredCode))
+  return userCodes.some((code) => ancestorMap!.get(code)?.has(requiredCode))
 }
 
-export const vPermission: Directive<HTMLElement, string | string[]> = {
-  async mounted(el, binding) {
-    const userStore = useUserStore()
+type PermissionValue = string | string[]
 
-    // 超级管理员直接放行
-    if (userStore.isAdmin) {
-      return
+const controllers = new WeakMap<Element, AbortController>()
+const originalDisplays = new WeakMap<HTMLElement, string>()
+
+function removeElement(el: HTMLElement) {
+  if (el.parentNode) {
+    el.parentNode.removeChild(el)
+  }
+}
+
+async function checkPermission(el: HTMLElement, binding: DirectiveBinding<PermissionValue>) {
+  const userStore = useUserStore()
+
+  const requiredCodes = Array.isArray(binding.value) ? binding.value : [binding.value]
+  if (requiredCodes.length === 0 || requiredCodes.some((code) => !code)) {
+    removeElement(el)
+    return
+  }
+
+  // 取消同一元素上一次的异步校验
+  let controller = controllers.get(el)
+  if (controller) {
+    controller.abort()
+  }
+  controller = new AbortController()
+  controllers.set(el, controller)
+  const { signal } = controller
+
+  // 保存原始 display 样式，校验期间隐藏元素避免无权限内容闪烁
+  if (!originalDisplays.has(el)) {
+    originalDisplays.set(el, el.style.display)
+  }
+  const originalDisplay = originalDisplays.get(el) ?? ''
+  el.style.display = 'none'
+
+  const userCodes = userStore.permissions
+
+  // 超级管理员或直接拥有权限时立即放行
+  if (userStore.isAdmin || requiredCodes.some((code) => userCodes.includes(code))) {
+    if (!signal.aborted) {
+      el.style.display = originalDisplay
     }
+    return
+  }
 
-    const requiredCodes = Array.isArray(binding.value) ? binding.value : [binding.value]
-    const userCodes = userStore.permissions
+  // 没有任何权限且不是管理员，直接拒绝
+  if (userCodes.length === 0) {
+    if (!signal.aborted) {
+      removeElement(el)
+    }
+    return
+  }
 
-    // 异步加载权限树期间先隐藏元素，避免无权限内容闪烁
-    el.style.display = 'none'
+  // 需要通过权限树判断后代继承关系
+  try {
+    const tree = await ensurePermissionTree(signal)
 
-    try {
-      const tree = await ensurePermissionTree()
+    const granted = requiredCodes.some((code) => hasPermission(code, userCodes, tree))
 
-      const granted = requiredCodes.some((code) => hasPermission(code, userCodes, tree))
-
+    if (!signal.aborted) {
       if (granted) {
-        el.style.display = ''
-      } else if (el.parentNode) {
-        el.parentNode.removeChild(el)
-      }
-    } catch {
-      // 权限树加载失败时默认拒绝
-      if (el.parentNode) {
-        el.parentNode.removeChild(el)
+        el.style.display = originalDisplay
+      } else {
+        removeElement(el)
       }
     }
+  } catch {
+    // 权限树加载失败或请求被取消时默认拒绝
+    if (!signal.aborted) {
+      removeElement(el)
+    }
+  }
+}
+
+export const vPermission: Directive<HTMLElement, PermissionValue> = {
+  mounted: checkPermission,
+  updated: checkPermission,
+  unmounted(el) {
+    const controller = controllers.get(el)
+    if (controller) {
+      controller.abort()
+      controllers.delete(el)
+    }
+    originalDisplays.delete(el)
   },
 }
+
+export default vPermission
