@@ -3,13 +3,13 @@ package com.fleyx.jcloud.filter;
 import cn.hutool.core.util.StrUtil;
 import tools.jackson.databind.ObjectMapper;
 import com.fleyx.jcloud.common.R;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fleyx.jcloud.common.cache.UserPermissionCache;
 import com.fleyx.jcloud.common.context.CurrentUser;
 import com.fleyx.jcloud.common.context.UserContext;
 import com.fleyx.jcloud.common.enums.CommonStatus;
 import com.fleyx.jcloud.common.enums.ResultCode;
-import com.fleyx.jcloud.mapper.PermissionMapper;
-import com.fleyx.jcloud.mapper.PermissionResourceMapper;
+import com.fleyx.jcloud.common.permission.PermissionResolver;
 import com.fleyx.jcloud.mapper.ResourceMapper;
 import com.fleyx.jcloud.mapper.UserMapper;
 import com.fleyx.jcloud.mapper.UserRoleMapper;
@@ -31,10 +31,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 
 /**
  * Token 认证与鉴权过滤器。
@@ -65,9 +62,8 @@ public class AuthTokenFilter extends OncePerRequestFilter {
     private final ResourceMapper resourceMapper;
     private final UserMapper userMapper;
     private final UserRoleMapper userRoleMapper;
-    private final PermissionMapper permissionMapper;
-    private final PermissionResourceMapper permissionResourceMapper;
     private final UserPermissionCache userPermissionCache;
+    private final PermissionResolver permissionResolver;
 
     private final AntPathMatcher pathMatcher = new AntPathMatcher();
 
@@ -78,7 +74,7 @@ public class AuthTokenFilter extends OncePerRequestFilter {
      */
     private void loadResources() {
         List<Resource> resources = resourceMapper.selectList(
-                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<Resource>()
+                new LambdaQueryWrapper<Resource>()
                         .eq(Resource::getStatus, CommonStatus.ENABLED.getCode())
         );
         resourceEntries = resources.stream()
@@ -126,8 +122,11 @@ public class AuthTokenFilter extends OncePerRequestFilter {
 
         // 1. PUBLIC 资源直接放行
         if (result.publicResource()) {
-            UserContext.clear();
-            filterChain.doFilter(request, response);
+            try {
+                filterChain.doFilter(request, response);
+            } finally {
+                UserContext.clear();
+            }
             return;
         }
 
@@ -181,24 +180,9 @@ public class AuthTokenFilter extends OncePerRequestFilter {
         User user = userMapper.selectById(userId);
         boolean superAdmin = user != null && user.isSuperAdmin();
         List<Long> roleIds = userRoleMapper.selectRoleIdsByUserId(userId);
-        List<String> resourceCodes = resolveResourceCodes(roleIds);
+        List<String> resourceCodes = permissionResolver.resolveResourceCodes(roleIds);
         userPermissionCache.put(userId, roleIds, resourceCodes, superAdmin);
         return checkAuthorization(superAdmin, resourceCodes, resourceKey);
-    }
-
-    private List<String> resolveResourceCodes(List<Long> roleIds) {
-        if (roleIds == null || roleIds.isEmpty()) {
-            return List.of();
-        }
-        Set<Long> allPermissionIds = new HashSet<>();
-        List<Long> directPermissionIds = permissionMapper.selectIdsByRoleIds(roleIds);
-        for (Long pid : directPermissionIds) {
-            allPermissionIds.addAll(permissionMapper.selectAncestorIds(pid));
-        }
-        if (allPermissionIds.isEmpty()) {
-            return List.of();
-        }
-        return permissionResourceMapper.selectResourceCodesByPermissionIds(new ArrayList<>(allPermissionIds));
     }
 
     private boolean checkAuthorization(boolean superAdmin, List<String> resourceCodes, String resourceKey) {

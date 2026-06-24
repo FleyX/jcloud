@@ -2,10 +2,9 @@ package com.fleyx.jcloud.config;
 
 import tools.jackson.databind.ObjectMapper;
 import com.fleyx.jcloud.common.cache.UserPermissionCache;
+import com.fleyx.jcloud.common.permission.PermissionResolver;
 import com.fleyx.jcloud.filter.AuthTokenFilter;
 import com.fleyx.jcloud.filter.TraceIdFilter;
-import com.fleyx.jcloud.mapper.PermissionMapper;
-import com.fleyx.jcloud.mapper.PermissionResourceMapper;
 import com.fleyx.jcloud.mapper.ResourceMapper;
 import com.fleyx.jcloud.mapper.UserMapper;
 import com.fleyx.jcloud.mapper.UserRoleMapper;
@@ -27,9 +26,8 @@ public class FilterConfig {
     private final ResourceMapper resourceMapper;
     private final UserMapper userMapper;
     private final UserRoleMapper userRoleMapper;
-    private final PermissionMapper permissionMapper;
-    private final PermissionResourceMapper permissionResourceMapper;
     private final UserPermissionCache userPermissionCache;
+    private final PermissionResolver permissionResolver;
 
     /**
      * 注册链路追踪 ID 过滤器。
@@ -51,7 +49,7 @@ public class FilterConfig {
     public FilterRegistrationBean<AuthTokenFilter> authTokenFilterRegistration() {
         FilterRegistrationBean<AuthTokenFilter> registration = new FilterRegistrationBean<>();
         registration.setFilter(new AuthTokenFilter(jwtUtil, objectMapper, resourceMapper,
-                userMapper, userRoleMapper, permissionMapper, permissionResourceMapper, userPermissionCache));
+                userMapper, userRoleMapper, userPermissionCache, permissionResolver));
         registration.addUrlPatterns("/jcloud/api/*");
         registration.setName("authTokenFilter");
         registration.setOrder(2);

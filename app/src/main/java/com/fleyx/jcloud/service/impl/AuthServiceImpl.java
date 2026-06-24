@@ -6,7 +6,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.enums.UserStatus;
 import com.fleyx.jcloud.common.exception.BusinessException;
-import com.fleyx.jcloud.mapper.PermissionMapper;
+import com.fleyx.jcloud.common.permission.PermissionResolver;
 import com.fleyx.jcloud.mapper.RoleMapper;
 import com.fleyx.jcloud.mapper.UserMapper;
 import com.fleyx.jcloud.mapper.UserRoleMapper;
@@ -24,11 +24,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 
 /**
  * 认证授权业务实现。
@@ -40,10 +37,10 @@ public class AuthServiceImpl implements AuthService {
     private final UserMapper userMapper;
     private final RoleMapper roleMapper;
     private final UserRoleMapper userRoleMapper;
-    private final PermissionMapper permissionMapper;
     private final UserConvert userConvert;
     private final RoleConvert roleConvert;
     private final JwtUtil jwtUtil;
+    private final PermissionResolver permissionResolver;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -79,7 +76,7 @@ public class AuthServiceImpl implements AuthService {
     }
 
     private LoginVo buildLoginVo(User user) {
-        List<String> permissions = resolvePermissions(user.getId());
+        List<String> permissions = permissionResolver.resolvePermissionCodes(user.getId());
         String token = jwtUtil.generateToken(user.getId(), user.getUsername());
 
         LoginVo vo = new LoginVo();
@@ -89,28 +86,10 @@ public class AuthServiceImpl implements AuthService {
         return vo;
     }
 
-    private List<String> resolvePermissions(Long userId) {
-        List<Long> roleIds = userRoleMapper.selectRoleIdsByUserId(userId);
-        if (roleIds.isEmpty()) {
-            return List.of();
-        }
-        Set<Long> permissionIds = new HashSet<>();
-        List<Long> directPermissionIds = permissionMapper.selectIdsByRoleIds(roleIds);
-        for (Long pid : directPermissionIds) {
-            permissionIds.addAll(permissionMapper.selectAncestorIds(pid));
-        }
-        if (permissionIds.isEmpty()) {
-            return List.of();
-        }
-        return permissionMapper.selectCodesByIds(new ArrayList<>(permissionIds));
-    }
-
     private UserVo toUserVo(User user) {
         UserVo vo = userConvert.poToVo(user);
+        vo.setIsAdmin(user.isSuperAdmin());
         List<Long> roleIds = userRoleMapper.selectRoleIdsByUserId(user.getId());
-        if (StrUtil.isNotBlank(vo.getUsername())) {
-            vo.setIsAdmin(user.isSuperAdmin());
-        }
         if (!roleIds.isEmpty()) {
             List<Role> roles = roleMapper.selectBatchIds(roleIds);
             vo.setRoles(roleConvert.poListToVoList(roles));
