@@ -3,12 +3,16 @@
  * 顶部一级导航栏
  * 负责全站核心模块切换，状态由 Pinia store/menu.ts 统一管理
  */
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMenuStore, type PrimaryModule } from '@/store/menu'
 import { useUserStore } from '@/store/user'
-import { Cloud, Settings, LogOut } from '@lucide/vue'
+import { Cloud, Settings, LogOut, User, KeyRound } from '@lucide/vue'
 import { cn } from '@/utils/cn'
+import { getCurrentUserProfile, updateCurrentUserProfile, changePassword } from '@/api/user'
+import type { ChangePasswordDto, UserProfileUpdateDto, UserProfileVo } from '@/types/auth'
+import ProfileDialog from '@/views/user/components/ProfileDialog.vue'
+import ChangePasswordDialog from '@/views/user/components/ChangePasswordDialog.vue'
 import type { Component } from 'vue'
 
 const router = useRouter()
@@ -41,6 +45,43 @@ function handlePrimaryClick(module: PrimaryModule) {
   const targetRoute = menuStore.secondaryMenus[0]?.route
   if (targetRoute) {
     router.push(targetRoute)
+  }
+}
+
+const profileOpen = ref(false)
+const passwordOpen = ref(false)
+const profileSubmitting = ref(false)
+const passwordSubmitting = ref(false)
+const profile = ref<UserProfileVo | null>(null)
+const profileForm = ref<UserProfileUpdateDto>({ email: '', nickname: '' })
+
+async function openProfile() {
+  profile.value = await getCurrentUserProfile()
+  profileForm.value = {
+    email: profile.value.email ?? '',
+    nickname: profile.value.nickname ?? '',
+  }
+  profileOpen.value = true
+}
+
+async function handleProfileSubmit(dto: UserProfileUpdateDto) {
+  profileSubmitting.value = true
+  try {
+    await updateCurrentUserProfile(dto)
+    await userStore.fetchCurrentUser()
+    profileOpen.value = false
+  } finally {
+    profileSubmitting.value = false
+  }
+}
+
+async function handlePasswordSubmit(dto: ChangePasswordDto) {
+  passwordSubmitting.value = true
+  try {
+    await changePassword(dto)
+    passwordOpen.value = false
+  } finally {
+    passwordSubmitting.value = false
   }
 }
 </script>
@@ -95,6 +136,21 @@ function handlePrimaryClick(module: PrimaryModule) {
             <p class="text-xs text-surface-500">{{ userStore.isAdmin ? '超级管理员' : '普通用户' }}</p>
           </div>
           <button
+            class="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm text-surface-700 transition-colors hover:bg-surface-100"
+            @click="openProfile"
+          >
+            <User class="h-4 w-4" />
+            个人信息
+          </button>
+          <button
+            class="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm text-surface-700 transition-colors hover:bg-surface-100"
+            @click="passwordOpen = true"
+          >
+            <KeyRound class="h-4 w-4" />
+            修改密码
+          </button>
+          <div class="my-1 border-b border-surface-100"></div>
+          <button
             class="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm text-red-600 transition-colors hover:bg-red-50"
             @click="handleLogout"
           >
@@ -105,4 +161,17 @@ function handlePrimaryClick(module: PrimaryModule) {
       </div>
     </div>
   </header>
+
+  <ProfileDialog
+    v-model:open="profileOpen"
+    v-model="profileForm"
+    :profile="profile"
+    :submitting="profileSubmitting"
+    @submit="handleProfileSubmit"
+  />
+  <ChangePasswordDialog
+    v-model:open="passwordOpen"
+    :submitting="passwordSubmitting"
+    @submit="handlePasswordSubmit"
+  />
 </template>
