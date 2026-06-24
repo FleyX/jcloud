@@ -4,11 +4,34 @@ import { useUserStore } from '@/store/user'
 
 export type PrimaryModule = 'files' | 'notes' | 'todos' | 'system'
 
+export const primaryModuleList: PrimaryModule[] = ['files', 'notes', 'todos', 'system']
+
 export interface SecondaryMenuItem {
   key: string
   label: string
   icon?: string
   route?: string
+}
+
+/**
+ * 根据当前路由反查其所属的一级模块
+ * - 优先精确匹配，其次匹配以该路由为前缀的子路径
+ * - 不匹配不属于任何已知路由的情况
+ */
+export function resolvePrimaryModuleByRoute(
+  routePath: string,
+  menus: Record<PrimaryModule, SecondaryMenuItem[]>,
+): PrimaryModule | null {
+  for (const [primary, items] of Object.entries(menus) as [PrimaryModule, SecondaryMenuItem[]][]) {
+    for (const item of items) {
+      const route = item.route
+      if (!route) continue
+      if (routePath === route || routePath.startsWith(`${route}/`)) {
+        return primary
+      }
+    }
+  }
+  return null
 }
 
 /**

@@ -1,8 +1,9 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import type { RouteRecordRaw } from 'vue-router'
 import { useUserStore } from '@/store/user'
+import { deviceView } from '@/utils/device'
 
-type RouteName = 'Login' | 'Register' | 'NotFound' | 'Files' | 'UserManagement' | 'RoleManagement' | 'PermissionManagement'
+type RouteName = 'Login' | 'Register' | 'NotFound' | 'Files' | 'UserManagement' | 'RoleManagement' | 'PermissionManagement' | 'Profile'
 
 /**
  * 公开静态路由
@@ -15,13 +16,13 @@ const publicRoutes: RouteRecordRaw[] = [
   {
     path: '/login',
     name: 'Login' as RouteName,
-    component: () => import('@/views/auth/Login.vue'),
+    component: deviceView('auth/Login'),
     meta: { public: true },
   },
   {
     path: '/register',
     name: 'Register' as RouteName,
-    component: () => import('@/views/auth/Register.vue'),
+    component: deviceView('auth/Register'),
     meta: { public: true },
   },
   {
@@ -41,26 +42,32 @@ const dynamicRoutes: RouteRecordRaw[] = [
   {
     path: '/files',
     name: 'Files' as RouteName,
-    component: () => import('@/views/files/index.vue'),
+    component: deviceView('files/index'),
     meta: { title: '全部文件' },
   },
   {
     path: '/admin/users',
     name: 'UserManagement' as RouteName,
-    component: () => import('@/views/admin/Users.vue'),
+    component: deviceView('admin/Users'),
     meta: { permission: 'user:menu', title: '用户管理' },
   },
   {
     path: '/admin/roles',
     name: 'RoleManagement' as RouteName,
-    component: () => import('@/views/admin/Roles.vue'),
+    component: deviceView('admin/Roles'),
     meta: { permission: 'role:menu', title: '角色管理' },
   },
   {
     path: '/admin/permissions',
     name: 'PermissionManagement' as RouteName,
-    component: () => import('@/views/admin/Permissions.vue'),
+    component: deviceView('admin/Permissions'),
     meta: { permission: 'permission:menu', title: '权限管理' },
+  },
+  {
+    path: '/profile',
+    name: 'Profile' as RouteName,
+    component: deviceView('user/Profile'),
+    meta: { title: '个人中心', hideTabBar: true },
   },
 ]
 
