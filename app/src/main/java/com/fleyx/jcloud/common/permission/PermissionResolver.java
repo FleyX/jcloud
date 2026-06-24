@@ -47,6 +47,9 @@ public class PermissionResolver {
      * 根据角色 ID 列表解析其有效权限 ID 集合（包含祖先权限）。
      */
     public Set<Long> resolvePermissionIds(List<Long> roleIds) {
+        if (CollUtil.isEmpty(roleIds)) {
+            return Set.of();
+        }
         Set<Long> result = new HashSet<>();
         List<Long> directIds = CollUtil.emptyIfNull(permissionMapper.selectIdsByRoleIds(roleIds));
         for (Long pid : directIds) {

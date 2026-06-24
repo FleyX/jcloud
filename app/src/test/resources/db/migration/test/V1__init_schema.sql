@@ -87,20 +87,23 @@ CREATE INDEX IF NOT EXISTS idx_resource_code ON t_resource(code);
 CREATE INDEX IF NOT EXISTS idx_resource_type ON t_resource(type);
 
 -- ================== 初始化权限树 ==================
-MERGE INTO t_permission (id, code, name, parent_id, status) KEY(code)
-VALUES (1001, 'system:menu', '系统设置', NULL, 1);
+INSERT INTO t_permission (id, code, name, parent_id, status)
+VALUES (1001, 'system:menu', '系统设置', NULL, 1)
+ON CONFLICT (code) DO NOTHING;
 
-MERGE INTO t_permission (id, code, name, parent_id, status) KEY(code)
-VALUES (1002, 'user:menu', '用户管理', 1001, 1);
+INSERT INTO t_permission (id, code, name, parent_id, status)
+VALUES (1002, 'user:menu', '用户管理', 1001, 1)
+ON CONFLICT (code) DO NOTHING;
 
 -- ================== 初始化角色 ==================
-MERGE INTO t_role (id, code, name, description, status) KEY(code)
+INSERT INTO t_role (id, code, name, description, status)
 VALUES
     (1, 'system_admin', '系统管理员', '拥有系统设置与用户管理权限', 1),
-    (2, 'super_admin', '超级管理员', '系统内置超级管理员，拥有所有权限且不可删除', 1);
+    (2, 'super_admin', '超级管理员', '系统内置超级管理员，拥有所有权限且不可删除', 1)
+ON CONFLICT (code) DO NOTHING;
 
 -- ================== 初始化资源 ==================
-MERGE INTO t_resource (id, code, name, type, status) KEY(code)
+INSERT INTO t_resource (id, code, name, type, status)
 VALUES
     -- 认证
     (1, 'POST:/jcloud/api/auth/register', '用户注册', 'PUBLIC', 1),
@@ -124,10 +127,11 @@ VALUES
     (19, 'PUT:/jcloud/api/users/batch/status', '批量修改用户状态', 'API', 1),
 
     -- 角色管理接口
-    (20, 'GET:/jcloud/api/roles', '角色列表', 'API', 1);
+    (20, 'GET:/jcloud/api/roles', '角色列表', 'API', 1)
+ON CONFLICT (code) DO NOTHING;
 
 -- ================== 资源与权限关联 ==================
-MERGE INTO t_permission_resource (permission_id, resource_id) KEY(permission_id, resource_id)
+INSERT INTO t_permission_resource (permission_id, resource_id)
 SELECT p.id, r.id
 FROM t_permission p
          CROSS JOIN t_resource r
@@ -146,20 +150,23 @@ WHERE (p.code = 'system:menu' AND r.code = '/admin')
         'DELETE:/jcloud/api/users/batch',
         'PUT:/jcloud/api/users/batch/status',
         'GET:/jcloud/api/roles'
-    ));
+    ))
+ON CONFLICT (permission_id, resource_id) DO NOTHING;
 
 -- ================== 为角色绑定权限 ==================
-MERGE INTO t_role_permission (role_id, permission_id) KEY(role_id, permission_id)
+INSERT INTO t_role_permission (role_id, permission_id)
 SELECT r.id, p.id
 FROM t_role r
          CROSS JOIN t_permission p
 WHERE r.code IN ('system_admin', 'super_admin')
-  AND p.code IN ('system:menu', 'user:menu');
+  AND p.code IN ('system:menu', 'user:menu')
+ON CONFLICT (role_id, permission_id) DO NOTHING;
 
 -- ================== 为已存在的 admin 用户绑定超级管理员角色 ==================
-MERGE INTO t_user_role (user_id, role_id) KEY(user_id, role_id)
+INSERT INTO t_user_role (user_id, role_id)
 SELECT u.id, r.id
 FROM t_user u
          CROSS JOIN t_role r
 WHERE u.username = 'admin'
-  AND r.code = 'super_admin';
+  AND r.code = 'super_admin'
+ON CONFLICT (user_id, role_id) DO NOTHING;
