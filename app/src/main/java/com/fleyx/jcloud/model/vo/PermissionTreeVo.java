@@ -18,5 +18,6 @@ public class PermissionTreeVo implements Serializable {
     private Long parentId;
     private Integer status;
     private List<PermissionTreeVo> children;
-    private Integer level; // 仅前端渲染使用
+    /** 仅前端渲染使用。 */
+    private Integer level;
 }

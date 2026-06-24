@@ -6,7 +6,9 @@ import com.fleyx.jcloud.model.po.Permission;
 import com.fleyx.jcloud.model.vo.PermissionTreeVo;
 import com.fleyx.jcloud.model.vo.PermissionVo;
 import org.mapstruct.Mapper;
+import org.mapstruct.Mapping;
 import org.mapstruct.MappingConstants;
+import org.mapstruct.MappingTarget;
 import org.mapstruct.ReportingPolicy;
 
 import java.util.List;
@@ -16,7 +18,12 @@ public interface PermissionConvert {
 
     Permission saveDtoToPo(PermissionSaveDto dto);
 
-    Permission updateDtoToPo(PermissionUpdateDto dto);
+    @Mapping(target = "id", ignore = true)
+    @Mapping(target = "code", ignore = true)
+    @Mapping(target = "createTime", ignore = true)
+    @Mapping(target = "updateTime", ignore = true)
+    @Mapping(target = "deleted", ignore = true)
+    void updatePoFromDto(PermissionUpdateDto dto, @MappingTarget Permission po);
 
     PermissionVo poToVo(Permission po);
 

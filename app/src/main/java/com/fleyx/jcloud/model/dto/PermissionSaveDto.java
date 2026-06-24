@@ -25,7 +25,6 @@ public class PermissionSaveDto implements Serializable {
 
     private Long parentId;
 
-    @NotNull(message = "状态不能为空")
     private Integer status;
 
     private List<Long> resourceIds;
