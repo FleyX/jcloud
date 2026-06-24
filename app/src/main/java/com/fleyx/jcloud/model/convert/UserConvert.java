@@ -2,6 +2,7 @@ package com.fleyx.jcloud.model.convert;
 
 import com.fleyx.jcloud.model.dto.UserSaveDto;
 import com.fleyx.jcloud.model.po.User;
+import com.fleyx.jcloud.model.vo.UserProfileVo;
 import com.fleyx.jcloud.model.vo.UserVo;
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
@@ -31,4 +32,9 @@ public interface UserConvert {
      * PO 列表 -> VO 列表。
      */
     List<UserVo> poListToVoList(List<User> poList);
+
+    /**
+     * PO -> 个人信息 VO。
+     */
+    UserProfileVo poToProfileVo(User po);
 }

@@ -16,7 +16,9 @@ import com.fleyx.jcloud.mapper.UserRoleMapper;
 import com.fleyx.jcloud.model.convert.RoleConvert;
 import com.fleyx.jcloud.model.convert.UserConvert;
 import com.fleyx.jcloud.model.dto.BatchUserStatusDto;
+import com.fleyx.jcloud.model.dto.ChangePasswordDto;
 import com.fleyx.jcloud.model.dto.UserPageQueryDto;
+import com.fleyx.jcloud.model.dto.UserProfileUpdateDto;
 import com.fleyx.jcloud.model.dto.UserSaveDto;
 import com.fleyx.jcloud.model.dto.UserStatusDto;
 import com.fleyx.jcloud.model.dto.UserUpdateDto;
@@ -25,6 +27,7 @@ import com.fleyx.jcloud.model.po.Role;
 import com.fleyx.jcloud.model.po.User;
 import com.fleyx.jcloud.model.po.UserRole;
 import com.fleyx.jcloud.model.vo.RoleVo;
+import com.fleyx.jcloud.model.vo.UserProfileVo;
 import com.fleyx.jcloud.model.vo.UserVo;
 import com.fleyx.jcloud.service.UserService;
 import lombok.RequiredArgsConstructor;
@@ -199,6 +202,43 @@ public class UserServiceImpl implements UserService {
             userMapper.updateById(update);
         }
         return updatableIds;
+    }
+
+    @Override
+    public UserProfileVo getUserProfile(Long userId) {
+        User user = requireUser(userId);
+        return userConvert.poToProfileVo(user);
+    }
+
+    @Override
+    public UserProfileVo updateUserProfile(Long userId, UserProfileUpdateDto dto) {
+        User user = requireUser(userId);
+        User update = new User();
+        update.setId(user.getId());
+        if (dto.getEmail() != null) {
+            update.setEmail(dto.getEmail());
+        }
+        if (dto.getNickname() != null) {
+            update.setNickname(dto.getNickname());
+        }
+        userMapper.updateById(update);
+        User updated = userMapper.selectById(user.getId());
+        return userConvert.poToProfileVo(updated);
+    }
+
+    @Override
+    public void changePassword(Long userId, ChangePasswordDto dto) {
+        if (!dto.getNewPassword().equals(dto.getConfirmPassword())) {
+            throw new BusinessException(ResultCode.PARAM_ERROR, "两次输入的新密码不一致");
+        }
+        User user = requireUser(userId);
+        if (!BCrypt.checkpw(dto.getCurrentPassword(), user.getPassword())) {
+            throw new BusinessException(ResultCode.PARAM_ERROR, "当前密码错误");
+        }
+        User update = new User();
+        update.setId(user.getId());
+        update.setPassword(BCrypt.hashpw(dto.getNewPassword(), BCrypt.gensalt()));
+        userMapper.updateById(update);
     }
 
     private void rejectSuperAdminFieldChange(UserUpdateDto dto, User user) {

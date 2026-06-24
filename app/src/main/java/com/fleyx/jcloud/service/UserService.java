@@ -2,11 +2,14 @@ package com.fleyx.jcloud.service;
 
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.fleyx.jcloud.model.dto.BatchUserStatusDto;
+import com.fleyx.jcloud.model.dto.ChangePasswordDto;
 import com.fleyx.jcloud.model.dto.UserPageQueryDto;
+import com.fleyx.jcloud.model.dto.UserProfileUpdateDto;
 import com.fleyx.jcloud.model.dto.UserSaveDto;
 import com.fleyx.jcloud.model.dto.UserStatusDto;
 import com.fleyx.jcloud.model.dto.UserUpdateDto;
 import com.fleyx.jcloud.model.dto.UserUpdateRolesDto;
+import com.fleyx.jcloud.model.vo.UserProfileVo;
 import com.fleyx.jcloud.model.vo.UserVo;
 
 import java.util.List;
@@ -93,4 +96,29 @@ public interface UserService {
      * @return 实际更新状态的用户 ID 列表
      */
     List<Long> batchUpdateStatus(BatchUserStatusDto dto);
+
+    /**
+     * 获取当前登录用户个人信息。
+     *
+     * @param userId 当前用户 ID
+     * @return 个人信息视图
+     */
+    UserProfileVo getUserProfile(Long userId);
+
+    /**
+     * 更新当前登录用户个人信息。
+     *
+     * @param userId 当前用户 ID
+     * @param dto    更新内容
+     * @return 更新后的个人信息视图
+     */
+    UserProfileVo updateUserProfile(Long userId, UserProfileUpdateDto dto);
+
+    /**
+     * 修改当前登录用户密码。
+     *
+     * @param userId 当前用户 ID
+     * @param dto    密码修改 DTO
+     */
+    void changePassword(Long userId, ChangePasswordDto dto);
 }
