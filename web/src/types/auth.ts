@@ -40,6 +40,33 @@ export interface UserVo {
 }
 
 /**
+ * 当前登录用户个人信息视图
+ */
+export interface UserProfileVo {
+  id: string
+  username: string
+  nickname?: string
+  email?: string
+}
+
+/**
+ * 更新当前登录用户个人信息 DTO
+ */
+export interface UserProfileUpdateDto {
+  email?: string
+  nickname?: string
+}
+
+/**
+ * 修改当前登录用户密码 DTO
+ */
+export interface ChangePasswordDto {
+  currentPassword: string
+  newPassword: string
+  confirmPassword: string
+}
+
+/**
  * 登录成功返回对象
  */
 export interface LoginVo {
