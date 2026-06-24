@@ -136,8 +136,8 @@ async function handleToggleStatus(user: UserVo) {
     await updateUserStatus(user.id, nextStatus)
     notificationStore.success('状态更新成功')
     await loadUsers()
-  } catch (error) {
-    notificationStore.error(error instanceof Error ? error.message : '状态更新失败')
+  } catch {
+    // request.ts 已统一处理异常提示
   } finally {
     submitting.value = false
   }
@@ -158,8 +158,8 @@ async function submitCreateUser() {
     createDialogOpen.value = false
     notificationStore.success('用户创建成功')
     await loadUsers()
-  } catch (error) {
-    notificationStore.error(error instanceof Error ? error.message : '用户创建失败')
+  } catch {
+    // request.ts 已统一处理异常提示
   } finally {
     submitting.value = false
   }
@@ -194,8 +194,8 @@ async function submitEditUser() {
     editDialogOpen.value = false
     notificationStore.success('用户信息更新成功')
     await loadUsers()
-  } catch (error) {
-    notificationStore.error(error instanceof Error ? error.message : '用户信息更新失败')
+  } catch {
+    // request.ts 已统一处理异常提示
   } finally {
     submitting.value = false
   }
@@ -215,8 +215,8 @@ async function handleDeleteUser(user: UserVo) {
     await deleteUser(user.id)
     notificationStore.success('用户删除成功')
     await loadUsers()
-  } catch (error) {
-    notificationStore.error(error instanceof Error ? error.message : '用户删除失败')
+  } catch {
+    // request.ts 已统一处理异常提示
   } finally {
     submitting.value = false
   }
@@ -237,8 +237,8 @@ async function handleBatchDelete() {
     selectedUserIds.value = []
     notificationStore.success('批量删除成功')
     await loadUsers()
-  } catch (error) {
-    notificationStore.error(error instanceof Error ? error.message : '批量删除失败')
+  } catch {
+    // request.ts 已统一处理异常提示
   } finally {
     submitting.value = false
   }
@@ -256,8 +256,8 @@ async function handleBatchStatus(status: number) {
     selectedUserIds.value = []
     notificationStore.success('批量状态更新成功')
     await loadUsers()
-  } catch (error) {
-    notificationStore.error(error instanceof Error ? error.message : '批量状态更新失败')
+  } catch {
+    // request.ts 已统一处理异常提示
   } finally {
     submitting.value = false
   }

@@ -189,4 +189,15 @@ class UserServiceTest {
         assertEquals(0, userService.getById(saved1.getId()).getStatus());
         assertEquals(0, userService.getById(saved2.getId()).getStatus());
     }
+
+    @Test
+    void shouldAllowReuseUsernameAfterDeletion() {
+        UserSaveDto dto = buildDto("reuseUsername");
+        UserVo saved = userService.saveUser(dto);
+        userService.removeById(saved.getId());
+
+        UserVo reused = userService.saveUser(dto);
+        assertNotNull(reused);
+        assertEquals(dto.getUsername(), reused.getUsername());
+    }
 }

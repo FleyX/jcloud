@@ -53,8 +53,8 @@ async function loadRoles() {
   loading.value = true
   try {
     pageData.value = await fetchRolePage(query)
-  } catch (error) {
-    notificationStore.error(error instanceof Error ? error.message : '加载角色列表失败')
+  } catch {
+    // request.ts 已统一处理异常提示
   } finally {
     loading.value = false
   }
@@ -63,8 +63,8 @@ async function loadRoles() {
 async function loadPermissions() {
   try {
     permissionTree.value = await fetchPermissionTree()
-  } catch (error) {
-    notificationStore.error(error instanceof Error ? error.message : '加载权限树失败')
+  } catch {
+    // request.ts 已统一处理异常提示
   }
 }
 
@@ -112,8 +112,8 @@ async function submitRole(dto: RoleSaveDto | RoleUpdateDto) {
     }
     dialogOpen.value = false
     await loadRoles()
-  } catch (error) {
-    notificationStore.error(error instanceof Error ? error.message : '操作失败')
+  } catch {
+    // request.ts 已统一处理异常提示
   } finally {
     dialogSubmitting.value = false
   }
@@ -126,8 +126,8 @@ async function handleToggleStatus(role: RoleVo) {
     await updateRoleStatus(role.id, { status: next })
     notificationStore.success('状态更新成功')
     await loadRoles()
-  } catch (error) {
-    notificationStore.error(error instanceof Error ? error.message : '状态更新失败')
+  } catch {
+    // request.ts 已统一处理异常提示
   } finally {
     statusLoading.value = false
   }
@@ -146,8 +146,8 @@ async function handleDelete(role: RoleVo) {
     await deleteRole(role.id)
     notificationStore.success('角色删除成功')
     await loadRoles()
-  } catch (error) {
-    notificationStore.error(error instanceof Error ? error.message : '删除失败')
+  } catch {
+    // request.ts 已统一处理异常提示
   } finally {
     deleteLoading.value = false
   }

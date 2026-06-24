@@ -19,7 +19,7 @@
         FROM t_role_permission rp
         INNER JOIN t_permission p ON p.id = rp.permission_id
         WHERE rp.role_id = #{roleId}
-          AND p.is_deleted = 0
+          AND p.delete_at = 0
           AND p.status = 1
     </select>
 </mapper>

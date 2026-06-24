@@ -102,3 +102,4 @@ Vite + Vue 3 + TypeScript + Pinia + Tailwind CSS + Radix Vue + Tailwind-merge
 3. 编写前端代码需考虑美观，简约风
 4. 除特殊说明外，前端只考虑页面权限，无须到按钮级别
 5. 禁止通过组件属性（Props）进行多层级的状态透传（Props Drilling）。须使用 Pinia。单层级可使用Props传递
+6. 已统一展示请求异常，无需在业务代码中再次展示

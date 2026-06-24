@@ -7,9 +7,9 @@
         FROM t_permission p
                  INNER JOIN t_permission_resource pr ON pr.permission_id = p.id
                  INNER JOIN t_resource r ON r.id = pr.resource_id
-        WHERE p.is_deleted = 0
+        WHERE p.delete_at = 0
           AND p.status = 1
-          AND r.is_deleted = 0
+          AND r.delete_at = 0
           AND r.status = 1
           AND r.code = #{resourceCode}
     </select>
@@ -21,11 +21,11 @@
                  INNER JOIN t_role_permission rp ON rp.permission_id = pr.permission_id
                  INNER JOIN t_role ro ON ro.id = rp.role_id
                  INNER JOIN t_permission p ON p.id = rp.permission_id
-        WHERE r.is_deleted = 0
+        WHERE r.delete_at = 0
           AND r.status = 1
-          AND ro.is_deleted = 0
+          AND ro.delete_at = 0
           AND ro.status = 1
-          AND p.is_deleted = 0
+          AND p.delete_at = 0
           AND p.status = 1
           AND rp.role_id IN
         <foreach collection="roleIds" item="roleId" open="(" separator="," close=")">
@@ -50,7 +50,7 @@
         FROM t_permission_resource pr
         INNER JOIN t_resource r ON r.id = pr.resource_id
         WHERE pr.permission_id = #{permissionId}
-          AND r.is_deleted = 0
+          AND r.delete_at = 0
           AND r.status = 1
     </select>
 
@@ -58,7 +58,7 @@
         SELECT DISTINCT r.code
         FROM t_resource r
         INNER JOIN t_permission_resource pr ON pr.resource_id = r.id
-        WHERE r.is_deleted = 0
+        WHERE r.delete_at = 0
           AND r.status = 1
           AND pr.permission_id IN
         <foreach collection="permissionIds" item="pid" open="(" separator="," close=")">

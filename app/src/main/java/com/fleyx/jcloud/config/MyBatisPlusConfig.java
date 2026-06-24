@@ -27,7 +27,7 @@ public class MyBatisPlusConfig {
     }
 
     /**
-     * 自动填充 create_time / update_time / deleted 等字段。
+     * 自动填充 create_time / update_time / delete_at 等字段。
      */
     @Bean
     public MetaObjectHandler metaObjectHandler() {
@@ -37,7 +37,7 @@ public class MyBatisPlusConfig {
                 LocalDateTime now = LocalDateTime.now();
                 this.strictInsertFill(metaObject, "createTime", LocalDateTime.class, now);
                 this.strictInsertFill(metaObject, "updateTime", LocalDateTime.class, now);
-                this.strictInsertFill(metaObject, "deleted", Integer.class, 0);
+                this.strictInsertFill(metaObject, "deleteAt", Long.class, 0L);
             }
 
             @Override

@@ -11,6 +11,7 @@ import com.fleyx.jcloud.service.RoleService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,6 +21,7 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * 角色服务集成测试。
@@ -34,6 +36,9 @@ class RoleServiceImplTest {
 
     @Autowired
     private RoleMapper roleMapper;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     private static String uniqueCode() {
         return "role_" + UUID.randomUUID().toString().replace("-", "").substring(0, 16);
@@ -80,5 +85,42 @@ class RoleServiceImplTest {
 
         BusinessException exception = assertThrows(BusinessException.class, () -> roleService.removeById(role.getId()));
         assertEquals(ResultCode.FORBIDDEN, exception.getResultCode());
+    }
+
+    @Test
+    void shouldWriteDeleteTimestamp() {
+        String code = uniqueCode();
+        RoleSaveDto dto = new RoleSaveDto();
+        dto.setCode(code);
+        dto.setName("测试角色");
+        dto.setPermissionIds(Collections.emptyList());
+        RoleVo created = roleService.saveRole(dto);
+
+        roleService.removeById(created.getId());
+
+        Long deleteAt = jdbcTemplate.queryForObject(
+                "SELECT delete_at FROM t_role WHERE code = ?", Long.class, code);
+        assertNotNull(deleteAt);
+        assertTrue(deleteAt > 0, "删除后 delete_at 应写入毫秒时间戳");
+    }
+
+    @Test
+    void shouldAllowReuseCodeAfterDeletion() {
+        String code = uniqueCode();
+        RoleSaveDto dto = new RoleSaveDto();
+        dto.setCode(code);
+        dto.setName("测试角色");
+        dto.setPermissionIds(Collections.emptyList());
+        RoleVo created = roleService.saveRole(dto);
+        roleService.removeById(created.getId());
+
+        RoleSaveDto reused = new RoleSaveDto();
+        reused.setCode(code);
+        reused.setName("复用角色");
+        reused.setPermissionIds(Collections.emptyList());
+        RoleVo vo = roleService.saveRole(reused);
+
+        assertNotNull(vo);
+        assertEquals(code, vo.getCode());
     }
 }

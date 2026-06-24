@@ -42,10 +42,10 @@ public class BaseEntity implements Serializable {
     private LocalDateTime updateTime;
 
     /**
-     * 逻辑删除标志：0 未删除，1 已删除。
+     * 逻辑删除时间戳：0 表示未删除，删除时写入毫秒时间戳。
      */
-    @TableLogic
-    @TableField(value = "is_deleted", fill = FieldFill.INSERT)
-    private Integer deleted;
+    @TableLogic(value = "0", delval = "(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000)::bigint")
+    @TableField(value = "delete_at", fill = FieldFill.INSERT)
+    private Long deleteAt;
 
 }

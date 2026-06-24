@@ -86,7 +86,6 @@ public class RoleServiceImpl implements RoleService {
     public List<RoleVo> listAllEnabled() {
         LambdaQueryWrapper<Role> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(Role::getStatus, CommonStatus.ENABLED.getCode())
-                .eq(Role::getDeleted, 0)
                 .orderByDesc(Role::getCreateTime);
         return roleMapper.selectList(wrapper).stream()
                 .map(this::enrichRoleVo)

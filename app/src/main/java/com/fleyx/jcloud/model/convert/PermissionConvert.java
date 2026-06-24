@@ -22,7 +22,7 @@ public interface PermissionConvert {
     @Mapping(target = "code", ignore = true)
     @Mapping(target = "createTime", ignore = true)
     @Mapping(target = "updateTime", ignore = true)
-    @Mapping(target = "deleted", ignore = true)
+    @Mapping(target = "deleteAt", ignore = true)
     void updatePoFromDto(PermissionUpdateDto dto, @MappingTarget Permission po);
 
     PermissionVo poToVo(Permission po);

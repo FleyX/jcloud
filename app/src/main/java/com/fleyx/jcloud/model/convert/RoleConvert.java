@@ -21,7 +21,7 @@ public interface RoleConvert {
     @Mapping(target = "code", ignore = true)
     @Mapping(target = "createTime", ignore = true)
     @Mapping(target = "updateTime", ignore = true)
-    @Mapping(target = "deleted", ignore = true)
+    @Mapping(target = "deleteAt", ignore = true)
     void updatePoFromDto(RoleUpdateDto dto, @MappingTarget Role po);
 
     RoleVo poToVo(Role po);

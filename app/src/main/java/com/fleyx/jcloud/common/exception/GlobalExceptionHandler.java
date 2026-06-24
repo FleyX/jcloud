@@ -6,11 +6,16 @@ import com.fleyx.jcloud.common.enums.ResultCode;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.BindException;
 import org.springframework.validation.FieldError;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 import java.util.stream.Collectors;
 
@@ -63,6 +68,51 @@ public class GlobalExceptionHandler {
                 .map(v -> v.getPropertyPath() + ":" + v.getMessage())
                 .collect(Collectors.joining(","));
         return buildFailResult(ResultCode.PARAM_ERROR, msg, request);
+    }
+
+    /**
+     * 处理请求体缺失或无法解析异常。
+     */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public R<Void> handleHttpMessageNotReadableException(HttpMessageNotReadableException e, HttpServletRequest request) {
+        log.warn("请求体解析失败：traceId={}, msg={}", request.getAttribute(CommonConstant.TRACE_ID_MDC_KEY), e.getMessage());
+        return buildFailResult(ResultCode.PARAM_ERROR, "请求体格式错误", request);
+    }
+
+    /**
+     * 处理请求内容类型不支持异常。
+     */
+    @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
+    public R<Void> handleHttpMediaTypeNotSupportedException(HttpMediaTypeNotSupportedException e, HttpServletRequest request) {
+        log.warn("请求内容类型不支持：traceId={}, msg={}", request.getAttribute(CommonConstant.TRACE_ID_MDC_KEY), e.getMessage());
+        return buildFailResult(ResultCode.PARAM_ERROR, "请求内容类型不支持", request);
+    }
+
+    /**
+     * 处理请求方法不支持异常。
+     */
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public R<Void> handleHttpRequestMethodNotSupportedException(HttpRequestMethodNotSupportedException e, HttpServletRequest request) {
+        log.warn("请求方法不支持：traceId={}, msg={}", request.getAttribute(CommonConstant.TRACE_ID_MDC_KEY), e.getMessage());
+        return buildFailResult(ResultCode.PARAM_ERROR, "请求方法不支持", request);
+    }
+
+    /**
+     * 处理缺少请求参数异常。
+     */
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    public R<Void> handleMissingServletRequestParameterException(MissingServletRequestParameterException e, HttpServletRequest request) {
+        log.warn("缺少请求参数：traceId={}, msg={}", request.getAttribute(CommonConstant.TRACE_ID_MDC_KEY), e.getMessage());
+        return buildFailResult(ResultCode.PARAM_ERROR, "缺少请求参数：" + e.getParameterName(), request);
+    }
+
+    /**
+     * 处理参数类型不匹配异常。
+     */
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public R<Void> handleMethodArgumentTypeMismatchException(MethodArgumentTypeMismatchException e, HttpServletRequest request) {
+        log.warn("参数类型不匹配：traceId={}, msg={}", request.getAttribute(CommonConstant.TRACE_ID_MDC_KEY), e.getMessage());
+        return buildFailResult(ResultCode.PARAM_ERROR, "参数类型不匹配：" + e.getName(), request);
     }
 
     /**

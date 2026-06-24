@@ -3,9 +3,9 @@
 <mapper namespace="com.fleyx.jcloud.mapper.UserMapper">
 
     <select id="selectByUsernameLike" resultType="com.fleyx.jcloud.model.po.User">
-        SELECT id, username, email, nickname, status, is_admin, create_time, update_time, is_deleted
+        SELECT id, username, email, nickname, status, is_admin, create_time, update_time, delete_at
         FROM t_user
-        WHERE is_deleted = 0
+        WHERE delete_at = 0
           AND username LIKE CONCAT('%', #{username}, '%')
         ORDER BY create_time DESC
     </select>
