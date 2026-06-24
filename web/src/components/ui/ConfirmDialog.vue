@@ -34,7 +34,9 @@ const store = useConfirmStore()
             <AlertTriangle class="h-5 w-5" />
           </div>
           <div>
-            <DialogTitle class="text-lg font-bold text-surface-900">{{ store.title }}</DialogTitle>
+            <DialogTitle class="text-lg font-bold text-surface-900">
+              {{ store.title }}
+            </DialogTitle>
             <DialogDescription class="mt-1 text-sm text-surface-500">
               {{ store.message }}
             </DialogDescription>

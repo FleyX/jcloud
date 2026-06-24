@@ -43,8 +43,13 @@ function classesForType(type: ToastMessage['type']) {
         :key="toast.id"
         :class="cn('pointer-events-auto flex w-80 items-start gap-3 rounded-xl border p-4 shadow-soft', classesForType(toast.type))"
       >
-        <component :is="iconForType(toast.type)" class="mt-0.5 h-5 w-5 shrink-0" />
-        <p class="flex-1 text-sm font-medium leading-5">{{ toast.message }}</p>
+        <component
+          :is="iconForType(toast.type)"
+          class="mt-0.5 h-5 w-5 shrink-0"
+        />
+        <p class="flex-1 text-sm font-medium leading-5">
+          {{ toast.message }}
+        </p>
         <button
           class="shrink-0 rounded-lg p-1 opacity-70 transition-opacity hover:opacity-100"
           @click="store.remove(toast.id)"
