@@ -72,6 +72,31 @@ resources/mapper 存放数据库 XML 文件
 6. 使用 Flyway 管理数据库文件，每个开发任务使用一个 Flyway 迁移文件。
 7. 数据库表以 `t_` 开头，例如 `t_user`。
 
+## 并发与线程模型
+
+后端已全局启用 Spring Boot 虚拟线程，以支撑 I/O 密集型场景下的高并发低内存目标。关键配置如下（详见 `app/src/main/resources/application.yml`）：
+
+```yaml
+spring:
+  threads:
+    virtual:
+      enabled: true
+server:
+  tomcat:
+    threads:
+      max: 1000
+spring:
+  datasource:
+    hikari:
+      maximum-pool-size: 50
+```
+
+开发约束：
+
+- 新增阻塞 I/O 或第三方同步客户端时，必须先评估其是否会把虚拟线程钉在载体线程（pinning）上。
+- 优先使用构造时初始化、`ReentrantLock` 或并发集合，避免在请求路径使用 `synchronized` 双检锁。
+- 背景与取舍见 `docs/adr/0003-virtual-threads.md`。
+
 ## 测试与构建
 
 - 单元测试：后端使用 JUnit 5（Spring Boot 默认）。
