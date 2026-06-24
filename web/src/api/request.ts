@@ -81,11 +81,11 @@ export async function del<T>(url: string, body?: unknown): Promise<T> {
   return handleResponse<T>(response)
 }
 
-export async function patch<T>(url: string, data?: unknown): Promise<T> {
+export async function patch<T>(url: string, body?: unknown): Promise<T> {
   const response = await fetch(`${BASE_URL}${url}`, {
     method: 'PATCH',
     headers: getHeaders(),
-    body: data ? JSON.stringify(data) : undefined,
+    body: body ? JSON.stringify(body) : undefined,
   })
   return handleResponse<T>(response)
 }
