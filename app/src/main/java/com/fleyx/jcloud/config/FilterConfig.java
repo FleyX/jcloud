@@ -4,6 +4,7 @@ import tools.jackson.databind.ObjectMapper;
 import com.fleyx.jcloud.common.cache.UserPermissionCache;
 import com.fleyx.jcloud.filter.AuthTokenFilter;
 import com.fleyx.jcloud.filter.TraceIdFilter;
+import com.fleyx.jcloud.mapper.PermissionMapper;
 import com.fleyx.jcloud.mapper.PermissionResourceMapper;
 import com.fleyx.jcloud.mapper.ResourceMapper;
 import com.fleyx.jcloud.mapper.UserMapper;
@@ -26,6 +27,7 @@ public class FilterConfig {
     private final ResourceMapper resourceMapper;
     private final UserMapper userMapper;
     private final UserRoleMapper userRoleMapper;
+    private final PermissionMapper permissionMapper;
     private final PermissionResourceMapper permissionResourceMapper;
     private final UserPermissionCache userPermissionCache;
 
@@ -49,7 +51,7 @@ public class FilterConfig {
     public FilterRegistrationBean<AuthTokenFilter> authTokenFilterRegistration() {
         FilterRegistrationBean<AuthTokenFilter> registration = new FilterRegistrationBean<>();
         registration.setFilter(new AuthTokenFilter(jwtUtil, objectMapper, resourceMapper,
-                userMapper, userRoleMapper, permissionResourceMapper, userPermissionCache));
+                userMapper, userRoleMapper, permissionMapper, permissionResourceMapper, userPermissionCache));
         registration.addUrlPatterns("/jcloud/api/*");
         registration.setName("authTokenFilter");
         registration.setOrder(2);

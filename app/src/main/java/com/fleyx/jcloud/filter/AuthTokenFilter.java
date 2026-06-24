@@ -8,6 +8,7 @@ import com.fleyx.jcloud.common.context.CurrentUser;
 import com.fleyx.jcloud.common.context.UserContext;
 import com.fleyx.jcloud.common.enums.CommonStatus;
 import com.fleyx.jcloud.common.enums.ResultCode;
+import com.fleyx.jcloud.mapper.PermissionMapper;
 import com.fleyx.jcloud.mapper.PermissionResourceMapper;
 import com.fleyx.jcloud.mapper.ResourceMapper;
 import com.fleyx.jcloud.mapper.UserMapper;
@@ -30,7 +31,10 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Token 认证与鉴权过滤器。
@@ -61,6 +65,7 @@ public class AuthTokenFilter extends OncePerRequestFilter {
     private final ResourceMapper resourceMapper;
     private final UserMapper userMapper;
     private final UserRoleMapper userRoleMapper;
+    private final PermissionMapper permissionMapper;
     private final PermissionResourceMapper permissionResourceMapper;
     private final UserPermissionCache userPermissionCache;
 
@@ -176,11 +181,24 @@ public class AuthTokenFilter extends OncePerRequestFilter {
         User user = userMapper.selectById(userId);
         boolean superAdmin = user != null && user.isSuperAdmin();
         List<Long> roleIds = userRoleMapper.selectRoleIdsByUserId(userId);
-        List<String> resourceCodes = roleIds.isEmpty()
-                ? List.of()
-                : permissionResourceMapper.selectResourceCodesByRoleIds(roleIds);
+        List<String> resourceCodes = resolveResourceCodes(roleIds);
         userPermissionCache.put(userId, roleIds, resourceCodes, superAdmin);
         return checkAuthorization(superAdmin, resourceCodes, resourceKey);
+    }
+
+    private List<String> resolveResourceCodes(List<Long> roleIds) {
+        if (roleIds == null || roleIds.isEmpty()) {
+            return List.of();
+        }
+        Set<Long> allPermissionIds = new HashSet<>();
+        List<Long> directPermissionIds = permissionMapper.selectIdsByRoleIds(roleIds);
+        for (Long pid : directPermissionIds) {
+            allPermissionIds.addAll(permissionMapper.selectAncestorIds(pid));
+        }
+        if (allPermissionIds.isEmpty()) {
+            return List.of();
+        }
+        return permissionResourceMapper.selectResourceCodesByPermissionIds(new ArrayList<>(allPermissionIds));
     }
 
     private boolean checkAuthorization(boolean superAdmin, List<String> resourceCodes, String resourceKey) {

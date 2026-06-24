@@ -24,8 +24,11 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * 认证授权业务实现。
@@ -76,7 +79,7 @@ public class AuthServiceImpl implements AuthService {
     }
 
     private LoginVo buildLoginVo(User user) {
-        List<String> permissions = permissionMapper.selectCodesByUserId(user.getId());
+        List<String> permissions = resolvePermissions(user.getId());
         String token = jwtUtil.generateToken(user.getId(), user.getUsername());
 
         LoginVo vo = new LoginVo();
@@ -84,6 +87,22 @@ public class AuthServiceImpl implements AuthService {
         vo.setUserInfo(toUserVo(user));
         vo.setPermissions(permissions);
         return vo;
+    }
+
+    private List<String> resolvePermissions(Long userId) {
+        List<Long> roleIds = userRoleMapper.selectRoleIdsByUserId(userId);
+        if (roleIds.isEmpty()) {
+            return List.of();
+        }
+        Set<Long> permissionIds = new HashSet<>();
+        List<Long> directPermissionIds = permissionMapper.selectIdsByRoleIds(roleIds);
+        for (Long pid : directPermissionIds) {
+            permissionIds.addAll(permissionMapper.selectAncestorIds(pid));
+        }
+        if (permissionIds.isEmpty()) {
+            return List.of();
+        }
+        return permissionMapper.selectCodesByIds(new ArrayList<>(permissionIds));
     }
 
     private UserVo toUserVo(User user) {
