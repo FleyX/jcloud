@@ -7,25 +7,18 @@ import org.apache.ibatis.annotations.Param;
 
 import java.util.List;
 
-/**
- * 权限资源关联数据访问层。
- */
 @Mapper
 public interface PermissionResourceMapper extends BaseMapper<PermissionResource> {
 
-    /**
-     * 根据资源编码查询关联的权限编码列表。
-     *
-     * @param resourceCode 资源编码
-     * @return 权限编码列表
-     */
     List<String> selectPermissionCodesByResourceCode(@Param("resourceCode") String resourceCode);
 
-    /**
-     * 根据角色 ID 列表查询其可访问的资源编码列表。
-     *
-     * @param roleIds 角色 ID 列表
-     * @return 资源编码列表（METHOD:URI）
-     */
     List<String> selectResourceCodesByRoleIds(@Param("roleIds") List<Long> roleIds);
+
+    void deleteByPermissionId(@Param("permissionId") Long permissionId);
+
+    void batchInsert(@Param("list") List<PermissionResource> list);
+
+    List<Long> selectResourceIdsByPermissionId(@Param("permissionId") Long permissionId);
+
+    List<String> selectResourceCodesByPermissionIds(@Param("permissionIds") List<Long> permissionIds);
 }

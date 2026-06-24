@@ -29,4 +29,37 @@
             #{roleId}
         </foreach>
     </select>
+
+    <delete id="deleteByPermissionId">
+        DELETE FROM t_permission_resource WHERE permission_id = #{permissionId}
+    </delete>
+
+    <insert id="batchInsert">
+        INSERT INTO t_permission_resource (permission_id, resource_id, create_time)
+        VALUES
+        <foreach collection="list" item="item" separator=",">
+            (#{item.permissionId}, #{item.resourceId}, #{item.createTime})
+        </foreach>
+    </insert>
+
+    <select id="selectResourceIdsByPermissionId" resultType="java.lang.Long">
+        SELECT resource_id
+        FROM t_permission_resource pr
+        INNER JOIN t_resource r ON r.id = pr.resource_id
+        WHERE pr.permission_id = #{permissionId}
+          AND r.is_deleted = 0
+          AND r.status = 1
+    </select>
+
+    <select id="selectResourceCodesByPermissionIds" resultType="java.lang.String">
+        SELECT DISTINCT r.code
+        FROM t_resource r
+        INNER JOIN t_permission_resource pr ON pr.resource_id = r.id
+        WHERE r.is_deleted = 0
+          AND r.status = 1
+          AND pr.permission_id IN
+        <foreach collection="permissionIds" item="pid" open="(" separator="," close=")">
+            #{pid}
+        </foreach>
+    </select>
 </mapper>

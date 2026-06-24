@@ -6,26 +6,37 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
 import java.util.List;
+import java.util.Set;
 
-/**
- * 权限资源数据访问层。
- */
 @Mapper
 public interface PermissionMapper extends BaseMapper<Permission> {
 
-    /**
-     * 根据用户 ID 查询其全部有效权限编码。
-     *
-     * @param userId 用户 ID
-     * @return 权限编码列表
-     */
     List<String> selectCodesByUserId(@Param("userId") Long userId);
 
-    /**
-     * 根据角色 ID 列表查询权限编码。
-     *
-     * @param roleIds 角色 ID 列表
-     * @return 权限编码列表
-     */
     List<String> selectCodesByRoleIds(@Param("roleIds") List<Long> roleIds);
+
+    /**
+     * 查询指定权限及其所有祖先权限 ID。
+     */
+    Set<Long> selectAncestorIds(@Param("permissionId") Long permissionId);
+
+    /**
+     * 查询指定权限及其所有后代权限 ID。
+     */
+    Set<Long> selectDescendantIds(@Param("permissionId") Long permissionId);
+
+    /**
+     * 查询所有有效权限（用于构建树）。
+     */
+    List<Permission> selectAllValid();
+
+    /**
+     * 根据角色 ID 列表查询有效权限 ID。
+     */
+    List<Long> selectIdsByRoleIds(@Param("roleIds") List<Long> roleIds);
+
+    /**
+     * 根据权限 ID 列表查询权限编码。
+     */
+    List<String> selectCodesByIds(@Param("ids") List<Long> ids);
 }

@@ -29,4 +29,58 @@
             #{roleId}
         </foreach>
     </select>
+
+    <select id="selectAncestorIds" resultType="java.lang.Long">
+        WITH RECURSIVE ancestors AS (
+            SELECT id, parent_id FROM t_permission WHERE id = #{permissionId} AND is_deleted = 0
+            UNION ALL
+            SELECT p.id, p.parent_id
+            FROM t_permission p
+            INNER JOIN ancestors a ON p.id = a.parent_id
+            WHERE p.is_deleted = 0
+        )
+        SELECT id FROM ancestors
+    </select>
+
+    <select id="selectDescendantIds" resultType="java.lang.Long">
+        WITH RECURSIVE descendants AS (
+            SELECT id, parent_id FROM t_permission WHERE id = #{permissionId} AND is_deleted = 0
+            UNION ALL
+            SELECT p.id, p.parent_id
+            FROM t_permission p
+            INNER JOIN descendants d ON p.parent_id = d.id
+            WHERE p.is_deleted = 0
+        )
+        SELECT id FROM descendants
+    </select>
+
+    <select id="selectAllValid" resultType="com.fleyx.jcloud.model.po.Permission">
+        SELECT id, code, name, parent_id, status, create_time, update_time
+        FROM t_permission
+        WHERE is_deleted = 0
+        ORDER BY create_time ASC
+    </select>
+
+    <select id="selectIdsByRoleIds" resultType="java.lang.Long">
+        SELECT DISTINCT p.id
+        FROM t_permission p
+        INNER JOIN t_role_permission rp ON rp.permission_id = p.id
+        INNER JOIN t_role r ON r.id = rp.role_id
+        WHERE p.is_deleted = 0
+          AND p.status = 1
+          AND r.is_deleted = 0
+          AND r.status = 1
+          AND rp.role_id IN
+        <foreach collection="roleIds" item="roleId" open="(" separator="," close=")">
+            #{roleId}
+        </foreach>
+    </select>
+
+    <select id="selectCodesByIds" resultType="java.lang.String">
+        SELECT code FROM t_permission
+        WHERE is_deleted = 0 AND status = 1 AND id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </select>
 </mapper>
