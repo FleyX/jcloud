@@ -7,7 +7,7 @@ import java.io.Serializable;
 import java.util.List;
 
 @Data
-public class PermissionVo implements Serializable {
+public class PermissionTreeVo implements Serializable {
 
     @Serial
     private static final long serialVersionUID = 1L;
@@ -17,5 +17,6 @@ public class PermissionVo implements Serializable {
     private String name;
     private Long parentId;
     private Integer status;
-    private List<Long> resourceIds;
+    private List<PermissionTreeVo> children;
+    private Integer level; // 仅前端渲染使用
 }
