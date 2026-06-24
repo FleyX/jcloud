@@ -44,7 +44,8 @@ function toggleNode(node: PermissionTreeVo, checked: boolean) {
   const current = new Set(localChecked.value)
   if (checked) {
     const ancestors = collectAncestorIds(props.tree, node.id)
-    ancestors.forEach((id) => current.add(id))
+    const descendants = collectDescendantIds(node)
+    ;[...ancestors, ...descendants].forEach((id) => current.add(id))
   } else {
     const descendants = collectDescendantIds(node)
     descendants.forEach((id) => current.delete(id))
