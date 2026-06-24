@@ -1,18 +1,22 @@
 package com.fleyx.jcloud.service;
 
+import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.fleyx.jcloud.model.dto.RolePageQueryDto;
+import com.fleyx.jcloud.model.dto.RoleSaveDto;
+import com.fleyx.jcloud.model.dto.RoleUpdateDto;
 import com.fleyx.jcloud.model.vo.RoleVo;
 
-import java.util.List;
-
-/**
- * 角色业务接口。
- */
 public interface RoleService {
 
-    /**
-     * 查询全部有效角色。
-     *
-     * @return 角色视图列表
-     */
-    List<RoleVo> listAll();
+    RoleVo saveRole(RoleSaveDto dto);
+
+    RoleVo updateRole(Long id, RoleUpdateDto dto);
+
+    RoleVo getById(Long id);
+
+    IPage<RoleVo> pageRoles(RolePageQueryDto dto);
+
+    void removeById(Long id);
+
+    void updateStatus(Long id, Integer status);
 }

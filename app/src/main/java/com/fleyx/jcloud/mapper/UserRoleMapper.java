@@ -36,4 +36,12 @@ public interface UserRoleMapper extends BaseMapper<UserRole> {
      * @return 用户角色关联列表
      */
     List<UserRole> selectByUserIds(@Param("userIds") List<Long> userIds);
+
+    /**
+     * 根据角色 ID 查询用户 ID 列表。
+     *
+     * @param roleId 角色 ID
+     * @return 用户 ID 列表
+     */
+    List<Long> selectUserIdsByRoleId(@Param("roleId") Long roleId);
 }
