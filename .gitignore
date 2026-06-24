@@ -39,3 +39,4 @@ dist
 .idea
 .vscode
 .DS_Store
+.screen_state.json
