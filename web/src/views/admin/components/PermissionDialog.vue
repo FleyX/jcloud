@@ -48,14 +48,14 @@ function handleSubmit() {
   const dto = props.isEdit
     ? ({
         name: form.name,
-        parentId: form.parentId,
+        parentId: form.parentId || undefined,
         status: form.status,
         resourceIds: form.resourceIds,
       } as PermissionUpdateDto)
     : ({
         code: form.code,
         name: form.name,
-        parentId: form.parentId,
+        parentId: form.parentId || undefined,
         status: form.status,
         resourceIds: form.resourceIds,
       } as PermissionSaveDto)
@@ -116,7 +116,7 @@ function handleSubmit() {
           <button class="rounded-xl px-4 py-2 text-sm font-medium text-surface-600 hover:bg-surface-100" @click="localOpen = false">取消</button>
           <button
             :disabled="submitting"
-            class="rounded-xl bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700 disabled:opacity-60"
+            class="rounded-xl bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-60"
             @click="handleSubmit"
           >
             {{ submitting ? '保存中...' : '保存' }}

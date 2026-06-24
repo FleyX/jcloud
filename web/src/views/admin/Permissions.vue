@@ -215,10 +215,18 @@ onMounted(() => {
                 <button class="rounded-lg bg-surface-100 px-2.5 py-1.5 text-xs" @click="openCreateDialog(node.id)">
                   <Plus class="inline h-3.5 w-3.5" /> 新增子权限
                 </button>
-                <button class="rounded-lg bg-surface-100 px-2.5 py-1.5 text-xs" @click="handleToggleStatus(node)">
+                <button
+                  :disabled="statusLoading"
+                  class="rounded-lg bg-surface-100 px-2.5 py-1.5 text-xs disabled:cursor-not-allowed disabled:opacity-60"
+                  @click="handleToggleStatus(node)"
+                >
                   {{ node.status === 1 ? '禁用' : '启用' }}
                 </button>
-                <button class="rounded-lg bg-red-50 px-2.5 py-1.5 text-xs text-red-600" @click="handleDelete(node)">
+                <button
+                  :disabled="deleteLoading"
+                  class="rounded-lg bg-red-50 px-2.5 py-1.5 text-xs text-red-600 disabled:cursor-not-allowed disabled:opacity-60"
+                  @click="handleDelete(node)"
+                >
                   <Trash2 class="inline h-3.5 w-3.5" /> 删除
                 </button>
               </div>
