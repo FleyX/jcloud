@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { reactive, watch } from 'vue'
+import { computed, reactive, watch } from 'vue'
 import { DialogContent, DialogDescription, DialogOverlay, DialogPortal, DialogRoot, DialogTitle } from 'radix-vue'
 import type { PermissionTreeVo, RoleSaveDto, RoleUpdateDto } from '@/types/auth'
 import PermissionTree from './PermissionTree.vue'
@@ -17,12 +17,25 @@ const emit = defineEmits<{
   submit: [dto: RoleSaveDto | RoleUpdateDto]
 }>()
 
-const form = reactive<RoleSaveDto & RoleUpdateDto>({
+type RoleForm = {
+  code: string
+  name: string
+  description?: string
+  status?: number
+  permissionIds: string[]
+}
+
+const form = reactive<RoleForm>({
   code: '',
   name: '',
   description: '',
   status: 1,
   permissionIds: [],
+})
+
+const localOpen = computed({
+  get: () => props.open,
+  set: (value) => emit('update:open', value),
 })
 
 watch(
@@ -58,7 +71,7 @@ function handleSubmit() {
 </script>
 
 <template>
-  <DialogRoot :open="open" @update:open="$emit('update:open', $event)">
+  <DialogRoot v-model:open="localOpen">
     <DialogPortal>
       <DialogOverlay class="fixed inset-0 bg-black/40" />
       <DialogContent
@@ -104,7 +117,7 @@ function handleSubmit() {
           <div>
             <label class="mb-1 block text-sm font-medium">权限</label>
             <div class="max-h-64 overflow-y-auto rounded-xl border border-surface-200 p-3">
-              <PermissionTree v-model:checked-ids="(form.permissionIds as string[])" :tree="permissionTree" />
+              <PermissionTree v-model:checked-ids="form.permissionIds" :tree="permissionTree" />
             </div>
           </div>
         </div>

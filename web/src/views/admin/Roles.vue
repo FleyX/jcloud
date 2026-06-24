@@ -8,16 +8,17 @@ import {
   updateRoleStatus,
 } from '@/api/role'
 import { fetchPermissionTree } from '@/api/permission'
+import { cn } from '@/utils/cn'
 import { useConfirmStore } from '@/store/confirm'
 import { useNotificationStore } from '@/store/notification'
 import RoleDialog from './components/RoleDialog.vue'
-import type { PageResult, PermissionTreeVo, RolePageQuery, RoleSaveDto, RoleUpdateDto, RoleVo } from '@/types/auth'
-import { Pencil, Plus, Trash2 } from '@lucide/vue'
+import type { PageResult, PermissionTreeVo, RoleSaveDto, RoleUpdateDto, RoleVo } from '@/types/auth'
+import { ChevronLeft, ChevronRight, Pencil, Plus, Trash2 } from '@lucide/vue'
 
-const query = reactive<RolePageQuery>({
+const query = reactive({
   code: '',
   name: '',
-  status: undefined,
+  status: undefined as number | undefined,
   pageNum: 1,
   pageSize: 10,
 })
@@ -30,7 +31,9 @@ const pageData = ref<PageResult<RoleVo>>({
   pages: '0',
 })
 const loading = ref(false)
-const submitting = ref(false)
+const dialogSubmitting = ref(false)
+const statusLoading = ref(false)
+const deleteLoading = ref(false)
 const permissionTree = ref<PermissionTreeVo[]>([])
 const dialogOpen = ref(false)
 const isEdit = ref(false)
@@ -50,17 +53,28 @@ async function loadRoles() {
   loading.value = true
   try {
     pageData.value = await fetchRolePage(query)
+  } catch (error) {
+    notificationStore.error(error instanceof Error ? error.message : '加载角色列表失败')
   } finally {
     loading.value = false
   }
 }
 
 async function loadPermissions() {
-  permissionTree.value = await fetchPermissionTree()
+  try {
+    permissionTree.value = await fetchPermissionTree()
+  } catch (error) {
+    notificationStore.error(error instanceof Error ? error.message : '加载权限树失败')
+  }
 }
 
 function handleSearch() {
   query.pageNum = 1
+  loadRoles()
+}
+
+function handlePageChange(page: number) {
+  query.pageNum = page
   loadRoles()
 }
 
@@ -87,7 +101,7 @@ function openEditDialog(role: RoleVo) {
 }
 
 async function submitRole(dto: RoleSaveDto | RoleUpdateDto) {
-  submitting.value = true
+  dialogSubmitting.value = true
   try {
     if (isEdit.value && editingRole.value) {
       await updateRole(editingRole.value.id, dto as RoleUpdateDto)
@@ -101,13 +115,13 @@ async function submitRole(dto: RoleSaveDto | RoleUpdateDto) {
   } catch (error) {
     notificationStore.error(error instanceof Error ? error.message : '操作失败')
   } finally {
-    submitting.value = false
+    dialogSubmitting.value = false
   }
 }
 
 async function handleToggleStatus(role: RoleVo) {
   const next = role.status === 1 ? 0 : 1
-  submitting.value = true
+  statusLoading.value = true
   try {
     await updateRoleStatus(role.id, { status: next })
     notificationStore.success('状态更新成功')
@@ -115,7 +129,7 @@ async function handleToggleStatus(role: RoleVo) {
   } catch (error) {
     notificationStore.error(error instanceof Error ? error.message : '状态更新失败')
   } finally {
-    submitting.value = false
+    statusLoading.value = false
   }
 }
 
@@ -127,7 +141,7 @@ async function handleDelete(role: RoleVo) {
     type: 'danger',
   })
   if (!confirmed) return
-  submitting.value = true
+  deleteLoading.value = true
   try {
     await deleteRole(role.id)
     notificationStore.success('角色删除成功')
@@ -135,7 +149,7 @@ async function handleDelete(role: RoleVo) {
   } catch (error) {
     notificationStore.error(error instanceof Error ? error.message : '删除失败')
   } finally {
-    submitting.value = false
+    deleteLoading.value = false
   }
 }
 
@@ -191,10 +205,18 @@ onMounted(() => {
                 <button class="rounded-lg bg-surface-100 px-2.5 py-1.5 text-xs" @click="openEditDialog(role)">
                   <Pencil class="inline h-3.5 w-3.5" /> 编辑
                 </button>
-                <button class="rounded-lg bg-surface-100 px-2.5 py-1.5 text-xs" @click="handleToggleStatus(role)">
+                <button
+                  :disabled="statusLoading"
+                  class="rounded-lg bg-surface-100 px-2.5 py-1.5 text-xs disabled:cursor-not-allowed disabled:opacity-60"
+                  @click="handleToggleStatus(role)"
+                >
                   {{ role.status === 1 ? '禁用' : '启用' }}
                 </button>
-                <button class="rounded-lg bg-red-50 px-2.5 py-1.5 text-xs text-red-600" @click="handleDelete(role)">
+                <button
+                  :disabled="deleteLoading"
+                  class="rounded-lg bg-red-50 px-2.5 py-1.5 text-xs text-red-600 disabled:cursor-not-allowed disabled:opacity-60"
+                  @click="handleDelete(role)"
+                >
                   <Trash2 class="inline h-3.5 w-3.5" /> 删除
                 </button>
               </div>
@@ -202,6 +224,28 @@ onMounted(() => {
           </tr>
         </tbody>
       </table>
+
+      <div class="flex items-center justify-between border-t border-surface-200 px-5 py-3">
+        <span class="text-xs text-surface-500">
+          共 {{ pageData.total }} 条，第 {{ pageData.current }} / {{ pageData.pages }} 页
+        </span>
+        <div class="flex items-center gap-2">
+          <button
+            :disabled="query.pageNum <= 1"
+            :class="cn('rounded-lg border border-surface-200 p-1.5 text-surface-600 hover:bg-surface-50', query.pageNum <= 1 && 'cursor-not-allowed opacity-50')"
+            @click="handlePageChange(query.pageNum - 1)"
+          >
+            <ChevronLeft class="h-4 w-4" />
+          </button>
+          <button
+            :disabled="query.pageNum >= Number(pageData.pages)"
+            :class="cn('rounded-lg border border-surface-200 p-1.5 text-surface-600 hover:bg-surface-50', query.pageNum >= Number(pageData.pages) && 'cursor-not-allowed opacity-50')"
+            @click="handlePageChange(query.pageNum + 1)"
+          >
+            <ChevronRight class="h-4 w-4" />
+          </button>
+        </div>
+      </div>
     </div>
 
     <RoleDialog
@@ -209,7 +253,7 @@ onMounted(() => {
       :is-edit="isEdit"
       :initial-form="dialogForm"
       :permission-tree="permissionTree"
-      :submitting="submitting"
+      :submitting="dialogSubmitting"
       @submit="submitRole"
     />
   </div>
