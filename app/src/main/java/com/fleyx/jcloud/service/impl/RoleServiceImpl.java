@@ -10,12 +10,14 @@ import com.fleyx.jcloud.common.enums.CommonStatus;
 import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.RoleMapper;
+import com.fleyx.jcloud.mapper.PermissionMapper;
 import com.fleyx.jcloud.mapper.RolePermissionMapper;
 import com.fleyx.jcloud.mapper.UserRoleMapper;
 import com.fleyx.jcloud.model.convert.RoleConvert;
 import com.fleyx.jcloud.model.dto.RolePageQueryDto;
 import com.fleyx.jcloud.model.dto.RoleSaveDto;
 import com.fleyx.jcloud.model.dto.RoleUpdateDto;
+import com.fleyx.jcloud.model.po.Permission;
 import com.fleyx.jcloud.model.po.Role;
 import com.fleyx.jcloud.model.po.RolePermission;
 import com.fleyx.jcloud.model.po.UserRole;
@@ -40,12 +42,15 @@ public class RoleServiceImpl implements RoleService {
     private final RoleConvert roleConvert;
     private final RolePermissionMapper rolePermissionMapper;
     private final UserRoleMapper userRoleMapper;
+    private final PermissionMapper permissionMapper;
     private final UserPermissionCache userPermissionCache;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public RoleVo saveRole(RoleSaveDto dto) {
         checkCodeUnique(dto.getCode(), null);
+        validateStatus(dto.getStatus());
+        validatePermissionIds(dto.getPermissionIds());
         Role role = roleConvert.saveDtoToPo(dto);
         if (role.getStatus() == null) {
             role.setStatus(CommonStatus.ENABLED.getCode());
@@ -59,6 +64,8 @@ public class RoleServiceImpl implements RoleService {
     @Transactional(rollbackFor = Exception.class)
     public RoleVo updateRole(Long id, RoleUpdateDto dto) {
         Role role = requireRole(id);
+        validateStatus(dto.getStatus());
+        validatePermissionIds(dto.getPermissionIds());
         roleConvert.updatePoFromDto(dto, role);
         roleMapper.updateById(role);
 
@@ -154,8 +161,24 @@ public class RoleServiceImpl implements RoleService {
     }
 
     private void validateStatus(Integer status) {
-        if (status == null || (!status.equals(CommonStatus.ENABLED.getCode()) && !status.equals(CommonStatus.DISABLED.getCode()))) {
+        if (status == null) {
+            return;
+        }
+        if (!status.equals(CommonStatus.ENABLED.getCode()) && !status.equals(CommonStatus.DISABLED.getCode())) {
             throw new BusinessException(ResultCode.PARAM_ERROR, "状态只能是 1（启用）或 0（禁用）");
+        }
+    }
+
+    private void validatePermissionIds(List<Long> permissionIds) {
+        if (CollUtil.isEmpty(permissionIds)) {
+            return;
+        }
+        List<Long> distinctIds = permissionIds.stream().distinct().toList();
+        long validCount = permissionMapper.selectCount(
+                new LambdaQueryWrapper<Permission>().in(Permission::getId, distinctIds)
+        );
+        if (validCount != distinctIds.size()) {
+            throw new BusinessException(ResultCode.PARAM_ERROR, "存在无效的权限 ID");
         }
     }
 
