@@ -12,25 +12,25 @@ ON CONFLICT (code) DO NOTHING;
 -- 新增页面资源
 INSERT INTO t_resource (id, code, name, type, status)
 VALUES
-    (32, '/admin/roles', '角色管理页面', 'PAGE', 1),
-    (33, '/admin/permissions', '权限管理页面', 'PAGE', 1)
+    (35, '/admin/roles', '角色管理页面', 'PAGE', 1),
+    (36, '/admin/permissions', '权限管理页面', 'PAGE', 1)
 ON CONFLICT (code) DO NOTHING;
 
 -- 新增 API 资源
 INSERT INTO t_resource (id, code, name, type, status) VALUES
-    (34, 'GET:/jcloud/api/roles/page', '角色分页查询', 'API', 1),
-    (35, 'GET:/jcloud/api/roles/{id}', '角色详情', 'API', 1),
-    (36, 'POST:/jcloud/api/roles', '创建角色', 'API', 1),
-    (37, 'PUT:/jcloud/api/roles/{id}', '更新角色', 'API', 1),
-    (38, 'DELETE:/jcloud/api/roles/{id}', '删除角色', 'API', 1),
-    (39, 'PATCH:/jcloud/api/roles/{id}/status', '切换角色状态', 'API', 1),
-    (40, 'GET:/jcloud/api/permissions/tree', '权限树', 'API', 1),
-    (41, 'GET:/jcloud/api/permissions/{id}', '权限详情', 'API', 1),
-    (42, 'POST:/jcloud/api/permissions', '创建权限', 'API', 1),
-    (43, 'PUT:/jcloud/api/permissions/{id}', '更新权限', 'API', 1),
-    (44, 'DELETE:/jcloud/api/permissions/{id}', '删除权限', 'API', 1),
-    (45, 'PATCH:/jcloud/api/permissions/{id}/status', '切换权限状态', 'API', 1),
-    (46, 'GET:/jcloud/api/permissions/resources', '资源列表', 'API', 1)
+    (37, 'GET:/jcloud/api/roles/page', '角色分页查询', 'API', 1),
+    (38, 'GET:/jcloud/api/roles/{id}', '角色详情', 'API', 1),
+    (39, 'POST:/jcloud/api/roles', '创建角色', 'API', 1),
+    (40, 'PUT:/jcloud/api/roles/{id}', '更新角色', 'API', 1),
+    (41, 'DELETE:/jcloud/api/roles/{id}', '删除角色', 'API', 1),
+    (42, 'PATCH:/jcloud/api/roles/{id}/status', '切换角色状态', 'API', 1),
+    (43, 'GET:/jcloud/api/permissions/tree', '权限树', 'API', 1),
+    (44, 'GET:/jcloud/api/permissions/{id}', '权限详情', 'API', 1),
+    (45, 'POST:/jcloud/api/permissions', '创建权限', 'API', 1),
+    (46, 'PUT:/jcloud/api/permissions/{id}', '更新权限', 'API', 1),
+    (47, 'DELETE:/jcloud/api/permissions/{id}', '删除权限', 'API', 1),
+    (48, 'PATCH:/jcloud/api/permissions/{id}/status', '切换权限状态', 'API', 1),
+    (49, 'GET:/jcloud/api/permissions/resources', '资源列表', 'API', 1)
 ON CONFLICT (code) DO NOTHING;
 
 -- 关联 role:menu 权限到其资源
