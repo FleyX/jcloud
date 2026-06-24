@@ -122,7 +122,7 @@ async function handlePasswordSubmit(dto: ChangePasswordDto) {
 
     <!-- 右侧：用户菜单 -->
     <div class="flex items-center gap-3">
-      <div class="group relative">
+      <div class="group relative pb-2">
         <button
           class="flex h-9 w-9 items-center justify-center rounded-full bg-primary-100 text-primary-700 ring-2 ring-white transition-shadow hover:shadow-soft"
         >
