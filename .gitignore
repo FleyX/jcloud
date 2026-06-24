@@ -33,9 +33,10 @@ replay_pid*
 docs/_book
 
 # TODO: where does this rule come from?
-test/
+/test/
 node_modules
 dist
 .idea
 .vscode
 .DS_Store
+docs
