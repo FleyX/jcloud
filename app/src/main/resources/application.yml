@@ -2,6 +2,9 @@ server:
   port: 8080
   servlet:
     context-path: /
+  tomcat:
+    threads:
+      max: 1000
 
 jcloud:
   jwt:
@@ -17,12 +20,15 @@ spring:
     name: jcloud
   profiles:
     active: dev
+  threads:
+    virtual:
+      enabled: true
   datasource:
     username: postgres
     password: postgres
     driver-class-name: org.postgresql.Driver
     hikari:
-      maximum-pool-size: 20
+      maximum-pool-size: 50
       minimum-idle: 5
       connection-timeout: 30000
       idle-timeout: 600000
