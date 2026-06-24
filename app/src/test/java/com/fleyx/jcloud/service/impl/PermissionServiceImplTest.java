@@ -1,6 +1,7 @@
 package com.fleyx.jcloud.service.impl;
 
 import com.fleyx.jcloud.common.enums.CommonStatus;
+import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.model.dto.PermissionSaveDto;
 import com.fleyx.jcloud.model.dto.PermissionUpdateDto;
@@ -15,8 +16,11 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.UUID;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -32,11 +36,11 @@ class PermissionServiceImplTest {
     private PermissionService permissionService;
 
     private static String uniqueCode() {
-        return "perm_" + System.nanoTime();
+        return "perm_" + UUID.randomUUID().toString().replace("-", "").substring(0, 16);
     }
 
     @Test
-    void shouldCreateChildPermission() {
+    void shouldCreateTopLevelPermission() {
         PermissionSaveDto dto = new PermissionSaveDto();
         dto.setCode(uniqueCode());
         dto.setName("测试顶级权限");
@@ -47,6 +51,9 @@ class PermissionServiceImplTest {
 
         assertNotNull(vo);
         assertNotNull(vo.getId());
+        assertEquals(dto.getCode(), vo.getCode());
+        assertEquals(dto.getName(), vo.getName());
+        assertNull(vo.getParentId(), "顶级权限的 parentId 应为 null");
     }
 
     @Test
@@ -71,8 +78,9 @@ class PermissionServiceImplTest {
         updateDto.setParentId(child.getId());
         updateDto.setResourceIds(Collections.emptyList());
 
-        assertThrows(BusinessException.class,
+        BusinessException exception = assertThrows(BusinessException.class,
                 () -> permissionService.updatePermission(parent.getId(), updateDto));
+        assertEquals(ResultCode.PARAM_ERROR, exception.getResultCode());
     }
 
     @Test
