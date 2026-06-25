@@ -17,6 +17,7 @@ import { useConfirmStore } from '@/store/confirm'
 import { useNotificationStore } from '@/store/notification'
 import UserCreateDialog from './components/UserCreateDialog.vue'
 import UserEditDialog from './components/UserEditDialog.vue'
+import UserMigrationDialog from './components/UserMigrationDialog.vue'
 import type { BatchUserStatusDto, PageResult, RoleVo, UserSaveDto, UserUpdateDto, UserVo } from '@/types/auth'
 import type { StorageSpaceVo } from '@/types/storage-space'
 import {
@@ -26,6 +27,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Plus,
+  Truck,
 } from '@lucide/vue'
 import { SwitchRoot, SwitchThumb } from 'radix-vue'
 
@@ -73,6 +75,8 @@ const editForm = reactive<UserUpdateDto & { storageSpaceId?: string; quota?: str
   quota: '',
 })
 const editingUser = ref<UserVo | null>(null)
+const migrationDialogOpen = ref(false)
+const migrationUser = ref<(UserVo & { storageSpaceId?: string }) | null>(null)
 const spaces = ref<StorageSpaceVo[]>([])
 
 const selectableUsers = computed(() => pageData.value.records.filter((u) => !u.isAdmin))
@@ -231,6 +235,17 @@ async function submitEditUser() {
   } finally {
     submitting.value = false
   }
+}
+
+function openMigrationDialog(user: UserVo) {
+  if (user.isAdmin) return
+  migrationUser.value = user as UserVo & { storageSpaceId?: string }
+  migrationDialogOpen.value = true
+}
+
+async function handleMigrationSuccess() {
+  notificationStore.success('迁移完成')
+  await loadUsers()
 }
 
 async function handleDeleteUser(user: UserVo) {
@@ -499,6 +514,14 @@ onMounted(() => {
                   </button>
                   <button
                     v-if="!user.isAdmin"
+                    class="flex items-center gap-1 rounded-lg bg-primary-50 px-2.5 py-1.5 text-xs font-medium text-primary-600 transition-colors hover:bg-primary-100"
+                    @click="openMigrationDialog(user)"
+                  >
+                    <Truck class="h-3.5 w-3.5" />
+                    迁移
+                  </button>
+                  <button
+                    v-if="!user.isAdmin"
                     class="flex items-center gap-1 rounded-lg bg-red-50 px-2.5 py-1.5 text-xs font-medium text-red-600 transition-colors hover:bg-red-100"
                     @click="handleDeleteUser(user)"
                   >
@@ -552,6 +575,13 @@ onMounted(() => {
       :spaces="spaces"
       :submitting="submitting"
       @submit="submitEditUser"
+    />
+
+    <UserMigrationDialog
+      v-model:open="migrationDialogOpen"
+      :user="migrationUser"
+      :spaces="spaces"
+      @success="handleMigrationSuccess"
     />
   </div>
 </template>

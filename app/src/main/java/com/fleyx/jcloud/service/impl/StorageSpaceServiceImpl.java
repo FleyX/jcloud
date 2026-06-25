@@ -9,6 +9,7 @@ import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.StorageSpaceMapper;
 import com.fleyx.jcloud.mapper.UserMapper;
 import com.fleyx.jcloud.model.convert.StorageSpaceConvert;
+import com.fleyx.jcloud.model.dto.StorageSpaceExpandDto;
 import com.fleyx.jcloud.model.dto.StorageSpacePageQueryDto;
 import com.fleyx.jcloud.model.dto.StorageSpaceSaveDto;
 import com.fleyx.jcloud.model.dto.StorageSpaceUpdateDto;
@@ -80,6 +81,24 @@ public class StorageSpaceServiceImpl implements StorageSpaceService {
             throw new BusinessException(ResultCode.NOT_FOUND, "存储空间不存在");
         }
         return storageSpaceConvert.poToVo(po);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public StorageSpaceVo expandCapacity(StorageSpaceExpandDto dto) {
+        StorageSpace existing = storageSpaceMapper.selectById(dto.getId());
+        if (existing == null) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "存储空间不存在");
+        }
+        long usedSpace = existing.getUsedSpace() == null ? 0L : existing.getUsedSpace();
+        if (dto.getCapacity() < usedSpace) {
+            throw new BusinessException(ResultCode.BUSINESS_ERROR, "新容量不能小于已用空间");
+        }
+        StorageSpace update = new StorageSpace();
+        update.setId(existing.getId());
+        update.setCapacity(dto.getCapacity());
+        storageSpaceMapper.updateById(update);
+        return storageSpaceConvert.poToVo(storageSpaceMapper.selectById(update.getId()));
     }
 
     @Override

@@ -12,7 +12,7 @@ import type {
   UserUpdateRolesDto,
   UserVo,
 } from '@/types/auth'
-import type { UserStorageDto } from '@/types/storage-space'
+import type { UserMigrationSubmitDto, UserMigrationTaskVo, UserStorageDto } from '@/types/storage-space'
 
 export function fetchUserPage(params: UserPageQuery): Promise<PageResult<UserVo>> {
   return get<PageResult<UserVo>>('/users', params as Record<string, unknown>)
@@ -62,4 +62,12 @@ export function changePassword(dto: ChangePasswordDto): Promise<void> {
 
 export function bindUserStorageSpace(userId: string, dto: UserStorageDto): Promise<void> {
   return put<void>(`/users/${userId}/storage`, dto)
+}
+
+export function submitUserMigration(userId: string, dto: UserMigrationSubmitDto): Promise<UserMigrationTaskVo> {
+  return post<UserMigrationTaskVo>(`/admin/users/${userId}/migrate`, dto)
+}
+
+export function getUserMigrationTask(userId: string): Promise<UserMigrationTaskVo | null> {
+  return get<UserMigrationTaskVo | null>(`/admin/users/${userId}/migration-task`)
 }

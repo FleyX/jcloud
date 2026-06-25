@@ -70,6 +70,12 @@ public class User extends BaseEntity {
     private Long reservedSpace;
 
     /**
+     * 是否只读：0 否，1 是（迁移期间）。
+     */
+    @TableField("read_only")
+    private Integer readOnly;
+
+    /**
      * 判断当前用户是否为内置超级管理员。
      */
     public boolean isSuperAdmin() {

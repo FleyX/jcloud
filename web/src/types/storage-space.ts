@@ -55,10 +55,44 @@ export interface StorageSpaceUpdateDto {
 }
 
 /**
+ * 存储空间扩容 DTO
+ */
+export interface StorageSpaceExpandDto {
+  id: string
+  capacity: string
+}
+
+/**
  * 用户存储空间绑定 DTO
  */
 export interface UserStorageDto {
   userId: string
   storageSpaceId: string
   quota: string
+}
+
+/**
+ * 用户存储空间迁移任务视图
+ */
+export interface UserMigrationTaskVo {
+  id: string
+  userId: string
+  sourceSpaceId: string
+  targetSpaceId: string
+  newQuota: string
+  status: 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED'
+  totalBytes: string
+  migratedBytes: string
+  errorMsg?: string
+  createTime?: string
+  updateTime?: string
+}
+
+/**
+ * 用户存储空间迁移提交 DTO
+ */
+export interface UserMigrationSubmitDto {
+  userId: string
+  targetSpaceId: string
+  newQuota: string
 }
