@@ -16,6 +16,7 @@ import {
 } from '@lucide/vue'
 import { cn } from '@/utils/cn'
 import { fetchFilePage, uploadFile, downloadFile } from '@/api/file'
+import FilePreviewDrawer from '@/components/files/FilePreviewDrawer.vue'
 import type { Component } from 'vue'
 import type { FileNodeVo } from '@/types/file'
 
@@ -23,6 +24,14 @@ const files = ref<FileNodeVo[]>([])
 const keyword = ref('')
 const loading = ref(false)
 const fileInput = ref<HTMLInputElement | null>(null)
+const previewOpen = ref(false)
+const previewTarget = ref<FileNodeVo | null>(null)
+
+function openPreview(file: FileNodeVo) {
+  if (file.type !== 'file') return
+  previewTarget.value = file
+  previewOpen.value = true
+}
 
 type FileType = 'image' | 'video' | 'audio' | 'doc' | 'folder'
 
@@ -67,7 +76,7 @@ function formatDate(time?: string): string {
 const filteredFiles = computed(() =>
   files.value.map((file) => ({
     ...file,
-    type: inferType(file),
+    iconType: inferType(file),
     displaySize: formatSize(file.size),
     displayDate: formatDate(file.createTime),
   })),
@@ -174,17 +183,18 @@ onMounted(loadFiles)
           v-for="file in filteredFiles"
           :key="file.id"
           class="flex items-center gap-3 rounded-2xl border border-surface-200 bg-white p-4 shadow-card transition-all active:scale-[0.99]"
+          @click="openPreview(file)"
         >
           <div
             :class="
               cn(
                 'flex h-12 w-12 shrink-0 items-center justify-center rounded-xl',
-                getTypeStyle(file.type)
+                getTypeStyle(file.iconType)
               )
             "
           >
             <component
-              :is="fileIconMap[file.type]"
+              :is="fileIconMap[file.iconType]"
               class="h-6 w-6"
             />
           </div>
@@ -214,5 +224,10 @@ onMounted(loadFiles)
         暂无文件，点击右上角上传
       </p>
     </div>
+
+    <FilePreviewDrawer
+      v-model:open="previewOpen"
+      :file="previewTarget"
+    />
   </div>
 </template>

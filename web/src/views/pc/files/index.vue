@@ -40,6 +40,7 @@ import CreateFolderModal from './components/CreateFolderModal.vue'
 import RenameModal from './components/RenameModal.vue'
 import MoveCopyModal from './components/MoveCopyModal.vue'
 import BatchActionBar from './components/BatchActionBar.vue'
+import FilePreviewModal from '@/components/files/FilePreviewModal.vue'
 import type { Component } from 'vue'
 import type { FileNodeVo, OperationResultVo } from '@/types/file'
 
@@ -55,6 +56,14 @@ const selectedIds = ref<Set<string>>(new Set())
 const moveCopyOpen = ref(false)
 const moveCopyType = ref<'move' | 'copy'>('move')
 const moveCopyTargets = ref<FileNodeVo[]>([])
+const previewOpen = ref(false)
+const previewTarget = ref<FileNodeVo | null>(null)
+
+function openPreview(file: FileNodeVo) {
+  if (file.type !== 'file') return
+  previewTarget.value = file
+  previewOpen.value = true
+}
 
 const {
   createFolderOpen,
@@ -390,6 +399,7 @@ async function handleBatchDelete() {
               file.selected && 'bg-primary-50/40 hover:bg-primary-50/60'
             )
           "
+          @click="openPreview(file)"
         >
           <!-- 复选框 -->
           <div
@@ -498,6 +508,11 @@ async function handleBatchDelete() {
       @copy="openMoveCopy('copy', selectedFiles)"
       @delete="handleBatchDelete"
       @clear="clearSelection"
+    />
+
+    <FilePreviewModal
+      v-model:open="previewOpen"
+      :file="previewTarget"
     />
   </div>
 </template>

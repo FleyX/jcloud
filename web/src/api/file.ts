@@ -153,6 +153,18 @@ export function permanentDeleteTrash(dto: FilePermanentDeleteRequest): Promise<O
   return post<OperationResultVo[]>('/files/trash/permanent-delete', dto)
 }
 
+export interface PreviewTextResponse {
+  content: string
+}
+
+export function previewFileUrl(id: string, type: 'thumbnail' | 'poster' | 'text'): string {
+  return `/jcloud/api/files/${id}/preview?type=${type}`
+}
+
+export function fetchTextPreview(id: string): Promise<PreviewTextResponse> {
+  return get<PreviewTextResponse>(`/files/${id}/preview`, { type: 'text' })
+}
+
 async function handleJsonResponse<T>(response: Response): Promise<T> {
   const json = (await response.json()) as { code: number; msg: string; data: T }
   if (json.code !== 200) {
