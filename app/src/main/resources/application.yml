@@ -14,6 +14,11 @@ jcloud:
   cors:
     allowed-origins:
       - http://localhost:5173
+  download:
+    zip-temp-path: ${jcloud.storage.system-path:/data/jcloud/system}/zip-tasks
+    zip-stream-threshold-size: 104857600
+    zip-stream-threshold-count: 100
+    zip-task-ttl-minutes: 60
 
 spring:
   application:

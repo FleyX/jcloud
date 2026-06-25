@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * 移动端文件列表
- * - 真实接口：上传、列表查询、下载
+ * - 真实接口：上传、列表查询、单文件下载、批量移动/复制/删除/下载
  */
 import { computed, onMounted, ref } from 'vue'
 import {
@@ -14,12 +14,22 @@ import {
   X,
   Plus,
   Download,
+  Check,
 } from '@lucide/vue'
 import { cn } from '@/utils/cn'
-import { fetchFilePage, uploadFile, downloadFile } from '@/api/file'
+import { deleteToTrash, downloadBatchFiles, downloadFile, fetchFilePage, uploadFile } from '@/api/file'
+import { useConfirmStore } from '@/store/confirm'
+import { useNotificationStore } from '@/store/notification'
+import { useTransferStore } from '@/store/transfer'
 import FilePreviewDrawer from '@/components/files/FilePreviewDrawer.vue'
+import MoveCopyModal from '@/views/pc/files/components/MoveCopyModal.vue'
+import MobileBatchActionBar from './components/MobileBatchActionBar.vue'
 import type { Component } from 'vue'
-import type { FileNodeVo } from '@/types/file'
+import type { FileNodeVo, OperationResultVo } from '@/types/file'
+
+const confirmStore = useConfirmStore()
+const notificationStore = useNotificationStore()
+const transferStore = useTransferStore()
 
 const files = ref<FileNodeVo[]>([])
 const keyword = ref('')
@@ -27,6 +37,11 @@ const loading = ref(false)
 const fileInput = ref<HTMLInputElement | null>(null)
 const previewOpen = ref(false)
 const previewTarget = ref<FileNodeVo | null>(null)
+const selectionMode = ref(false)
+const selectedIds = ref<Set<string>>(new Set())
+const moveCopyOpen = ref(false)
+const moveCopyType = ref<'move' | 'copy'>('move')
+const moveCopyTargets = ref<FileNodeVo[]>([])
 
 function openPreview(file: FileNodeVo) {
   if (file.type !== 'file') return
@@ -75,6 +90,9 @@ function formatDate(time?: string): string {
 }
 
 const isSearching = computed(() => keyword.value.trim().length > 0)
+const folders = computed(() => files.value.filter((file) => file.type === 'folder'))
+const selectedFiles = computed(() => files.value.filter((file) => selectedIds.value.has(file.id)))
+const isAllSelected = computed(() => files.value.length > 0 && selectedIds.value.size === files.value.length)
 
 const filteredFiles = computed(() =>
   files.value.map((file) => ({
@@ -82,6 +100,7 @@ const filteredFiles = computed(() =>
     iconType: inferType(file),
     displaySize: formatSize(file.size),
     displayDate: formatDate(file.createTime),
+    selected: selectedIds.value.has(file.id),
   })),
 )
 
@@ -95,10 +114,13 @@ async function loadFiles() {
       pageSize: 100,
     })
     files.value = res.records
+    selectedIds.value.clear()
   } finally {
     loading.value = false
   }
 }
+
+onMounted(loadFiles)
 
 function handleSearch() {
   loadFiles()
@@ -140,7 +162,88 @@ function getTypeStyle(type: FileType) {
   }
 }
 
-onMounted(loadFiles)
+function enterSelectionMode() {
+  selectionMode.value = true
+}
+
+function exitSelectionMode() {
+  selectionMode.value = false
+  selectedIds.value.clear()
+}
+
+function toggleSelect(id: string) {
+  if (selectedIds.value.has(id)) {
+    selectedIds.value.delete(id)
+  } else {
+    selectedIds.value.add(id)
+  }
+}
+
+function handleRowClick(file: FileNodeVo) {
+  if (selectionMode.value) {
+    toggleSelect(file.id)
+    return
+  }
+  openPreview(file)
+}
+
+function toggleSelectAll() {
+  if (isAllSelected.value) {
+    selectedIds.value.clear()
+  } else {
+    selectedIds.value = new Set(files.value.map((file) => file.id))
+  }
+}
+
+function openMoveCopy(type: 'move' | 'copy', targets: FileNodeVo[]) {
+  moveCopyType.value = type
+  moveCopyTargets.value = targets
+  moveCopyOpen.value = true
+}
+
+async function handleMoveCopyResult(results: OperationResultVo[]) {
+  const successCount = results.filter((r) => r.status === 'success').length
+  if (successCount > 0) {
+    exitSelectionMode()
+    await loadFiles()
+  }
+}
+
+async function handleBatchDelete() {
+  const targets = selectedFiles.value
+  if (targets.length === 0) return
+  const confirmed = await confirmStore.open({
+    title: '批量删除',
+    message: `确定将选中的 ${targets.length} 项移动到回收站吗？`,
+    confirmText: '删除',
+    type: 'danger',
+  })
+  if (!confirmed) return
+  await deleteToTrash({ ids: targets.map((f) => f.id) })
+  notificationStore.success('已移动到回收站')
+  exitSelectionMode()
+  await loadFiles()
+}
+
+async function handleBatchDownload() {
+  const targets = selectedFiles.value
+  if (targets.length === 0) return
+  const taskId = `dl-${Date.now()}`
+  transferStore.addDownloadTask({ taskId, fileName: 'archive.zip' })
+  try {
+    await downloadBatchFiles(
+      targets.map((f) => f.id),
+      'archive.zip',
+      (progress) => transferStore.updateDownloadProgress(taskId, progress),
+    )
+    transferStore.completeDownloadTask(taskId)
+    notificationStore.success('下载完成')
+  } catch (err) {
+    const message = err instanceof Error ? err.message : '下载失败'
+    transferStore.failDownloadTask(taskId, message)
+    notificationStore.error(message)
+  }
+}
 </script>
 
 <template>
@@ -168,10 +271,25 @@ onMounted(loadFiles)
           </button>
         </div>
         <button
+          v-if="!selectionMode"
+          class="flex h-10 items-center justify-center rounded-xl bg-surface-100 px-3 text-sm font-medium text-surface-700 active:scale-95"
+          @click="enterSelectionMode"
+        >
+          选择
+        </button>
+        <button
+          v-if="!selectionMode"
           class="flex h-10 w-10 items-center justify-center rounded-xl bg-primary-600 text-white shadow-soft active:scale-95"
           @click="triggerFileSelect"
         >
           <Plus class="h-5 w-5" />
+        </button>
+        <button
+          v-if="selectionMode"
+          class="flex h-10 items-center justify-center rounded-xl bg-surface-100 px-3 text-sm font-medium text-surface-700 active:scale-95"
+          @click="exitSelectionMode"
+        >
+          取消
         </button>
         <input
           ref="fileInput"
@@ -198,8 +316,20 @@ onMounted(loadFiles)
           v-for="file in filteredFiles"
           :key="file.id"
           class="flex items-center gap-3 rounded-2xl border border-surface-200 bg-white p-4 shadow-card transition-all active:scale-[0.99]"
-          @click="openPreview(file)"
+          @click="handleRowClick(file)"
         >
+          <div
+            v-if="selectionMode"
+            class="flex h-6 w-6 shrink-0 items-center justify-center rounded border border-surface-300 transition-colors"
+            :class="file.selected ? 'border-primary-500 bg-primary-500 text-white' : 'bg-white'"
+            @click.stop="toggleSelect(file.id)"
+          >
+            <Check
+              v-if="file.selected"
+              class="h-4 w-4"
+            />
+          </div>
+
           <div
             :class="
               cn(
@@ -224,6 +354,7 @@ onMounted(loadFiles)
           </div>
 
           <button
+            v-if="!selectionMode && file.type === 'file'"
             class="rounded-lg p-2 text-surface-400 hover:bg-surface-100 hover:text-surface-700"
             @click.stop="downloadFile(file.id)"
           >
@@ -239,6 +370,27 @@ onMounted(loadFiles)
         {{ isSearching ? '未找到相关文件' : '暂无文件，点击右上角上传' }}
       </p>
     </div>
+
+    <MoveCopyModal
+      :open="moveCopyOpen"
+      :type="moveCopyType"
+      :files="moveCopyTargets"
+      :folders="folders"
+      @close="moveCopyOpen = false"
+      @confirm="handleMoveCopyResult"
+    />
+
+    <MobileBatchActionBar
+      v-if="selectionMode"
+      :selected-count="selectedIds.size"
+      :total-count="files.length"
+      @move="openMoveCopy('move', selectedFiles)"
+      @copy="openMoveCopy('copy', selectedFiles)"
+      @download="handleBatchDownload"
+      @delete="handleBatchDelete"
+      @clear="exitSelectionMode"
+      @select-all="toggleSelectAll"
+    />
 
     <FilePreviewDrawer
       v-model:open="previewOpen"

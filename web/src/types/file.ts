@@ -154,3 +154,20 @@ export interface FilePreCheckRestoreRequest {
 export interface FilePermanentDeleteRequest {
   ids: string[]
 }
+
+/**
+ * 批量下载请求
+ */
+export interface FileBatchDownloadRequest {
+  ids: string[]
+}
+
+/**
+ * 批量下载任务
+ */
+export interface FileZipTaskVo {
+  taskId: string
+  status: 'pending' | 'running' | 'completed' | 'failed'
+  totalBytes?: string
+  message?: string
+}

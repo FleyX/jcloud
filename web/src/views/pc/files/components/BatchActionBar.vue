@@ -2,7 +2,7 @@
 /**
  * 批量操作栏
  */
-import { FolderInput, Copy, Trash2, X } from '@lucide/vue'
+import { FolderInput, Copy, Trash2, Download, X } from '@lucide/vue'
 import { cn } from '@/utils/cn'
 
 interface Props {
@@ -13,6 +13,7 @@ defineProps<Props>()
 const emit = defineEmits<{
   move: []
   copy: []
+  download: []
   delete: []
   clear: []
 }>()
@@ -43,6 +44,13 @@ const emit = defineEmits<{
     >
       <Copy class="h-4 w-4" />
       复制
+    </button>
+    <button
+      class="flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-sm font-medium text-surface-600 transition-colors hover:bg-surface-100"
+      @click="emit('download')"
+    >
+      <Download class="h-4 w-4" />
+      下载
     </button>
     <button
       class="flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-sm font-medium text-red-600 transition-colors hover:bg-red-50"

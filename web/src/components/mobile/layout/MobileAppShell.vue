@@ -7,6 +7,7 @@
 import { useRoute } from 'vue-router'
 import MobileHeader from '@/components/mobile/layout/MobileHeader.vue'
 import MobileBottomNav from '@/components/mobile/layout/MobileBottomNav.vue'
+import TransferPanel from '@/components/transfer/TransferPanel.vue'
 
 const route = useRoute()
 </script>
@@ -31,5 +32,7 @@ const route = useRoute()
     </main>
 
     <MobileBottomNav v-if="!route.meta.hideTabBar" />
+
+    <TransferPanel />
   </div>
 </template>

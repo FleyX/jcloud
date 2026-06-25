@@ -66,7 +66,12 @@ const showCapacityWidget = computed(() => menuStore.activePrimary === 'files')
 function syncMenuWithRoute(path: string) {
   if (path.startsWith('/files')) {
     menuStore.activePrimary = 'files'
-    menuStore.activeSecondary = path === '/files' ? 'all' : path.split('/')[2] || 'all'
+    if (path === '/files') {
+      // 停留在文件首页时保持当前二级菜单高亮（如“正在传输”）
+      menuStore.activeSecondary = menuStore.activeSecondary || 'all'
+    } else {
+      menuStore.activeSecondary = path.split('/')[2] || 'all'
+    }
   } else if (path.startsWith('/admin/users')) {
     menuStore.activePrimary = 'system'
     menuStore.activeSecondary = 'users'

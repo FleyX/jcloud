@@ -11,6 +11,8 @@ import { computed, ref } from 'vue'
  */
 export type UploadStatus = 'waiting' | 'uploading' | 'paused' | 'success' | 'error'
 
+export type DownloadStatus = 'pending' | 'downloading' | 'success' | 'error'
+
 /**
  * 上传任务对象
  */
@@ -23,12 +25,24 @@ export interface UploadTask {
 }
 
 /**
+ * 下载任务对象
+ */
+export interface DownloadTask {
+  taskId: string
+  fileName: string
+  progress: number
+  status: DownloadStatus
+  message?: string
+}
+
+/**
  * 全局传输队列 Store
  * 用于管理上传/下载任务，是网盘核心状态之一
  */
 export const useTransferStore = defineStore('transfer', () => {
   // ================= State =================
   const uploadQueue = ref<UploadTask[]>([])
+  const downloadQueue = ref<DownloadTask[]>([])
 
   // ================= Getters =================
   /** 当前正在上传的任务 */
@@ -36,9 +50,15 @@ export const useTransferStore = defineStore('transfer', () => {
     uploadQueue.value.filter((task) => task.status === 'uploading')
   )
 
+  /** 当前正在下载的任务 */
+  const downloadingTasks = computed(() =>
+    downloadQueue.value.filter((task) => task.status === 'pending' || task.status === 'downloading')
+  )
+
   /** 是否还有未完成的任务 */
   const hasRunningTask = computed(() =>
-    uploadQueue.value.some((task) => task.status === 'waiting' || task.status === 'uploading')
+    uploadQueue.value.some((task) => task.status === 'waiting' || task.status === 'uploading') ||
+    downloadQueue.value.some((task) => task.status === 'pending' || task.status === 'downloading')
   )
 
   // ================= Actions =================
@@ -121,9 +141,65 @@ export const useTransferStore = defineStore('transfer', () => {
     }
   }
 
+  /**
+   * 添加下载任务
+   */
+  function addDownloadTask(task: Partial<DownloadTask> & { taskId: string; fileName: string }) {
+    const newTask: DownloadTask = {
+      progress: 0,
+      status: 'pending',
+      ...task,
+    }
+    downloadQueue.value.unshift(newTask)
+  }
+
+  /**
+   * 更新下载任务进度
+   */
+  function updateDownloadProgress(taskId: string, progress: number) {
+    const task = downloadQueue.value.find((item) => item.taskId === taskId)
+    if (!task) return
+    task.progress = Math.min(Math.max(progress, 0), 100)
+    if (task.status === 'pending') {
+      task.status = 'downloading'
+    }
+  }
+
+  /**
+   * 标记下载任务完成
+   */
+  function completeDownloadTask(taskId: string) {
+    const task = downloadQueue.value.find((item) => item.taskId === taskId)
+    if (!task) return
+    task.status = 'success'
+    task.progress = 100
+  }
+
+  /**
+   * 标记下载任务失败
+   */
+  function failDownloadTask(taskId: string, message?: string) {
+    const task = downloadQueue.value.find((item) => item.taskId === taskId)
+    if (!task) return
+    task.status = 'error'
+    task.message = message
+  }
+
+  /**
+   * 移除下载任务
+   */
+  function removeDownloadTask(taskId: string) {
+    const index = downloadQueue.value.findIndex((item) => item.taskId === taskId)
+    if (index > -1) {
+      downloadQueue.value.splice(index, 1)
+    }
+  }
+
   return {
     uploadQueue,
+    downloadQueue,
     uploadingTasks,
+    downloadingTasks,
     hasRunningTask,
     addUploadTask,
     updateProgress,
@@ -131,5 +207,10 @@ export const useTransferStore = defineStore('transfer', () => {
     completeTask,
     failTask,
     removeTask,
+    addDownloadTask,
+    updateDownloadProgress,
+    completeDownloadTask,
+    failDownloadTask,
+    removeDownloadTask,
   }
 })
