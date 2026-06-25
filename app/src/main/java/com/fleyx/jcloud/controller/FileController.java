@@ -4,7 +4,9 @@ import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.fleyx.jcloud.common.R;
 import com.fleyx.jcloud.common.constant.CommonConstant;
 import com.fleyx.jcloud.common.context.UserContext;
+import com.fleyx.jcloud.common.enums.PreviewType;
 import com.fleyx.jcloud.model.bo.FileDownloadResult;
+import com.fleyx.jcloud.model.bo.PreviewResult;
 import com.fleyx.jcloud.model.dto.FileCreateFolderDto;
 import com.fleyx.jcloud.model.dto.FileDeleteDto;
 import com.fleyx.jcloud.model.dto.FileExecuteOperationDto;
@@ -21,6 +23,7 @@ import com.fleyx.jcloud.model.vo.FileNodeVo;
 import com.fleyx.jcloud.model.vo.OperationResultVo;
 import com.fleyx.jcloud.model.vo.RecycleRecordVo;
 import com.fleyx.jcloud.service.FileOperationService;
+import com.fleyx.jcloud.service.FilePreviewService;
 import com.fleyx.jcloud.service.FileRecycleService;
 import com.fleyx.jcloud.service.FileService;
 import lombok.RequiredArgsConstructor;
@@ -37,7 +40,11 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 文件管理控制器。
@@ -51,6 +58,7 @@ public class FileController {
     private final FileService fileService;
     private final FileOperationService fileOperationService;
     private final FileRecycleService fileRecycleService;
+    private final FilePreviewService filePreviewService;
 
     /**
      * 上传文件到当前用户根目录。
@@ -85,6 +93,33 @@ public class FileController {
     @PostMapping("/instant")
     public R<FileNodeVo> instantUpload(@RequestBody FileInstantUploadDto dto) {
         return R.ok(fileService.instantUpload(dto, UserContext.get().id()));
+    }
+
+    /**
+     * 预览指定文件。
+     */
+    @GetMapping("/{id}/preview")
+    public ResponseEntity<?> preview(@PathVariable Long id,
+                                     @RequestParam(defaultValue = "thumbnail") String type) throws IOException {
+        PreviewType previewType = PreviewType.fromCode(type);
+        if (previewType == null) {
+            previewType = PreviewType.THUMBNAIL;
+        }
+        PreviewResult result = filePreviewService.preview(id, UserContext.get().id(), previewType);
+        if (previewType == PreviewType.TEXT) {
+            String content = new String(result.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+            Map<String, String> body = new HashMap<>();
+            body.put("content", content);
+            return ResponseEntity.ok()
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(body);
+        }
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        "inline; filename=\"" + result.getFileName() + "\"")
+                .contentType(MediaType.parseMediaType(result.getContentType()))
+                .contentLength(result.getSize())
+                .body(new InputStreamResource(result.getInputStream()));
     }
 
     /**
