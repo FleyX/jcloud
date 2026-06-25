@@ -12,8 +12,10 @@ import {
   updateUserStatus,
   batchDeleteUser,
   batchUpdateUserStatus,
+  bindUserStorageSpace,
 } from '@/api/user'
 import { fetchAllRoles } from '@/api/role'
+import { fetchStorageSpacePage } from '@/api/storage-space'
 import { useConfirmStore } from '@/store/confirm'
 import { useNotificationStore } from '@/store/notification'
 import { cn } from '@/utils/cn'
@@ -21,6 +23,7 @@ import { Plus, Search, Trash2, Pencil, ChevronLeft, ChevronRight } from '@lucide
 import UserCreateDialog from '@/views/pc/admin/components/UserCreateDialog.vue'
 import UserEditDialog from '@/views/pc/admin/components/UserEditDialog.vue'
 import type { BatchUserStatusDto, PageResult, RoleVo, UserSaveDto, UserUpdateDto, UserVo } from '@/types/auth'
+import type { StorageSpaceVo } from '@/types/storage-space'
 
 const confirmStore = useConfirmStore()
 const notificationStore = useNotificationStore()
@@ -43,23 +46,28 @@ const pageData = ref<PageResult<UserVo>>({
 const loading = ref(false)
 const submitting = ref(false)
 const roles = ref<RoleVo[]>([])
+const spaces = ref<StorageSpaceVo[]>([])
 
 const createDialogOpen = ref(false)
-const createForm = reactive<UserSaveDto>({
+const createForm = reactive<UserSaveDto & { storageSpaceId?: string; quota?: string }>({
   username: '',
   nickname: '',
   email: '',
   password: '',
+  storageSpaceId: '',
+  quota: '',
 })
 
 const editDialogOpen = ref(false)
-const editForm = reactive<UserUpdateDto>({
+const editForm = reactive<UserUpdateDto & { storageSpaceId?: string; quota?: string }>({
   id: '',
   nickname: '',
   email: '',
   roleIds: [],
   status: 1,
   password: '',
+  storageSpaceId: '',
+  quota: '',
 })
 const editingUser = ref<UserVo | null>(null)
 
@@ -87,6 +95,11 @@ async function loadUsers() {
 
 async function loadRoles() {
   roles.value = await fetchAllRoles()
+}
+
+async function loadSpaces() {
+  const data = await fetchStorageSpacePage({ pageNum: 1, pageSize: 500 })
+  spaces.value = data.records.filter((s) => s.status === 1)
 }
 
 function handleSearch() {
@@ -145,13 +158,23 @@ function openCreateDialog() {
   createForm.nickname = ''
   createForm.email = ''
   createForm.password = ''
+  createForm.storageSpaceId = ''
+  createForm.quota = ''
   createDialogOpen.value = true
 }
 
 async function submitCreateUser() {
   submitting.value = true
   try {
-    await createUser(createForm)
+    const { storageSpaceId, quota, ...userDto } = createForm
+    const user = await createUser(userDto)
+    if (storageSpaceId && quota) {
+      await bindUserStorageSpace(user.id, {
+        userId: user.id,
+        storageSpaceId,
+        quota,
+      })
+    }
     createDialogOpen.value = false
     notificationStore.success('用户创建成功')
     await loadUsers()
@@ -168,6 +191,8 @@ function openEditDialog(user: UserVo) {
   editForm.roleIds = user.roles.map((role) => role.id)
   editForm.status = user.status
   editForm.password = ''
+  editForm.storageSpaceId = (user as UserVo & { storageSpaceId?: string }).storageSpaceId || ''
+  editForm.quota = (user as UserVo & { quota?: string }).quota || ''
   editDialogOpen.value = true
 }
 
@@ -186,6 +211,13 @@ async function submitEditUser() {
   submitting.value = true
   try {
     await updateUser(editingUser.value.id, dto)
+    if (editForm.storageSpaceId && editForm.quota) {
+      await bindUserStorageSpace(editingUser.value.id, {
+        userId: editingUser.value.id,
+        storageSpaceId: editForm.storageSpaceId,
+        quota: editForm.quota,
+      })
+    }
     editDialogOpen.value = false
     notificationStore.success('用户信息更新成功')
     await loadUsers()
@@ -253,6 +285,7 @@ async function handleBatchStatus(status: number) {
 onMounted(() => {
   loadUsers()
   loadRoles()
+  loadSpaces()
 })
 </script>
 
@@ -444,6 +477,7 @@ onMounted(() => {
     <UserCreateDialog
       v-model:open="createDialogOpen"
       :form="createForm"
+      :spaces="spaces"
       :submitting="submitting"
       @submit="submitCreateUser"
     />
@@ -452,6 +486,7 @@ onMounted(() => {
       :form="editForm"
       :editing-user="editingUser"
       :roles="roles"
+      :spaces="spaces"
       :submitting="submitting"
       @submit="submitEditUser"
     />

@@ -9,6 +9,7 @@ import { computed, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useMenuStore } from '@/store/menu'
 import { useTransferStore } from '@/store/transfer'
+import { useUserStore } from '@/store/user'
 import {
   FolderOpen,
   ArrowLeftRight,
@@ -26,6 +27,7 @@ const router = useRouter()
 const route = useRoute()
 const menuStore = useMenuStore()
 const transferStore = useTransferStore()
+const userStore = useUserStore()
 
 const iconMap: Record<string, Component> = {
   all: FolderOpen,
@@ -39,10 +41,18 @@ const iconMap: Record<string, Component> = {
   users: Shield,
 }
 
-// 容量数据（Mock）
-const usedGB = 12.5
-const totalGB = 100
-const usagePercent = (usedGB / totalGB) * 100
+function bytesToGB(bytes?: string | number): number {
+  const num = Number(bytes)
+  if (!num) return 0
+  return num / 1024 / 1024 / 1024
+}
+
+const usedGB = computed(() => bytesToGB(userStore.userInfo?.usedSpace))
+const totalGB = computed(() => bytesToGB(userStore.userInfo?.quota))
+const usagePercent = computed(() => {
+  if (totalGB.value <= 0) return 0
+  return Math.min((usedGB.value / totalGB.value) * 100, 100)
+})
 
 function handleMenuClick(item: { key: string; route?: string }) {
   menuStore.setSecondary(item.key)
@@ -138,7 +148,7 @@ watch(() => route.path, syncMenuWithRoute)
               个人空间
             </p>
             <p class="text-sm font-semibold text-surface-900">
-              {{ usedGB }} GB / {{ totalGB }} GB
+              {{ usedGB.toFixed(2) }} GB / {{ totalGB.toFixed(2) }} GB
             </p>
           </div>
         </div>

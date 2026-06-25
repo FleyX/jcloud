@@ -11,6 +11,7 @@ import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.enums.UserStatus;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.RoleMapper;
+import com.fleyx.jcloud.mapper.StorageSpaceMapper;
 import com.fleyx.jcloud.mapper.UserMapper;
 import com.fleyx.jcloud.mapper.UserRoleMapper;
 import com.fleyx.jcloud.model.convert.RoleConvert;
@@ -21,9 +22,11 @@ import com.fleyx.jcloud.model.dto.UserPageQueryDto;
 import com.fleyx.jcloud.model.dto.UserProfileUpdateDto;
 import com.fleyx.jcloud.model.dto.UserSaveDto;
 import com.fleyx.jcloud.model.dto.UserStatusDto;
+import com.fleyx.jcloud.model.dto.UserStorageDto;
 import com.fleyx.jcloud.model.dto.UserUpdateDto;
 import com.fleyx.jcloud.model.dto.UserUpdateRolesDto;
 import com.fleyx.jcloud.model.po.Role;
+import com.fleyx.jcloud.model.po.StorageSpace;
 import com.fleyx.jcloud.model.po.User;
 import com.fleyx.jcloud.model.po.UserRole;
 import com.fleyx.jcloud.model.vo.RoleVo;
@@ -52,6 +55,7 @@ public class UserServiceImpl implements UserService {
     private final UserMapper userMapper;
     private final RoleMapper roleMapper;
     private final UserRoleMapper userRoleMapper;
+    private final StorageSpaceMapper storageSpaceMapper;
     private final UserConvert userConvert;
     private final RoleConvert roleConvert;
     private final UserPermissionCache userPermissionCache;
@@ -418,5 +422,21 @@ public class UserServiceImpl implements UserService {
         if (userMapper.selectCount(wrapper) > 0) {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "用户名已存在");
         }
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void bindStorageSpace(UserStorageDto dto) {
+        User user = requireUser(dto.getUserId());
+        StorageSpace space = storageSpaceMapper.selectById(dto.getStorageSpaceId());
+        if (space == null) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "存储空间不存在");
+        }
+        if (dto.getQuota() > space.getCapacity()) {
+            throw new BusinessException(ResultCode.BUSINESS_ERROR, "用户配额不能超过存储空间容量");
+        }
+        user.setStorageSpaceId(dto.getStorageSpaceId());
+        user.setQuota(dto.getQuota());
+        userMapper.updateById(user);
     }
 }

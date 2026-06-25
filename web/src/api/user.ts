@@ -12,6 +12,7 @@ import type {
   UserUpdateRolesDto,
   UserVo,
 } from '@/types/auth'
+import type { UserStorageDto } from '@/types/storage-space'
 
 export function fetchUserPage(params: UserPageQuery): Promise<PageResult<UserVo>> {
   return get<PageResult<UserVo>>('/users', params as Record<string, unknown>)
@@ -57,4 +58,8 @@ export function updateCurrentUserProfile(dto: UserProfileUpdateDto): Promise<Use
 
 export function changePassword(dto: ChangePasswordDto): Promise<void> {
   return put<void>('/users/me/password', dto)
+}
+
+export function bindUserStorageSpace(userId: string, dto: UserStorageDto): Promise<void> {
+  return put<void>(`/users/${userId}/storage`, dto)
 }

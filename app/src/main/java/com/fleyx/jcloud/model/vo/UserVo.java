@@ -53,6 +53,16 @@ public class UserVo implements Serializable {
     private List<RoleVo> roles;
 
     /**
+     * 用户配额（字节）。
+     */
+    private Long quota;
+
+    /**
+     * 已用空间（字节）。
+     */
+    private Long usedSpace;
+
+    /**
      * 创建时间。
      */
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")

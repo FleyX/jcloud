@@ -47,6 +47,29 @@ public class User extends BaseEntity {
     private Integer isAdmin;
 
     /**
+     * 默认存储空间 ID。
+     */
+    @TableField("storage_space_id")
+    private Long storageSpaceId;
+
+    /**
+     * 用户配额（字节）。
+     */
+    private Long quota;
+
+    /**
+     * 已用空间（字节）。
+     */
+    @TableField("used_space")
+    private Long usedSpace;
+
+    /**
+     * 预占空间（字节）。
+     */
+    @TableField("reserved_space")
+    private Long reservedSpace;
+
+    /**
      * 判断当前用户是否为内置超级管理员。
      */
     public boolean isSuperAdmin() {

@@ -1,11 +1,10 @@
 <script setup lang="ts">
 /**
- * 主文件列表页面
- * - 顶部面包屑 + 上传按钮（Radix Vue DropdownMenu 占位）
- * - 文件列表表格：表头 + Mock 数据行
- * - 支持行悬浮、选中状态样式切换，配合过渡动画
+ * PC 文件列表页
+ * - 真实接口：上传、列表查询、下载、新建文件夹、重命名、移动、复制
+ * - 根目录固定 parentId = 0
  */
-import { ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import {
   DropdownMenuRoot,
   DropdownMenuTrigger,
@@ -19,7 +18,8 @@ import {
   FileUp,
   FolderUp,
   Plus,
-  MoreHorizontal,
+  FolderPlus,
+  Download,
   FileText,
   Image as ImageIcon,
   Film,
@@ -27,63 +27,53 @@ import {
   Search,
   LayoutGrid,
   List,
+  Check,
 } from '@lucide/vue'
 import { cn } from '@/utils/cn'
+import { deleteToTrash, downloadFile, fetchFilePage, uploadFile } from '@/api/file'
+import { useConfirmStore } from '@/store/confirm'
+import { useNotificationStore } from '@/store/notification'
 import { useTransferStore } from '@/store/transfer'
+import { useFileOperations } from './composables/useFileOperations'
+import FileRowActions from './components/FileRowActions.vue'
+import CreateFolderModal from './components/CreateFolderModal.vue'
+import RenameModal from './components/RenameModal.vue'
+import MoveCopyModal from './components/MoveCopyModal.vue'
+import BatchActionBar from './components/BatchActionBar.vue'
 import type { Component } from 'vue'
+import type { FileNodeVo, OperationResultVo } from '@/types/file'
 
 const transferStore = useTransferStore()
+const notificationStore = useNotificationStore()
+const confirmStore = useConfirmStore()
 
-// 面包屑数据（静态展示，当前未实现文件夹导航）
-const breadcrumbs = ['全部文件', '工作文档', '设计素材']
+const files = ref<FileNodeVo[]>([])
+const keyword = ref('')
+const loading = ref(false)
+const fileInput = ref<HTMLInputElement | null>(null)
+const selectedIds = ref<Set<string>>(new Set())
+const moveCopyOpen = ref(false)
+const moveCopyType = ref<'move' | 'copy'>('move')
+const moveCopyTargets = ref<FileNodeVo[]>([])
 
-// 文件列表 Mock 数据
-interface FileItem {
-  id: string
-  name: string
-  type: 'image' | 'video' | 'audio' | 'doc' | 'folder'
-  size: string
-  updatedAt: string
-  selected?: boolean
-}
+const {
+  createFolderOpen,
+  renameOpen,
+  renameTarget,
+  openCreateFolder,
+  handleCreateFolder,
+  openRename,
+  handleRename,
+} = useFileOperations(loadFiles)
 
-const files = ref<FileItem[]>([
-  {
-    id: '1',
-    name: '2024-Q4-产品规划.pdf',
-    type: 'doc',
-    size: '2.4 MB',
-    updatedAt: '2024-11-20',
-    selected: false,
-  },
-  {
-    id: '2',
-    name: '首页 Banner 设计稿.png',
-    type: 'image',
-    size: '8.7 MB',
-    updatedAt: '2024-11-18',
-    selected: true,
-  },
-  {
-    id: '3',
-    name: '产品发布会开场视频.mp4',
-    type: 'video',
-    size: '156 MB',
-    updatedAt: '2024-11-15',
-    selected: false,
-  },
-  {
-    id: '4',
-    name: '背景音乐精选.mp3',
-    type: 'audio',
-    size: '12.1 MB',
-    updatedAt: '2024-11-12',
-    selected: false,
-  },
-])
+const breadcrumbs = ['全部文件']
+const folders = computed(() => files.value.filter((file) => file.type === 'folder'))
+const selectedFiles = computed(() => files.value.filter((file) => selectedIds.value.has(file.id)))
+const isAllSelected = computed(() => files.value.length > 0 && selectedIds.value.size === files.value.length)
 
-// 根据文件类型返回对应图标组件
-const fileIconMap: Record<FileItem['type'], Component> = {
+type FileType = 'image' | 'video' | 'audio' | 'doc' | 'folder'
+
+const fileIconMap: Record<FileType, Component> = {
   doc: FileText,
   image: ImageIcon,
   video: Film,
@@ -91,17 +81,150 @@ const fileIconMap: Record<FileItem['type'], Component> = {
   folder: FolderUp,
 }
 
-// 切换行选中状态
-function toggleSelect(file: FileItem) {
-  file.selected = !file.selected
+function inferType(file: FileNodeVo): FileType {
+  const mime = file.mimeType || ''
+  if (mime.startsWith('image/')) return 'image'
+  if (mime.startsWith('video/')) return 'video'
+  if (mime.startsWith('audio/')) return 'audio'
+  const ext = file.name.split('.').pop()?.toLowerCase() || ''
+  if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp'].includes(ext)) return 'image'
+  if (['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(ext)) return 'video'
+  if (['mp3', 'wav', 'flac', 'aac', 'ogg'].includes(ext)) return 'audio'
+  return 'doc'
 }
 
-// 模拟添加上传任务
+function formatSize(bytes?: string | number): string {
+  const num = Number(bytes)
+  if (!num) return '-'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  let i = 0
+  let size = num
+  while (size >= 1024 && i < units.length - 1) {
+    size /= 1024
+    i++
+  }
+  return `${size.toFixed(2)} ${units[i]}`
+}
+
+function formatDate(time?: string): string {
+  if (!time) return '-'
+  return time.replace(' ', '\n').split('\n')[0]
+}
+
+const displayFiles = computed(() =>
+  files.value.map((file) => ({
+    ...file,
+    iconType: inferType(file),
+    displaySize: formatSize(file.size),
+    displayDate: formatDate(file.createTime),
+    selected: selectedIds.value.has(file.id),
+  })),
+)
+
+async function loadFiles() {
+  loading.value = true
+  try {
+    const res = await fetchFilePage({
+      parentId: '0',
+      name: keyword.value,
+      pageNum: 1,
+      pageSize: 100,
+    })
+    files.value = res.records
+    selectedIds.value.clear()
+  } finally {
+    loading.value = false
+  }
+}
+
+onMounted(loadFiles)
+
+function handleSearch() {
+  loadFiles()
+}
+
+function triggerFileSelect() {
+  fileInput.value?.click()
+}
+
+async function handleFileChange(event: Event) {
+  const target = event.target as HTMLInputElement
+  const file = target.files?.[0]
+  if (!file) return
+  try {
+    await uploadFile(file)
+    await loadFiles()
+  } finally {
+    target.value = ''
+  }
+}
+
 function handleMockUpload() {
   transferStore.addUploadTask({
     fileId: `mock-${Date.now()}`,
     fileName: '示例上传文件.zip',
   })
+}
+
+function toggleSelect(id: string) {
+  if (selectedIds.value.has(id)) {
+    selectedIds.value.delete(id)
+  } else {
+    selectedIds.value.add(id)
+  }
+}
+
+function toggleSelectAll() {
+  if (isAllSelected.value) {
+    selectedIds.value.clear()
+  } else {
+    selectedIds.value = new Set(files.value.map((file) => file.id))
+  }
+}
+
+function clearSelection() {
+  selectedIds.value.clear()
+}
+
+function openMoveCopy(type: 'move' | 'copy', targets: FileNodeVo[]) {
+  moveCopyType.value = type
+  moveCopyTargets.value = targets
+  moveCopyOpen.value = true
+}
+
+async function handleMoveCopyResult(results: OperationResultVo[]) {
+  const successCount = results.filter((r) => r.status === 'success').length
+  if (successCount > 0) {
+    await loadFiles()
+  }
+}
+
+async function handleDelete(file: FileNodeVo) {
+  const confirmed = await confirmStore.open({
+    title: '删除文件',
+    message: `确定将 "${file.name}" 移动到回收站吗？`,
+    confirmText: '删除',
+    type: 'danger',
+  })
+  if (!confirmed) return
+  await deleteToTrash({ ids: [file.id] })
+  notificationStore.success('已移动到回收站')
+  await loadFiles()
+}
+
+async function handleBatchDelete() {
+  const targets = selectedFiles.value
+  if (targets.length === 0) return
+  const confirmed = await confirmStore.open({
+    title: '批量删除',
+    message: `确定将选中的 ${targets.length} 项移动到回收站吗？`,
+    confirmText: '删除',
+    type: 'danger',
+  })
+  if (!confirmed) return
+  await deleteToTrash({ ids: targets.map((f) => f.id) })
+  notificationStore.success('已移动到回收站')
+  await loadFiles()
 }
 </script>
 
@@ -150,11 +273,21 @@ function handleMockUpload() {
         >
           <Search class="h-4 w-4 text-surface-400" />
           <input
+            v-model="keyword"
             type="text"
             placeholder="搜索文件..."
             class="w-48 bg-transparent text-sm outline-none placeholder:text-surface-400"
+            @keyup.enter="handleSearch"
           >
         </div>
+
+        <button
+          class="flex h-9 items-center gap-2 rounded-xl border border-surface-200 bg-white px-3 text-sm font-medium text-surface-700 shadow-card transition-all hover:bg-surface-50 hover:text-surface-900"
+          @click="openCreateFolder"
+        >
+          <FolderPlus class="h-4 w-4 text-primary-500" />
+          新建文件夹
+        </button>
 
         <!-- 上传按钮：Radix Vue DropdownMenu -->
         <DropdownMenuRoot>
@@ -174,26 +307,34 @@ function handleMockUpload() {
           >
             <DropdownMenuItem
               class="flex cursor-pointer items-center gap-2.5 rounded-xl px-3 py-2 text-sm text-surface-700 outline-none transition-colors duration-150 hover:bg-primary-50 hover:text-primary-700 focus:bg-primary-50"
-              @click="handleMockUpload"
+              @click="triggerFileSelect"
             >
               <FileUp class="h-4 w-4 text-primary-500" />
               上传文件
             </DropdownMenuItem>
             <DropdownMenuItem
               class="flex cursor-pointer items-center gap-2.5 rounded-xl px-3 py-2 text-sm text-surface-700 outline-none transition-colors duration-150 hover:bg-primary-50 hover:text-primary-700 focus:bg-primary-50"
+              @click="handleMockUpload"
             >
               <FolderUp class="h-4 w-4 text-primary-500" />
-              上传文件夹
+              上传文件夹（占位）
             </DropdownMenuItem>
             <DropdownMenuSeparator class="my-1.5 h-px bg-surface-200" />
             <DropdownMenuItem
               class="flex cursor-pointer items-center gap-2.5 rounded-xl px-3 py-2 text-sm text-surface-700 outline-none transition-colors duration-150 hover:bg-primary-50 hover:text-primary-700 focus:bg-primary-50"
             >
               <Upload class="h-4 w-4 text-primary-500" />
-              离线下载
+              离线下载（占位）
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenuRoot>
+
+        <input
+          ref="fileInput"
+          type="file"
+          class="hidden"
+          @change="handleFileChange"
+        >
       </div>
     </div>
 
@@ -206,67 +347,68 @@ function handleMockUpload() {
         class="grid grid-cols-[48px_1fr_140px_160px_80px] items-center border-b border-surface-200 bg-surface-50/80 px-5 py-3 text-xs font-semibold uppercase tracking-wider text-surface-500"
       >
         <div>
-          <div
-            class="h-4 w-4 rounded border border-surface-300 bg-white transition-colors duration-150 hover:border-primary-400"
-          />
+          <button
+            :class="
+              cn(
+                'flex h-4 w-4 items-center justify-center rounded border border-surface-300 bg-white transition-colors duration-150 hover:border-primary-400',
+                isAllSelected && 'border-primary-500 bg-primary-500 text-white'
+              )
+            "
+            @click="toggleSelectAll"
+          >
+            <Check
+              v-if="isAllSelected"
+              class="h-3 w-3"
+            />
+          </button>
         </div>
         <span>文件名</span>
         <span>大小</span>
-        <span>修改时间</span>
+        <span>上传时间</span>
         <span class="text-right">操作</span>
       </div>
 
+      <!-- 加载中 -->
+      <div
+        v-if="loading"
+        class="px-5 py-12 text-center text-sm text-surface-500"
+      >
+        加载中...
+      </div>
+
       <!-- 文件行 -->
-      <div class="divide-y divide-surface-100">
+      <div
+        v-else
+        class="divide-y divide-surface-100"
+      >
         <div
-          v-for="file in files"
+          v-for="file in displayFiles"
           :key="file.id"
           :class="
             cn(
-              'group grid cursor-pointer grid-cols-[48px_1fr_140px_160px_80px] items-center px-5 py-3.5 text-sm transition-all duration-200 ease-out-expo',
-              file.selected
-                ? 'bg-primary-50/60 hover:bg-primary-50'
-                : 'hover:bg-surface-50'
+              'group grid cursor-pointer grid-cols-[48px_1fr_140px_160px_80px] items-center px-5 py-3.5 text-sm transition-all duration-200 ease-out-expo hover:bg-surface-50',
+              file.selected && 'bg-primary-50/40 hover:bg-primary-50/60'
             )
           "
-          @click="toggleSelect(file)"
         >
           <!-- 复选框 -->
-          <div class="flex items-center">
-            <div
+          <div
+            class="flex items-center"
+            @click.stop="toggleSelect(file.id)"
+          >
+            <button
               :class="
                 cn(
-                  'flex h-4 w-4 items-center justify-center rounded border transition-all duration-200',
-                  file.selected
-                    ? 'border-primary-500 bg-primary-500'
-                    : 'border-surface-300 bg-white group-hover:border-primary-400'
+                  'flex h-4 w-4 items-center justify-center rounded border border-surface-300 bg-white transition-colors duration-200 hover:border-primary-400',
+                  file.selected && 'border-primary-500 bg-primary-500 text-white'
                 )
               "
             >
-              <transition
-                enter-active-class="transition-transform duration-200 ease-out-expo"
-                enter-from-class="scale-0"
-                enter-to-class="scale-100"
-                leave-active-class="transition-transform duration-150 ease-in"
-                leave-from-class="scale-100"
-                leave-to-class="scale-0"
-              >
-                <svg
-                  v-if="file.selected"
-                  class="h-3 w-3 text-white"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  stroke-width="3"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    d="M5 13l4 4L19 7"
-                  />
-                </svg>
-              </transition>
-            </div>
+              <Check
+                v-if="file.selected"
+                class="h-3 w-3"
+              />
+            </button>
           </div>
 
           <!-- 文件名 -->
@@ -275,48 +417,87 @@ function handleMockUpload() {
               :class="
                 cn(
                   'flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition-colors duration-200',
-                  file.type === 'image' && 'bg-purple-100 text-purple-600',
-                  file.type === 'video' && 'bg-rose-100 text-rose-600',
-                  file.type === 'audio' && 'bg-amber-100 text-amber-600',
-                  file.type === 'doc' && 'bg-blue-100 text-blue-600',
-                  file.type === 'folder' && 'bg-emerald-100 text-emerald-600'
+                  file.iconType === 'image' && 'bg-purple-100 text-purple-600',
+                  file.iconType === 'video' && 'bg-rose-100 text-rose-600',
+                  file.iconType === 'audio' && 'bg-amber-100 text-amber-600',
+                  file.iconType === 'doc' && 'bg-blue-100 text-blue-600',
+                  file.iconType === 'folder' && 'bg-emerald-100 text-emerald-600'
                 )
               "
             >
               <component
-                :is="fileIconMap[file.type]"
+                :is="fileIconMap[file.iconType]"
                 class="h-5 w-5"
               />
             </div>
-            <span
-              :class="
-                cn(
-                  'line-clamp-1 font-medium transition-colors duration-200',
-                  file.selected ? 'text-primary-700' : 'text-surface-800'
-                )
-              "
-            >
+            <span class="line-clamp-1 font-medium text-surface-800">
               {{ file.name }}
             </span>
           </div>
 
           <!-- 大小 -->
-          <span class="text-surface-500">{{ file.size }}</span>
+          <span class="text-surface-500">{{ file.displaySize }}</span>
 
-          <!-- 修改时间 -->
-          <span class="text-surface-500">{{ file.updatedAt }}</span>
+          <!-- 上传时间 -->
+          <span class="text-surface-500">{{ file.displayDate }}</span>
 
           <!-- 操作按钮 -->
-          <div class="flex justify-end">
+          <div class="flex justify-end gap-1">
             <button
               class="rounded-lg p-1.5 text-surface-400 opacity-0 transition-all duration-200 hover:bg-surface-100 hover:text-surface-700 group-hover:opacity-100"
-              @click.stop
+              @click.stop="downloadFile(file.id)"
             >
-              <MoreHorizontal class="h-4 w-4" />
+              <Download class="h-4 w-4" />
             </button>
+            <FileRowActions
+              :file="file"
+              class="opacity-0 group-hover:opacity-100"
+              @rename="openRename"
+              @copy="(f) => openMoveCopy('copy', [f])"
+              @move="(f) => openMoveCopy('move', [f])"
+              @delete="handleDelete"
+            />
           </div>
         </div>
+
+        <p
+          v-if="displayFiles.length === 0"
+          class="px-5 py-12 text-center text-sm text-surface-500"
+        >
+          暂无文件，点击右上角上传
+        </p>
       </div>
     </div>
+
+    <CreateFolderModal
+      :open="createFolderOpen"
+      parent-id="0"
+      @close="createFolderOpen = false"
+      @confirm="handleCreateFolder"
+    />
+
+    <RenameModal
+      :open="renameOpen"
+      :file="renameTarget"
+      @close="renameOpen = false"
+      @confirm="handleRename"
+    />
+
+    <MoveCopyModal
+      :open="moveCopyOpen"
+      :type="moveCopyType"
+      :files="moveCopyTargets"
+      :folders="folders"
+      @close="moveCopyOpen = false"
+      @confirm="handleMoveCopyResult"
+    />
+
+    <BatchActionBar
+      :selected-count="selectedIds.size"
+      @move="openMoveCopy('move', selectedFiles)"
+      @copy="openMoveCopy('copy', selectedFiles)"
+      @delete="handleBatchDelete"
+      @clear="clearSelection"
+    />
   </div>
 </template>

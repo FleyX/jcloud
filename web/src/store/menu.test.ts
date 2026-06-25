@@ -20,6 +20,7 @@ function buildMenus(): Record<PrimaryModule, SecondaryMenuItem[]> {
       { key: 'users', label: '用户管理', route: '/admin/users' },
       { key: 'roles', label: '角色管理', route: '/admin/roles' },
       { key: 'permissions', label: '权限管理', route: '/admin/permissions' },
+      { key: 'storage-spaces', label: '存储空间管理', route: '/admin/storage-spaces' },
     ],
   }
 }
@@ -80,7 +81,7 @@ describe('menuStore secondary menus', () => {
     const menuStore = useMenuStore()
     const menus = menuStore.getSecondaryMenusByPrimary('system')
 
-    expect(menus.map((menu) => menu.key)).toEqual(['users', 'roles', 'permissions'])
+    expect(menus.map((menu) => menu.key)).toEqual(['users', 'roles', 'permissions', 'storage-spaces'])
   })
 
   it('returns only user management for a user with only user:menu permission', () => {

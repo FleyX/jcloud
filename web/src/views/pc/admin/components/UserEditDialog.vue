@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { RoleVo, UserUpdateDto, UserVo } from '@/types/auth'
+import type { StorageSpaceVo } from '@/types/storage-space'
 import { Settings2, X } from '@lucide/vue'
 import {
   DialogClose,
@@ -15,13 +16,16 @@ import {
 } from 'radix-vue'
 import { cn } from '@/utils/cn'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   open: boolean
-  form: UserUpdateDto
+  form: UserUpdateDto & { storageSpaceId?: string; quota?: string }
   editingUser: UserVo | null
   roles: RoleVo[]
+  spaces?: StorageSpaceVo[]
   submitting: boolean
-}>()
+}>(), {
+  spaces: () => [],
+})
 
 const emit = defineEmits<{
   'update:open': [value: boolean]
@@ -145,6 +149,33 @@ const localOpen = computed({
               v-model="props.form.password"
               type="password"
               placeholder="请输入新密码"
+              class="w-full rounded-xl border border-surface-200 bg-surface-50 px-3 py-2 text-sm outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100"
+            >
+          </div>
+          <div>
+            <label class="mb-1 block text-xs font-medium text-surface-700">默认存储空间</label>
+            <select
+              v-model="props.form.storageSpaceId"
+              class="w-full rounded-xl border border-surface-200 bg-surface-50 px-3 py-2 text-sm outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100"
+            >
+              <option value="">
+                暂不分配
+              </option>
+              <option
+                v-for="space in spaces"
+                :key="space.id"
+                :value="space.id"
+              >
+                {{ space.name }}
+              </option>
+            </select>
+          </div>
+          <div v-if="props.form.storageSpaceId">
+            <label class="mb-1 block text-xs font-medium text-surface-700">配额（字节）</label>
+            <input
+              v-model="props.form.quota"
+              type="text"
+              placeholder="请输入用户配额"
               class="w-full rounded-xl border border-surface-200 bg-surface-50 px-3 py-2 text-sm outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100"
             >
           </div>
