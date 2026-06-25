@@ -4,9 +4,12 @@ import cn.hutool.crypto.digest.DigestUtil;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.model.bo.FileDownloadResult;
+import com.fleyx.jcloud.model.dto.FileCreateFolderDto;
+import com.fleyx.jcloud.model.dto.FileExecuteOperationDto;
 import com.fleyx.jcloud.model.dto.FileInstantUploadDto;
 import com.fleyx.jcloud.model.dto.FilePageQueryDto;
 import com.fleyx.jcloud.model.dto.FilePreCheckDto;
+import com.fleyx.jcloud.model.dto.OperationItemDto;
 import com.fleyx.jcloud.model.dto.StorageSpaceSaveDto;
 import com.fleyx.jcloud.model.dto.UserSaveDto;
 import com.fleyx.jcloud.model.dto.UserStorageDto;
@@ -52,6 +55,9 @@ class FileServiceTest {
 
     @Autowired
     private StorageSpaceService storageSpaceService;
+
+    @Autowired
+    private FileOperationService fileOperationService;
 
     @TempDir
     Path tempDir;
@@ -105,6 +111,114 @@ class FileServiceTest {
 
         assertEquals(2L, page.getTotal());
         assertEquals(2, page.getRecords().size());
+    }
+
+    @Test
+    void shouldSearchFilesByNameAcrossAllFolders() throws Exception {
+        UserVo user = prepareUserWithStorageSpace().user();
+        fileService.upload(buildFile("annual-report.pdf", "report"), user.getId());
+        FileNodeVo folder = createFolder(user.getId(), "docs");
+        FileNodeVo fileInRoot = fileService.upload(buildFile("report-summary.txt", "summary"), user.getId());
+        moveFileToFolder(user.getId(), fileInRoot.getId(), folder.getId());
+
+        FilePageQueryDto query = new FilePageQueryDto();
+        query.setName("report");
+        query.setPageNum(1L);
+        query.setPageSize(10L);
+
+        IPage<FileNodeVo> page = fileService.list(query, user.getId());
+
+        List<String> names = page.getRecords().stream().map(FileNodeVo::getName).toList();
+        assertEquals(2, names.size());
+        assertTrue(names.contains("annual-report.pdf"));
+        assertTrue(names.contains("report-summary.txt"));
+    }
+
+    @Test
+    void shouldSearchFilesWithExactNameMatch() throws Exception {
+        UserVo user = prepareUserWithStorageSpace().user();
+        fileService.upload(buildFile("hello.txt", "hello"), user.getId());
+        fileService.upload(buildFile("world.txt", "world"), user.getId());
+
+        FilePageQueryDto query = new FilePageQueryDto();
+        query.setName("hello.txt");
+        query.setPageNum(1L);
+        query.setPageSize(10L);
+
+        IPage<FileNodeVo> page = fileService.list(query, user.getId());
+
+        assertEquals(1L, page.getTotal());
+        assertEquals("hello.txt", page.getRecords().get(0).getName());
+    }
+
+    @Test
+    void shouldSearchFilesWithFuzzyNameMatch() throws Exception {
+        UserVo user = prepareUserWithStorageSpace().user();
+        fileService.upload(buildFile("hello-world.txt", "hello"), user.getId());
+
+        FilePageQueryDto query = new FilePageQueryDto();
+        query.setName("hello-wrld");
+        query.setPageNum(1L);
+        query.setPageSize(10L);
+
+        IPage<FileNodeVo> page = fileService.list(query, user.getId());
+
+        assertEquals(1L, page.getTotal());
+        assertEquals("hello-world.txt", page.getRecords().get(0).getName());
+    }
+
+    @Test
+    void shouldReturnEmptyWhenNoFileMatches() throws Exception {
+        UserVo user = prepareUserWithStorageSpace().user();
+        fileService.upload(buildFile("hello.txt", "hello"), user.getId());
+
+        FilePageQueryDto query = new FilePageQueryDto();
+        query.setName("nonexistent");
+        query.setPageNum(1L);
+        query.setPageSize(10L);
+
+        IPage<FileNodeVo> page = fileService.list(query, user.getId());
+
+        assertEquals(0L, page.getTotal());
+        assertTrue(page.getRecords().isEmpty());
+    }
+
+    @Test
+    void shouldHandleSpecialCharactersInSearchKeyword() throws Exception {
+        UserVo user = prepareUserWithStorageSpace().user();
+        fileService.upload(buildFile("report_2026.pdf", "report"), user.getId());
+        fileService.upload(buildFile("report 100%.txt", "percent"), user.getId());
+
+        FilePageQueryDto query = new FilePageQueryDto();
+        query.setName("100%");
+        query.setPageNum(1L);
+        query.setPageSize(10L);
+
+        IPage<FileNodeVo> page = fileService.list(query, user.getId());
+
+        assertEquals(1L, page.getTotal());
+        assertEquals("report 100%.txt", page.getRecords().get(0).getName());
+    }
+
+    @Test
+    void shouldSortSearchResultsWithFoldersFirstThenByTimeDesc() throws Exception {
+        UserVo user = prepareUserWithStorageSpace().user();
+        FileNodeVo olderFile = fileService.upload(buildFile("report-old.txt", "old"), user.getId());
+        FileNodeVo folder = createFolder(user.getId(), "report-folder");
+        FileNodeVo newerFile = fileService.upload(buildFile("report-new.txt", "new"), user.getId());
+
+        FilePageQueryDto query = new FilePageQueryDto();
+        query.setName("report");
+        query.setPageNum(1L);
+        query.setPageSize(10L);
+
+        IPage<FileNodeVo> page = fileService.list(query, user.getId());
+
+        List<String> names = page.getRecords().stream().map(FileNodeVo::getName).toList();
+        assertEquals(3, names.size());
+        assertEquals("report-folder", names.get(0));
+        assertEquals("report-new.txt", names.get(1));
+        assertEquals("report-old.txt", names.get(2));
     }
 
     @Test
@@ -263,6 +377,23 @@ class FileServiceTest {
 
     private MultipartFile buildFile(String name, String content) {
         return new MockMultipartFile("file", name, "text/plain", content.getBytes());
+    }
+
+    private FileNodeVo createFolder(Long userId, String name) {
+        FileCreateFolderDto dto = new FileCreateFolderDto();
+        dto.setParentId(0L);
+        dto.setName(name);
+        return fileOperationService.createFolder(dto, userId);
+    }
+
+    private void moveFileToFolder(Long userId, Long fileId, Long folderId) {
+        FileExecuteOperationDto dto = new FileExecuteOperationDto();
+        dto.setType("move");
+        dto.setTargetParentId(folderId);
+        OperationItemDto item = new OperationItemDto();
+        item.setId(fileId);
+        dto.setItems(List.of(item));
+        fileOperationService.move(dto, userId);
     }
 
     private Path resolvePhysicalPath(UserWithSpace userWithSpace, String physicalPath) {

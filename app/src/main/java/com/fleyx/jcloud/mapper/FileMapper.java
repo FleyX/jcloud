@@ -46,4 +46,19 @@ public interface FileMapper extends BaseMapper<FileNode> {
      * @return 文件节点列表
      */
     List<FileNode> selectFilesByPathNamePrefix(@Param("userId") Long userId, @Param("prefix") String pathName);
+
+    /**
+     * 按名称关键字模糊搜索用户的文件节点（跨文件夹）。
+     * <p>
+     * 使用 PostgreSQL trigram 相似度匹配，同时保留子串匹配，
+     * 结果按文件夹优先、时间倒序排列。
+     *
+     * @param userId     用户 ID
+     * @param keyword    搜索关键字（用于 trigram 相似度）
+     * @param likePattern 转义后的关键字（用于 ILIKE 子串匹配）
+     * @return 文件节点列表
+     */
+    List<FileNode> searchByName(@Param("userId") Long userId,
+                                @Param("keyword") String keyword,
+                                @Param("likePattern") String likePattern);
 }

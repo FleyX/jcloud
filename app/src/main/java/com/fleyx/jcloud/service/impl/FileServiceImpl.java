@@ -120,15 +120,41 @@ public class FileServiceImpl implements FileService {
 
     @Override
     public IPage<FileNodeVo> list(FilePageQueryDto dto, Long userId) {
+        if (StringUtils.hasText(dto.getName())) {
+            return searchByName(dto, userId);
+        }
+
         LambdaQueryWrapper<FileNode> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(FileNode::getUserId, userId);
         wrapper.eq(FileNode::getParentId, dto.getParentId());
-        wrapper.like(StringUtils.hasText(dto.getName()), FileNode::getName, dto.getName());
         wrapper.orderByDesc(FileNode::getCreateTime);
 
         Page<FileNode> page = new Page<>(dto.getPageNum(), dto.getPageSize());
         IPage<FileNode> poPage = fileMapper.selectPage(page, wrapper);
         return poPage.convert(fileConvert::poToVo);
+    }
+
+    private IPage<FileNodeVo> searchByName(FilePageQueryDto dto, Long userId) {
+        String keyword = dto.getName().trim();
+        String likePattern = escapeLikePattern(keyword);
+        List<FileNode> records = fileMapper.searchByName(userId, keyword, likePattern);
+        Page<FileNodeVo> resultPage = new Page<>(dto.getPageNum(), dto.getPageSize());
+        resultPage.setTotal(records.size());
+
+        long offset = (dto.getPageNum() - 1) * dto.getPageSize();
+        List<FileNodeVo> pageRecords = records.stream()
+                .skip(offset)
+                .limit(dto.getPageSize())
+                .map(fileConvert::poToVo)
+                .toList();
+        resultPage.setRecords(pageRecords);
+        return resultPage;
+    }
+
+    private String escapeLikePattern(String keyword) {
+        return keyword.replace("\\", "\\\\")
+                .replace("%", "\\%")
+                .replace("_", "\\_");
     }
 
     @Override
