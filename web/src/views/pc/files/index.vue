@@ -25,6 +25,7 @@ import {
   Film,
   Music,
   Search,
+  X,
   LayoutGrid,
   List,
   Check,
@@ -120,6 +121,8 @@ function formatDate(time?: string): string {
   return time.replace(' ', '\n').split('\n')[0]
 }
 
+const isSearching = computed(() => keyword.value.trim().length > 0)
+
 const displayFiles = computed(() =>
   files.value.map((file) => ({
     ...file,
@@ -149,6 +152,11 @@ async function loadFiles() {
 onMounted(loadFiles)
 
 function handleSearch() {
+  loadFiles()
+}
+
+function clearSearch() {
+  keyword.value = ''
   loadFiles()
 }
 
@@ -288,6 +296,13 @@ async function handleBatchDelete() {
             class="w-48 bg-transparent text-sm outline-none placeholder:text-surface-400"
             @keyup.enter="handleSearch"
           >
+          <button
+            v-if="isSearching"
+            class="rounded p-0.5 text-surface-400 hover:bg-surface-100 hover:text-surface-600"
+            @click="clearSearch"
+          >
+            <X class="h-3.5 w-3.5" />
+          </button>
         </div>
 
         <button
@@ -474,7 +489,7 @@ async function handleBatchDelete() {
           v-if="displayFiles.length === 0"
           class="px-5 py-12 text-center text-sm text-surface-500"
         >
-          暂无文件，点击右上角上传
+          {{ isSearching ? '未找到相关文件' : '暂无文件，点击右上角上传' }}
         </p>
       </div>
     </div>

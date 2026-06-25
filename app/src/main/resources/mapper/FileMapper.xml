@@ -35,4 +35,14 @@
           AND (path_name = #{prefix} OR path_name LIKE CONCAT(#{prefix}, '/%'))
     </select>
 
+    <!-- 按名称关键字模糊搜索用户的文件节点（跨文件夹） -->
+    <select id="searchByName" resultType="com.fleyx.jcloud.model.po.FileNode">
+        SELECT *
+        FROM t_file_node
+        WHERE user_id = #{userId}
+          AND delete_at = 0
+          AND (name % #{keyword} OR name ILIKE CONCAT('%', #{likePattern}, '%') ESCAPE '\')
+        ORDER BY type DESC, create_time DESC
+    </select>
+
 </mapper>

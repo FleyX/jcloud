@@ -11,6 +11,7 @@ import {
   Music,
   FolderUp,
   Search,
+  X,
   Plus,
   Download,
 } from '@lucide/vue'
@@ -73,6 +74,8 @@ function formatDate(time?: string): string {
   return time.split(' ')[0]
 }
 
+const isSearching = computed(() => keyword.value.trim().length > 0)
+
 const filteredFiles = computed(() =>
   files.value.map((file) => ({
     ...file,
@@ -98,6 +101,11 @@ async function loadFiles() {
 }
 
 function handleSearch() {
+  loadFiles()
+}
+
+function clearSearch() {
+  keyword.value = ''
   loadFiles()
 }
 
@@ -151,6 +159,13 @@ onMounted(loadFiles)
             class="flex-1 bg-transparent text-sm outline-none placeholder:text-surface-400"
             @keyup.enter="handleSearch"
           >
+          <button
+            v-if="isSearching"
+            class="rounded p-1 text-surface-400 hover:bg-surface-200 hover:text-surface-600"
+            @click="clearSearch"
+          >
+            <X class="h-3.5 w-3.5" />
+          </button>
         </div>
         <button
           class="flex h-10 w-10 items-center justify-center rounded-xl bg-primary-600 text-white shadow-soft active:scale-95"
@@ -221,7 +236,7 @@ onMounted(loadFiles)
         v-if="!loading && filteredFiles.length === 0"
         class="py-10 text-center text-sm text-surface-500"
       >
-        暂无文件，点击右上角上传
+        {{ isSearching ? '未找到相关文件' : '暂无文件，点击右上角上传' }}
       </p>
     </div>
 
