@@ -3,9 +3,11 @@ package com.fleyx.jcloud.service;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.fleyx.jcloud.mapper.StorageSpaceMapper;
 import com.fleyx.jcloud.mapper.UserMapper;
+import com.fleyx.jcloud.model.dto.StorageSpaceExpandDto;
 import com.fleyx.jcloud.model.dto.StorageSpacePageQueryDto;
 import com.fleyx.jcloud.model.dto.StorageSpaceSaveDto;
 import com.fleyx.jcloud.model.dto.StorageSpaceUpdateDto;
+import com.fleyx.jcloud.model.po.StorageSpace;
 import com.fleyx.jcloud.model.po.User;
 import com.fleyx.jcloud.model.vo.StorageSpaceVo;
 import org.junit.jupiter.api.Test;
@@ -118,6 +120,32 @@ class StorageSpaceServiceTest {
         userMapper.insert(user);
 
         assertThrows(BusinessException.class, () -> storageSpaceService.removeById(saved.getId()));
+    }
+
+    @Test
+    void shouldExpandCapacity() {
+        StorageSpaceVo saved = storageSpaceService.save(buildDto("扩容空间", "/data/jcloud/expand"));
+        StorageSpaceExpandDto dto = new StorageSpaceExpandDto();
+        dto.setId(saved.getId());
+        dto.setCapacity(214748364800L);
+
+        StorageSpaceVo expanded = storageSpaceService.expandCapacity(dto);
+
+        assertEquals(214748364800L, expanded.getCapacity());
+    }
+
+    @Test
+    void shouldRejectExpandBelowUsedSpace() {
+        StorageSpaceVo saved = storageSpaceService.save(buildDto("已用空间", "/data/jcloud/used"));
+        StorageSpace po = storageSpaceMapper.selectById(saved.getId());
+        po.setUsedSpace(10737418240L);
+        storageSpaceMapper.updateById(po);
+
+        StorageSpaceExpandDto dto = new StorageSpaceExpandDto();
+        dto.setId(saved.getId());
+        dto.setCapacity(10737418239L);
+
+        assertThrows(BusinessException.class, () -> storageSpaceService.expandCapacity(dto));
     }
 
     private StorageSpaceSaveDto buildDto(String name, String path) {

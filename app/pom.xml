@@ -28,6 +28,7 @@
         <mapstruct.version>1.6.3</mapstruct.version>
         <postgresql.version>42.7.7</postgresql.version>
         <jjwt.version>0.12.6</jjwt.version>
+        <redisson.version>4.1.0</redisson.version>
     </properties>
 
     <dependencies>
@@ -47,6 +48,13 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
+
+        <!-- Redisson -->
+        <dependency>
+            <groupId>org.redisson</groupId>
+            <artifactId>redisson-spring-boot-starter</artifactId>
+            <version>${redisson.version}</version>
         </dependency>
 
         <!-- Flyway -->

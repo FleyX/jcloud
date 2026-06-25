@@ -27,8 +27,10 @@ import com.fleyx.jcloud.model.vo.RecycleRecordVo;
 import com.fleyx.jcloud.service.FileRecycleService;
 import com.fleyx.jcloud.util.FileHashUtil;
 import com.fleyx.jcloud.util.FilePathUtil;
-import com.fleyx.jcloud.util.UserWriteLock;
+import com.fleyx.jcloud.util.UserReadOnlyChecker;
+import com.fleyx.jcloud.util.UserReadWriteLock;
 import lombok.RequiredArgsConstructor;
+import org.redisson.api.RLock;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
@@ -41,7 +43,6 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * 文件回收站服务实现。
@@ -61,13 +62,16 @@ public class FileRecycleServiceImpl implements FileRecycleService {
     private final StorageSpaceMapper storageSpaceMapper;
     private final FileConvert fileConvert;
     private final RecycleRecordConvert recycleRecordConvert;
+    private final UserReadWriteLock userReadWriteLock;
+    private final UserReadOnlyChecker userReadOnlyChecker;
 
     @Override
     public List<OperationResultVo> deleteToTrash(FileDeleteDto dto, Long userId) {
         if (dto == null || CollectionUtils.isEmpty(dto.getIds())) {
             throw new BusinessException(ResultCode.PARAM_ERROR, "删除节点 ID 不能为空");
         }
-        ReentrantLock lock = UserWriteLock.getLock(userId);
+        userReadOnlyChecker.checkWriteAllowed(userId);
+        RLock lock = userReadWriteLock.writeLock(userId);
         lock.lock();
         try {
             return doDeleteToTrash(dto.getIds(), userId);
@@ -269,7 +273,8 @@ public class FileRecycleServiceImpl implements FileRecycleService {
         if (dto == null || CollectionUtils.isEmpty(dto.getItems())) {
             throw new BusinessException(ResultCode.PARAM_ERROR, "恢复项不能为空");
         }
-        ReentrantLock lock = UserWriteLock.getLock(userId);
+        userReadOnlyChecker.checkWriteAllowed(userId);
+        RLock lock = userReadWriteLock.writeLock(userId);
         lock.lock();
         try {
             return doRestore(dto.getItems(), userId);
@@ -608,7 +613,8 @@ public class FileRecycleServiceImpl implements FileRecycleService {
         if (dto == null || CollectionUtils.isEmpty(dto.getIds())) {
             throw new BusinessException(ResultCode.PARAM_ERROR, "删除记录 ID 不能为空");
         }
-        ReentrantLock lock = UserWriteLock.getLock(userId);
+        userReadOnlyChecker.checkWriteAllowed(userId);
+        RLock lock = userReadWriteLock.writeLock(userId);
         lock.lock();
         try {
             return doPermanentDelete(dto.getIds(), userId);

@@ -21,8 +21,10 @@ import com.fleyx.jcloud.model.vo.OperationResultVo;
 import com.fleyx.jcloud.service.FileOperationService;
 import com.fleyx.jcloud.util.FileConflictHelper;
 import com.fleyx.jcloud.util.FilePathUtil;
-import com.fleyx.jcloud.util.UserWriteLock;
+import com.fleyx.jcloud.util.UserReadOnlyChecker;
+import com.fleyx.jcloud.util.UserReadWriteLock;
 import lombok.RequiredArgsConstructor;
+import org.redisson.api.RLock;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -31,7 +33,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * 文件组织操作服务实现。
@@ -48,10 +49,13 @@ public class FileOperationServiceImpl implements FileOperationService {
     private final StorageSpaceMapper storageSpaceMapper;
     private final FileConvert fileConvert;
     private final FileOperationExecutor executor;
+    private final UserReadWriteLock userReadWriteLock;
+    private final UserReadOnlyChecker userReadOnlyChecker;
 
     @Override
     public FileNodeVo rename(FileRenameDto dto, Long userId) {
-        ReentrantLock lock = UserWriteLock.getLock(userId);
+        userReadOnlyChecker.checkWriteAllowed(userId);
+        RLock lock = userReadWriteLock.writeLock(userId);
         lock.lock();
         try {
             return doRename(dto, userId);
@@ -79,7 +83,8 @@ public class FileOperationServiceImpl implements FileOperationService {
 
     @Override
     public FileNodeVo createFolder(FileCreateFolderDto dto, Long userId) {
-        ReentrantLock lock = UserWriteLock.getLock(userId);
+        userReadOnlyChecker.checkWriteAllowed(userId);
+        RLock lock = userReadWriteLock.writeLock(userId);
         lock.lock();
         try {
             return doCreateFolder(dto, userId);
@@ -102,7 +107,8 @@ public class FileOperationServiceImpl implements FileOperationService {
 
     @Override
     public List<ConflictItemVo> preCheckOperation(FilePreCheckOperationDto dto, Long userId) {
-        ReentrantLock lock = UserWriteLock.getLock(userId);
+        userReadOnlyChecker.checkWriteAllowed(userId);
+        RLock lock = userReadWriteLock.writeLock(userId);
         lock.lock();
         try {
             return doPreCheck(dto, userId);
@@ -130,7 +136,8 @@ public class FileOperationServiceImpl implements FileOperationService {
 
     @Override
     public List<OperationResultVo> move(FileExecuteOperationDto dto, Long userId) {
-        ReentrantLock lock = UserWriteLock.getLock(userId);
+        userReadOnlyChecker.checkWriteAllowed(userId);
+        RLock lock = userReadWriteLock.writeLock(userId);
         lock.lock();
         try {
             return doMove(dto, userId);
@@ -155,7 +162,8 @@ public class FileOperationServiceImpl implements FileOperationService {
 
     @Override
     public List<OperationResultVo> copy(FileExecuteOperationDto dto, Long userId) {
-        ReentrantLock lock = UserWriteLock.getLock(userId);
+        userReadOnlyChecker.checkWriteAllowed(userId);
+        RLock lock = userReadWriteLock.writeLock(userId);
         lock.lock();
         try {
             return doCopy(dto, userId);

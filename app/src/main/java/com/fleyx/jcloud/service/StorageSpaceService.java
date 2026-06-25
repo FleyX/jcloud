@@ -1,6 +1,7 @@
 package com.fleyx.jcloud.service;
 
 import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.fleyx.jcloud.model.dto.StorageSpaceExpandDto;
 import com.fleyx.jcloud.model.dto.StorageSpacePageQueryDto;
 import com.fleyx.jcloud.model.dto.StorageSpaceSaveDto;
 import com.fleyx.jcloud.model.dto.StorageSpaceUpdateDto;
@@ -49,4 +50,12 @@ public interface StorageSpaceService {
      * @param id 存储空间 ID
      */
     void removeById(Long id);
+
+    /**
+     * 扩容存储空间容量。
+     *
+     * @param dto 扩容 DTO
+     * @return 扩容后的存储空间视图
+     */
+    StorageSpaceVo expandCapacity(StorageSpaceExpandDto dto);
 }

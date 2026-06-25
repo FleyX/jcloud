@@ -3,6 +3,7 @@ import { onMounted, reactive, ref } from 'vue'
 import {
   createStorageSpace,
   deleteStorageSpace,
+  expandStorageSpace,
   fetchStorageSpacePage,
   updateStorageSpace,
 } from '@/api/storage-space'
@@ -10,8 +11,10 @@ import { cn } from '@/utils/cn'
 import { useConfirmStore } from '@/store/confirm'
 import { useNotificationStore } from '@/store/notification'
 import StorageSpaceDialog from './components/StorageSpaceDialog.vue'
+import StorageSpaceExpandDialog from './components/StorageSpaceExpandDialog.vue'
 import type { PageResult } from '@/types/auth'
 import type {
+  StorageSpaceExpandDto,
   StorageSpacePageQuery,
   StorageSpaceSaveDto,
   StorageSpaceUpdateDto,
@@ -24,6 +27,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Plus,
+  Maximize2,
 } from '@lucide/vue'
 
 const query = reactive<StorageSpacePageQuery>({
@@ -48,6 +52,9 @@ const notificationStore = useNotificationStore()
 
 const dialogOpen = ref(false)
 const editingSpace = ref<StorageSpaceVo | null>(null)
+
+const expandDialogOpen = ref(false)
+const expandingSpace = ref<StorageSpaceVo | null>(null)
 
 async function loadSpaces() {
   loading.value = true
@@ -77,6 +84,25 @@ function openCreateDialog() {
 function openEditDialog(space: StorageSpaceVo) {
   editingSpace.value = space
   dialogOpen.value = true
+}
+
+function openExpandDialog(space: StorageSpaceVo) {
+  expandingSpace.value = space
+  expandDialogOpen.value = true
+}
+
+async function handleExpand(dto: StorageSpaceExpandDto) {
+  submitting.value = true
+  try {
+    await expandStorageSpace(dto.id, dto)
+    notificationStore.success('存储空间扩容成功')
+    expandDialogOpen.value = false
+    await loadSpaces()
+  } catch {
+    // request.ts 已统一处理异常提示
+  } finally {
+    submitting.value = false
+  }
 }
 
 async function handleSubmit(dto: StorageSpaceSaveDto | StorageSpaceUpdateDto) {
@@ -275,6 +301,13 @@ onMounted(() => {
               <td class="px-5 py-3">
                 <div class="flex items-center gap-2">
                   <button
+                    class="flex items-center gap-1 rounded-lg bg-primary-50 px-2.5 py-1.5 text-xs font-medium text-primary-600 transition-colors hover:bg-primary-100"
+                    @click="openExpandDialog(space)"
+                  >
+                    <Maximize2 class="h-3.5 w-3.5" />
+                    扩容
+                  </button>
+                  <button
                     class="flex items-center gap-1 rounded-lg bg-surface-100 px-2.5 py-1.5 text-xs font-medium text-surface-700 transition-colors hover:bg-surface-200"
                     @click="openEditDialog(space)"
                   >
@@ -324,6 +357,13 @@ onMounted(() => {
       :editing-space="editingSpace"
       :submitting="submitting"
       @submit="handleSubmit"
+    />
+
+    <StorageSpaceExpandDialog
+      v-model:open="expandDialogOpen"
+      :space="expandingSpace"
+      :submitting="submitting"
+      @submit="handleExpand"
     />
   </div>
 </template>

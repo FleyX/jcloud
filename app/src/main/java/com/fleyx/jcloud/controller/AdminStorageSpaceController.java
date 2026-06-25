@@ -3,6 +3,7 @@ package com.fleyx.jcloud.controller;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.fleyx.jcloud.common.R;
 import com.fleyx.jcloud.common.constant.CommonConstant;
+import com.fleyx.jcloud.model.dto.StorageSpaceExpandDto;
 import com.fleyx.jcloud.model.dto.StorageSpacePageQueryDto;
 import com.fleyx.jcloud.model.dto.StorageSpaceSaveDto;
 import com.fleyx.jcloud.model.dto.StorageSpaceUpdateDto;
@@ -69,5 +70,15 @@ public class AdminStorageSpaceController {
     public R<Void> remove(@PathVariable Long id) {
         storageSpaceService.removeById(id);
         return R.ok();
+    }
+
+    /**
+     * 扩容存储空间。
+     */
+    @PostMapping("/{id}/expand")
+    public R<StorageSpaceVo> expandCapacity(@PathVariable Long id,
+                                            @Valid @RequestBody StorageSpaceExpandDto dto) {
+        dto.setId(id);
+        return R.ok(storageSpaceService.expandCapacity(dto));
     }
 }

@@ -3,6 +3,7 @@ import type {
   PageResult,
 } from '@/types/auth'
 import type {
+  StorageSpaceExpandDto,
   StorageSpacePageQuery,
   StorageSpaceSaveDto,
   StorageSpaceUpdateDto,
@@ -27,4 +28,8 @@ export function updateStorageSpace(id: string, dto: StorageSpaceUpdateDto): Prom
 
 export function deleteStorageSpace(id: string): Promise<void> {
   return del<void>(`/admin/storage-spaces/${id}`)
+}
+
+export function expandStorageSpace(id: string, dto: StorageSpaceExpandDto): Promise<StorageSpaceVo> {
+  return post<StorageSpaceVo>(`/admin/storage-spaces/${id}/expand`, dto)
 }

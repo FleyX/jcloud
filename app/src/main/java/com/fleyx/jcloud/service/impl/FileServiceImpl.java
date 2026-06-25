@@ -21,7 +21,10 @@ import com.fleyx.jcloud.service.FileService;
 import com.fleyx.jcloud.util.FileHashUtil;
 import com.fleyx.jcloud.util.FileLinkUtil;
 import com.fleyx.jcloud.util.FilePathUtil;
+import com.fleyx.jcloud.util.UserReadOnlyChecker;
+import com.fleyx.jcloud.util.UserReadWriteLock;
 import lombok.RequiredArgsConstructor;
+import org.redisson.api.RLock;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -43,10 +46,24 @@ public class FileServiceImpl implements FileService {
     private final UserMapper userMapper;
     private final StorageSpaceMapper storageSpaceMapper;
     private final FileConvert fileConvert;
+    private final UserReadWriteLock userReadWriteLock;
+    private final UserReadOnlyChecker userReadOnlyChecker;
 
     @Override
-    @Transactional(rollbackFor = Exception.class)
     public FileNodeVo upload(MultipartFile file, Long userId) {
+        userReadOnlyChecker.checkWriteAllowed(userId);
+        RLock lock = userReadWriteLock.writeLock(userId);
+        lock.lock();
+        try {
+            return doUpload(file, userId);
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    protected FileNodeVo doUpload(MultipartFile file, Long userId) {
+        userReadOnlyChecker.checkWriteAllowed(userId);
         User user = userMapper.selectById(userId);
         if (user == null) {
             throw new BusinessException(ResultCode.NOT_FOUND, "用户不存在");
@@ -155,8 +172,20 @@ public class FileServiceImpl implements FileService {
     }
 
     @Override
-    @Transactional(rollbackFor = Exception.class)
     public FileNodeVo instantUpload(FileInstantUploadDto dto, Long userId) {
+        userReadOnlyChecker.checkWriteAllowed(userId);
+        RLock lock = userReadWriteLock.writeLock(userId);
+        lock.lock();
+        try {
+            return doInstantUpload(dto, userId);
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    protected FileNodeVo doInstantUpload(FileInstantUploadDto dto, Long userId) {
+        userReadOnlyChecker.checkWriteAllowed(userId);
         FileNode candidate = fileMapper.selectById(dto.getCandidateId());
         if (candidate == null || !candidate.getUserId().equals(userId)) {
             throw new BusinessException(ResultCode.NOT_FOUND, "候选文件不存在");
