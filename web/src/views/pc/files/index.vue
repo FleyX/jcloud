@@ -31,7 +31,7 @@ import {
   Check,
 } from '@lucide/vue'
 import { cn } from '@/utils/cn'
-import { deleteToTrash, downloadFile, fetchFilePage, uploadFile } from '@/api/file'
+import { deleteToTrash, downloadBatchFiles, downloadFile, fetchFilePage, uploadFile } from '@/api/file'
 import { useConfirmStore } from '@/store/confirm'
 import { useNotificationStore } from '@/store/notification'
 import { useTransferStore } from '@/store/transfer'
@@ -242,6 +242,26 @@ async function handleBatchDelete() {
   await deleteToTrash({ ids: targets.map((f) => f.id) })
   notificationStore.success('已移动到回收站')
   await loadFiles()
+}
+
+async function handleBatchDownload() {
+  const targets = selectedFiles.value
+  if (targets.length === 0) return
+  const taskId = `dl-${Date.now()}`
+  transferStore.addDownloadTask({ taskId, fileName: 'archive.zip' })
+  try {
+    await downloadBatchFiles(
+      targets.map((f) => f.id),
+      'archive.zip',
+      (progress) => transferStore.updateDownloadProgress(taskId, progress),
+    )
+    transferStore.completeDownloadTask(taskId)
+    notificationStore.success('下载完成')
+  } catch (err) {
+    const message = err instanceof Error ? err.message : '下载失败'
+    transferStore.failDownloadTask(taskId, message)
+    notificationStore.error(message)
+  }
 }
 </script>
 
@@ -521,6 +541,7 @@ async function handleBatchDelete() {
       :selected-count="selectedIds.size"
       @move="openMoveCopy('move', selectedFiles)"
       @copy="openMoveCopy('copy', selectedFiles)"
+      @download="handleBatchDownload"
       @delete="handleBatchDelete"
       @clear="clearSelection"
     />

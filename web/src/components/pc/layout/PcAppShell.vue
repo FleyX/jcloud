@@ -7,6 +7,7 @@
  */
 import Header from '@/components/pc/layout/Header.vue'
 import Sidebar from '@/components/pc/layout/Sidebar.vue'
+import TransferPanel from '@/components/transfer/TransferPanel.vue'
 </script>
 
 <template>
@@ -32,5 +33,7 @@ import Sidebar from '@/components/pc/layout/Sidebar.vue'
         </router-view>
       </main>
     </div>
+
+    <TransferPanel />
   </div>
 </template>

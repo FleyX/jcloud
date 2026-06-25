@@ -5,8 +5,11 @@ import com.fleyx.jcloud.common.R;
 import com.fleyx.jcloud.common.constant.CommonConstant;
 import com.fleyx.jcloud.common.context.UserContext;
 import com.fleyx.jcloud.common.enums.PreviewType;
+import com.fleyx.jcloud.model.bo.BatchDownloadResult;
 import com.fleyx.jcloud.model.bo.FileDownloadResult;
+import com.fleyx.jcloud.model.bo.FileZipTask;
 import com.fleyx.jcloud.model.bo.PreviewResult;
+import com.fleyx.jcloud.model.dto.FileBatchDownloadDto;
 import com.fleyx.jcloud.model.dto.FileCreateFolderDto;
 import com.fleyx.jcloud.model.dto.FileDeleteDto;
 import com.fleyx.jcloud.model.dto.FileExecuteOperationDto;
@@ -20,8 +23,10 @@ import com.fleyx.jcloud.model.dto.FilePreCheckRestoreDto;
 import com.fleyx.jcloud.model.dto.FileRenameDto;
 import com.fleyx.jcloud.model.vo.ConflictItemVo;
 import com.fleyx.jcloud.model.vo.FileNodeVo;
+import com.fleyx.jcloud.model.vo.FileZipTaskVo;
 import com.fleyx.jcloud.model.vo.OperationResultVo;
 import com.fleyx.jcloud.model.vo.RecycleRecordVo;
+import com.fleyx.jcloud.service.FileDownloadService;
 import com.fleyx.jcloud.service.FileOperationService;
 import com.fleyx.jcloud.service.FilePreviewService;
 import com.fleyx.jcloud.service.FileRecycleService;
@@ -59,6 +64,7 @@ public class FileController {
     private final FileOperationService fileOperationService;
     private final FileRecycleService fileRecycleService;
     private final FilePreviewService filePreviewService;
+    private final FileDownloadService fileDownloadService;
 
     /**
      * 上传文件到当前用户根目录。
@@ -218,5 +224,63 @@ public class FileController {
     @PostMapping("/trash/permanent-delete")
     public R<List<OperationResultVo>> permanentDelete(@RequestBody FilePermanentDeleteDto dto) {
         return R.ok(fileRecycleService.permanentDelete(dto, UserContext.get().id()));
+    }
+
+    /**
+     * 批量下载文件/文件夹。
+     * 低于阈值时直接流式返回 ZIP；超过阈值时返回后台任务 ID。
+     */
+    @PostMapping("/batch-download")
+    public ResponseEntity<?> batchDownload(@RequestBody FileBatchDownloadDto dto) {
+        BatchDownloadResult result = fileDownloadService.downloadBatch(dto, UserContext.get().id());
+        if (result instanceof BatchDownloadResult.StreamResult streamResult) {
+            return ResponseEntity.ok()
+                    .header(HttpHeaders.CONTENT_DISPOSITION,
+                            "attachment; filename=\"" + streamResult.fileName() + "\"")
+                    .contentType(MediaType.APPLICATION_OCTET_STREAM)
+                    .contentLength(streamResult.totalSize())
+                    .body(new InputStreamResource(streamResult.inputStream()));
+        }
+        BatchDownloadResult.TaskResult taskResult = (BatchDownloadResult.TaskResult) result;
+        return ResponseEntity.ok().body(R.ok(toTaskVo(taskResult)));
+    }
+
+    /**
+     * 查询批量下载任务状态。
+     */
+    @GetMapping("/batch-download/{taskId}/status")
+    public R<FileZipTaskVo> batchDownloadStatus(@PathVariable String taskId) {
+        FileZipTask task = fileDownloadService.getTask(taskId, UserContext.get().id());
+        return R.ok(toTaskVo(task));
+    }
+
+    /**
+     * 下载已完成的批量下载 ZIP。
+     */
+    @GetMapping("/batch-download/{taskId}")
+    public ResponseEntity<InputStreamResource> downloadBatchResult(@PathVariable String taskId) {
+        FileDownloadResult result = fileDownloadService.downloadTaskResult(taskId, UserContext.get().id());
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        "attachment; filename=\"" + result.getFileName() + "\"")
+                .contentType(MediaType.APPLICATION_OCTET_STREAM)
+                .contentLength(result.getSize())
+                .body(new InputStreamResource(result.getInputStream()));
+    }
+
+    private FileZipTaskVo toTaskVo(BatchDownloadResult.TaskResult result) {
+        FileZipTaskVo vo = new FileZipTaskVo();
+        vo.setTaskId(result.taskId());
+        vo.setStatus(result.status().getCode());
+        return vo;
+    }
+
+    private FileZipTaskVo toTaskVo(FileZipTask task) {
+        FileZipTaskVo vo = new FileZipTaskVo();
+        vo.setTaskId(task.taskId());
+        vo.setStatus(task.status().getCode());
+        vo.setTotalBytes(task.totalBytes());
+        vo.setMessage(task.message());
+        return vo;
     }
 }

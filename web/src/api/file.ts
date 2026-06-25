@@ -5,6 +5,7 @@ import { get, post } from './request'
 import type { PageResult } from '@/types/auth'
 import type {
   ConflictItemVo,
+  FileBatchDownloadRequest,
   FileCreateFolderRequest,
   FileDeleteRequest,
   FileExecuteOperationRequest,
@@ -15,6 +16,7 @@ import type {
   FilePreCheckOperationRequest,
   FilePreCheckRestoreRequest,
   FileRenameRequest,
+  FileZipTaskVo,
   OperationResultVo,
   RecycleRecordVo,
 } from '@/types/file'
@@ -163,6 +165,125 @@ export function previewFileUrl(id: string, type: 'thumbnail' | 'poster' | 'text'
 
 export function fetchTextPreview(id: string): Promise<PreviewTextResponse> {
   return get<PreviewTextResponse>(`/files/${id}/preview`, { type: 'text' })
+}
+
+/**
+ * 批量下载文件/文件夹。
+ * 小文件直接流式下载；大文件后台预生成后自动轮询并下载。
+ */
+export async function downloadBatchFiles(
+  ids: string[],
+  fileName = 'archive.zip',
+  onProgress?: (progress: number) => void,
+): Promise<void> {
+  const userStore = useUserStore()
+  const response = await fetch('/jcloud/api/files/batch-download', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${userStore.token}`,
+    },
+    body: JSON.stringify({ ids } satisfies FileBatchDownloadRequest),
+  })
+
+  if (!response.ok) {
+    const json = await response.json().catch(() => ({}))
+    throw new Error(json.msg || '下载失败')
+  }
+
+  const contentType = response.headers.get('content-type') || ''
+  if (contentType.includes('application/json')) {
+    const json = (await response.json()) as { code: number; msg: string; data: FileZipTaskVo }
+    if (json.code !== 200) {
+      throw new Error(json.msg || '下载失败')
+    }
+    await pollAndDownloadTask(json.data.taskId, fileName, onProgress)
+    return
+  }
+
+  await saveResponseToFile(response, fileName, onProgress)
+}
+
+async function pollAndDownloadTask(
+  taskId: string,
+  fileName: string,
+  onProgress?: (progress: number) => void,
+): Promise<void> {
+  const userStore = useUserStore()
+  const maxAttempts = 120
+  const intervalMs = 1000
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    await sleep(intervalMs)
+    const response = await fetch(`/jcloud/api/files/batch-download/${taskId}/status`, {
+      headers: { Authorization: `Bearer ${userStore.token}` },
+    })
+    const json = (await response.json()) as { code: number; msg: string; data: FileZipTaskVo }
+    if (json.code !== 200) {
+      throw new Error(json.msg || '查询下载任务失败')
+    }
+    const task = json.data
+    if (task.status === 'failed') {
+      throw new Error(task.message || '下载任务失败')
+    }
+    if (task.status === 'completed') {
+      const downloadResponse = await fetch(`/jcloud/api/files/batch-download/${taskId}`, {
+        headers: { Authorization: `Bearer ${userStore.token}` },
+      })
+      if (!downloadResponse.ok) {
+        throw new Error('下载 ZIP 失败')
+      }
+      await saveResponseToFile(downloadResponse, fileName, onProgress)
+      return
+    }
+    if (onProgress) {
+      // 运行中先展示 50% 进度，完成后再跳到 100%
+      onProgress(attempt % 2 === 0 ? 45 : 50)
+    }
+  }
+  throw new Error('下载任务超时')
+}
+
+async function saveResponseToFile(
+  response: Response,
+  fileName: string,
+  onProgress?: (progress: number) => void,
+): Promise<void> {
+  const reader = response.body?.getReader()
+  if (!reader) {
+    throw new Error('无法读取下载响应')
+  }
+
+  const total = Number(response.headers.get('content-length')) || 0
+  let loaded = 0
+  const chunks: Uint8Array[] = []
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    chunks.push(value)
+    loaded += value.length
+    if (onProgress && total > 0) {
+      onProgress(Math.min(Math.round((loaded / total) * 100), 100))
+    }
+  }
+
+  const blob = new Blob(chunks as BlobPart[])
+  const link = document.createElement('a')
+  link.href = URL.createObjectURL(blob)
+  link.download = fileName
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(link.href)
+
+  if (onProgress) {
+    onProgress(100)
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 async function handleJsonResponse<T>(response: Response): Promise<T> {
