@@ -16,6 +16,7 @@ import com.fleyx.jcloud.model.dto.UserLoginDto;
 import com.fleyx.jcloud.model.dto.UserRegisterDto;
 import com.fleyx.jcloud.model.po.Role;
 import com.fleyx.jcloud.model.po.User;
+import com.fleyx.jcloud.model.po.UserRole;
 import com.fleyx.jcloud.model.vo.LoginVo;
 import com.fleyx.jcloud.model.vo.UserVo;
 import com.fleyx.jcloud.service.AuthService;
@@ -54,7 +55,24 @@ public class AuthServiceImpl implements AuthService {
         user.setStatus(UserStatus.ENABLED.getCode());
         user.setIsAdmin(0);
         userMapper.insert(user);
+        bindCommonUserRole(user.getId());
         return userConvert.poToVo(user);
+    }
+
+    private void bindCommonUserRole(Long userId) {
+        Role role = roleMapper.selectOne(
+                new LambdaQueryWrapper<Role>()
+                        .eq(Role::getCode, "common_user")
+                        .eq(Role::getStatus, UserStatus.ENABLED.getCode())
+                        .eq(Role::getDeleteAt, 0)
+        );
+        if (role == null) {
+            return;
+        }
+        UserRole userRole = new UserRole();
+        userRole.setUserId(userId);
+        userRole.setRoleId(role.getId());
+        userRoleMapper.insert(userRole);
     }
 
     @Override

@@ -15,6 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * 认证服务单元测试。
@@ -59,6 +60,7 @@ class AuthServiceImplTest {
         assertNotNull(vo.getUserInfo());
         assertEquals(reg.getUsername(), vo.getUserInfo().getUsername());
         assertNotNull(vo.getPermissions());
+        assertTrue(vo.getPermissions().contains("file:menu"));
     }
 
     @Test

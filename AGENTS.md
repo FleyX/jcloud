@@ -2,7 +2,7 @@
 
 高性能个人网盘。前后端分离：
 
-- **后端**：`app/`，Spring Boot 4.1 + MyBatis-Plus + PostgreSQL + Flyway
+- **后端**：`app/`，Spring Boot 4.1 + MyBatis-Plus + PostgreSQL + Flyway + redis
 - **前端**：`web/`，Vite + Vue 3 + TypeScript + Pinia + Tailwind CSS + radix-vue + tailwind-merge
 
 ## 开发环境约定
@@ -100,7 +100,7 @@ spring:
 ## 测试与构建
 
 - 单元测试：后端使用 JUnit 5（Spring Boot 默认）。
-- 构建：`./mvnw clean package`
+- 构建：`mvn clean package`
 
 # 前端
 

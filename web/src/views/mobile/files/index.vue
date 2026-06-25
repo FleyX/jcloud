@@ -1,10 +1,9 @@
 <script setup lang="ts">
 /**
  * 移动端文件列表
- * - 卡片式列表，支持搜索与模拟上传
- * - 后续接入真实 API 后替换 mock 数据
+ * - 真实接口：上传、列表查询、下载
  */
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import {
   FileText,
   Image as ImageIcon,
@@ -13,33 +12,19 @@ import {
   FolderUp,
   Search,
   Plus,
-  MoreVertical,
+  Download,
 } from '@lucide/vue'
 import { cn } from '@/utils/cn'
-import { useTransferStore } from '@/store/transfer'
+import { fetchFilePage, uploadFile, downloadFile } from '@/api/file'
 import type { Component } from 'vue'
+import type { FileNodeVo } from '@/types/file'
 
-const transferStore = useTransferStore()
+const files = ref<FileNodeVo[]>([])
+const keyword = ref('')
+const loading = ref(false)
+const fileInput = ref<HTMLInputElement | null>(null)
 
 type FileType = 'image' | 'video' | 'audio' | 'doc' | 'folder'
-
-interface FileItem {
-  id: string
-  name: string
-  type: FileType
-  size: string
-  updatedAt: string
-  selected?: boolean
-}
-
-const files = ref<FileItem[]>([
-  { id: '1', name: '2024-Q4-产品规划.pdf', type: 'doc', size: '2.4 MB', updatedAt: '2024-11-20' },
-  { id: '2', name: '首页 Banner 设计稿.png', type: 'image', size: '8.7 MB', updatedAt: '2024-11-18', selected: true },
-  { id: '3', name: '产品发布会开场视频.mp4', type: 'video', size: '156 MB', updatedAt: '2024-11-15' },
-  { id: '4', name: '背景音乐精选.mp3', type: 'audio', size: '12.1 MB', updatedAt: '2024-11-12' },
-])
-
-const keyword = ref('')
 
 const fileIconMap: Record<FileType, Component> = {
   doc: FileText,
@@ -49,21 +34,78 @@ const fileIconMap: Record<FileType, Component> = {
   folder: FolderUp,
 }
 
-const filteredFiles = computed(() => {
-  if (!keyword.value) return files.value
-  const lower = keyword.value.trim().toLowerCase()
-  return files.value.filter((file) => file.name.toLowerCase().includes(lower))
-})
-
-function toggleSelect(file: FileItem) {
-  file.selected = !file.selected
+function inferType(file: FileNodeVo): FileType {
+  const mime = file.mimeType || ''
+  if (mime.startsWith('image/')) return 'image'
+  if (mime.startsWith('video/')) return 'video'
+  if (mime.startsWith('audio/')) return 'audio'
+  const ext = file.name.split('.').pop()?.toLowerCase() || ''
+  if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp'].includes(ext)) return 'image'
+  if (['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(ext)) return 'video'
+  if (['mp3', 'wav', 'flac', 'aac', 'ogg'].includes(ext)) return 'audio'
+  return 'doc'
 }
 
-function handleMockUpload() {
-  transferStore.addUploadTask({
-    fileId: `mock-${Date.now()}`,
-    fileName: '示例上传文件.zip',
-  })
+function formatSize(bytes?: string | number): string {
+  const num = Number(bytes)
+  if (!num) return '-'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  let i = 0
+  let size = num
+  while (size >= 1024 && i < units.length - 1) {
+    size /= 1024
+    i++
+  }
+  return `${size.toFixed(2)} ${units[i]}`
+}
+
+function formatDate(time?: string): string {
+  if (!time) return '-'
+  return time.split(' ')[0]
+}
+
+const filteredFiles = computed(() =>
+  files.value.map((file) => ({
+    ...file,
+    type: inferType(file),
+    displaySize: formatSize(file.size),
+    displayDate: formatDate(file.createTime),
+  })),
+)
+
+async function loadFiles() {
+  loading.value = true
+  try {
+    const res = await fetchFilePage({
+      parentId: '0',
+      name: keyword.value,
+      pageNum: 1,
+      pageSize: 100,
+    })
+    files.value = res.records
+  } finally {
+    loading.value = false
+  }
+}
+
+function handleSearch() {
+  loadFiles()
+}
+
+function triggerFileSelect() {
+  fileInput.value?.click()
+}
+
+async function handleFileChange(event: Event) {
+  const target = event.target as HTMLInputElement
+  const file = target.files?.[0]
+  if (!file) return
+  try {
+    await uploadFile(file)
+    await loadFiles()
+  } finally {
+    target.value = ''
+  }
 }
 
 function getTypeStyle(type: FileType) {
@@ -80,6 +122,8 @@ function getTypeStyle(type: FileType) {
       return 'bg-blue-100 text-blue-600'
   }
 }
+
+onMounted(loadFiles)
 </script>
 
 <template>
@@ -96,32 +140,40 @@ function getTypeStyle(type: FileType) {
             type="text"
             placeholder="搜索文件..."
             class="flex-1 bg-transparent text-sm outline-none placeholder:text-surface-400"
+            @keyup.enter="handleSearch"
           >
         </div>
         <button
           class="flex h-10 w-10 items-center justify-center rounded-xl bg-primary-600 text-white shadow-soft active:scale-95"
-          @click="handleMockUpload"
+          @click="triggerFileSelect"
         >
           <Plus class="h-5 w-5" />
         </button>
+        <input
+          ref="fileInput"
+          type="file"
+          class="hidden"
+          @change="handleFileChange"
+        >
       </div>
     </div>
 
     <!-- 文件列表 -->
     <div class="flex-1 overflow-y-auto p-4">
-      <div class="space-y-3">
+      <div
+        v-if="loading"
+        class="py-10 text-center text-sm text-surface-500"
+      >
+        加载中...
+      </div>
+      <div
+        v-else
+        class="space-y-3"
+      >
         <div
           v-for="file in filteredFiles"
           :key="file.id"
-          :class="
-            cn(
-              'flex items-center gap-3 rounded-2xl border bg-white p-4 shadow-card transition-all active:scale-[0.99]',
-              file.selected
-                ? 'border-primary-300 bg-primary-50/60'
-                : 'border-surface-200'
-            )
-          "
-          @click="toggleSelect(file)"
+          class="flex items-center gap-3 rounded-2xl border border-surface-200 bg-white p-4 shadow-card transition-all active:scale-[0.99]"
         >
           <div
             :class="
@@ -138,28 +190,28 @@ function getTypeStyle(type: FileType) {
           </div>
 
           <div class="min-w-0 flex-1">
-            <p :class="cn('truncate text-sm font-medium', file.selected ? 'text-primary-700' : 'text-surface-900')">
+            <p class="truncate text-sm font-medium text-surface-900">
               {{ file.name }}
             </p>
             <p class="mt-0.5 text-xs text-surface-500">
-              {{ file.size }} · {{ file.updatedAt }}
+              {{ file.displaySize }} · {{ file.displayDate }}
             </p>
           </div>
 
           <button
             class="rounded-lg p-2 text-surface-400 hover:bg-surface-100 hover:text-surface-700"
-            @click.stop
+            @click.stop="downloadFile(file.id)"
           >
-            <MoreVertical class="h-5 w-5" />
+            <Download class="h-5 w-5" />
           </button>
         </div>
       </div>
 
       <p
-        v-if="filteredFiles.length === 0"
+        v-if="!loading && filteredFiles.length === 0"
         class="py-10 text-center text-sm text-surface-500"
       >
-        未找到匹配的文件
+        暂无文件，点击右上角上传
       </p>
     </div>
   </div>

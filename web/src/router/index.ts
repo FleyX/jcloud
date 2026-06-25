@@ -3,7 +3,7 @@ import type { RouteRecordRaw } from 'vue-router'
 import { useUserStore } from '@/store/user'
 import { deviceView } from '@/utils/device'
 
-type RouteName = 'Login' | 'Register' | 'NotFound' | 'Files' | 'UserManagement' | 'RoleManagement' | 'PermissionManagement' | 'Profile'
+type RouteName = 'Login' | 'Register' | 'NotFound' | 'Files' | 'Trash' | 'UserManagement' | 'RoleManagement' | 'PermissionManagement' | 'StorageSpaceManagement' | 'Profile'
 
 /**
  * 公开静态路由
@@ -46,6 +46,12 @@ const dynamicRoutes: RouteRecordRaw[] = [
     meta: { title: '全部文件' },
   },
   {
+    path: '/files/trash',
+    name: 'Trash' as RouteName,
+    component: deviceView('files/trash'),
+    meta: { title: '回收站' },
+  },
+  {
     path: '/admin/users',
     name: 'UserManagement' as RouteName,
     component: deviceView('admin/Users'),
@@ -62,6 +68,12 @@ const dynamicRoutes: RouteRecordRaw[] = [
     name: 'PermissionManagement' as RouteName,
     component: deviceView('admin/Permissions'),
     meta: { permission: 'permission:menu', title: '权限管理' },
+  },
+  {
+    path: '/admin/storage-spaces',
+    name: 'StorageSpaceManagement' as RouteName,
+    component: deviceView('admin/StorageSpaces'),
+    meta: { permission: 'storage_space:menu', title: '存储空间管理' },
   },
   {
     path: '/profile',

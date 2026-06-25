@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.fleyx.jcloud.mapper.FileMapper">
+
+    <!-- 物理删除指定 ID 的文件节点 -->
+    <delete id="physicalDeleteById">
+        DELETE FROM t_file_node WHERE id = #{id}
+    </delete>
+
+    <!-- 批量物理删除文件节点 -->
+    <delete id="physicalDeleteByIds">
+        DELETE FROM t_file_node WHERE id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </delete>
+
+    <!-- 查询指定路径前缀下的所有文件节点（含自身） -->
+    <select id="selectByPathNamePrefix" resultType="com.fleyx.jcloud.model.po.FileNode">
+        SELECT *
+        FROM t_file_node
+        WHERE user_id = #{userId}
+          AND delete_at = 0
+          AND (path_name = #{prefix} OR path_name LIKE CONCAT(#{prefix}, '/%'))
+        ORDER BY path_name
+    </select>
+
+    <!-- 查询指定路径前缀下的所有文件类型节点 -->
+    <select id="selectFilesByPathNamePrefix" resultType="com.fleyx.jcloud.model.po.FileNode">
+        SELECT *
+        FROM t_file_node
+        WHERE user_id = #{userId}
+          AND delete_at = 0
+          AND type = 'file'
+          AND (path_name = #{prefix} OR path_name LIKE CONCAT(#{prefix}, '/%'))
+    </select>
+
+</mapper>

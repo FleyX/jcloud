@@ -10,6 +10,7 @@ import com.fleyx.jcloud.model.dto.UserPageQueryDto;
 import com.fleyx.jcloud.model.dto.UserProfileUpdateDto;
 import com.fleyx.jcloud.model.dto.UserSaveDto;
 import com.fleyx.jcloud.model.dto.UserStatusDto;
+import com.fleyx.jcloud.model.dto.UserStorageDto;
 import com.fleyx.jcloud.model.dto.UserUpdateDto;
 import com.fleyx.jcloud.model.dto.UserUpdateRolesDto;
 import com.fleyx.jcloud.model.vo.UserProfileVo;
@@ -147,6 +148,16 @@ public class UserController {
     @PutMapping("/me/password")
     public R<Void> changeCurrentPassword(@Valid @RequestBody ChangePasswordDto dto) {
         userService.changePassword(UserContext.get().id(), dto);
+        return R.ok();
+    }
+
+    /**
+     * 为用户设置默认存储空间与配额。
+     */
+    @PutMapping("/{id}/storage")
+    public R<Void> bindStorageSpace(@PathVariable Long id, @Valid @RequestBody UserStorageDto dto) {
+        dto.setUserId(id);
+        userService.bindStorageSpace(dto);
         return R.ok();
     }
 }

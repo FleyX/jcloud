@@ -87,6 +87,9 @@ export const useMenuStore = defineStore('menu', () => {
     if (userStore.isAdmin || userStore.hasPermission('permission:menu')) {
       menus.push({ key: 'permissions', label: '权限管理', route: '/admin/permissions' })
     }
+    if (userStore.isAdmin || userStore.hasPermission('storage_space:menu')) {
+      menus.push({ key: 'storage-spaces', label: '存储空间管理', route: '/admin/storage-spaces' })
+    }
     return menus
   }
 

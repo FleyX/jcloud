@@ -7,6 +7,7 @@ import com.fleyx.jcloud.model.dto.UserPageQueryDto;
 import com.fleyx.jcloud.model.dto.UserProfileUpdateDto;
 import com.fleyx.jcloud.model.dto.UserSaveDto;
 import com.fleyx.jcloud.model.dto.UserStatusDto;
+import com.fleyx.jcloud.model.dto.UserStorageDto;
 import com.fleyx.jcloud.model.dto.UserUpdateDto;
 import com.fleyx.jcloud.model.dto.UserUpdateRolesDto;
 import com.fleyx.jcloud.model.vo.UserProfileVo;
@@ -121,4 +122,11 @@ public interface UserService {
      * @param dto    密码修改 DTO
      */
     void changePassword(Long userId, ChangePasswordDto dto);
+
+    /**
+     * 为用户绑定默认存储空间与配额。
+     *
+     * @param dto 用户存储空间绑定 DTO
+     */
+    void bindStorageSpace(UserStorageDto dto);
 }

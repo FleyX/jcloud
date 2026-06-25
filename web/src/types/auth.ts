@@ -9,6 +9,8 @@ export interface UserVo {
   status: number
   isAdmin: boolean
   roles: RoleVo[]
+  quota?: string
+  usedSpace?: string
   createTime?: string
   updateTime?: string
 }

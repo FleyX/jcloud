@@ -5,10 +5,13 @@ import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.UserMapper;
 import com.fleyx.jcloud.mapper.UserRoleMapper;
 import com.fleyx.jcloud.model.dto.BatchUserStatusDto;
+import com.fleyx.jcloud.model.dto.StorageSpaceSaveDto;
 import com.fleyx.jcloud.model.dto.UserSaveDto;
+import com.fleyx.jcloud.model.dto.UserStorageDto;
 import com.fleyx.jcloud.model.dto.UserUpdateDto;
 import com.fleyx.jcloud.model.po.User;
 import com.fleyx.jcloud.model.po.UserRole;
+import com.fleyx.jcloud.model.vo.StorageSpaceVo;
 import com.fleyx.jcloud.model.vo.UserVo;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -40,6 +43,9 @@ class UserServiceTest {
 
     @Autowired
     private UserRoleMapper userRoleMapper;
+
+    @Autowired
+    private StorageSpaceService storageSpaceService;
 
     private UserSaveDto buildDto(String username) {
         UserSaveDto dto = new UserSaveDto();
@@ -199,5 +205,29 @@ class UserServiceTest {
         UserVo reused = userService.saveUser(dto);
         assertNotNull(reused);
         assertEquals(dto.getUsername(), reused.getUsername());
+    }
+
+    @Test
+    void shouldBindStorageSpaceAndQuotaToUser() {
+        StorageSpaceSaveDto spaceDto = new StorageSpaceSaveDto();
+        spaceDto.setName("用户空间");
+        spaceDto.setPath("/data/jcloud/user-binding");
+        spaceDto.setType("USER");
+        spaceDto.setCapacity(107374182400L);
+        StorageSpaceVo space = storageSpaceService.save(spaceDto);
+
+        UserSaveDto userDto = buildDto("bindStorageUser");
+        UserVo user = userService.saveUser(userDto);
+
+        UserStorageDto bindDto = new UserStorageDto();
+        bindDto.setUserId(user.getId());
+        bindDto.setStorageSpaceId(space.getId());
+        bindDto.setQuota(10737418240L);
+
+        userService.bindStorageSpace(bindDto);
+
+        User updated = userMapper.selectById(user.getId());
+        assertEquals(space.getId(), updated.getStorageSpaceId());
+        assertEquals(10737418240L, updated.getQuota());
     }
 }
