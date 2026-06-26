@@ -5,9 +5,7 @@
  * - 支持恢复与永久删除
  */
 import { computed, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
 import {
-  ArrowLeft,
   Check,
   FileText,
   FolderUp,
@@ -28,7 +26,6 @@ import { useNotificationStore } from '@/store/notification'
 import type { Component } from 'vue'
 import type { OperationResultVo, RecycleRecordVo } from '@/types/file'
 
-const router = useRouter()
 const confirmStore = useConfirmStore()
 const notificationStore = useNotificationStore()
 
@@ -164,18 +161,9 @@ function showResult(action: string, results: OperationResultVo[]) {
   <div class="mx-auto h-full max-w-7xl">
     <!-- 顶部工具栏 -->
     <div class="mb-6 flex items-center justify-between">
-      <div class="flex items-center gap-3">
-        <button
-          class="flex h-9 items-center gap-2 rounded-xl border border-surface-200 bg-white px-3 text-sm font-medium text-surface-700 shadow-card transition-all hover:bg-surface-50"
-          @click="router.push('/files')"
-        >
-          <ArrowLeft class="h-4 w-4" />
-          返回文件
-        </button>
-        <h1 class="text-lg font-semibold text-surface-900">
-          回收站
-        </h1>
-      </div>
+      <h1 class="text-lg font-semibold text-surface-900">
+        回收站
+      </h1>
 
       <div class="flex items-center gap-3">
         <button

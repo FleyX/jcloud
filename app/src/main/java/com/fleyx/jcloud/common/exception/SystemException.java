@@ -7,7 +7,7 @@ import lombok.Getter;
  * 业务异常。
  */
 @Getter
-public class BusinessException extends RuntimeException {
+public class SystemException extends RuntimeException {
 
     private static final long serialVersionUID = 1L;
 
@@ -16,27 +16,27 @@ public class BusinessException extends RuntimeException {
      */
     private final ResultCode resultCode;
 
-    public BusinessException(String message) {
+    public SystemException(String message) {
         super(message);
         this.resultCode = ResultCode.BUSINESS_ERROR;
     }
 
-    public BusinessException(ResultCode resultCode) {
+    public SystemException(ResultCode resultCode) {
         super(resultCode.getMsg());
         this.resultCode = resultCode;
     }
 
-    public BusinessException(ResultCode resultCode, String message) {
+    public SystemException(ResultCode resultCode, String message) {
         super(message);
         this.resultCode = resultCode;
     }
 
-    public BusinessException(ResultCode resultCode, Throwable cause) {
+    public SystemException(ResultCode resultCode, Throwable cause) {
         super(resultCode.getMsg(), cause);
         this.resultCode = resultCode;
     }
 
-    public BusinessException(ResultCode resultCode, String message, Throwable cause) {
+    public SystemException(ResultCode resultCode, String message, Throwable cause) {
         super(message, cause);
         this.resultCode = resultCode;
     }

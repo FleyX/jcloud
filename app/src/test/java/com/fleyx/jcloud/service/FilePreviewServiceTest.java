@@ -11,14 +11,13 @@ import com.fleyx.jcloud.model.dto.UserStorageDto;
 import com.fleyx.jcloud.model.vo.FileNodeVo;
 import com.fleyx.jcloud.model.vo.StorageSpaceVo;
 import com.fleyx.jcloud.model.vo.UserVo;
+import com.fleyx.jcloud.service.SystemConfigService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.ActiveProfiles;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -59,13 +58,11 @@ class FilePreviewServiceTest {
     @Autowired
     private PreviewFileMapper previewFileMapper;
 
+    @Autowired
+    private SystemConfigService systemConfigService;
+
     @TempDir
     static Path tempDir;
-
-    @DynamicPropertySource
-    static void properties(DynamicPropertyRegistry registry) {
-        registry.add("jcloud.storage.system-path", () -> tempDir.resolve("system").toString());
-    }
 
     @Test
     void shouldGenerateImageThumbnail() throws Exception {
@@ -134,10 +131,10 @@ class FilePreviewServiceTest {
                         .eq(PreviewFile::getFileNodeId, Long.valueOf(uploaded.getId()))
         ).get(0);
 
-        Path previewPath = tempDir.resolve("system").resolve(record.getRelativePath());
+        Path systemPath = userWithSpace.spacePath().resolve("system");
+        Path previewPath = systemPath.resolve(record.getRelativePath());
         assertTrue(Files.exists(previewPath));
-        assertTrue(previewPath.startsWith(tempDir.resolve("system")));
-        assertTrue(!previewPath.startsWith(userWithSpace.spacePath()));
+        assertTrue(previewPath.startsWith(systemPath));
     }
 
     @Test
@@ -216,6 +213,7 @@ class FilePreviewServiceTest {
         spaceDto.setType("USER");
         spaceDto.setCapacity(Math.max(quota, 107374182400L));
         StorageSpaceVo space = storageSpaceService.save(spaceDto);
+        systemConfigService.setValue("system.storage.space.id", String.valueOf(space.getId()));
 
         UserSaveDto userDto = new UserSaveDto();
         userDto.setUsername("previewUser" + System.nanoTime());

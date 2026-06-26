@@ -8,11 +8,9 @@
 import { computed, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useMenuStore } from '@/store/menu'
-import { useTransferStore } from '@/store/transfer'
 import { useUserStore } from '@/store/user'
 import {
   FolderOpen,
-  ArrowLeftRight,
   Share2,
   Trash2,
   HardDrive,
@@ -26,12 +24,10 @@ import type { Component } from 'vue'
 const router = useRouter()
 const route = useRoute()
 const menuStore = useMenuStore()
-const transferStore = useTransferStore()
 const userStore = useUserStore()
 
 const iconMap: Record<string, Component> = {
   all: FolderOpen,
-  transfer: ArrowLeftRight,
   share: Share2,
   trash: Trash2,
   recent: FileText,
@@ -122,14 +118,6 @@ watch(() => route.path, syncMenuWithRoute)
               "
             />
             <span class="flex-1 text-left">{{ item.label }}</span>
-
-            <!-- 正在传输角标：展示进行中的任务数 -->
-            <span
-              v-if="item.key === 'transfer' && transferStore.hasRunningTask"
-              class="flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-primary-500 px-1.5 text-[10px] font-semibold text-white shadow-sm"
-            >
-              {{ transferStore.uploadingTasks.length }}
-            </span>
           </button>
         </li>
       </ul>

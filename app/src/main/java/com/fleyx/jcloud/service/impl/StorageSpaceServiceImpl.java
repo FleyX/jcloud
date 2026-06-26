@@ -17,6 +17,7 @@ import com.fleyx.jcloud.model.po.StorageSpace;
 import com.fleyx.jcloud.model.po.User;
 import com.fleyx.jcloud.model.vo.StorageSpaceVo;
 import com.fleyx.jcloud.service.StorageSpaceService;
+import com.fleyx.jcloud.service.SystemConfigService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -32,10 +33,14 @@ public class StorageSpaceServiceImpl implements StorageSpaceService {
     private final StorageSpaceMapper storageSpaceMapper;
     private final StorageSpaceConvert storageSpaceConvert;
     private final UserMapper userMapper;
+    private final SystemConfigService systemConfigService;
+
+    private static final String SYSTEM_STORAGE_SPACE_ID_KEY = "system.storage.space.id";
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public StorageSpaceVo save(StorageSpaceSaveDto dto) {
+        rejectSystemType(dto.getType());
         validateType(dto.getType());
         checkPathUnique(dto.getPath());
         StorageSpace po = storageSpaceConvert.dtoToPo(dto);
@@ -65,6 +70,7 @@ public class StorageSpaceServiceImpl implements StorageSpaceService {
         if (existing == null) {
             throw new BusinessException(ResultCode.NOT_FOUND, "存储空间不存在");
         }
+        rejectSystemType(dto.getType());
         validateType(dto.getType());
         if (!existing.getPath().equals(dto.getPath())) {
             checkPathUnique(dto.getPath());
@@ -108,6 +114,7 @@ public class StorageSpaceServiceImpl implements StorageSpaceService {
         if (po == null) {
             throw new BusinessException(ResultCode.NOT_FOUND, "存储空间不存在");
         }
+        rejectIfSystemSpaceConfigured(id);
         LambdaQueryWrapper<User> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(User::getStorageSpaceId, id);
         if (userMapper.selectCount(wrapper) > 0) {
@@ -119,6 +126,19 @@ public class StorageSpaceServiceImpl implements StorageSpaceService {
     private void validateType(String type) {
         if (StorageSpaceType.fromCode(type) == null) {
             throw new BusinessException("存储空间类型不合法");
+        }
+    }
+
+    private void rejectSystemType(String type) {
+        if (StorageSpaceType.SYSTEM.getCode().equals(type)) {
+            throw new BusinessException(ResultCode.BUSINESS_ERROR, "不允许创建或设置为系统类型存储空间，请通过系统目录配置指定");
+        }
+    }
+
+    private void rejectIfSystemSpaceConfigured(Long id) {
+        String configuredId = systemConfigService.getValue(SYSTEM_STORAGE_SPACE_ID_KEY, null);
+        if (configuredId != null && configuredId.equals(String.valueOf(id))) {
+            throw new BusinessException(ResultCode.BUSINESS_ERROR, "该存储空间已被指定为系统数据目录，无法删除");
         }
     }
 

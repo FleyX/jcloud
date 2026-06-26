@@ -4,19 +4,22 @@ import {
   createStorageSpace,
   deleteStorageSpace,
   fetchStorageSpacePage,
+  fetchSystemStorageConfig,
   updateStorageSpace,
 } from '@/api/storage-space'
 import { useConfirmStore } from '@/store/confirm'
 import { useNotificationStore } from '@/store/notification'
 import StorageSpaceDialog from './components/StorageSpaceDialog.vue'
+import SystemStorageConfigDialog from './components/SystemStorageConfigDialog.vue'
 import type { PageResult } from '@/types/auth'
 import type {
   StorageSpacePageQuery,
   StorageSpaceSaveDto,
   StorageSpaceUpdateDto,
   StorageSpaceVo,
+  SystemStorageConfigVo,
 } from '@/types/storage-space'
-import { Database, Plus } from '@lucide/vue'
+import { Database, Plus, Settings } from '@lucide/vue'
 
 const query = reactive<StorageSpacePageQuery>({
   name: '',
@@ -41,11 +44,18 @@ const notificationStore = useNotificationStore()
 const dialogOpen = ref(false)
 const editingSpace = ref<StorageSpaceVo | null>(null)
 
+const configDialogOpen = ref(false)
+const systemConfig = ref<SystemStorageConfigVo>({})
+
 async function loadSpaces() {
   loading.value = true
   try {
-    const data = await fetchStorageSpacePage(query)
+    const [data, config] = await Promise.all([
+      fetchStorageSpacePage(query),
+      fetchSystemStorageConfig(),
+    ])
     pageData.value = data
+    systemConfig.value = config
   } finally {
     loading.value = false
   }
@@ -64,6 +74,14 @@ function openCreateDialog() {
 function openEditDialog(space: StorageSpaceVo) {
   editingSpace.value = space
   dialogOpen.value = true
+}
+
+function openConfigDialog() {
+  configDialogOpen.value = true
+}
+
+async function handleConfigUpdated() {
+  await loadSpaces()
 }
 
 async function handleSubmit(dto: StorageSpaceSaveDto | StorageSpaceUpdateDto) {
@@ -133,12 +151,20 @@ onMounted(() => {
           存储空间管理
         </h2>
       </div>
-      <button
-        class="flex h-8 w-8 items-center justify-center rounded-full bg-primary-600 text-white shadow-soft"
-        @click="openCreateDialog"
-      >
-        <Plus class="h-4 w-4" />
-      </button>
+      <div class="flex items-center gap-2">
+        <button
+          class="flex h-8 w-8 items-center justify-center rounded-full bg-surface-100 text-surface-700 shadow-soft"
+          @click="openConfigDialog"
+        >
+          <Settings class="h-4 w-4" />
+        </button>
+        <button
+          class="flex h-8 w-8 items-center justify-center rounded-full bg-primary-600 text-white shadow-soft"
+          @click="openCreateDialog"
+        >
+          <Plus class="h-4 w-4" />
+        </button>
+      </div>
     </div>
 
     <!-- Filters -->
@@ -158,9 +184,6 @@ onMounted(() => {
         </option>
         <option value="USER">
           用户
-        </option>
-        <option value="SYSTEM">
-          系统
         </option>
       </select>
       <button
@@ -186,6 +209,12 @@ onMounted(() => {
               :class="space.type === 'USER' ? 'bg-blue-50 text-blue-600' : 'bg-purple-50 text-purple-600'"
             >
               {{ space.type === 'USER' ? '用户' : '系统' }}
+            </span>
+            <span
+              v-if="systemConfig.systemSpaceId === space.id"
+              class="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] text-emerald-600"
+            >
+              系统目录
             </span>
           </div>
           <p class="mt-1 truncate text-xs text-surface-500">
@@ -217,6 +246,12 @@ onMounted(() => {
       :editing-space="editingSpace"
       :submitting="submitting"
       @submit="handleSubmit"
+    />
+
+    <SystemStorageConfigDialog
+      v-model:open="configDialogOpen"
+      :config="systemConfig"
+      @updated="handleConfigUpdated"
     />
   </div>
 </template>

@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fleyx.jcloud.common.enums.ConflictStrategy;
 import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.exception.BusinessException;
+import com.fleyx.jcloud.common.exception.SystemException;
 import com.fleyx.jcloud.mapper.FileMapper;
 import com.fleyx.jcloud.mapper.RecycleRecordMapper;
 import com.fleyx.jcloud.mapper.StorageSpaceMapper;
@@ -104,10 +105,10 @@ public class FileRecycleServiceImpl implements FileRecycleService {
                 .sum();
 
         Path trashRoot = resolveTrashRoot(space, userId, node.getId());
-        for (FileNode fileNode : nodesToDelete) {
-            if (TYPE_FILE.equals(fileNode.getType())) {
-                moveFileToTrash(fileNode, space, trashRoot);
-            }
+        if (TYPE_FOLDER.equals(node.getType())) {
+            moveFolderToTrash(node, space, trashRoot);
+        } else {
+            moveFileToTrash(node, space, trashRoot);
         }
 
         RecycleRecord record = new RecycleRecord();
@@ -159,6 +160,22 @@ public class FileRecycleServiceImpl implements FileRecycleService {
         }
     }
 
+    private void moveFolderToTrash(FileNode folder, StorageSpace space, Path trashRoot) {
+        Path sourceTop = resolveFolderPhysicalPath(space, folder.getUserId(), folder.getPathName());
+        Path targetTop = trashRoot.resolve(folder.getName());
+        try {
+            Files.createDirectories(targetTop.getParent());
+            if (Files.exists(sourceTop)) {
+                Files.move(sourceTop, targetTop);
+            } else {
+                Files.createDirectories(targetTop);
+            }
+        } catch (Exception e) {
+            throw new BusinessException(ResultCode.BUSINESS_ERROR,
+                    "移动文件夹到回收站失败: " + folder.getName());
+        }
+    }
+
     private String buildRelativePath(String pathName, String name) {
         String base = pathName == null || "/".equals(pathName) ? "" : pathName;
         if (base.startsWith("/")) {
@@ -172,7 +189,7 @@ public class FileRecycleServiceImpl implements FileRecycleService {
 
     private Path resolveTrashRoot(StorageSpace space, Long userId, Long nodeId) {
         String idStr = nodeId.toString();
-        String prefix = idStr.length() >= 2 ? idStr.substring(0, 2) : idStr;
+        String prefix = idStr.length() >= 10 ? idStr.substring(0, 10) : idStr;
         return Path.of(space.getPath(), userId.toString(), "trash", prefix, idStr);
     }
 
@@ -424,7 +441,7 @@ public class FileRecycleServiceImpl implements FileRecycleService {
             }
             Files.move(sourceTop, targetTop);
         } catch (Exception e) {
-            throw new BusinessException(ResultCode.BUSINESS_ERROR, "恢复文件夹失败: " + record.getName());
+            throw new SystemException(ResultCode.BUSINESS_ERROR, "恢复文件夹失败: " + record.getName(), e);
         }
 
         Map<Path, Long> folderIds = new HashMap<>();
@@ -658,7 +675,7 @@ public class FileRecycleServiceImpl implements FileRecycleService {
 
     private Path resolveTrashBasePath(StorageSpace space, Long userId, Long nodeId) {
         String idStr = nodeId.toString();
-        String prefix = idStr.length() >= 2 ? idStr.substring(0, 2) : idStr;
+        String prefix = idStr.length() >= 10 ? idStr.substring(0, 10) : idStr;
         return Path.of(space.getPath(), userId.toString(), "trash", prefix, idStr);
     }
 

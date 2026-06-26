@@ -55,7 +55,6 @@ export const useMenuStore = defineStore('menu', () => {
       case 'files':
         return [
           { key: 'all', label: '全部文件', route: '/files' },
-          { key: 'transfer', label: '正在传输', route: '/files' },
           { key: 'share', label: '我的分享', route: '/files/share' },
           { key: 'trash', label: '回收站', route: '/files/trash' },
         ]

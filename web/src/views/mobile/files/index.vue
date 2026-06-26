@@ -15,12 +15,14 @@ import {
   Plus,
   Download,
   Check,
+  ChevronRight,
 } from '@lucide/vue'
 import { cn } from '@/utils/cn'
-import { deleteToTrash, downloadBatchFiles, downloadFile, fetchFilePage, uploadFile } from '@/api/file'
+import { deleteToTrash, downloadBatchFiles, downloadFile, fetchFilePage } from '@/api/file'
 import { useConfirmStore } from '@/store/confirm'
 import { useNotificationStore } from '@/store/notification'
 import { useTransferStore } from '@/store/transfer'
+import { useChunkedUpload } from '@/composables/useChunkedUpload'
 import FilePreviewDrawer from '@/components/files/FilePreviewDrawer.vue'
 import MoveCopyModal from '@/views/pc/files/components/MoveCopyModal.vue'
 import MobileBatchActionBar from './components/MobileBatchActionBar.vue'
@@ -30,6 +32,7 @@ import type { FileNodeVo, OperationResultVo } from '@/types/file'
 const confirmStore = useConfirmStore()
 const notificationStore = useNotificationStore()
 const transferStore = useTransferStore()
+const { upload: uploadChunked } = useChunkedUpload()
 
 const files = ref<FileNodeVo[]>([])
 const keyword = ref('')
@@ -42,11 +45,28 @@ const selectedIds = ref<Set<string>>(new Set())
 const moveCopyOpen = ref(false)
 const moveCopyType = ref<'move' | 'copy'>('move')
 const moveCopyTargets = ref<FileNodeVo[]>([])
+const currentParentId = ref('0')
+const breadcrumbStack = ref<Array<{ id: string; name: string }>>([{ id: '0', name: '全部文件' }])
 
 function openPreview(file: FileNodeVo) {
   if (file.type !== 'file') return
   previewTarget.value = file
   previewOpen.value = true
+}
+
+function enterFolder(file: FileNodeVo) {
+  if (file.type !== 'folder') return
+  currentParentId.value = file.id
+  breadcrumbStack.value.push({ id: file.id, name: file.name })
+  keyword.value = ''
+  loadFiles()
+}
+
+function navigateToBreadcrumb(index: number) {
+  breadcrumbStack.value = breadcrumbStack.value.slice(0, index + 1)
+  currentParentId.value = breadcrumbStack.value[index].id
+  keyword.value = ''
+  loadFiles()
 }
 
 type FileType = 'image' | 'video' | 'audio' | 'doc' | 'folder'
@@ -60,6 +80,7 @@ const fileIconMap: Record<FileType, Component> = {
 }
 
 function inferType(file: FileNodeVo): FileType {
+  if (file.type === 'folder') return 'folder'
   const mime = file.mimeType || ''
   if (mime.startsWith('image/')) return 'image'
   if (mime.startsWith('video/')) return 'video'
@@ -108,7 +129,7 @@ async function loadFiles() {
   loading.value = true
   try {
     const res = await fetchFilePage({
-      parentId: '0',
+      parentId: currentParentId.value,
       name: keyword.value,
       pageNum: 1,
       pageSize: 100,
@@ -140,8 +161,7 @@ async function handleFileChange(event: Event) {
   const file = target.files?.[0]
   if (!file) return
   try {
-    await uploadFile(file)
-    await loadFiles()
+    await uploadChunked(file, currentParentId.value, loadFiles)
   } finally {
     target.value = ''
   }
@@ -184,7 +204,11 @@ function handleRowClick(file: FileNodeVo) {
     toggleSelect(file.id)
     return
   }
-  openPreview(file)
+  if (file.type === 'folder') {
+    enterFolder(file)
+  } else {
+    openPreview(file)
+  }
 }
 
 function toggleSelectAll() {
@@ -298,6 +322,31 @@ async function handleBatchDownload() {
           @change="handleFileChange"
         >
       </div>
+    </div>
+
+    <!-- 面包屑导航 -->
+    <div
+      v-if="breadcrumbStack.length > 1"
+      class="flex items-center gap-1 overflow-x-auto border-b border-surface-200 bg-white px-4 py-2 text-sm"
+    >
+      <template
+        v-for="(crumb, index) in breadcrumbStack"
+        :key="crumb.id"
+      >
+        <button
+          :class="cn(
+            'whitespace-nowrap font-medium',
+            index === breadcrumbStack.length - 1 ? 'text-surface-900' : 'text-surface-500'
+          )"
+          @click="navigateToBreadcrumb(index)"
+        >
+          {{ crumb.name }}
+        </button>
+        <ChevronRight
+          v-if="index < breadcrumbStack.length - 1"
+          class="h-4 w-4 shrink-0 text-surface-300"
+        />
+      </template>
     </div>
 
     <!-- 文件列表 -->

@@ -32,6 +32,8 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.lang.reflect.Field;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -82,6 +84,9 @@ class FileDownloadServiceTest {
 
     @Autowired
     private StorageSpaceService storageSpaceService;
+
+    @Autowired
+    private SystemConfigService systemConfigService;
 
     @TempDir
     Path tempDir;
@@ -143,7 +148,6 @@ class FileDownloadServiceTest {
 
         // 临时把阈值降到 1 字节，强制走异步任务
         setField(fileDownloadService, "streamThresholdSize", 1L);
-        setField(fileDownloadService, "zipTempPath", tempDir.resolve("zip-tasks").toString());
 
         FileBatchDownloadDto dto = new FileBatchDownloadDto();
         dto.setIds(List.of(file.getId()));
@@ -171,7 +175,6 @@ class FileDownloadServiceTest {
         FileNodeVo fileA = fileService.upload(buildFile("a.txt", "A"), userA.getId());
 
         setField(fileDownloadService, "streamThresholdSize", 0L);
-        setField(fileDownloadService, "zipTempPath", tempDir.resolve("zip-tasks").toString());
         BatchDownloadResult result = fileDownloadService.downloadBatch(
                 newBatchDto(fileA.getId()), userA.getId());
         String taskId = ((BatchDownloadResult.TaskResult) result).taskId();
@@ -241,6 +244,7 @@ class FileDownloadServiceTest {
         spaceDto.setType("USER");
         spaceDto.setCapacity(Math.max(quota, 107374182400L));
         StorageSpaceVo space = storageSpaceService.save(spaceDto);
+        systemConfigService.setValue("system.storage.space.id", String.valueOf(space.getId()));
 
         UserSaveDto userDto = new UserSaveDto();
         userDto.setUsername("downloadUser" + quota + "-" + System.nanoTime());

@@ -5,6 +5,7 @@ import {
   deleteStorageSpace,
   expandStorageSpace,
   fetchStorageSpacePage,
+  fetchSystemStorageConfig,
   updateStorageSpace,
 } from '@/api/storage-space'
 import { cn } from '@/utils/cn'
@@ -12,6 +13,7 @@ import { useConfirmStore } from '@/store/confirm'
 import { useNotificationStore } from '@/store/notification'
 import StorageSpaceDialog from './components/StorageSpaceDialog.vue'
 import StorageSpaceExpandDialog from './components/StorageSpaceExpandDialog.vue'
+import SystemStorageConfigDialog from './components/SystemStorageConfigDialog.vue'
 import type { PageResult } from '@/types/auth'
 import type {
   StorageSpaceExpandDto,
@@ -19,6 +21,7 @@ import type {
   StorageSpaceSaveDto,
   StorageSpaceUpdateDto,
   StorageSpaceVo,
+  SystemStorageConfigVo,
 } from '@/types/storage-space'
 import {
   Database,
@@ -28,6 +31,7 @@ import {
   ChevronRight,
   Plus,
   Maximize2,
+  Settings,
 } from '@lucide/vue'
 
 const query = reactive<StorageSpacePageQuery>({
@@ -56,11 +60,18 @@ const editingSpace = ref<StorageSpaceVo | null>(null)
 const expandDialogOpen = ref(false)
 const expandingSpace = ref<StorageSpaceVo | null>(null)
 
+const configDialogOpen = ref(false)
+const systemConfig = ref<SystemStorageConfigVo>({})
+
 async function loadSpaces() {
   loading.value = true
   try {
-    const data = await fetchStorageSpacePage(query)
+    const [data, config] = await Promise.all([
+      fetchStorageSpacePage(query),
+      fetchSystemStorageConfig(),
+    ])
     pageData.value = data
+    systemConfig.value = config
   } finally {
     loading.value = false
   }
@@ -89,6 +100,14 @@ function openEditDialog(space: StorageSpaceVo) {
 function openExpandDialog(space: StorageSpaceVo) {
   expandingSpace.value = space
   expandDialogOpen.value = true
+}
+
+function openConfigDialog() {
+  configDialogOpen.value = true
+}
+
+async function handleConfigUpdated() {
+  await loadSpaces()
 }
 
 async function handleExpand(dto: StorageSpaceExpandDto) {
@@ -197,9 +216,6 @@ onMounted(() => {
           <option value="USER">
             用户存储空间
           </option>
-          <option value="SYSTEM">
-            系统存储空间
-          </option>
         </select>
         <select
           v-model="query.status"
@@ -227,6 +243,13 @@ onMounted(() => {
         >
           <Plus class="h-4 w-4" />
           新增存储空间
+        </button>
+        <button
+          class="flex items-center gap-1 rounded-xl bg-surface-100 px-4 py-2 text-sm font-medium text-surface-700 shadow-soft transition-colors hover:bg-surface-200"
+          @click="openConfigDialog"
+        >
+          <Settings class="h-4 w-4" />
+          配置系统目录
         </button>
       </div>
     </div>
@@ -267,7 +290,15 @@ onMounted(() => {
               class="hover:bg-surface-50/50"
             >
               <td class="px-5 py-3 font-medium text-surface-900">
-                {{ space.name }}
+                <div class="flex items-center gap-2">
+                  {{ space.name }}
+                  <span
+                    v-if="systemConfig.systemSpaceId === space.id"
+                    class="rounded-md bg-emerald-50 px-2 py-0.5 text-xs text-emerald-600"
+                  >
+                    系统目录
+                  </span>
+                </div>
               </td>
               <td class="px-5 py-3 font-mono text-xs text-surface-600">
                 {{ space.path }}
@@ -364,6 +395,12 @@ onMounted(() => {
       :space="expandingSpace"
       :submitting="submitting"
       @submit="handleExpand"
+    />
+
+    <SystemStorageConfigDialog
+      v-model:open="configDialogOpen"
+      :config="systemConfig"
+      @updated="handleConfigUpdated"
     />
   </div>
 </template>
