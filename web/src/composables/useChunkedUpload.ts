@@ -5,10 +5,13 @@ import {
   completeChunkedUpload,
   initChunkedUpload,
   listUploadedChunks,
+  preCheckUpload,
+  tryInstantUpload,
   uploadChunk,
 } from '@/api/file'
 import { createChunks } from '@/utils/chunk'
-import type { FileNodeVo } from '@/types/file'
+import { identityHash } from '@/utils/fileHash'
+import type { ConflictItemVo, ConflictStrategy, FileNodeVo } from '@/types/file'
 
 function formatSpeed(bytesPerSecond: number): string {
   if (bytesPerSecond <= 0) return '0 KB/s'
@@ -52,16 +55,20 @@ async function waitForResume(task: UploadTask): Promise<void> {
   })
 }
 
+export type ConflictResolver = (item: ConflictItemVo) => Promise<ConflictStrategy | null>
+
 /**
  * 分片上传组合式函数。
  *
  * 将文件按后端约定切分，支持暂停/继续、断点续传与进度展示。
+ * 上传前会先进行冲突预检，若目标位置存在同名节点则通过 resolveConflict
+ * 回调让用户选择处理方式；未提供回调时默认自动重命名。
  */
 export function useChunkedUpload() {
   const transferStore = useTransferStore()
   const notificationStore = useNotificationStore()
 
-  async function runUpload(taskId: string): Promise<FileNodeVo | undefined> {
+  async function runUpload(taskId: string, strategy?: ConflictStrategy): Promise<FileNodeVo | undefined> {
     const task = transferStore.uploadQueue.find((item) => item.fileId === taskId)
     if (!task || !task.file || !task.uploadId || !task.chunks || !task.chunkSize) {
       return
@@ -158,20 +165,68 @@ export function useChunkedUpload() {
         }
       }
 
-      const node = await completeChunkedUpload(task.uploadId)
-      return node
+      const node = await completeChunkedUpload(task.uploadId, strategy)
+      return node ?? undefined
     } finally {
       unwatchStatus()
     }
   }
 
-  async function upload(file: File, parentId = '0', onComplete?: () => void): Promise<FileNodeVo | undefined> {
+  async function upload(
+    file: File,
+    parentId = '0',
+    onComplete?: () => void,
+    resolveConflict?: ConflictResolver,
+  ): Promise<FileNodeVo | undefined> {
     const taskId = `up-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     transferStore.addUploadTask({ fileId: taskId, fileName: file.name, totalBytes: file.size })
     const task = transferStore.uploadQueue.find((item) => item.fileId === taskId)
     if (!task) return
 
     try {
+      const partialHash = await identityHash(file)
+      const preCheckResult = await preCheckUpload({
+        fileName: file.name,
+        size: file.size,
+        parentId,
+        partialHash: partialHash || undefined,
+      })
+
+      let strategy: ConflictStrategy | undefined
+      if (preCheckResult.conflicts.length > 0) {
+        if (resolveConflict) {
+          const chosen = await resolveConflict(preCheckResult.conflicts[0])
+          if (chosen === null) {
+            transferStore.removeTask(taskId)
+            return
+          }
+          strategy = chosen
+        } else {
+          strategy = 'auto_rename'
+        }
+      }
+
+      if (strategy === 'skip') {
+        transferStore.removeTask(taskId)
+        notificationStore.success('已跳过上传')
+        return
+      }
+
+      if (preCheckResult.candidates.length > 0) {
+        const instantNode = await tryInstantUpload(
+          file,
+          preCheckResult.candidates[0],
+          parentId,
+          strategy,
+        )
+        if (instantNode) {
+          transferStore.completeTask(taskId)
+          notificationStore.success('秒传成功')
+          onComplete?.()
+          return instantNode
+        }
+      }
+
       const initRes = await initChunkedUpload(file.name, file.size, parentId)
       task.uploadId = initRes.uploadId
       task.parentId = parentId
@@ -187,7 +242,7 @@ export function useChunkedUpload() {
         status: 'waiting' as const,
       }))
 
-      const node = await runUpload(taskId)
+      const node = await runUpload(taskId, strategy)
       if (node) {
         transferStore.completeTask(taskId)
         notificationStore.success('上传成功')

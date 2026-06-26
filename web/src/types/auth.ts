@@ -9,7 +9,9 @@ export interface UserVo {
   status: number
   isAdmin: boolean
   roles: RoleVo[]
+  storageSpaceId?: string
   quota?: string
+  quotaUnit?: string
   usedSpace?: string
   createTime?: string
   updateTime?: string
@@ -49,6 +51,7 @@ export interface LoginVo {
   token: string
   userInfo: UserVo
   permissions: string[]
+  initialized: boolean
 }
 
 /**
@@ -96,6 +99,9 @@ export interface UserSaveDto {
   password: string
   email?: string
   nickname?: string
+  storageSpaceId: string
+  quota: string
+  quotaUnit: string
 }
 
 /**
@@ -108,6 +114,8 @@ export interface UserUpdateDto {
   roleIds?: string[]
   status?: number
   password?: string
+  quota?: string
+  quotaUnit?: string
 }
 
 /**

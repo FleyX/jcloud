@@ -7,7 +7,6 @@ import com.fleyx.jcloud.model.bo.PreviewResult;
 import com.fleyx.jcloud.model.po.PreviewFile;
 import com.fleyx.jcloud.model.dto.StorageSpaceSaveDto;
 import com.fleyx.jcloud.model.dto.UserSaveDto;
-import com.fleyx.jcloud.model.dto.UserStorageDto;
 import com.fleyx.jcloud.model.vo.FileNodeVo;
 import com.fleyx.jcloud.model.vo.StorageSpaceVo;
 import com.fleyx.jcloud.model.vo.UserVo;
@@ -70,7 +69,7 @@ class FilePreviewServiceTest {
         UserVo user = userWithSpace.user();
         MultipartFile file = new MockMultipartFile("file", "photo.png", "image/png", createImageBytes());
 
-        FileNodeVo uploaded = fileService.upload(file, user.getId());
+        FileNodeVo uploaded = fileService.upload(file, user.getId(), 0L, null);
         PreviewResult result = filePreviewService.preview(Long.valueOf(uploaded.getId()), user.getId(), PreviewType.THUMBNAIL);
 
         assertEquals("image/jpeg", result.getContentType());
@@ -88,7 +87,7 @@ class FilePreviewServiceTest {
         String content = "Hello, jcloud preview!";
         MultipartFile file = buildFile("note.txt", content);
 
-        FileNodeVo uploaded = fileService.upload(file, user.getId());
+        FileNodeVo uploaded = fileService.upload(file, user.getId(), 0L, null);
         PreviewResult result = filePreviewService.preview(Long.valueOf(uploaded.getId()), user.getId(), PreviewType.TEXT);
 
         assertEquals("text/plain", result.getContentType());
@@ -101,7 +100,7 @@ class FilePreviewServiceTest {
         UserWithSpace userWithSpace = prepareUserWithStorageSpace();
         UserVo user = userWithSpace.user();
         MultipartFile file = new MockMultipartFile("file", "photo.png", "image/png", createImageBytes());
-        FileNodeVo uploaded = fileService.upload(file, user.getId());
+        FileNodeVo uploaded = fileService.upload(file, user.getId(), 0L, null);
 
         filePreviewService.preview(Long.valueOf(uploaded.getId()), user.getId(), PreviewType.THUMBNAIL);
         PreviewFile recordBefore = previewFileMapper.selectList(
@@ -123,7 +122,7 @@ class FilePreviewServiceTest {
         UserVo user = userWithSpace.user();
         MultipartFile file = buildFile("note.txt", "system space check");
 
-        FileNodeVo uploaded = fileService.upload(file, user.getId());
+        FileNodeVo uploaded = fileService.upload(file, user.getId(), 0L, null);
         filePreviewService.preview(Long.valueOf(uploaded.getId()), user.getId(), PreviewType.TEXT);
 
         PreviewFile record = previewFileMapper.selectList(
@@ -144,7 +143,7 @@ class FilePreviewServiceTest {
         Path videoPath = createTestVideo();
         MultipartFile file = new MockMultipartFile("file", "clip.mp4", "video/mp4", Files.readAllBytes(videoPath));
 
-        FileNodeVo uploaded = fileService.upload(file, user.getId());
+        FileNodeVo uploaded = fileService.upload(file, user.getId(), 0L, null);
         PreviewResult result = filePreviewService.preview(Long.valueOf(uploaded.getId()), user.getId(), PreviewType.POSTER);
 
         assertEquals("image/jpeg", result.getContentType());
@@ -161,7 +160,7 @@ class FilePreviewServiceTest {
         UserVo userB = userBWithSpace.user();
         MultipartFile file = buildFile("private.txt", "private content");
 
-        FileNodeVo uploaded = fileService.upload(file, userA.getId());
+        FileNodeVo uploaded = fileService.upload(file, userA.getId(), 0L, null);
 
         assertThrows(com.fleyx.jcloud.common.exception.BusinessException.class,
                 () -> filePreviewService.preview(Long.valueOf(uploaded.getId()), userB.getId(), PreviewType.TEXT));
@@ -211,22 +210,26 @@ class FilePreviewServiceTest {
         spaceDto.setName("用户空间");
         spaceDto.setPath(spacePath.toString());
         spaceDto.setType("USER");
-        spaceDto.setCapacity(Math.max(quota, 107374182400L));
         StorageSpaceVo space = storageSpaceService.save(spaceDto);
         systemConfigService.setValue("system.storage.space.id", String.valueOf(space.getId()));
 
         UserSaveDto userDto = new UserSaveDto();
         userDto.setUsername("previewUser" + System.nanoTime());
         userDto.setPassword("123456");
+        userDto.setStorageSpaceId(space.getId());
+        userDto.setQuota(toQuotaValue(quota));
+        userDto.setQuotaUnit(toQuotaUnit(quota));
         UserVo user = userService.saveUser(userDto);
 
-        UserStorageDto bindDto = new UserStorageDto();
-        bindDto.setUserId(user.getId());
-        bindDto.setStorageSpaceId(space.getId());
-        bindDto.setQuota(quota);
-        userService.bindStorageSpace(bindDto);
-
         return new UserWithSpace(user, spacePath);
+    }
+
+    private static long toQuotaValue(long quotaBytes) {
+        return quotaBytes == 10737418240L ? 10L : quotaBytes;
+    }
+
+    private static String toQuotaUnit(long quotaBytes) {
+        return quotaBytes == 10737418240L ? "GB" : "B";
     }
 
     private record UserWithSpace(UserVo user, Path spacePath) {

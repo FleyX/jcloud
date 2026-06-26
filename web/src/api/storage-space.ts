@@ -3,13 +3,14 @@ import type {
   PageResult,
 } from '@/types/auth'
 import type {
-  StorageSpaceExpandDto,
   StorageSpacePageQuery,
   StorageSpaceSaveDto,
   StorageSpaceUpdateDto,
   StorageSpaceVo,
   SystemStorageConfigUpdateDto,
   SystemStorageConfigVo,
+  SystemInitDto,
+  SystemInitStatusVo,
 } from '@/types/storage-space'
 
 export function fetchStorageSpacePage(params: StorageSpacePageQuery): Promise<PageResult<StorageSpaceVo>> {
@@ -32,8 +33,8 @@ export function deleteStorageSpace(id: string): Promise<void> {
   return del<void>(`/admin/storage-spaces/${id}`)
 }
 
-export function expandStorageSpace(id: string, dto: StorageSpaceExpandDto): Promise<StorageSpaceVo> {
-  return post<StorageSpaceVo>(`/admin/storage-spaces/${id}/expand`, dto)
+export function refreshStorageSpace(id: string): Promise<StorageSpaceVo> {
+  return post<StorageSpaceVo>(`/admin/storage-spaces/${id}/refresh`, {})
 }
 
 export function fetchSystemStorageConfig(): Promise<SystemStorageConfigVo> {
@@ -42,4 +43,12 @@ export function fetchSystemStorageConfig(): Promise<SystemStorageConfigVo> {
 
 export function updateSystemStorageConfig(dto: SystemStorageConfigUpdateDto): Promise<void> {
   return put<void>('/admin/storage-spaces/system-config', dto)
+}
+
+export function fetchInitStatus(): Promise<SystemInitStatusVo> {
+  return get<SystemInitStatusVo>('/admin/system/init-status')
+}
+
+export function initializeSystem(dto: SystemInitDto): Promise<void> {
+  return post<void>('/admin/system/initialize', dto)
 }

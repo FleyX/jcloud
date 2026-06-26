@@ -1,10 +1,10 @@
 package com.fleyx.jcloud.service;
 
 import com.baomidou.mybatisplus.core.metadata.IPage;
-import com.fleyx.jcloud.model.dto.StorageSpaceExpandDto;
 import com.fleyx.jcloud.model.dto.StorageSpacePageQueryDto;
 import com.fleyx.jcloud.model.dto.StorageSpaceSaveDto;
 import com.fleyx.jcloud.model.dto.StorageSpaceUpdateDto;
+import com.fleyx.jcloud.model.po.StorageSpace;
 import com.fleyx.jcloud.model.vo.StorageSpaceVo;
 
 /**
@@ -52,10 +52,17 @@ public interface StorageSpaceService {
     void removeById(Long id);
 
     /**
-     * 扩容存储空间容量。
+     * 获取当前主存储空间。
      *
-     * @param dto 扩容 DTO
-     * @return 扩容后的存储空间视图
+     * @return 主存储空间，不存在时返回 null
      */
-    StorageSpaceVo expandCapacity(StorageSpaceExpandDto dto);
+    StorageSpace getPrimarySpace();
+
+    /**
+     * 刷新指定存储空间的磁盘空间信息。
+     *
+     * @param id 存储空间 ID
+     * @return 刷新后的存储空间视图
+     */
+    StorageSpaceVo refreshDiskSpace(Long id);
 }

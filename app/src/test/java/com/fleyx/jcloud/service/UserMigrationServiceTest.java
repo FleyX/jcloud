@@ -1,20 +1,26 @@
 package com.fleyx.jcloud.service;
 
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.fleyx.jcloud.common.exception.BusinessException;
+import com.fleyx.jcloud.mapper.StorageSpaceMapper;
 import com.fleyx.jcloud.mapper.UserMapper;
 import com.fleyx.jcloud.model.dto.StorageSpaceSaveDto;
 import com.fleyx.jcloud.model.dto.UserMigrationSubmitDto;
 import com.fleyx.jcloud.model.dto.UserSaveDto;
-import com.fleyx.jcloud.model.dto.UserStorageDto;
+import com.fleyx.jcloud.model.po.StorageSpace;
 import com.fleyx.jcloud.model.po.User;
 import com.fleyx.jcloud.model.vo.StorageSpaceVo;
 import com.fleyx.jcloud.model.vo.UserMigrationTaskVo;
 import com.fleyx.jcloud.model.vo.UserVo;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -41,8 +47,14 @@ class UserMigrationServiceTest {
     @Autowired
     private UserMapper userMapper;
 
+    @Autowired
+    private StorageSpaceMapper storageSpaceMapper;
+
+    @TempDir
+    Path tempDir;
+
     @Test
-    void shouldSubmitMigrationSuccessfully() {
+    void shouldSubmitMigrationSuccessfully() throws Exception {
         UserWithSpaces prepared = prepareUserWithSpaces();
 
         UserMigrationSubmitDto dto = new UserMigrationSubmitDto();
@@ -62,13 +74,15 @@ class UserMigrationServiceTest {
     }
 
     @Test
-    void shouldRejectMigrationWhenUserNotBoundToSpace() {
-        UserSaveDto userDto = new UserSaveDto();
-        userDto.setUsername("migrateNoSpace");
-        userDto.setPassword("123456");
-        UserVo user = userService.saveUser(userDto);
+    void shouldRejectMigrationWhenUserNotBoundToSpace() throws Exception {
+        UserWithSpaces prepared = prepareUserWithSpaces();
+        UserVo user = prepared.user();
+        LambdaUpdateWrapper<User> wrapper = new LambdaUpdateWrapper<>();
+        wrapper.set(User::getStorageSpaceId, null);
+        wrapper.eq(User::getId, user.getId());
+        userMapper.update(wrapper);
 
-        StorageSpaceSaveDto spaceDto = buildSpaceDto("target-no-binding", "/data/jcloud/target-no-binding");
+        StorageSpaceSaveDto spaceDto = buildSpaceDto("target-no-binding", Files.createTempDirectory(tempDir, "target-no-binding"));
         StorageSpaceVo space = storageSpaceService.save(spaceDto);
 
         UserMigrationSubmitDto dto = new UserMigrationSubmitDto();
@@ -80,7 +94,7 @@ class UserMigrationServiceTest {
     }
 
     @Test
-    void shouldRejectMigrationWhenTargetSpaceSameAsSource() {
+    void shouldRejectMigrationWhenTargetSpaceSameAsSource() throws Exception {
         UserWithSpaces prepared = prepareUserWithSpaces();
 
         UserMigrationSubmitDto dto = new UserMigrationSubmitDto();
@@ -92,12 +106,18 @@ class UserMigrationServiceTest {
     }
 
     @Test
-    void shouldRejectMigrationWhenTargetSpaceInsufficient() {
+    void shouldRejectMigrationWhenTargetSpaceInsufficient() throws Exception {
         UserWithSpaces prepared = prepareUserWithSpaces();
 
-        StorageSpaceSaveDto smallSpaceDto = buildSpaceDto("small-space", "/data/jcloud/small-space");
-        smallSpaceDto.setCapacity(1L);
+        StorageSpaceSaveDto smallSpaceDto = buildSpaceDto("small-space", Files.createTempDirectory(tempDir, "small-space"));
         StorageSpaceVo smallSpace = storageSpaceService.save(smallSpaceDto);
+
+        LambdaUpdateWrapper<StorageSpace> wrapper = new LambdaUpdateWrapper<>();
+        wrapper.set(StorageSpace::getCapacity, 1L);
+        wrapper.set(StorageSpace::getUsedSpace, 0L);
+        wrapper.set(StorageSpace::getFreeSpace, 1L);
+        wrapper.eq(StorageSpace::getId, smallSpace.getId());
+        storageSpaceMapper.update(wrapper);
 
         UserMigrationSubmitDto dto = new UserMigrationSubmitDto();
         dto.setUserId(prepared.user().getId());
@@ -108,7 +128,7 @@ class UserMigrationServiceTest {
     }
 
     @Test
-    void shouldRejectMigrationWhenPendingTaskExists() {
+    void shouldRejectMigrationWhenPendingTaskExists() throws Exception {
         UserWithSpaces prepared = prepareUserWithSpaces();
 
         UserMigrationSubmitDto dto = new UserMigrationSubmitDto();
@@ -121,7 +141,7 @@ class UserMigrationServiceTest {
     }
 
     @Test
-    void shouldReturnLatestTask() {
+    void shouldReturnLatestTask() throws Exception {
         UserWithSpaces prepared = prepareUserWithSpaces();
 
         UserMigrationSubmitDto dto = new UserMigrationSubmitDto();
@@ -137,34 +157,29 @@ class UserMigrationServiceTest {
         assertEquals("PENDING", latest.getStatus());
     }
 
-    private UserWithSpaces prepareUserWithSpaces() {
-        StorageSpaceSaveDto sourceDto = buildSpaceDto("source-space", "/data/jcloud/source-space");
+    private UserWithSpaces prepareUserWithSpaces() throws Exception {
+        StorageSpaceSaveDto sourceDto = buildSpaceDto("source-space", Files.createTempDirectory(tempDir, "source-space"));
         StorageSpaceVo sourceSpace = storageSpaceService.save(sourceDto);
 
-        StorageSpaceSaveDto targetDto = buildSpaceDto("target-space", "/data/jcloud/target-space");
-        targetDto.setCapacity(214748364800L);
+        StorageSpaceSaveDto targetDto = buildSpaceDto("target-space", Files.createTempDirectory(tempDir, "target-space"));
         StorageSpaceVo targetSpace = storageSpaceService.save(targetDto);
 
         UserSaveDto userDto = new UserSaveDto();
         userDto.setUsername("migrateUser" + System.nanoTime());
         userDto.setPassword("123456");
+        userDto.setStorageSpaceId(sourceSpace.getId());
+        userDto.setQuota(10L);
+        userDto.setQuotaUnit("GB");
         UserVo user = userService.saveUser(userDto);
-
-        UserStorageDto bindDto = new UserStorageDto();
-        bindDto.setUserId(user.getId());
-        bindDto.setStorageSpaceId(sourceSpace.getId());
-        bindDto.setQuota(10737418240L);
-        userService.bindStorageSpace(bindDto);
 
         return new UserWithSpaces(user, sourceSpace, targetSpace);
     }
 
-    private StorageSpaceSaveDto buildSpaceDto(String name, String path) {
+    private StorageSpaceSaveDto buildSpaceDto(String name, Path path) {
         StorageSpaceSaveDto dto = new StorageSpaceSaveDto();
         dto.setName(name);
-        dto.setPath(path);
+        dto.setPath(path.toString());
         dto.setType("USER");
-        dto.setCapacity(107374182400L);
         return dto;
     }
 

@@ -9,6 +9,7 @@ import com.fleyx.jcloud.mapper.FileMapper;
 import com.fleyx.jcloud.mapper.StorageSpaceMapper;
 import com.fleyx.jcloud.mapper.UserMapper;
 import com.fleyx.jcloud.model.convert.FileConvert;
+import com.fleyx.jcloud.model.dto.ChunkedUploadCompleteDto;
 import com.fleyx.jcloud.model.dto.ChunkedUploadInitDto;
 import com.fleyx.jcloud.model.po.FileChunk;
 import com.fleyx.jcloud.model.po.FileNode;
@@ -20,6 +21,7 @@ import com.fleyx.jcloud.model.vo.FileNodeVo;
 import com.fleyx.jcloud.service.ChunkedUploadService;
 import com.fleyx.jcloud.util.FileHashUtil;
 import com.fleyx.jcloud.util.FilePathUtil;
+import com.fleyx.jcloud.util.UploadConflictResolver;
 import com.fleyx.jcloud.util.UserReadOnlyChecker;
 import com.fleyx.jcloud.util.UserReadWriteLock;
 import lombok.RequiredArgsConstructor;
@@ -32,7 +34,6 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -56,6 +57,7 @@ public class ChunkedUploadServiceImpl implements ChunkedUploadService {
     public static final long CHUNK_SIZE = 10L * 1024 * 1024;
 
     private static final String META_FILE_NAME = ".upload";
+    private static final String TYPE_FOLDER = "folder";
 
     private final UserReadOnlyChecker userReadOnlyChecker;
     private final UserMapper userMapper;
@@ -64,6 +66,7 @@ public class ChunkedUploadServiceImpl implements ChunkedUploadService {
     private final FileMapper fileMapper;
     private final FileConvert fileConvert;
     private final UserReadWriteLock userReadWriteLock;
+    private final UploadConflictResolver conflictResolver;
 
     @Override
     public ChunkedUploadInitVo init(Long userId, ChunkedUploadInitDto dto) {
@@ -97,7 +100,7 @@ public class ChunkedUploadServiceImpl implements ChunkedUploadService {
         int totalChunks = (int) ((fileSize + CHUNK_SIZE - 1) / CHUNK_SIZE);
         ChunkedUploadInitVo vo = new ChunkedUploadInitVo();
         vo.setUploadId(uploadId);
-        vo.setChunkSize(CHUNK_SIZE);
+        vo.setChunkSize((int) CHUNK_SIZE);
         vo.setTotalChunks(totalChunks);
         return vo;
     }
@@ -128,14 +131,7 @@ public class ChunkedUploadServiceImpl implements ChunkedUploadService {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "保存分片失败");
         }
 
-        FileChunk record = new FileChunk();
-        record.setUploadId(uploadId);
-        record.setUserId(userId);
-        record.setChunkIndex(chunkIndex);
-        record.setChunkHash(chunkHash);
-        record.setSize(chunk.getSize());
-        record.setStatus(1);
-        fileChunkMapper.insert(record);
+        saveOrUpdateChunkRecord(uploadId, userId, chunkIndex, chunkHash, chunk.getSize());
 
         ChunkedUploadChunkVo vo = new ChunkedUploadChunkVo();
         vo.setChunkIndex(chunkIndex);
@@ -157,18 +153,18 @@ public class ChunkedUploadServiceImpl implements ChunkedUploadService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public FileNodeVo complete(Long userId, String uploadId) {
+    public FileNodeVo complete(Long userId, String uploadId, ChunkedUploadCompleteDto dto) {
         userReadOnlyChecker.checkWriteAllowed(userId);
         RLock lock = userReadWriteLock.writeLock(userId);
         lock.lock();
         try {
-            return doComplete(userId, uploadId);
+            return doComplete(userId, uploadId, dto == null ? null : dto.getStrategy());
         } finally {
             lock.unlock();
         }
     }
 
-    private FileNodeVo doComplete(Long userId, String uploadId) {
+    private FileNodeVo doComplete(Long userId, String uploadId, String strategy) {
         UploadContext context = loadUploadContext(userId, uploadId);
         User user = context.user();
 
@@ -180,14 +176,26 @@ public class ChunkedUploadServiceImpl implements ChunkedUploadService {
 
         validateChunksComplete(chunks, context);
 
+        String pathName = resolvePathName(context.parentId(), userId);
+        UploadConflictResolver.ConflictResolution resolution =
+                conflictResolver.resolve(userId, context.parentId(), context.fileName(), strategy);
+        if (resolution.skipped()) {
+            cleanupUpload(context.tempDir(), uploadId, userId);
+            return null;
+        }
+
+        if (resolution.existingToReplace() != null) {
+            conflictResolver.deleteExistingForOverwrite(resolution.existingToReplace(), user);
+        }
+
         long usedSpace = user.getUsedSpace() == null ? 0L : user.getUsedSpace();
         long quota = user.getQuota() == null ? 0L : user.getQuota();
         if (usedSpace + context.size() > quota) {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "用户配额不足");
         }
 
-        String pathName = resolvePathName(context.parentId(), userId);
-        Path targetPath = FilePathUtil.resolvePhysicalPath(context.space(), userId, pathName, context.fileName());
+        Path targetPath = FilePathUtil.resolvePhysicalPath(
+                context.space(), userId, pathName, resolution.finalName());
 
         mergeChunks(context, chunks, targetPath);
 
@@ -202,7 +210,7 @@ public class ChunkedUploadServiceImpl implements ChunkedUploadService {
         FileNode node = new FileNode();
         node.setUserId(userId);
         node.setParentId(context.parentId());
-        node.setName(context.fileName());
+        node.setName(resolution.finalName());
         node.setType("file");
         node.setSize(context.size());
         node.setHash(hash);
@@ -219,7 +227,7 @@ public class ChunkedUploadServiceImpl implements ChunkedUploadService {
         cleanupUpload(context.tempDir(), uploadId, userId);
 
         FileNodeVo vo = fileConvert.poToVo(node);
-        vo.setPhysicalPath(buildPhysicalPath(context.space(), userId, pathName, context.fileName()));
+        vo.setPhysicalPath(buildPhysicalPath(context.space(), userId, pathName, resolution.finalName()));
         return vo;
     }
 
@@ -246,7 +254,7 @@ public class ChunkedUploadServiceImpl implements ChunkedUploadService {
         if (parent == null || !Objects.equals(parent.getUserId(), userId)) {
             throw new BusinessException(ResultCode.NOT_FOUND, "父文件夹不存在");
         }
-        if (!"folder".equals(parent.getType())) {
+        if (!TYPE_FOLDER.equals(parent.getType())) {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "父节点不是文件夹");
         }
         return parent.getPathName();
@@ -261,8 +269,6 @@ public class ChunkedUploadServiceImpl implements ChunkedUploadService {
                     Files.copy(chunkPath, out);
                 }
             }
-        } catch (FileAlreadyExistsException e) {
-            throw new BusinessException(ResultCode.BUSINESS_ERROR, "目标文件已存在");
         } catch (IOException e) {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "合并分片失败");
         }
@@ -373,6 +379,31 @@ public class ChunkedUploadServiceImpl implements ChunkedUploadService {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "读取上传任务元数据失败");
         }
         return props;
+    }
+
+    private void saveOrUpdateChunkRecord(String uploadId, Long userId, Integer chunkIndex,
+                                         String chunkHash, long size) {
+        LambdaQueryWrapper<FileChunk> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(FileChunk::getUploadId, uploadId)
+                .eq(FileChunk::getUserId, userId)
+                .eq(FileChunk::getChunkIndex, chunkIndex);
+        FileChunk existing = fileChunkMapper.selectOne(wrapper);
+        if (existing != null) {
+            existing.setChunkHash(chunkHash);
+            existing.setSize(size);
+            existing.setStatus(1);
+            fileChunkMapper.updateById(existing);
+            return;
+        }
+
+        FileChunk record = new FileChunk();
+        record.setUploadId(uploadId);
+        record.setUserId(userId);
+        record.setChunkIndex(chunkIndex);
+        record.setChunkHash(chunkHash);
+        record.setSize(size);
+        record.setStatus(1);
+        fileChunkMapper.insert(record);
     }
 
     private String chunkFileName(int chunkIndex) {

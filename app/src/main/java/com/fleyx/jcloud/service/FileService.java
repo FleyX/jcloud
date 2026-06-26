@@ -4,8 +4,9 @@ import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.fleyx.jcloud.model.bo.FileDownloadResult;
 import com.fleyx.jcloud.model.dto.FileInstantUploadDto;
 import com.fleyx.jcloud.model.dto.FilePageQueryDto;
-import com.fleyx.jcloud.model.dto.FilePreCheckDto;
+import com.fleyx.jcloud.model.dto.FileUploadPreCheckDto;
 import com.fleyx.jcloud.model.vo.FileNodeVo;
+import com.fleyx.jcloud.model.vo.UploadPreCheckVo;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
@@ -16,13 +17,15 @@ import java.util.List;
 public interface FileService {
 
     /**
-     * 上传文件到用户根目录。
+     * 上传文件到指定父目录。
      *
-     * @param file   上传文件
-     * @param userId 用户 ID
-     * @return 文件节点视图
+     * @param file     上传文件
+     * @param userId   用户 ID
+     * @param parentId 目标父节点 ID
+     * @param strategy 冲突解决策略，可选
+     * @return 文件节点视图；跳过返回 {@code null}
      */
-    FileNodeVo upload(MultipartFile file, Long userId);
+    FileNodeVo upload(MultipartFile file, Long userId, Long parentId, String strategy);
 
     /**
      * 分页查询用户的文件列表。
@@ -43,13 +46,13 @@ public interface FileService {
     FileDownloadResult download(Long fileId, Long userId);
 
     /**
-     * 秒传预检查：返回当前用户下与 partialHash 匹配的文件候选列表。
+     * 上传前预检：检查目标父目录下是否存在同名节点，并查询可用于秒传的候选文件。
      *
-     * @param dto    预检查参数
+     * @param dto    预检参数
      * @param userId 用户 ID
-     * @return 候选文件列表
+     * @return 预检结果（冲突列表 + 秒传候选列表）
      */
-    List<FileNodeVo> preCheck(FilePreCheckDto dto, Long userId);
+    UploadPreCheckVo preCheckUpload(FileUploadPreCheckDto dto, Long userId);
 
     /**
      * 秒传：复用候选文件的物理数据创建新的文件节点。

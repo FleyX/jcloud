@@ -1,6 +1,5 @@
 package com.fleyx.jcloud.model.dto;
 
-import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
@@ -39,11 +38,9 @@ public class StorageSpaceUpdateDto {
     private String type;
 
     /**
-     * 容量（字节）。
+     * 是否主存储空间：1 是，0 否。
      */
-    @NotNull(message = "容量不能为空")
-    @Min(value = 1, message = "容量必须大于 0")
-    private Long capacity;
+    private Integer isPrimary;
 
     /**
      * 状态：1 启用，0 禁用。

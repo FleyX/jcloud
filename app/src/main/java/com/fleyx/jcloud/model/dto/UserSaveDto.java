@@ -2,6 +2,7 @@ package com.fleyx.jcloud.model.dto;
 
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
 
@@ -43,4 +44,22 @@ public class UserSaveDto implements Serializable {
      */
     @Size(max = 64, message = "昵称长度不能超过 64")
     private String nickname;
+
+    /**
+     * 默认存储空间 ID。
+     */
+    @NotNull(message = "默认存储空间不能为空")
+    private Long storageSpaceId;
+
+    /**
+     * 用户配额数值。
+     */
+    @NotNull(message = "配额不能为空")
+    private Long quota;
+
+    /**
+     * 配额单位：MB / GB / TB，为空时默认 GB。
+     */
+    @Size(max = 8, message = "配额单位长度不能超过 8")
+    private String quotaUnit;
 }

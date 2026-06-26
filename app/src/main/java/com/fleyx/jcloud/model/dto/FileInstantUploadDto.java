@@ -27,4 +27,11 @@ public class FileInstantUploadDto {
      * 目标父节点 ID，默认为根目录 0。
      */
     private Long parentId;
+
+    /**
+     * 冲突解决策略：skip / overwrite / auto_rename。
+     * <p>
+     * 当目标位置已存在同名节点时生效；若未指定且存在冲突则报错。
+     */
+    private String strategy;
 }

@@ -1,6 +1,7 @@
 package com.fleyx.jcloud.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fleyx.jcloud.common.enums.ResultCode;
@@ -9,7 +10,6 @@ import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.StorageSpaceMapper;
 import com.fleyx.jcloud.mapper.UserMapper;
 import com.fleyx.jcloud.model.convert.StorageSpaceConvert;
-import com.fleyx.jcloud.model.dto.StorageSpaceExpandDto;
 import com.fleyx.jcloud.model.dto.StorageSpacePageQueryDto;
 import com.fleyx.jcloud.model.dto.StorageSpaceSaveDto;
 import com.fleyx.jcloud.model.dto.StorageSpaceUpdateDto;
@@ -18,10 +18,13 @@ import com.fleyx.jcloud.model.po.User;
 import com.fleyx.jcloud.model.vo.StorageSpaceVo;
 import com.fleyx.jcloud.service.StorageSpaceService;
 import com.fleyx.jcloud.service.SystemConfigService;
+import com.fleyx.jcloud.util.DiskSpaceUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
+
+import java.util.Objects;
 
 /**
  * 存储空间业务实现。
@@ -44,8 +47,11 @@ public class StorageSpaceServiceImpl implements StorageSpaceService {
         validateType(dto.getType());
         checkPathUnique(dto.getPath());
         StorageSpace po = storageSpaceConvert.dtoToPo(dto);
-        po.setUsedSpace(0L);
         po.setStatus(1);
+        DiskSpaceUtil.refreshSpace(po);
+        if (Boolean.TRUE.equals(toBoolean(po.getIsPrimary()))) {
+            clearOtherPrimary(null);
+        }
         storageSpaceMapper.insert(po);
         return storageSpaceConvert.poToVo(po);
     }
@@ -60,6 +66,7 @@ public class StorageSpaceServiceImpl implements StorageSpaceService {
 
         Page<StorageSpace> page = new Page<>(dto.getPageNum(), dto.getPageSize());
         IPage<StorageSpace> poPage = storageSpaceMapper.selectPage(page, wrapper);
+        poPage.getRecords().forEach(DiskSpaceUtil::refreshSpace);
         return poPage.convert(storageSpaceConvert::poToVo);
     }
 
@@ -75,7 +82,13 @@ public class StorageSpaceServiceImpl implements StorageSpaceService {
         if (!existing.getPath().equals(dto.getPath())) {
             checkPathUnique(dto.getPath());
         }
+        boolean becomingPrimary = Boolean.TRUE.equals(toBoolean(dto.getIsPrimary()))
+                && !Boolean.TRUE.equals(toBoolean(existing.getIsPrimary()));
+        if (becomingPrimary) {
+            clearOtherPrimary(dto.getId());
+        }
         StorageSpace po = storageSpaceConvert.updateDtoToPo(dto);
+        DiskSpaceUtil.refreshSpace(po);
         storageSpaceMapper.updateById(po);
         return storageSpaceConvert.poToVo(storageSpaceMapper.selectById(po.getId()));
     }
@@ -86,25 +99,8 @@ public class StorageSpaceServiceImpl implements StorageSpaceService {
         if (po == null) {
             throw new BusinessException(ResultCode.NOT_FOUND, "存储空间不存在");
         }
+        DiskSpaceUtil.refreshSpace(po);
         return storageSpaceConvert.poToVo(po);
-    }
-
-    @Override
-    @Transactional(rollbackFor = Exception.class)
-    public StorageSpaceVo expandCapacity(StorageSpaceExpandDto dto) {
-        StorageSpace existing = storageSpaceMapper.selectById(dto.getId());
-        if (existing == null) {
-            throw new BusinessException(ResultCode.NOT_FOUND, "存储空间不存在");
-        }
-        long usedSpace = existing.getUsedSpace() == null ? 0L : existing.getUsedSpace();
-        if (dto.getCapacity() < usedSpace) {
-            throw new BusinessException(ResultCode.BUSINESS_ERROR, "新容量不能小于已用空间");
-        }
-        StorageSpace update = new StorageSpace();
-        update.setId(existing.getId());
-        update.setCapacity(dto.getCapacity());
-        storageSpaceMapper.updateById(update);
-        return storageSpaceConvert.poToVo(storageSpaceMapper.selectById(update.getId()));
     }
 
     @Override
@@ -115,12 +111,33 @@ public class StorageSpaceServiceImpl implements StorageSpaceService {
             throw new BusinessException(ResultCode.NOT_FOUND, "存储空间不存在");
         }
         rejectIfSystemSpaceConfigured(id);
+        rejectIfPrimarySpace(po);
         LambdaQueryWrapper<User> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(User::getStorageSpaceId, id);
         if (userMapper.selectCount(wrapper) > 0) {
             throw new BusinessException("该存储空间已被用户绑定，无法删除");
         }
         storageSpaceMapper.deleteById(id);
+    }
+
+    @Override
+    public StorageSpace getPrimarySpace() {
+        LambdaQueryWrapper<StorageSpace> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(StorageSpace::getIsPrimary, 1);
+        wrapper.eq(StorageSpace::getStatus, 1);
+        wrapper.last("LIMIT 1");
+        return storageSpaceMapper.selectOne(wrapper);
+    }
+
+    @Override
+    public StorageSpaceVo refreshDiskSpace(Long id) {
+        StorageSpace po = storageSpaceMapper.selectById(id);
+        if (po == null) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "存储空间不存在");
+        }
+        DiskSpaceUtil.refreshSpace(po);
+        storageSpaceMapper.updateById(po);
+        return storageSpaceConvert.poToVo(po);
     }
 
     private void validateType(String type) {
@@ -142,11 +159,29 @@ public class StorageSpaceServiceImpl implements StorageSpaceService {
         }
     }
 
+    private void rejectIfPrimarySpace(StorageSpace po) {
+        if (Boolean.TRUE.equals(toBoolean(po.getIsPrimary()))) {
+            throw new BusinessException(ResultCode.BUSINESS_ERROR, "主存储空间不能被删除");
+        }
+    }
+
     private void checkPathUnique(String path) {
         LambdaQueryWrapper<StorageSpace> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(StorageSpace::getPath, path);
         if (storageSpaceMapper.selectCount(wrapper) > 0) {
             throw new BusinessException("物理路径已存在");
         }
+    }
+
+    private void clearOtherPrimary(Long excludeId) {
+        LambdaUpdateWrapper<StorageSpace> wrapper = new LambdaUpdateWrapper<>();
+        wrapper.set(StorageSpace::getIsPrimary, 0);
+        wrapper.ne(excludeId != null, StorageSpace::getId, excludeId);
+        wrapper.eq(StorageSpace::getIsPrimary, 1);
+        storageSpaceMapper.update(wrapper);
+    }
+
+    private Boolean toBoolean(Integer value) {
+        return Objects.equals(value, 1);
     }
 }

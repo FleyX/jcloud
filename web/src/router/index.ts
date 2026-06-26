@@ -3,7 +3,7 @@ import type { RouteRecordRaw } from 'vue-router'
 import { useUserStore } from '@/store/user'
 import { deviceView } from '@/utils/device'
 
-type RouteName = 'Login' | 'Register' | 'NotFound' | 'Files' | 'Trash' | 'UserManagement' | 'RoleManagement' | 'PermissionManagement' | 'StorageSpaceManagement' | 'Profile'
+type RouteName = 'Login' | 'Register' | 'NotFound' | 'Init' | 'Files' | 'Trash' | 'UserManagement' | 'RoleManagement' | 'PermissionManagement' | 'StorageSpaceManagement' | 'Profile'
 
 /**
  * 公开静态路由
@@ -24,6 +24,12 @@ const publicRoutes: RouteRecordRaw[] = [
     name: 'Register' as RouteName,
     component: deviceView('auth/Register'),
     meta: { public: true },
+  },
+  {
+    path: '/init',
+    name: 'Init' as RouteName,
+    component: deviceView('init/index'),
+    meta: { init: true },
   },
   {
     path: '/404',
@@ -110,6 +116,10 @@ function addDynamicRoutes(userStore: ReturnType<typeof useUserStore>) {
 
 const publicPaths = publicRoutes.map((route) => route.path)
 
+function needsInitRedirect(userStore: ReturnType<typeof useUserStore>): boolean {
+  return userStore.isAdmin && !userStore.initialized
+}
+
 router.beforeEach(async (to, _from, next) => {
   const userStore = useUserStore()
 
@@ -131,12 +141,36 @@ router.beforeEach(async (to, _from, next) => {
       }
       addDynamicRoutes(userStore)
       userStore.markDynamicRoutesAdded()
+      // 初始化页面按初始化状态处理
+      if (to.meta.init) {
+        if (needsInitRedirect(userStore)) {
+          return next()
+        }
+        return next('/files')
+      }
+      // 管理员未初始化时强制进入初始化页
+      if (needsInitRedirect(userStore)) {
+        return next('/init')
+      }
       // 重新解析目标路由
       return next({ ...to, replace: true })
     } catch {
       userStore.logoutAction()
       return next('/login')
     }
+  }
+
+  // 初始化页面：已完成初始化则跳走
+  if (to.meta.init) {
+    if (needsInitRedirect(userStore)) {
+      return next()
+    }
+    return next('/files')
+  }
+
+  // 管理员未初始化时强制进入初始化页
+  if (needsInitRedirect(userStore)) {
+    return next('/init')
   }
 
   // 动态路由注入后仍匹配不到，则视为 404

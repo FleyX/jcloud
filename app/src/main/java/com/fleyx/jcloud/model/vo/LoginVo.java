@@ -29,4 +29,9 @@ public class LoginVo implements Serializable {
      * 当前用户拥有的全部权限编码。
      */
     private List<String> permissions;
+
+    /**
+     * 系统是否已完成初始化（仅管理员有意义）。
+     */
+    private Boolean initialized;
 }

@@ -4,16 +4,22 @@ import cn.hutool.crypto.digest.BCrypt;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.UserMapper;
 import com.fleyx.jcloud.model.dto.ChangePasswordDto;
+import com.fleyx.jcloud.model.dto.StorageSpaceSaveDto;
 import com.fleyx.jcloud.model.dto.UserProfileUpdateDto;
 import com.fleyx.jcloud.model.dto.UserSaveDto;
 import com.fleyx.jcloud.model.po.User;
+import com.fleyx.jcloud.model.vo.StorageSpaceVo;
 import com.fleyx.jcloud.model.vo.UserProfileVo;
 import com.fleyx.jcloud.model.vo.UserVo;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -34,17 +40,33 @@ class UserProfileServiceTest {
     @Autowired
     private UserMapper userMapper;
 
-    private UserVo createUser(String username) {
+    @Autowired
+    private StorageSpaceService storageSpaceService;
+
+    @TempDir
+    Path tempDir;
+
+    private UserVo createUser(String username) throws Exception {
+        Path spacePath = Files.createTempDirectory(tempDir, "space-" + username);
+        StorageSpaceSaveDto spaceDto = new StorageSpaceSaveDto();
+        spaceDto.setName("用户空间");
+        spaceDto.setPath(spacePath.toString());
+        spaceDto.setType("USER");
+        StorageSpaceVo space = storageSpaceService.save(spaceDto);
+
         UserSaveDto dto = new UserSaveDto();
         dto.setUsername(username);
         dto.setPassword("123456");
         dto.setEmail(username + "@example.com");
         dto.setNickname("昵称" + username);
+        dto.setStorageSpaceId(space.getId());
+        dto.setQuota(10L);
+        dto.setQuotaUnit("GB");
         return userService.saveUser(dto);
     }
 
     @Test
-    void getUserProfileShouldReturnProfile() {
+    void getUserProfileShouldReturnProfile() throws Exception {
         UserVo saved = createUser("profileUser");
         UserProfileVo profile = userService.getUserProfile(saved.getId());
 
@@ -56,7 +78,7 @@ class UserProfileServiceTest {
     }
 
     @Test
-    void updateUserProfileShouldUpdateEmailAndNickname() {
+    void updateUserProfileShouldUpdateEmailAndNickname() throws Exception {
         UserVo saved = createUser("updateProfileUser");
         UserProfileUpdateDto dto = new UserProfileUpdateDto();
         dto.setEmail("new@example.com");
@@ -69,7 +91,7 @@ class UserProfileServiceTest {
     }
 
     @Test
-    void changePasswordShouldSucceedWithCorrectCurrentPassword() {
+    void changePasswordShouldSucceedWithCorrectCurrentPassword() throws Exception {
         UserVo saved = createUser("changePwdUser");
         ChangePasswordDto dto = new ChangePasswordDto();
         dto.setCurrentPassword("123456");
@@ -83,7 +105,7 @@ class UserProfileServiceTest {
     }
 
     @Test
-    void changePasswordShouldFailWithWrongCurrentPassword() {
+    void changePasswordShouldFailWithWrongCurrentPassword() throws Exception {
         UserVo saved = createUser("wrongPwdUser");
         ChangePasswordDto dto = new ChangePasswordDto();
         dto.setCurrentPassword("wrong");
@@ -96,7 +118,7 @@ class UserProfileServiceTest {
     }
 
     @Test
-    void changePasswordShouldFailWhenConfirmPasswordMismatch() {
+    void changePasswordShouldFailWhenConfirmPasswordMismatch() throws Exception {
         UserVo saved = createUser("mismatchPwdUser");
         ChangePasswordDto dto = new ChangePasswordDto();
         dto.setCurrentPassword("123456");

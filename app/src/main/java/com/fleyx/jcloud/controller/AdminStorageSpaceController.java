@@ -6,7 +6,6 @@ import com.fleyx.jcloud.common.constant.CommonConstant;
 import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.enums.StorageSpaceType;
 import com.fleyx.jcloud.common.exception.BusinessException;
-import com.fleyx.jcloud.model.dto.StorageSpaceExpandDto;
 import com.fleyx.jcloud.model.dto.StorageSpacePageQueryDto;
 import com.fleyx.jcloud.model.dto.StorageSpaceSaveDto;
 import com.fleyx.jcloud.model.dto.StorageSpaceUpdateDto;
@@ -82,13 +81,11 @@ public class AdminStorageSpaceController {
     }
 
     /**
-     * 扩容存储空间。
+     * 刷新存储空间磁盘状态。
      */
-    @PostMapping("/{id}/expand")
-    public R<StorageSpaceVo> expandCapacity(@PathVariable Long id,
-                                            @Valid @RequestBody StorageSpaceExpandDto dto) {
-        dto.setId(id);
-        return R.ok(storageSpaceService.expandCapacity(dto));
+    @PostMapping("/{id}/refresh")
+    public R<StorageSpaceVo> refreshDiskSpace(@PathVariable Long id) {
+        return R.ok(storageSpaceService.refreshDiskSpace(id));
     }
 
     /**

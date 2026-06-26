@@ -3,15 +3,14 @@ package com.fleyx.jcloud.service;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.fleyx.jcloud.mapper.StorageSpaceMapper;
 import com.fleyx.jcloud.mapper.UserMapper;
-import com.fleyx.jcloud.model.dto.StorageSpaceExpandDto;
 import com.fleyx.jcloud.model.dto.StorageSpacePageQueryDto;
 import com.fleyx.jcloud.model.dto.StorageSpaceSaveDto;
 import com.fleyx.jcloud.model.dto.StorageSpaceUpdateDto;
 import com.fleyx.jcloud.model.po.StorageSpace;
 import com.fleyx.jcloud.model.po.User;
 import com.fleyx.jcloud.model.vo.StorageSpaceVo;
-import com.fleyx.jcloud.service.SystemConfigService;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
@@ -19,9 +18,12 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.fleyx.jcloud.common.exception.BusinessException;
 
+import java.nio.file.Path;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * 存储空间服务测试。
@@ -30,6 +32,9 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 @ActiveProfiles("test")
 @Transactional
 class StorageSpaceServiceTest {
+
+    @TempDir
+    Path tempDir;
 
     @Autowired
     private StorageSpaceService storageSpaceService;
@@ -45,7 +50,7 @@ class StorageSpaceServiceTest {
 
     @Test
     void shouldCreateStorageSpace() {
-        StorageSpaceSaveDto dto = buildDto("默认空间", "/data/jcloud/default");
+        StorageSpaceSaveDto dto = buildDto("默认空间", "default");
 
         StorageSpaceVo vo = storageSpaceService.save(dto);
 
@@ -53,24 +58,25 @@ class StorageSpaceServiceTest {
         assertEquals(dto.getName(), vo.getName());
         assertEquals(dto.getPath(), vo.getPath());
         assertEquals(dto.getType(), vo.getType());
-        assertEquals(dto.getCapacity(), vo.getCapacity());
-        assertEquals(0L, vo.getUsedSpace());
+        assertTrue(vo.getCapacity() > 0);
+        assertTrue(vo.getUsedSpace() >= 0);
+        assertTrue(vo.getFreeSpace() >= 0);
         assertEquals(1, vo.getStatus());
     }
 
     @Test
     void shouldRejectDuplicatePath() {
-        StorageSpaceSaveDto dto = buildDto("默认空间", "/data/jcloud/duplicate");
+        StorageSpaceSaveDto dto = buildDto("默认空间", "duplicate");
         storageSpaceService.save(dto);
 
-        StorageSpaceSaveDto duplicate = buildDto("重复空间", "/data/jcloud/duplicate");
+        StorageSpaceSaveDto duplicate = buildDto("重复空间", "duplicate");
         assertThrows(BusinessException.class, () -> storageSpaceService.save(duplicate));
     }
 
     @Test
     void shouldPageStorageSpaces() {
-        storageSpaceService.save(buildDto("空间 A", "/data/jcloud/a"));
-        storageSpaceService.save(buildDto("空间 B", "/data/jcloud/b"));
+        storageSpaceService.save(buildDto("空间 A", "a"));
+        storageSpaceService.save(buildDto("空间 B", "b"));
 
         StorageSpacePageQueryDto query = new StorageSpacePageQueryDto();
         query.setPageNum(1L);
@@ -80,32 +86,52 @@ class StorageSpaceServiceTest {
 
         assertEquals(2L, page.getTotal());
         assertEquals(2, page.getRecords().size());
+        page.getRecords().forEach(r -> assertTrue(r.getCapacity() > 0));
     }
 
     @Test
     void shouldUpdateStorageSpace() {
-        StorageSpaceVo saved = storageSpaceService.save(buildDto("旧名称", "/data/jcloud/update"));
+        StorageSpaceVo saved = storageSpaceService.save(buildDto("旧名称", "update"));
 
         StorageSpaceUpdateDto update = new StorageSpaceUpdateDto();
         update.setId(saved.getId());
         update.setName("新名称");
-        update.setPath("/data/jcloud/update");
+        update.setPath(tempDir.resolve("update-new").toString());
         update.setType("USER");
-        update.setCapacity(214748364800L);
         update.setStatus(0);
         update.setRemark("更新后");
 
         StorageSpaceVo updated = storageSpaceService.update(update);
 
         assertEquals("新名称", updated.getName());
-        assertEquals(214748364800L, updated.getCapacity());
         assertEquals(0, updated.getStatus());
         assertEquals("更新后", updated.getRemark());
+        assertTrue(updated.getCapacity() > 0);
+    }
+
+    @Test
+    void shouldSetPrimarySpace() {
+        StorageSpaceVo first = storageSpaceService.save(buildDto("空间一", "primary1"));
+        StorageSpaceVo second = storageSpaceService.save(buildDto("空间二", "primary2"));
+
+        StorageSpaceUpdateDto update = new StorageSpaceUpdateDto();
+        update.setId(second.getId());
+        update.setName(second.getName());
+        update.setPath(second.getPath());
+        update.setType("USER");
+        update.setStatus(1);
+        update.setIsPrimary(1);
+        storageSpaceService.update(update);
+
+        StorageSpaceVo refreshed = storageSpaceService.getById(first.getId());
+        assertEquals(0, refreshed.getIsPrimary());
+        StorageSpaceVo primary = storageSpaceService.getById(second.getId());
+        assertEquals(1, primary.getIsPrimary());
     }
 
     @Test
     void shouldDeleteUnusedStorageSpace() {
-        StorageSpaceVo saved = storageSpaceService.save(buildDto("待删除", "/data/jcloud/delete"));
+        StorageSpaceVo saved = storageSpaceService.save(buildDto("待删除", "delete"));
 
         storageSpaceService.removeById(saved.getId());
 
@@ -114,7 +140,7 @@ class StorageSpaceServiceTest {
 
     @Test
     void shouldRejectDeleteWhenBoundToUser() {
-        StorageSpaceVo saved = storageSpaceService.save(buildDto("已绑定", "/data/jcloud/bound"));
+        StorageSpaceVo saved = storageSpaceService.save(buildDto("已绑定", "bound"));
 
         User user = new User();
         user.setUsername("boundUser");
@@ -127,34 +153,23 @@ class StorageSpaceServiceTest {
     }
 
     @Test
-    void shouldExpandCapacity() {
-        StorageSpaceVo saved = storageSpaceService.save(buildDto("扩容空间", "/data/jcloud/expand"));
-        StorageSpaceExpandDto dto = new StorageSpaceExpandDto();
-        dto.setId(saved.getId());
-        dto.setCapacity(214748364800L);
+    void shouldRejectDeletePrimarySpace() {
+        StorageSpaceVo saved = storageSpaceService.save(buildDto("主空间", "primary-delete"));
+        StorageSpaceUpdateDto update = new StorageSpaceUpdateDto();
+        update.setId(saved.getId());
+        update.setName(saved.getName());
+        update.setPath(saved.getPath());
+        update.setType("USER");
+        update.setStatus(1);
+        update.setIsPrimary(1);
+        storageSpaceService.update(update);
 
-        StorageSpaceVo expanded = storageSpaceService.expandCapacity(dto);
-
-        assertEquals(214748364800L, expanded.getCapacity());
-    }
-
-    @Test
-    void shouldRejectExpandBelowUsedSpace() {
-        StorageSpaceVo saved = storageSpaceService.save(buildDto("已用空间", "/data/jcloud/used"));
-        StorageSpace po = storageSpaceMapper.selectById(saved.getId());
-        po.setUsedSpace(10737418240L);
-        storageSpaceMapper.updateById(po);
-
-        StorageSpaceExpandDto dto = new StorageSpaceExpandDto();
-        dto.setId(saved.getId());
-        dto.setCapacity(10737418239L);
-
-        assertThrows(BusinessException.class, () -> storageSpaceService.expandCapacity(dto));
+        assertThrows(BusinessException.class, () -> storageSpaceService.removeById(saved.getId()));
     }
 
     @Test
     void shouldRejectSystemTypeOnCreate() {
-        StorageSpaceSaveDto dto = buildDto("系统空间", "/data/jcloud/system-create");
+        StorageSpaceSaveDto dto = buildDto("系统空间", "system-create");
         dto.setType("SYSTEM");
 
         assertThrows(BusinessException.class, () -> storageSpaceService.save(dto));
@@ -162,14 +177,13 @@ class StorageSpaceServiceTest {
 
     @Test
     void shouldRejectSystemTypeOnUpdate() {
-        StorageSpaceVo saved = storageSpaceService.save(buildDto("用户空间", "/data/jcloud/system-update"));
+        StorageSpaceVo saved = storageSpaceService.save(buildDto("用户空间", "system-update"));
 
         StorageSpaceUpdateDto update = new StorageSpaceUpdateDto();
         update.setId(saved.getId());
         update.setName(saved.getName());
         update.setPath(saved.getPath());
         update.setType("SYSTEM");
-        update.setCapacity(saved.getCapacity());
         update.setStatus(saved.getStatus());
 
         assertThrows(BusinessException.class, () -> storageSpaceService.update(update));
@@ -177,18 +191,17 @@ class StorageSpaceServiceTest {
 
     @Test
     void shouldRejectDeleteWhenConfiguredAsSystemSpace() {
-        StorageSpaceVo saved = storageSpaceService.save(buildDto("系统目录空间", "/data/jcloud/system-configured"));
+        StorageSpaceVo saved = storageSpaceService.save(buildDto("系统目录空间", "system-configured"));
         systemConfigService.setValue("system.storage.space.id", String.valueOf(saved.getId()));
 
         assertThrows(BusinessException.class, () -> storageSpaceService.removeById(saved.getId()));
     }
 
-    private StorageSpaceSaveDto buildDto(String name, String path) {
+    private StorageSpaceSaveDto buildDto(String name, String relativePath) {
         StorageSpaceSaveDto dto = new StorageSpaceSaveDto();
         dto.setName(name);
-        dto.setPath(path);
+        dto.setPath(tempDir.resolve(relativePath).toString());
         dto.setType("USER");
-        dto.setCapacity(107374182400L);
         dto.setRemark("测试存储空间");
         return dto;
     }

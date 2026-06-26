@@ -47,6 +47,16 @@ public class StorageSpaceVo implements Serializable {
     private Long usedSpace;
 
     /**
+     * 剩余空间（字节）。
+     */
+    private Long freeSpace;
+
+    /**
+     * 是否主存储空间：1 是，0 否。
+     */
+    private Integer isPrimary;
+
+    /**
      * 状态：1 启用，0 禁用。
      */
     private Integer status;

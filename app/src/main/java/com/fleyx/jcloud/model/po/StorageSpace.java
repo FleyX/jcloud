@@ -30,14 +30,24 @@ public class StorageSpace extends BaseEntity {
     private String type;
 
     /**
-     * 容量（字节）。
+     * 容量（字节），根据磁盘实际总空间自动刷新。
      */
     private Long capacity;
 
     /**
-     * 已用空间（字节）。
+     * 已用空间（字节），根据磁盘实际已用空间自动刷新。
      */
     private Long usedSpace;
+
+    /**
+     * 剩余空间（字节），根据磁盘实际剩余空间自动刷新。
+     */
+    private Long freeSpace;
+
+    /**
+     * 是否主存储空间：1 是，0 否。
+     */
+    private Integer isPrimary;
 
     /**
      * 状态：1 启用，0 禁用。

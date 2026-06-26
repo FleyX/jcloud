@@ -3,20 +3,18 @@ import { onMounted, reactive, ref } from 'vue'
 import {
   createStorageSpace,
   deleteStorageSpace,
-  expandStorageSpace,
   fetchStorageSpacePage,
   fetchSystemStorageConfig,
+  refreshStorageSpace,
   updateStorageSpace,
 } from '@/api/storage-space'
 import { cn } from '@/utils/cn'
 import { useConfirmStore } from '@/store/confirm'
 import { useNotificationStore } from '@/store/notification'
 import StorageSpaceDialog from './components/StorageSpaceDialog.vue'
-import StorageSpaceExpandDialog from './components/StorageSpaceExpandDialog.vue'
 import SystemStorageConfigDialog from './components/SystemStorageConfigDialog.vue'
 import type { PageResult } from '@/types/auth'
 import type {
-  StorageSpaceExpandDto,
   StorageSpacePageQuery,
   StorageSpaceSaveDto,
   StorageSpaceUpdateDto,
@@ -30,8 +28,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Plus,
-  Maximize2,
   Settings,
+  RefreshCw,
 } from '@lucide/vue'
 
 const query = reactive<StorageSpacePageQuery>({
@@ -56,9 +54,6 @@ const notificationStore = useNotificationStore()
 
 const dialogOpen = ref(false)
 const editingSpace = ref<StorageSpaceVo | null>(null)
-
-const expandDialogOpen = ref(false)
-const expandingSpace = ref<StorageSpaceVo | null>(null)
 
 const configDialogOpen = ref(false)
 const systemConfig = ref<SystemStorageConfigVo>({})
@@ -97,11 +92,6 @@ function openEditDialog(space: StorageSpaceVo) {
   dialogOpen.value = true
 }
 
-function openExpandDialog(space: StorageSpaceVo) {
-  expandingSpace.value = space
-  expandDialogOpen.value = true
-}
-
 function openConfigDialog() {
   configDialogOpen.value = true
 }
@@ -110,12 +100,11 @@ async function handleConfigUpdated() {
   await loadSpaces()
 }
 
-async function handleExpand(dto: StorageSpaceExpandDto) {
+async function handleRefresh(space: StorageSpaceVo) {
   submitting.value = true
   try {
-    await expandStorageSpace(dto.id, dto)
-    notificationStore.success('存储空间扩容成功')
-    expandDialogOpen.value = false
+    await refreshStorageSpace(space.id)
+    notificationStore.success('存储空间信息已刷新')
     await loadSpaces()
   } catch {
     // request.ts 已统一处理异常提示
@@ -194,7 +183,7 @@ onMounted(() => {
             存储空间管理
           </h2>
           <p class="text-xs text-surface-500">
-            管理后端物理存储目录及容量配置
+            管理后端物理存储目录，容量由系统自动探测
           </p>
         </div>
       </div>
@@ -276,6 +265,9 @@ onMounted(() => {
                 已用空间
               </th>
               <th class="px-5 py-3 font-medium">
+                剩余空间
+              </th>
+              <th class="px-5 py-3 font-medium">
                 状态
               </th>
               <th class="px-5 py-3 font-medium">
@@ -292,6 +284,12 @@ onMounted(() => {
               <td class="px-5 py-3 font-medium text-surface-900">
                 <div class="flex items-center gap-2">
                   {{ space.name }}
+                  <span
+                    v-if="space.isPrimary === 1"
+                    class="rounded-md bg-primary-50 px-2 py-0.5 text-xs text-primary-600"
+                  >
+                    主空间
+                  </span>
                   <span
                     v-if="systemConfig.systemSpaceId === space.id"
                     class="rounded-md bg-emerald-50 px-2 py-0.5 text-xs text-emerald-600"
@@ -319,6 +317,9 @@ onMounted(() => {
               <td class="px-5 py-3 text-surface-600">
                 {{ formatBytes(space.usedSpace) }}
               </td>
+              <td class="px-5 py-3 text-surface-600">
+                {{ formatBytes(space.freeSpace) }}
+              </td>
               <td class="px-5 py-3">
                 <span
                   :class="cn(
@@ -333,10 +334,10 @@ onMounted(() => {
                 <div class="flex items-center gap-2">
                   <button
                     class="flex items-center gap-1 rounded-lg bg-primary-50 px-2.5 py-1.5 text-xs font-medium text-primary-600 transition-colors hover:bg-primary-100"
-                    @click="openExpandDialog(space)"
+                    @click="handleRefresh(space)"
                   >
-                    <Maximize2 class="h-3.5 w-3.5" />
-                    扩容
+                    <RefreshCw class="h-3.5 w-3.5" />
+                    刷新
                   </button>
                   <button
                     class="flex items-center gap-1 rounded-lg bg-surface-100 px-2.5 py-1.5 text-xs font-medium text-surface-700 transition-colors hover:bg-surface-200"
@@ -388,13 +389,6 @@ onMounted(() => {
       :editing-space="editingSpace"
       :submitting="submitting"
       @submit="handleSubmit"
-    />
-
-    <StorageSpaceExpandDialog
-      v-model:open="expandDialogOpen"
-      :space="expandingSpace"
-      :submitting="submitting"
-      @submit="handleExpand"
     />
 
     <SystemStorageConfigDialog

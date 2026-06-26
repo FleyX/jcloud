@@ -101,6 +101,42 @@ export const useMenuStore = defineStore('menu', () => {
     activeSecondary.value = key
   }
 
+  function buildMenusMap(): Record<PrimaryModule, SecondaryMenuItem[]> {
+    return primaryModuleList.reduce(
+      (acc, primary) => {
+        acc[primary] = getSecondaryMenusByPrimary(primary)
+        return acc
+      },
+      {} as Record<PrimaryModule, SecondaryMenuItem[]>,
+    )
+  }
+
+  /**
+   * 根据当前 URL 反查并同步一、二级菜单高亮状态
+   * - 公开路由或未匹配到任何模块时不修改当前状态
+   */
+  function syncWithRoute(routePath: string) {
+    const menus = buildMenusMap()
+    const primary = resolvePrimaryModuleByRoute(routePath, menus)
+    if (!primary) {
+      return
+    }
+
+    setPrimary(primary)
+
+    const matched = secondaryMenus.value
+      .filter((item) => {
+        const route = item.route
+        if (!route) return false
+        return routePath === route || routePath.startsWith(`${route}/`)
+      })
+      .sort((a, b) => (b.route?.length ?? 0) - (a.route?.length ?? 0))[0]
+
+    if (matched) {
+      activeSecondary.value = matched.key
+    }
+  }
+
   return {
     activePrimary,
     activeSecondary,
@@ -108,5 +144,6 @@ export const useMenuStore = defineStore('menu', () => {
     getSecondaryMenusByPrimary,
     setPrimary,
     setSecondary,
+    syncWithRoute,
   }
 })
