@@ -77,7 +77,7 @@ public class FileServiceImpl implements FileService {
 
         String fileName = normalizeFileName(file.getOriginalFilename());
         Long resolvedParentId = parentId == null ? 0L : parentId;
-        String pathName = resolvePathName(resolvedParentId, userId);
+        String parentPathName = resolveParentPathName(resolvedParentId, userId);
 
         FileConflictResolver.ConflictResolution resolution =
                 conflictResolver.resolve(userId, resolvedParentId, fileName, strategy);
@@ -99,7 +99,8 @@ public class FileServiceImpl implements FileService {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "用户配额不足");
         }
 
-        Path physicalPath = resolvePhysicalPath(space, userId, pathName, resolution.finalName());
+        String filePathName = FilePathUtil.buildPathName(parentPathName, resolution.finalName());
+        Path physicalPath = FilePathUtil.resolvePhysicalPath(space, userId, filePathName);
         try {
             Files.createDirectories(physicalPath.getParent());
             Files.copy(file.getInputStream(), physicalPath);
@@ -115,7 +116,7 @@ public class FileServiceImpl implements FileService {
         }
 
         FileNode node = buildFileNode(userId, resolvedParentId, resolution.finalName(), fileSize, hash,
-                space.getId(), pathName, pathName, file.getContentType());
+                space.getId(), filePathName, filePathName, file.getContentType());
         fileMapper.insert(node);
 
         user.setUsedSpace(usedSpace + fileSize);
@@ -272,7 +273,7 @@ public class FileServiceImpl implements FileService {
         StorageSpace space = requireSpace(candidate.getStorageSpaceId());
 
         Long parentId = dto.getParentId() == null ? 0L : dto.getParentId();
-        String pathName = resolvePathName(parentId, userId);
+        String parentPathName = resolveParentPathName(parentId, userId);
         String fileName = normalizeFileName(dto.getFileName());
 
         FileConflictResolver.ConflictResolution resolution =
@@ -293,7 +294,8 @@ public class FileServiceImpl implements FileService {
         }
 
         Path sourcePath = FilePathUtil.resolvePhysicalPath(candidate, space);
-        Path targetPath = resolvePhysicalPath(space, userId, pathName, resolution.finalName());
+        String filePathName = FilePathUtil.buildPathName(parentPathName, resolution.finalName());
+        Path targetPath = FilePathUtil.resolvePhysicalPath(space, userId, filePathName);
 
         if (!Files.exists(sourcePath)) {
             throw new BusinessException(ResultCode.NOT_FOUND, "候选文件物理数据已丢失");
@@ -317,7 +319,7 @@ public class FileServiceImpl implements FileService {
         }
 
         FileNode node = buildFileNode(userId, parentId, resolution.finalName(), fileSize,
-                candidate.getHash(), space.getId(), pathName, pathName, candidate.getMimeType());
+                candidate.getHash(), space.getId(), filePathName, filePathName, candidate.getMimeType());
         fileMapper.insert(node);
 
         user.setUsedSpace(usedSpace + fileSize);
@@ -341,7 +343,7 @@ public class FileServiceImpl implements FileService {
         }
     }
 
-    private String resolvePathName(Long parentId, Long userId) {
+    private String resolveParentPathName(Long parentId, Long userId) {
         if (parentId == null || parentId == 0L) {
             return "/";
         }
@@ -350,19 +352,6 @@ public class FileServiceImpl implements FileService {
             throw new BusinessException(ResultCode.NOT_FOUND, "父目录不存在");
         }
         return parent.getPathName();
-    }
-
-    private Path resolvePhysicalPath(StorageSpace space, Long userId,
-                                     String pathName, String fileName) {
-        Path base = Path.of(space.getPath(), userId.toString(), "files");
-        String relative = pathName == null || "/".equals(pathName) ? "" : pathName;
-        if (relative.startsWith("/")) {
-            relative = relative.substring(1);
-        }
-        if (relative.isEmpty()) {
-            return base.resolve(fileName);
-        }
-        return base.resolve(relative).resolve(fileName);
     }
 
     private String relativizePhysicalPath(StorageSpace space, Long userId, Path physicalPath) {

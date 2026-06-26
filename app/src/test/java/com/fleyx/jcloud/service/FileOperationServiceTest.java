@@ -2,6 +2,8 @@ package com.fleyx.jcloud.service;
 
 import com.fleyx.jcloud.common.enums.ConflictStrategy;
 import com.fleyx.jcloud.common.exception.BusinessException;
+import com.fleyx.jcloud.mapper.FileMapper;
+import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.dto.FileCreateFolderDto;
 import com.fleyx.jcloud.model.dto.FileExecuteOperationDto;
 import com.fleyx.jcloud.model.dto.FilePreCheckOperationDto;
@@ -53,6 +55,9 @@ class FileOperationServiceTest {
     @Autowired
     private StorageSpaceService storageSpaceService;
 
+    @Autowired
+    private FileMapper fileMapper;
+
     @TempDir
     Path tempDir;
 
@@ -69,6 +74,7 @@ class FileOperationServiceTest {
         FileNodeVo renamed = fileOperationService.rename(dto, user.getId());
 
         assertEquals("new.txt", renamed.getName());
+        assertEquals("/new.txt", renamed.getPathName());
         Path oldPath = resolvePhysicalPath(userWithSpace, "old.txt");
         Path newPath = resolvePhysicalPath(userWithSpace, "new.txt");
         assertTrue(Files.notExists(oldPath));
@@ -101,6 +107,42 @@ class FileOperationServiceTest {
         assertEquals("docs", folder.getName());
         assertEquals("folder", folder.getType());
         assertEquals("/docs", folder.getPathName());
+    }
+
+    @Test
+    void shouldRenameFolderAndUpdateDescendantPathNames() throws Exception {
+        UserWithSpace userWithSpace = prepareUserWithStorageSpace();
+        UserVo user = userWithSpace.user();
+        FileNodeVo docs = fileOperationService.createFolder(buildCreateFolderDto(0L, "docs"), user.getId());
+        FileNodeVo report = fileService.upload(buildFile("report.txt", "R"), user.getId(), docs.getId(), null);
+
+        FileRenameDto dto = new FileRenameDto();
+        dto.setId(docs.getId());
+        dto.setNewName("documents");
+
+        FileNodeVo renamed = fileOperationService.rename(dto, user.getId());
+
+        assertEquals("documents", renamed.getName());
+        assertEquals("/documents", renamed.getPathName());
+        FileNode updatedReport = fileMapper.selectById(report.getId());
+        assertEquals("/documents/report.txt", updatedReport.getPathName());
+        assertTrue(Files.exists(resolvePhysicalPath(userWithSpace, "documents/report.txt")));
+    }
+
+    @Test
+    void shouldNotAffectSiblingFolderWhenRenamingFolder() throws Exception {
+        UserVo user = prepareUserWithStorageSpace().user();
+        FileNodeVo docs = fileOperationService.createFolder(buildCreateFolderDto(0L, "docs"), user.getId());
+        FileNodeVo docs2 = fileOperationService.createFolder(buildCreateFolderDto(0L, "docs2"), user.getId());
+        FileNodeVo report = fileService.upload(buildFile("report.txt", "R"), user.getId(), docs2.getId(), null);
+
+        FileRenameDto dto = new FileRenameDto();
+        dto.setId(docs.getId());
+        dto.setNewName("documents");
+        fileOperationService.rename(dto, user.getId());
+
+        FileNode unaffected = fileMapper.selectById(report.getId());
+        assertEquals("/docs2/report.txt", unaffected.getPathName());
     }
 
     @Test
@@ -261,6 +303,13 @@ class FileOperationServiceTest {
                     return item;
                 })
                 .toList();
+    }
+
+    private FileCreateFolderDto buildCreateFolderDto(Long parentId, String name) {
+        FileCreateFolderDto dto = new FileCreateFolderDto();
+        dto.setParentId(parentId);
+        dto.setName(name);
+        return dto;
     }
 
     private MultipartFile buildFile(String name, String content) {

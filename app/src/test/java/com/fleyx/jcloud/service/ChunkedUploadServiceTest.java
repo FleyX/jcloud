@@ -156,7 +156,7 @@ class ChunkedUploadServiceTest {
         assertEquals("chunked.bin", vo.getName());
         assertEquals("file", vo.getType());
         assertEquals(fileSize, Long.parseLong(vo.getSize()));
-        assertEquals("/", vo.getPathName());
+        assertEquals("/chunked.bin", vo.getPathName());
 
         Path targetPath = userWithSpace.spacePath()
                 .resolve(user.getId().toString())

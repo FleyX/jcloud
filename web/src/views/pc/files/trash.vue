@@ -142,7 +142,7 @@ async function executeRestore(targets: RecycleRecordVo[], strategies?: Record<st
   const results = await restoreFiles({
     items: targets.map((r) => ({
       id: r.id,
-      strategy: strategies?.[r.nodeId ?? r.id] ?? 'keep',
+      strategy: strategies?.[r.id] ?? 'keep',
     })),
   })
   showResult('恢复', results)

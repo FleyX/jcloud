@@ -75,10 +75,10 @@ public class FileOperationExecutor {
         User user = userMapper.selectById(userId);
         applyOverwriteIfNeeded(resolution, user);
 
-        String newPathName = resolveNodePathName(targetParentPathName, targetName, source.getType());
+        String newPathName = FilePathUtil.buildPathName(targetParentPathName, resolution.finalName());
         if (TYPE_FILE.equals(source.getType())) {
             Path sourcePath = FilePathUtil.resolvePhysicalPath(source, space);
-            Path targetPath = FilePathUtil.resolvePhysicalPath(space, userId, newPathName, resolution.finalName());
+            Path targetPath = FilePathUtil.resolvePhysicalPath(space, userId, newPathName);
             movePhysicalFile(sourcePath, targetPath);
         } else {
             updateFolderPathName(source, newPathName);
@@ -124,7 +124,7 @@ public class FileOperationExecutor {
         }
 
         applyOverwriteIfNeeded(resolution, user);
-        String newPathName = resolveNodePathName(targetParentPathName, targetName, source.getType());
+        String newPathName = FilePathUtil.buildPathName(targetParentPathName, resolution.finalName());
         StorageSpace space = storageSpaceMapper.selectById(source.getStorageSpaceId());
         FileNode copied = copyNodeRecursively(source, targetParentId, newPathName, user, space);
         return OperationOutcome.success(copied, copied.getName());
@@ -210,7 +210,7 @@ public class FileOperationExecutor {
                             .eq(FileNode::getParentId, source.getId())
                             .eq(FileNode::getDeleteAt, 0L));
             for (FileNode child : children) {
-                String childPathName = resolveNodePathName(pathName, child.getName(), child.getType());
+                String childPathName = FilePathUtil.buildPathName(pathName, child.getName());
                 copyNodeRecursively(child, target.getId(), childPathName, user, space);
             }
         }
@@ -241,14 +241,8 @@ public class FileOperationExecutor {
 
     private void updateFolderPathName(FileNode folder, String newPathName) {
         String oldPathName = folder.getPathName();
-        String oldPrefix = oldPathName.endsWith("/") ? oldPathName : oldPathName + "/";
-        String newPrefix = newPathName.endsWith("/") ? newPathName : newPathName + "/";
 
-        List<FileNode> descendants = fileMapper.selectList(
-                new LambdaQueryWrapper<FileNode>()
-                        .eq(FileNode::getUserId, folder.getUserId())
-                        .likeRight(FileNode::getPathName, oldPathName)
-                        .eq(FileNode::getDeleteAt, 0L));
+        List<FileNode> descendants = fileMapper.selectByPathNamePrefix(folder.getUserId(), oldPathName);
         for (FileNode node : descendants) {
             if (node.getId().equals(folder.getId())) {
                 continue;
@@ -256,8 +250,12 @@ public class FileOperationExecutor {
             String updated = node.getPathName();
             if (updated.equals(oldPathName)) {
                 updated = newPathName;
-            } else if (updated.startsWith(oldPrefix)) {
-                updated = newPrefix + updated.substring(oldPrefix.length());
+            } else {
+                String oldPrefix = oldPathName.endsWith("/") ? oldPathName : oldPathName + "/";
+                String newPrefix = newPathName.endsWith("/") ? newPathName : newPathName + "/";
+                if (updated.startsWith(oldPrefix)) {
+                    updated = newPrefix + updated.substring(oldPrefix.length());
+                }
             }
             node.setPathName(updated);
             node.setPath(updated);
@@ -282,13 +280,6 @@ public class FileOperationExecutor {
         return item.getNewName() != null && !item.getNewName().isBlank()
                 ? item.getNewName().trim()
                 : source.getName();
-    }
-
-    private String resolveNodePathName(String parentPathName, String name, String type) {
-        if (TYPE_FILE.equals(type)) {
-            return parentPathName;
-        }
-        return FilePathUtil.buildPathName(parentPathName, name);
     }
 
     private void updateUsedSpace(User user, long delta) {

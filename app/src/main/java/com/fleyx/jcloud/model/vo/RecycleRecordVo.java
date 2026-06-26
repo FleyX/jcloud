@@ -22,11 +22,6 @@ public class RecycleRecordVo implements Serializable {
     private Long id;
 
     /**
-     * 被删除节点 ID。
-     */
-    private Long nodeId;
-
-    /**
      * 节点名称。
      */
     private String name;
@@ -37,12 +32,7 @@ public class RecycleRecordVo implements Serializable {
     private String type;
 
     /**
-     * 原始父节点 ID。
-     */
-    private Long originalParentId;
-
-    /**
-     * 原始路径快照。
+     * 原始路径快照（节点自身完整虚拟路径）。
      */
     private String originalPathName;
 

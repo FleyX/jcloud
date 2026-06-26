@@ -73,6 +73,10 @@ public class FileOperationServiceImpl implements FileOperationService {
 
         if (TYPE_FILE.equals(node.getType())) {
             renamePhysicalFile(node, newName);
+            String newPathName = FilePathUtil.buildPathName(
+                    FilePathUtil.parentOf(node.getPathName()), newName);
+            node.setPathName(newPathName);
+            node.setPath(newPathName);
         }
         if (TYPE_FOLDER.equals(node.getType())) {
             updateFolderName(node, newName);
@@ -234,30 +238,43 @@ public class FileOperationServiceImpl implements FileOperationService {
 
     private void updateFolderName(FileNode folder, String newName) {
         String oldPathName = folder.getPathName();
-        String parentPathName = oldPathName.contains("/")
-                ? oldPathName.substring(0, oldPathName.lastIndexOf('/'))
-                : "/";
+        String parentPathName = FilePathUtil.parentOf(oldPathName);
         String newPathName = FilePathUtil.buildPathName(parentPathName, newName);
+
+        StorageSpace space = storageSpaceMapper.selectById(folder.getStorageSpaceId());
+        if (space != null) {
+            Path oldPhysicalPath = FilePathUtil.resolvePhysicalPath(folder, space);
+            if (Files.exists(oldPhysicalPath)) {
+                Path newPhysicalPath = FilePathUtil.resolvePhysicalPath(space, folder.getUserId(), newPathName);
+                try {
+                    Files.createDirectories(newPhysicalPath.getParent());
+                    Files.move(oldPhysicalPath, newPhysicalPath);
+                } catch (Exception e) {
+                    throw new BusinessException(ResultCode.BUSINESS_ERROR, "文件夹重命名失败");
+                }
+            }
+        }
+
         updateFolderPathName(folder, newPathName);
     }
 
     private void updateFolderPathName(FileNode folder, String newPathName) {
         String oldPathName = folder.getPathName();
-        String oldPrefix = oldPathName.endsWith("/") ? oldPathName : oldPathName + "/";
-        String newPrefix = newPathName.endsWith("/") ? newPathName : newPathName + "/";
 
-        List<FileNode> descendants = fileMapper.selectList(
-                new LambdaQueryWrapper<FileNode>()
-                        .eq(FileNode::getUserId, folder.getUserId())
-                        .likeRight(FileNode::getPathName, oldPathName)
-                        .eq(FileNode::getDeleteAt, 0L));
+        List<FileNode> descendants = fileMapper.selectByPathNamePrefix(folder.getUserId(), oldPathName);
         for (FileNode node : descendants) {
             if (node.getId().equals(folder.getId())) {
                 continue;
             }
             String updated = node.getPathName();
-            if (updated.startsWith(oldPrefix)) {
-                updated = newPrefix + updated.substring(oldPrefix.length());
+            if (updated.equals(oldPathName)) {
+                updated = newPathName;
+            } else {
+                String oldPrefix = oldPathName.endsWith("/") ? oldPathName : oldPathName + "/";
+                String newPrefix = newPathName.endsWith("/") ? newPathName : newPathName + "/";
+                if (updated.startsWith(oldPrefix)) {
+                    updated = newPrefix + updated.substring(oldPrefix.length());
+                }
             }
             node.setPathName(updated);
             node.setPath(updated);
@@ -344,16 +361,9 @@ public class FileOperationServiceImpl implements FileOperationService {
         vo.setExistingType(existing.getType());
         vo.setType(source.getType());
         vo.setSuggestedStrategy(ConflictStrategy.KEEP.getCode());
-        vo.setSourcePath(buildDisplayPath(source.getPathName(), source.getName(), source.getType()));
-        vo.setTargetPath(buildDisplayPath(targetParentPathName, existing.getName(), existing.getType()));
+        vo.setSourcePath(source.getPathName());
+        vo.setTargetPath(FilePathUtil.buildPathName(targetParentPathName, existing.getName()));
         return vo;
-    }
-
-    private String buildDisplayPath(String parentPathName, String name, String type) {
-        if (TYPE_FOLDER.equals(type)) {
-            return FilePathUtil.buildPathName(parentPathName, name);
-        }
-        return "/".equals(parentPathName) ? "/" + name : parentPathName + "/" + name;
     }
 
     private OperationResultVo toResultVo(FileOperationExecutor.OperationOutcome outcome) {

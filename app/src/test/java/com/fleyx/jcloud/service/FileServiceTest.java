@@ -82,7 +82,7 @@ class FileServiceTest {
         assertEquals("hello.txt", vo.getName());
         assertEquals("file", vo.getType());
         assertEquals(14L, Long.parseLong(vo.getSize()));
-        assertEquals("/", vo.getPathName());
+        assertEquals("/hello.txt", vo.getPathName());
         assertTrue(Files.exists(resolvePhysicalPath(userWithSpace, vo.getPhysicalPath())));
     }
 
