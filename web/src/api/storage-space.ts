@@ -8,6 +8,8 @@ import type {
   StorageSpaceSaveDto,
   StorageSpaceUpdateDto,
   StorageSpaceVo,
+  SystemStorageConfigUpdateDto,
+  SystemStorageConfigVo,
 } from '@/types/storage-space'
 
 export function fetchStorageSpacePage(params: StorageSpacePageQuery): Promise<PageResult<StorageSpaceVo>> {
@@ -32,4 +34,12 @@ export function deleteStorageSpace(id: string): Promise<void> {
 
 export function expandStorageSpace(id: string, dto: StorageSpaceExpandDto): Promise<StorageSpaceVo> {
   return post<StorageSpaceVo>(`/admin/storage-spaces/${id}/expand`, dto)
+}
+
+export function fetchSystemStorageConfig(): Promise<SystemStorageConfigVo> {
+  return get<SystemStorageConfigVo>('/admin/storage-spaces/system-config')
+}
+
+export function updateSystemStorageConfig(dto: SystemStorageConfigUpdateDto): Promise<void> {
+  return put<void>('/admin/storage-spaces/system-config', dto)
 }

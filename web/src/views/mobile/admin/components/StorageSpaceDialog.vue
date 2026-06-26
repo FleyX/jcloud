@@ -134,20 +134,6 @@ function handleSubmit() {
             >
           </div>
           <div>
-            <label class="mb-1 block text-xs font-medium text-surface-700">类型</label>
-            <select
-              v-model="form.type"
-              class="w-full rounded-xl border border-surface-200 bg-surface-50 px-3 py-2 text-sm outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100"
-            >
-              <option value="USER">
-                用户存储空间
-              </option>
-              <option value="SYSTEM">
-                系统存储空间
-              </option>
-            </select>
-          </div>
-          <div>
             <label class="mb-1 block text-xs font-medium text-surface-700">容量（字节）</label>
             <input
               v-model="form.capacity"

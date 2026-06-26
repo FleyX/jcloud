@@ -71,6 +71,7 @@ resources/mapper 存放数据库 XML 文件
 5. 代码设计遵循高内聚低耦合。
 6. 使用 Flyway 管理数据库文件，每个开发任务使用一个 Flyway 迁移文件。
 7. 数据库表以 `t_` 开头，例如 `t_user`。
+8. 异常抛出规范：只有明确的因为业务规则拦截导致的才抛出BusinessException，因为各种调用报错导致的抛出SystemException，并且需要带上原异常
 
 ## 并发与线程模型
 

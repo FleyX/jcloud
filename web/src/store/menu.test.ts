@@ -10,7 +10,6 @@ function buildMenus(): Record<PrimaryModule, SecondaryMenuItem[]> {
   return {
     files: [
       { key: 'all', label: '全部文件', route: '/files' },
-      { key: 'transfer', label: '正在传输', route: '/files/transfer' },
       { key: 'share', label: '我的分享', route: '/files/share' },
       { key: 'trash', label: '回收站', route: '/files/trash' },
     ],
@@ -31,7 +30,6 @@ describe('resolvePrimaryModuleByRoute', () => {
   })
 
   it('resolves nested files routes to the files primary module', () => {
-    expect(resolvePrimaryModuleByRoute('/files/transfer', buildMenus())).toBe('files')
     expect(resolvePrimaryModuleByRoute('/files/share', buildMenus())).toBe('files')
     expect(resolvePrimaryModuleByRoute('/files/trash', buildMenus())).toBe('files')
   })

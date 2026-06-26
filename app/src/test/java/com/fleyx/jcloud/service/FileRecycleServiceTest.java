@@ -107,7 +107,7 @@ class FileRecycleServiceTest {
         Path trashPath = userWithSpace.spacePath()
                 .resolve(user.getId().toString())
                 .resolve("trash")
-                .resolve(record.getNodeId().toString().substring(0, 2))
+                .resolve(record.getNodeId().toString().substring(0, 10))
                 .resolve(record.getNodeId().toString())
                 .resolve("hello.txt");
         assertTrue(Files.exists(trashPath));
@@ -151,10 +151,48 @@ class FileRecycleServiceTest {
         Path trashPath = userWithSpace.spacePath()
                 .resolve(user.getId().toString())
                 .resolve("trash")
-                .resolve(record.getNodeId().toString().substring(0, 2))
+                .resolve(record.getNodeId().toString().substring(0, 10))
                 .resolve(record.getNodeId().toString())
                 .resolve("docs/report.txt");
         assertTrue(Files.exists(trashPath));
+    }
+
+    @Test
+    void shouldMoveEmptyFolderToTrash() throws Exception {
+        UserWithSpace userWithSpace = prepareUserWithStorageSpace();
+        UserVo user = userWithSpace.user();
+        FileNodeVo docs = createFolder(user.getId(), "docs", 0L);
+
+        FileDeleteDto dto = new FileDeleteDto();
+        dto.setIds(List.of(docs.getId()));
+
+        List<OperationResultVo> results = fileRecycleService.deleteToTrash(dto, user.getId());
+
+        assertEquals(1, results.size());
+        assertEquals("success", results.get(0).getStatus());
+
+        // 原 FileNode 被物理删除
+        assertNull(fileMapper.selectById(docs.getId()));
+
+        // 回收站记录生成
+        List<RecycleRecord> records = recycleRecordMapper.selectList(
+                new LambdaQueryWrapper<RecycleRecord>().eq(RecycleRecord::getUserId, user.getId()));
+        assertEquals(1, records.size());
+        RecycleRecord record = records.get(0);
+        assertEquals(docs.getId(), record.getNodeId());
+        assertEquals("docs", record.getName());
+        assertEquals("folder", record.getType());
+        assertEquals(0L, record.getTotalSize());
+
+        // 回收站中存在对应的空目录占位
+        Path trashFolderPath = userWithSpace.spacePath()
+                .resolve(user.getId().toString())
+                .resolve("trash")
+                .resolve(record.getNodeId().toString().substring(0, 10))
+                .resolve(record.getNodeId().toString())
+                .resolve("docs");
+        assertTrue(Files.exists(trashFolderPath));
+        assertTrue(Files.isDirectory(trashFolderPath));
     }
 
     @Test
@@ -389,7 +427,7 @@ class FileRecycleServiceTest {
 
     private Path resolveTrashPath(UserWithSpace userWithSpace, Long nodeId, String relativePath) {
         String idStr = nodeId.toString();
-        String prefix = idStr.length() >= 2 ? idStr.substring(0, 2) : idStr;
+        String prefix = idStr.length() >= 10 ? idStr.substring(0, 10) : idStr;
         return userWithSpace.spacePath()
                 .resolve(userWithSpace.user().getId().toString())
                 .resolve("trash")

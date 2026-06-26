@@ -12,8 +12,8 @@ import com.fleyx.jcloud.model.dto.FileBatchDownloadDto;
 import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.po.StorageSpace;
 import com.fleyx.jcloud.service.FileDownloadService;
+import com.fleyx.jcloud.service.SystemStorageSpaceProvider;
 import com.fleyx.jcloud.util.FilePathUtil;
-import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.task.TaskExecutor;
@@ -49,18 +49,20 @@ public class FileDownloadServiceImpl implements FileDownloadService {
     private final FileMapper fileMapper;
     private final StorageSpaceMapper storageSpaceMapper;
     private final TaskExecutor taskExecutor;
+    private final SystemStorageSpaceProvider systemStorageSpaceProvider;
 
     public FileDownloadServiceImpl(FileMapper fileMapper, StorageSpaceMapper storageSpaceMapper,
-                                   @Qualifier("applicationTaskExecutor") TaskExecutor taskExecutor) {
+                                   @Qualifier("applicationTaskExecutor") TaskExecutor taskExecutor,
+                                   SystemStorageSpaceProvider systemStorageSpaceProvider) {
         this.fileMapper = fileMapper;
         this.storageSpaceMapper = storageSpaceMapper;
         this.taskExecutor = taskExecutor;
+        this.systemStorageSpaceProvider = systemStorageSpaceProvider;
     }
 
     private final ConcurrentHashMap<String, FileZipTask> taskStore = new ConcurrentHashMap<>();
 
-    @Value("${jcloud.download.zip-temp-path:${jcloud.storage.system-path:/data/jcloud/system}/zip-tasks}")
-    private String zipTempPath;
+    private static final String ZIP_TASKS_SUB_DIRECTORY = "zip-tasks";
 
     @Value("${jcloud.download.zip-stream-threshold-size:104857600}")
     private long streamThresholdSize;
@@ -209,7 +211,8 @@ public class FileDownloadServiceImpl implements FileDownloadService {
     }
 
     private Path resolveTaskDir(Long userId, String taskId) {
-        return Path.of(zipTempPath, userId.toString(), taskId);
+        StorageSpace systemSpace = systemStorageSpaceProvider.getSystemSpace();
+        return Path.of(systemSpace.getPath(), ZIP_TASKS_SUB_DIRECTORY, userId.toString(), taskId);
     }
 
     @Scheduled(fixedRate = 300_000)

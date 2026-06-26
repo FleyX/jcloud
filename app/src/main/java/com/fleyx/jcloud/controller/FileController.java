@@ -9,6 +9,7 @@ import com.fleyx.jcloud.model.bo.BatchDownloadResult;
 import com.fleyx.jcloud.model.bo.FileDownloadResult;
 import com.fleyx.jcloud.model.bo.FileZipTask;
 import com.fleyx.jcloud.model.bo.PreviewResult;
+import com.fleyx.jcloud.model.dto.ChunkedUploadInitDto;
 import com.fleyx.jcloud.model.dto.FileBatchDownloadDto;
 import com.fleyx.jcloud.model.dto.FileCreateFolderDto;
 import com.fleyx.jcloud.model.dto.FileDeleteDto;
@@ -21,11 +22,14 @@ import com.fleyx.jcloud.model.dto.FilePreCheckDto;
 import com.fleyx.jcloud.model.dto.FilePreCheckOperationDto;
 import com.fleyx.jcloud.model.dto.FilePreCheckRestoreDto;
 import com.fleyx.jcloud.model.dto.FileRenameDto;
+import com.fleyx.jcloud.model.vo.ChunkedUploadChunkVo;
+import com.fleyx.jcloud.model.vo.ChunkedUploadInitVo;
 import com.fleyx.jcloud.model.vo.ConflictItemVo;
 import com.fleyx.jcloud.model.vo.FileNodeVo;
 import com.fleyx.jcloud.model.vo.FileZipTaskVo;
 import com.fleyx.jcloud.model.vo.OperationResultVo;
 import com.fleyx.jcloud.model.vo.RecycleRecordVo;
+import com.fleyx.jcloud.service.ChunkedUploadService;
 import com.fleyx.jcloud.service.FileDownloadService;
 import com.fleyx.jcloud.service.FileOperationService;
 import com.fleyx.jcloud.service.FilePreviewService;
@@ -65,6 +69,7 @@ public class FileController {
     private final FileRecycleService fileRecycleService;
     private final FilePreviewService filePreviewService;
     private final FileDownloadService fileDownloadService;
+    private final ChunkedUploadService chunkedUploadService;
 
     /**
      * 上传文件到当前用户根目录。
@@ -99,6 +104,41 @@ public class FileController {
     @PostMapping("/instant")
     public R<FileNodeVo> instantUpload(@RequestBody FileInstantUploadDto dto) {
         return R.ok(fileService.instantUpload(dto, UserContext.get().id()));
+    }
+
+    /**
+     * 初始化分片上传任务。
+     */
+    @PostMapping("/chunked-upload/init")
+    public R<ChunkedUploadInitVo> initChunkedUpload(@RequestBody ChunkedUploadInitDto dto) {
+        return R.ok(chunkedUploadService.init(UserContext.get().id(), dto));
+    }
+
+    /**
+     * 上传单个分片。
+     */
+    @PostMapping(value = "/chunked-upload/{uploadId}/chunks", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public R<ChunkedUploadChunkVo> uploadChunk(@PathVariable String uploadId,
+                                               @RequestParam("index") Integer index,
+                                               @RequestParam("chunkHash") String chunkHash,
+                                               @RequestParam("chunk") MultipartFile chunk) {
+        return R.ok(chunkedUploadService.uploadChunk(UserContext.get().id(), uploadId, index, chunk, chunkHash));
+    }
+
+    /**
+     * 查询已上传的分片索引列表。
+     */
+    @GetMapping("/chunked-upload/{uploadId}/chunks")
+    public R<List<Integer>> listUploadedChunks(@PathVariable String uploadId) {
+        return R.ok(chunkedUploadService.listUploadedChunks(UserContext.get().id(), uploadId));
+    }
+
+    /**
+     * 完成分片上传并创建文件节点。
+     */
+    @PostMapping("/chunked-upload/{uploadId}/complete")
+    public R<FileNodeVo> completeChunkedUpload(@PathVariable String uploadId) {
+        return R.ok(chunkedUploadService.complete(UserContext.get().id(), uploadId));
     }
 
     /**

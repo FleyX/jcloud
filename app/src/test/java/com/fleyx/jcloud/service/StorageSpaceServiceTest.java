@@ -10,6 +10,7 @@ import com.fleyx.jcloud.model.dto.StorageSpaceUpdateDto;
 import com.fleyx.jcloud.model.po.StorageSpace;
 import com.fleyx.jcloud.model.po.User;
 import com.fleyx.jcloud.model.vo.StorageSpaceVo;
+import com.fleyx.jcloud.service.SystemConfigService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -38,6 +39,9 @@ class StorageSpaceServiceTest {
 
     @Autowired
     private UserMapper userMapper;
+
+    @Autowired
+    private SystemConfigService systemConfigService;
 
     @Test
     void shouldCreateStorageSpace() {
@@ -146,6 +150,37 @@ class StorageSpaceServiceTest {
         dto.setCapacity(10737418239L);
 
         assertThrows(BusinessException.class, () -> storageSpaceService.expandCapacity(dto));
+    }
+
+    @Test
+    void shouldRejectSystemTypeOnCreate() {
+        StorageSpaceSaveDto dto = buildDto("系统空间", "/data/jcloud/system-create");
+        dto.setType("SYSTEM");
+
+        assertThrows(BusinessException.class, () -> storageSpaceService.save(dto));
+    }
+
+    @Test
+    void shouldRejectSystemTypeOnUpdate() {
+        StorageSpaceVo saved = storageSpaceService.save(buildDto("用户空间", "/data/jcloud/system-update"));
+
+        StorageSpaceUpdateDto update = new StorageSpaceUpdateDto();
+        update.setId(saved.getId());
+        update.setName(saved.getName());
+        update.setPath(saved.getPath());
+        update.setType("SYSTEM");
+        update.setCapacity(saved.getCapacity());
+        update.setStatus(saved.getStatus());
+
+        assertThrows(BusinessException.class, () -> storageSpaceService.update(update));
+    }
+
+    @Test
+    void shouldRejectDeleteWhenConfiguredAsSystemSpace() {
+        StorageSpaceVo saved = storageSpaceService.save(buildDto("系统目录空间", "/data/jcloud/system-configured"));
+        systemConfigService.setValue("system.storage.space.id", String.valueOf(saved.getId()));
+
+        assertThrows(BusinessException.class, () -> storageSpaceService.removeById(saved.getId()));
     }
 
     private StorageSpaceSaveDto buildDto(String name, String path) {

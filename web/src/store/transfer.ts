@@ -14,6 +14,28 @@ export type UploadStatus = 'waiting' | 'uploading' | 'paused' | 'success' | 'err
 export type DownloadStatus = 'pending' | 'downloading' | 'success' | 'error'
 
 /**
+ * 分片状态
+ */
+export interface FileChunk {
+  index: number
+  size: number
+  hash: string
+  status: 'waiting' | 'uploading' | 'success' | 'error'
+}
+
+function formatSpeed(bytesPerSecond: number): string {
+  if (bytesPerSecond <= 0) return '0 KB/s'
+  const units = ['B/s', 'KB/s', 'MB/s', 'GB/s']
+  let size = bytesPerSecond
+  let i = 0
+  while (size >= 1024 && i < units.length - 1) {
+    size /= 1024
+    i++
+  }
+  return `${size.toFixed(2)} ${units[i]}`
+}
+
+/**
  * 上传任务对象
  */
 export interface UploadTask {
@@ -22,6 +44,24 @@ export interface UploadTask {
   progress: number // 0 ~ 100
   status: UploadStatus
   speed: string // 例如 "2.5 MB/s"
+  totalBytes: number
+  speedBps: number
+  // 分片上传专用字段
+  uploadId?: string
+  parentId?: string
+  file?: File
+  totalChunks?: number
+  chunkSize?: number
+  completedChunks?: number
+  chunks?: FileChunk[]
+  controller?: AbortController
+}
+
+export interface DownloadProgress {
+  progress: number
+  loadedBytes?: number
+  totalBytes?: number
+  speedBps?: number
 }
 
 /**
@@ -33,6 +73,11 @@ export interface DownloadTask {
   progress: number
   status: DownloadStatus
   message?: string
+  totalBytes: number
+  loadedBytes: number
+  speedBps: number
+  lastUpdateTime: number
+  lastLoadedBytes: number
 }
 
 /**
@@ -47,19 +92,57 @@ export const useTransferStore = defineStore('transfer', () => {
   // ================= Getters =================
   /** 当前正在上传的任务 */
   const uploadingTasks = computed(() =>
-    uploadQueue.value.filter((task) => task.status === 'uploading')
+    uploadQueue.value.filter((task) => task.status === 'uploading'),
   )
 
   /** 当前正在下载的任务 */
   const downloadingTasks = computed(() =>
-    downloadQueue.value.filter((task) => task.status === 'pending' || task.status === 'downloading')
+    downloadQueue.value.filter((task) => task.status === 'pending' || task.status === 'downloading'),
   )
 
   /** 是否还有未完成的任务 */
   const hasRunningTask = computed(() =>
     uploadQueue.value.some((task) => task.status === 'waiting' || task.status === 'uploading') ||
-    downloadQueue.value.some((task) => task.status === 'pending' || task.status === 'downloading')
+    downloadQueue.value.some((task) => task.status === 'pending' || task.status === 'downloading'),
   )
+
+  /** 等待中/传输中/已完成/失败 数量统计 */
+  const taskStats = computed(() => {
+    const waiting = uploadQueue.value.filter((t) => t.status === 'waiting').length +
+      downloadQueue.value.filter((t) => t.status === 'pending').length
+    const running = uploadQueue.value.filter((t) => t.status === 'uploading').length +
+      downloadQueue.value.filter((t) => t.status === 'downloading').length
+    const success = uploadQueue.value.filter((t) => t.status === 'success').length +
+      downloadQueue.value.filter((t) => t.status === 'success').length
+    const error = uploadQueue.value.filter((t) => t.status === 'error').length +
+      downloadQueue.value.filter((t) => t.status === 'error').length
+    return { waiting, running, success, error }
+  })
+
+  /** 当前传输总速度 */
+  const overallSpeed = computed(() => {
+    const uploadSpeed = uploadQueue.value
+      .filter((t) => t.status === 'uploading')
+      .reduce((sum, t) => sum + (t.speedBps || 0), 0)
+    const downloadSpeed = downloadQueue.value
+      .filter((t) => t.status === 'downloading')
+      .reduce((sum, t) => sum + (t.speedBps || 0), 0)
+    return formatSpeed(uploadSpeed + downloadSpeed)
+  })
+
+  /** 按字节加权的总体进度 */
+  const overallProgress = computed(() => {
+    const tasks = [...uploadQueue.value, ...downloadQueue.value]
+    const total = tasks.reduce((sum, t) => sum + (t.totalBytes || 0), 0)
+    if (total <= 0) return 0
+    const loaded = tasks.reduce((sum, t) => {
+      if ('fileId' in t) {
+        return sum + Math.round((t.totalBytes || 0) * (t.progress / 100))
+      }
+      return sum + (t.loadedBytes || 0)
+    }, 0)
+    return Math.min(100, Math.round((loaded / total) * 100))
+  })
 
   // ================= Actions =================
   /**
@@ -71,6 +154,8 @@ export const useTransferStore = defineStore('transfer', () => {
       progress: 0,
       status: 'waiting',
       speed: '0 KB/s',
+      totalBytes: 0,
+      speedBps: 0,
       ...task,
     }
     uploadQueue.value.unshift(newTask)
@@ -81,8 +166,9 @@ export const useTransferStore = defineStore('transfer', () => {
    * @param fileId 任务唯一标识
    * @param progress 当前进度 0-100
    * @param speed 传输速度字符串
+   * @param speedBps 传输速度字节/秒
    */
-  function updateProgress(fileId: string, progress: number, speed?: string) {
+  function updateProgress(fileId: string, progress: number, speed?: string, speedBps?: number) {
     const task = uploadQueue.value.find((item) => item.fileId === fileId)
     if (!task) return
 
@@ -92,6 +178,9 @@ export const useTransferStore = defineStore('transfer', () => {
     }
     if (speed) {
       task.speed = speed
+    }
+    if (speedBps !== undefined) {
+      task.speedBps = speedBps
     }
   }
 
@@ -106,6 +195,7 @@ export const useTransferStore = defineStore('transfer', () => {
 
     if (task.status === 'uploading' || task.status === 'waiting') {
       task.status = 'paused'
+      task.controller?.abort()
     } else if (task.status === 'paused') {
       task.status = 'uploading'
     }
@@ -120,6 +210,7 @@ export const useTransferStore = defineStore('transfer', () => {
     task.status = 'success'
     task.progress = 100
     task.speed = '0 KB/s'
+    task.speedBps = 0
   }
 
   /**
@@ -129,6 +220,7 @@ export const useTransferStore = defineStore('transfer', () => {
     const task = uploadQueue.value.find((item) => item.fileId === fileId)
     if (!task) return
     task.status = 'error'
+    task.speedBps = 0
   }
 
   /**
@@ -145,9 +237,15 @@ export const useTransferStore = defineStore('transfer', () => {
    * 添加下载任务
    */
   function addDownloadTask(task: Partial<DownloadTask> & { taskId: string; fileName: string }) {
+    const now = Date.now()
     const newTask: DownloadTask = {
       progress: 0,
       status: 'pending',
+      totalBytes: 0,
+      loadedBytes: 0,
+      speedBps: 0,
+      lastUpdateTime: now,
+      lastLoadedBytes: 0,
       ...task,
     }
     downloadQueue.value.unshift(newTask)
@@ -156,12 +254,29 @@ export const useTransferStore = defineStore('transfer', () => {
   /**
    * 更新下载任务进度
    */
-  function updateDownloadProgress(taskId: string, progress: number) {
+  function updateDownloadProgress(taskId: string, progress: DownloadProgress) {
     const task = downloadQueue.value.find((item) => item.taskId === taskId)
     if (!task) return
-    task.progress = Math.min(Math.max(progress, 0), 100)
+    task.progress = Math.min(Math.max(progress.progress, 0), 100)
     if (task.status === 'pending') {
       task.status = 'downloading'
+    }
+    if (progress.totalBytes !== undefined) {
+      task.totalBytes = progress.totalBytes
+    }
+    if (progress.loadedBytes !== undefined) {
+      const now = Date.now()
+      const deltaMs = now - task.lastUpdateTime
+      if (deltaMs > 0) {
+        const deltaBytes = progress.loadedBytes - task.lastLoadedBytes
+        task.speedBps = Math.max(0, Math.round((deltaBytes / deltaMs) * 1000))
+      }
+      task.loadedBytes = progress.loadedBytes
+      task.lastUpdateTime = now
+      task.lastLoadedBytes = progress.loadedBytes
+    }
+    if (progress.speedBps !== undefined) {
+      task.speedBps = progress.speedBps
     }
   }
 
@@ -173,6 +288,8 @@ export const useTransferStore = defineStore('transfer', () => {
     if (!task) return
     task.status = 'success'
     task.progress = 100
+    task.loadedBytes = task.totalBytes
+    task.speedBps = 0
   }
 
   /**
@@ -183,6 +300,7 @@ export const useTransferStore = defineStore('transfer', () => {
     if (!task) return
     task.status = 'error'
     task.message = message
+    task.speedBps = 0
   }
 
   /**
@@ -201,6 +319,9 @@ export const useTransferStore = defineStore('transfer', () => {
     uploadingTasks,
     downloadingTasks,
     hasRunningTask,
+    taskStats,
+    overallSpeed,
+    overallProgress,
     addUploadTask,
     updateProgress,
     pauseTask,
