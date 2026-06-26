@@ -19,12 +19,14 @@ import { cn } from '@/utils/cn'
 import {
   fetchTrashPage,
   permanentDeleteTrash,
+  preCheckRestore,
   restoreFiles,
 } from '@/api/file'
+import ConflictResolveModal from '@/components/files/ConflictResolveModal.vue'
 import { useConfirmStore } from '@/store/confirm'
 import { useNotificationStore } from '@/store/notification'
 import type { Component } from 'vue'
-import type { OperationResultVo, RecycleRecordVo } from '@/types/file'
+import type { ConflictItemVo, ConflictStrategy, OperationResultVo, RecycleRecordVo } from '@/types/file'
 
 const confirmStore = useConfirmStore()
 const notificationStore = useNotificationStore()
@@ -32,6 +34,9 @@ const notificationStore = useNotificationStore()
 const records = ref<RecycleRecordVo[]>([])
 const loading = ref(false)
 const selectedIds = ref<Set<string>>(new Set())
+const conflictOpen = ref(false)
+const conflicts = ref<ConflictItemVo[]>([])
+const pendingRestoreRecords = ref<RecycleRecordVo[]>([])
 
 const isAllSelected = computed(() => records.value.length > 0 && selectedIds.value.size === records.value.length)
 const selectedRecords = computed(() => records.value.filter((r) => selectedIds.value.has(r.id)))
@@ -117,15 +122,40 @@ async function handleRestore() {
   if (targets.length === 0) return
   const confirmed = await confirmStore.open({
     title: '恢复文件',
-    message: `确定恢复选中的 ${targets.length} 项到原位置吗？若存在同名文件将自动重命名。`,
+    message: `确定恢复选中的 ${targets.length} 项到原位置吗？`,
     confirmText: '恢复',
   })
   if (!confirmed) return
+
+  const conflictList = await preCheckRestore({ ids: targets.map((r) => r.id) })
+  if (conflictList.length > 0) {
+    pendingRestoreRecords.value = targets
+    conflicts.value = conflictList
+    conflictOpen.value = true
+    return
+  }
+
+  await executeRestore(targets)
+}
+
+async function executeRestore(targets: RecycleRecordVo[], strategies?: Record<string, ConflictStrategy>) {
   const results = await restoreFiles({
-    items: targets.map((r) => ({ id: r.id, strategy: 'auto_rename' })),
+    items: targets.map((r) => ({
+      id: r.id,
+      strategy: strategies?.[r.nodeId ?? r.id] ?? 'auto_rename',
+    })),
   })
   showResult('恢复', results)
   await loadTrash()
+}
+
+function handleConflictConfirm(strategies: Record<string, ConflictStrategy>) {
+  executeRestore(pendingRestoreRecords.value, strategies)
+}
+
+function handleConflictCancel() {
+  pendingRestoreRecords.value = []
+  conflicts.value = []
 }
 
 async function handlePermanentDelete() {
@@ -296,5 +326,13 @@ function showResult(action: string, results: OperationResultVo[]) {
         </p>
       </div>
     </div>
+
+    <ConflictResolveModal
+      v-model:open="conflictOpen"
+      title="恢复冲突"
+      :conflicts="conflicts"
+      @confirm="handleConflictConfirm"
+      @cancel="handleConflictCancel"
+    />
   </div>
 </template>

@@ -9,9 +9,25 @@ vi.mock('@/api/file', () => ({
   uploadChunk: vi.fn(),
   listUploadedChunks: vi.fn(),
   completeChunkedUpload: vi.fn(),
+  preCheckUpload: vi.fn(),
+  tryInstantUpload: vi.fn(),
 }))
 
-const { initChunkedUpload, uploadChunk, listUploadedChunks, completeChunkedUpload } = await import('@/api/file')
+vi.mock('@/utils/fileHash', () => ({
+  identityHash: vi.fn(),
+  fullHash: vi.fn(),
+}))
+
+const {
+  initChunkedUpload,
+  uploadChunk,
+  listUploadedChunks,
+  completeChunkedUpload,
+  preCheckUpload,
+  tryInstantUpload,
+} = await import('@/api/file')
+
+const { identityHash } = await import('@/utils/fileHash')
 
 function createFile(name: string, content: string): File {
   return new File([new TextEncoder().encode(content)], name)
@@ -20,6 +36,9 @@ function createFile(name: string, content: string): File {
 beforeEach(() => {
   setActivePinia(createPinia())
   vi.clearAllMocks()
+  vi.mocked(identityHash).mockResolvedValue('mock-partial-hash')
+  vi.mocked(preCheckUpload).mockResolvedValue({ conflicts: [], candidates: [] })
+  vi.mocked(tryInstantUpload).mockResolvedValue(null)
 })
 
 describe('useChunkedUpload', () => {
@@ -58,6 +77,12 @@ describe('useChunkedUpload', () => {
     expect(store.uploadQueue[0].progress).toBe(100)
     expect(onComplete).toHaveBeenCalledOnce()
     expect(uploadChunk).toHaveBeenCalledOnce()
+    expect(preCheckUpload).toHaveBeenCalledWith({
+      fileName: file.name,
+      size: file.size,
+      parentId: '0',
+      partialHash: 'mock-partial-hash',
+    })
   })
 
   it('should skip already uploaded chunks on resume', async () => {
@@ -88,5 +113,71 @@ describe('useChunkedUpload', () => {
 
     expect(result).toEqual(node)
     expect(uploadChunk).not.toHaveBeenCalled()
+  })
+
+  it('should instant upload when candidate exists', async () => {
+    const file = createFile('hello.txt', 'hello world')
+    const candidate: FileNodeVo = {
+      id: 'c1',
+      userId: '1',
+      parentId: '0',
+      name: 'hello.txt',
+      type: 'file',
+      size: String(file.size),
+      storageSpaceId: '1',
+      pathName: '/',
+      hash: 'mock-hash',
+      status: 1,
+    }
+    const instantNode: FileNodeVo = {
+      ...candidate,
+      id: 'n1',
+    }
+
+    vi.mocked(preCheckUpload).mockResolvedValue({
+      conflicts: [],
+      candidates: [candidate],
+    })
+    vi.mocked(tryInstantUpload).mockResolvedValue(instantNode)
+
+    const store = useTransferStore()
+    const { upload } = useChunkedUpload()
+    const onComplete = vi.fn()
+
+    const result = await upload(file, '0', onComplete)
+
+    expect(result).toEqual(instantNode)
+    expect(store.uploadQueue[0].status).toBe('success')
+    expect(onComplete).toHaveBeenCalledOnce()
+    expect(tryInstantUpload).toHaveBeenCalledWith(file, candidate, '0', undefined)
+    expect(initChunkedUpload).not.toHaveBeenCalled()
+  })
+
+  it('should resolve conflict via callback and skip upload', async () => {
+    const file = createFile('hello.txt', 'hello world')
+    const conflict = {
+      sourceId: '',
+      sourceName: 'hello.txt',
+      sourceType: 'file' as const,
+      existingId: 'e1',
+      existingName: 'hello.txt',
+      existingType: 'file' as const,
+    }
+
+    vi.mocked(preCheckUpload).mockResolvedValue({
+      conflicts: [conflict],
+      candidates: [],
+    })
+
+    const store = useTransferStore()
+    const { upload } = useChunkedUpload()
+    const resolveConflict = vi.fn().mockResolvedValue('skip')
+
+    const result = await upload(file, '0', undefined, resolveConflict)
+
+    expect(result).toBeUndefined()
+    expect(store.uploadQueue).toHaveLength(0)
+    expect(resolveConflict).toHaveBeenCalledWith(conflict)
+    expect(initChunkedUpload).not.toHaveBeenCalled()
   })
 })

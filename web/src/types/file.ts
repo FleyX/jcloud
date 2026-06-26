@@ -44,6 +44,7 @@ export type OperationType = 'move' | 'copy'
 export interface ConflictItemVo {
   sourceId: string
   sourceName: string
+  sourceType: 'file' | 'folder'
   existingId: string
   existingName: string
   existingType: 'file' | 'folder'
@@ -153,6 +154,24 @@ export interface FilePreCheckRestoreRequest {
  */
 export interface FilePermanentDeleteRequest {
   ids: string[]
+}
+
+/**
+ * 上传前预检参数
+ */
+export interface FileUploadPreCheckRequest {
+  fileName: string
+  size: number
+  parentId?: string
+  partialHash?: string
+}
+
+/**
+ * 上传前预检结果
+ */
+export interface UploadPreCheckResult {
+  conflicts: ConflictItemVo[]
+  candidates: FileNodeVo[]
 }
 
 /**

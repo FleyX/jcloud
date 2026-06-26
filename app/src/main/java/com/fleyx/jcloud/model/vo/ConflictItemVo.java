@@ -25,6 +25,11 @@ public class ConflictItemVo implements Serializable {
     private String sourceName;
 
     /**
+     * 源节点类型：file / folder。
+     */
+    private String sourceType;
+
+    /**
      * 目标已存在节点 ID。
      */
     private Long existingId;

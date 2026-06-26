@@ -26,6 +26,7 @@ import com.fleyx.jcloud.model.vo.ConflictItemVo;
 import com.fleyx.jcloud.model.vo.OperationResultVo;
 import com.fleyx.jcloud.model.vo.RecycleRecordVo;
 import com.fleyx.jcloud.service.FileRecycleService;
+import com.fleyx.jcloud.util.FileConflictHelper;
 import com.fleyx.jcloud.util.FileHashUtil;
 import com.fleyx.jcloud.util.FilePathUtil;
 import com.fleyx.jcloud.util.UserReadOnlyChecker;
@@ -238,6 +239,17 @@ public class FileRecycleServiceImpl implements FileRecycleService {
         if (dto == null || CollectionUtils.isEmpty(dto.getIds())) {
             throw new BusinessException(ResultCode.PARAM_ERROR, "恢复记录 ID 不能为空");
         }
+        userReadOnlyChecker.checkWriteAllowed(userId);
+        RLock lock = userReadWriteLock.writeLock(userId);
+        lock.lock();
+        try {
+            return doPreCheckRestore(dto, userId);
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    private List<ConflictItemVo> doPreCheckRestore(FilePreCheckRestoreDto dto, Long userId) {
         List<ConflictItemVo> conflicts = new ArrayList<>();
         for (Long id : dto.getIds()) {
             RecycleRecord record = getOwnedRecord(id, userId);
@@ -250,6 +262,7 @@ public class FileRecycleServiceImpl implements FileRecycleService {
                 ConflictItemVo conflict = new ConflictItemVo();
                 conflict.setSourceId(record.getNodeId());
                 conflict.setSourceName(record.getName());
+                conflict.setSourceType(record.getType());
                 conflict.setExistingId(existing.getId());
                 conflict.setExistingName(existing.getName());
                 conflict.setExistingType(existing.getType());
@@ -266,23 +279,6 @@ public class FileRecycleServiceImpl implements FileRecycleService {
                 .eq(FileNode::getName, name)
                 .eq(FileNode::getDeleteAt, 0L);
         return fileMapper.selectOne(wrapper);
-    }
-
-    private String generateUniqueName(Long parentId, String name, Long userId) {
-        int dotIndex = name.lastIndexOf('.');
-        String base = dotIndex > 0 ? name.substring(0, dotIndex) : name;
-        String ext = dotIndex > 0 ? name.substring(dotIndex) : "";
-        int index = 1;
-        while (true) {
-            String candidate = base + "." + index + ext;
-            if (findExistingChild(parentId, candidate, userId) == null) {
-                return candidate;
-            }
-            index++;
-            if (index > 1000) {
-                throw new BusinessException(ResultCode.BUSINESS_ERROR, "无法生成唯一文件名");
-            }
-        }
     }
 
     @Override
@@ -333,25 +329,20 @@ public class FileRecycleServiceImpl implements FileRecycleService {
                                           ConflictStrategy strategy) {
         Path trashRoot = resolveTrashRoot(space, userId, record.getNodeId());
         Path source = trashRoot.resolve(buildRelativePath(record.getOriginalPathName(), record.getName()));
-        String resolvedName = record.getName();
+        String resolvedName = resolveRestoreName(targetParentId, record.getName(), userId, strategy, record.getNodeId(), TYPE_FILE);
+        if (resolvedName == null) {
+            OperationResultVo vo = new OperationResultVo();
+            vo.setSourceId(record.getNodeId());
+            vo.setSourceName(record.getName());
+            vo.setStatus(STATUS_SKIPPED);
+            vo.setMessage("目标位置已存在同名文件");
+            return vo;
+        }
         Path target = FilePathUtil.resolvePhysicalPath(space, userId, targetPathName, resolvedName);
 
         FileNode existing = findExistingChild(targetParentId, resolvedName, userId);
         if (existing != null) {
-            if (strategy == ConflictStrategy.SKIP) {
-                OperationResultVo vo = new OperationResultVo();
-                vo.setSourceId(record.getNodeId());
-                vo.setSourceName(record.getName());
-                vo.setStatus(STATUS_SKIPPED);
-                vo.setMessage("目标位置已存在同名文件");
-                return vo;
-            }
-            if (strategy == ConflictStrategy.OVERWRITE) {
-                overwriteExistingFile(existing, space, userId);
-            } else {
-                resolvedName = generateUniqueName(targetParentId, resolvedName, userId);
-                target = FilePathUtil.resolvePhysicalPath(space, userId, targetPathName, resolvedName);
-            }
+            deleteExistingFileForOverwrite(existing, space, userId);
         }
 
         try {
@@ -397,7 +388,28 @@ public class FileRecycleServiceImpl implements FileRecycleService {
         return vo;
     }
 
-    private void overwriteExistingFile(FileNode existing, StorageSpace space, Long userId) {
+    private String resolveRestoreName(Long parentId, String originalName, Long userId,
+                                      ConflictStrategy strategy, Long sourceId, String sourceType) {
+        FileNode existing = findExistingChild(parentId, originalName, userId);
+        if (existing == null) {
+            return originalName;
+        }
+        if (strategy == ConflictStrategy.SKIP) {
+            return null;
+        }
+        if (strategy == ConflictStrategy.OVERWRITE) {
+            if (TYPE_FOLDER.equals(existing.getType())) {
+                throw new BusinessException(ResultCode.BUSINESS_ERROR, "不能覆盖文件夹");
+            }
+            return originalName;
+        }
+        if (TYPE_FOLDER.equals(sourceType)) {
+            throw new BusinessException(ResultCode.BUSINESS_ERROR, "文件夹不支持自动重命名");
+        }
+        return FileConflictHelper.generateAutoRename(fileMapper, userId, parentId, originalName);
+    }
+
+    private void deleteExistingFileForOverwrite(FileNode existing, StorageSpace space, Long userId) {
         Path existingPath = FilePathUtil.resolvePhysicalPath(space, userId, existing.getPathName(), existing.getName());
         try {
             Files.deleteIfExists(existingPath);
@@ -413,25 +425,24 @@ public class FileRecycleServiceImpl implements FileRecycleService {
                                             ConflictStrategy strategy) {
         Path trashRoot = resolveTrashRoot(space, userId, record.getNodeId());
         Path sourceTop = trashRoot.resolve(record.getName());
-        String resolvedFolderName = record.getName();
+        String resolvedFolderName = resolveRestoreName(targetParentId, record.getName(), userId, strategy, record.getNodeId(), TYPE_FOLDER);
+        if (resolvedFolderName == null) {
+            OperationResultVo vo = new OperationResultVo();
+            vo.setSourceId(record.getNodeId());
+            vo.setSourceName(record.getName());
+            vo.setStatus(STATUS_SKIPPED);
+            vo.setMessage("目标位置已存在同名文件夹");
+            return vo;
+        }
         String topPathName = FilePathUtil.buildPathName(targetPathName, resolvedFolderName);
         Path targetTop = resolveFolderPhysicalPath(space, userId, topPathName);
 
         FileNode existing = findExistingChild(targetParentId, resolvedFolderName, userId);
         if (existing != null) {
-            if (strategy == ConflictStrategy.SKIP) {
-                OperationResultVo vo = new OperationResultVo();
-                vo.setSourceId(record.getNodeId());
-                vo.setSourceName(record.getName());
-                vo.setStatus(STATUS_SKIPPED);
-                vo.setMessage("目标位置已存在同名文件夹");
-                return vo;
+            if (TYPE_FOLDER.equals(existing.getType())) {
+                throw new BusinessException(ResultCode.BUSINESS_ERROR, "不能覆盖文件夹");
             }
-            if (strategy != ConflictStrategy.OVERWRITE) {
-                resolvedFolderName = generateUniqueName(targetParentId, resolvedFolderName, userId);
-                topPathName = FilePathUtil.buildPathName(targetPathName, resolvedFolderName);
-                targetTop = resolveFolderPhysicalPath(space, userId, topPathName);
-            }
+            deleteExistingFileForOverwrite(existing, space, userId);
         }
 
         try {

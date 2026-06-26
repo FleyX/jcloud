@@ -55,7 +55,8 @@ public class FileOperationExecutor {
         FileNode existing = FileConflictHelper.findSameName(fileMapper, userId, targetParentId, targetName);
 
         if (existing != null) {
-            if (strategy == ConflictStrategy.SKIP) {
+            if (strategy == ConflictStrategy.SKIP ||
+                    (strategy == ConflictStrategy.AUTO_RENAME && TYPE_FOLDER.equals(source.getType()))) {
                 return OperationOutcome.skipped(source);
             }
             if (strategy == ConflictStrategy.OVERWRITE) {
@@ -103,7 +104,8 @@ public class FileOperationExecutor {
         FileNode existing = FileConflictHelper.findSameName(fileMapper, userId, targetParentId, targetName);
 
         if (existing != null) {
-            if (strategy == ConflictStrategy.SKIP) {
+            if (strategy == ConflictStrategy.SKIP ||
+                    (strategy == ConflictStrategy.AUTO_RENAME && TYPE_FOLDER.equals(source.getType()))) {
                 return OperationOutcome.skipped(source);
             }
             if (strategy == ConflictStrategy.OVERWRITE) {

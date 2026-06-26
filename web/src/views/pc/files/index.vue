@@ -36,20 +36,21 @@ import { useConfirmStore } from '@/store/confirm'
 import { useNotificationStore } from '@/store/notification'
 import { useTransferStore } from '@/store/transfer'
 import { useFileOperations } from './composables/useFileOperations'
-import { useChunkedUpload } from '@/composables/useChunkedUpload'
+import { useBatchUpload } from '@/composables/useBatchUpload'
 import FileRowActions from './components/FileRowActions.vue'
 import CreateFolderModal from './components/CreateFolderModal.vue'
 import RenameModal from './components/RenameModal.vue'
 import MoveCopyModal from './components/MoveCopyModal.vue'
 import BatchActionBar from './components/BatchActionBar.vue'
 import FilePreviewModal from '@/components/files/FilePreviewModal.vue'
+import UploadConflictModal from '@/components/files/UploadConflictModal.vue'
 import type { Component } from 'vue'
-import type { FileNodeVo, OperationResultVo } from '@/types/file'
+import type { ConflictItemVo, ConflictStrategy, FileNodeVo, OperationResultVo } from '@/types/file'
 
 const transferStore = useTransferStore()
 const notificationStore = useNotificationStore()
 const confirmStore = useConfirmStore()
-const { upload: uploadChunked } = useChunkedUpload()
+const { uploadBatch } = useBatchUpload()
 
 const files = ref<FileNodeVo[]>([])
 const keyword = ref('')
@@ -63,11 +64,34 @@ const previewOpen = ref(false)
 const previewTarget = ref<FileNodeVo | null>(null)
 const currentParentId = ref('0')
 const breadcrumbStack = ref<Array<{ id: string; name: string }>>([{ id: '0', name: '全部文件' }])
+const uploadConflictOpen = ref(false)
+const uploadConflicts = ref<ConflictItemVo[]>([])
+let uploadConflictResolve: ((strategies: Record<string, ConflictStrategy> | null) => void) | null = null
 
 function openPreview(file: FileNodeVo) {
   if (file.type !== 'file') return
   previewTarget.value = file
   previewOpen.value = true
+}
+
+function openUploadConflict(conflicts: ConflictItemVo[]): Promise<Record<string, ConflictStrategy> | null> {
+  return new Promise((resolve) => {
+    uploadConflicts.value = conflicts
+    uploadConflictResolve = resolve
+    uploadConflictOpen.value = true
+  })
+}
+
+function handleUploadConflictConfirm(strategies: Record<string, ConflictStrategy>) {
+  uploadConflictOpen.value = false
+  uploadConflictResolve?.(strategies)
+  uploadConflictResolve = null
+}
+
+function handleUploadConflictCancel() {
+  uploadConflictOpen.value = false
+  uploadConflictResolve?.(null)
+  uploadConflictResolve = null
 }
 
 function enterFolder(file: FileNodeVo) {
@@ -193,10 +217,10 @@ function triggerFileSelect() {
 
 async function handleFileChange(event: Event) {
   const target = event.target as HTMLInputElement
-  const file = target.files?.[0]
-  if (!file) return
+  const files = Array.from(target.files ?? [])
+  if (files.length === 0) return
   try {
-    await uploadChunked(file, currentParentId.value, loadFiles)
+    await uploadBatch(files, currentParentId.value, loadFiles, openUploadConflict)
   } finally {
     target.value = ''
   }
@@ -404,6 +428,7 @@ async function handleBatchDownload() {
         <input
           ref="fileInput"
           type="file"
+          multiple
           class="hidden"
           @change="handleFileChange"
         >
@@ -577,6 +602,13 @@ async function handleBatchDownload() {
     <FilePreviewModal
       v-model:open="previewOpen"
       :file="previewTarget"
+    />
+
+    <UploadConflictModal
+      v-model:open="uploadConflictOpen"
+      :conflicts="uploadConflicts"
+      @confirm="handleUploadConflictConfirm"
+      @cancel="handleUploadConflictCancel"
     />
   </div>
 </template>
