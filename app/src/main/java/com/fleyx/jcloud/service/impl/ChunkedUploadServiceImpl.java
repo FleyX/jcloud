@@ -177,7 +177,7 @@ public class ChunkedUploadServiceImpl implements ChunkedUploadService {
 
         validateChunksComplete(chunks, context);
 
-        String pathName = resolvePathName(context.parentId(), userId);
+        String parentPathName = resolveParentPathName(context.parentId(), userId);
         FileConflictResolver.ConflictResolution resolution =
                 conflictResolver.resolve(userId, context.parentId(), context.fileName(), strategy);
         if (resolution.skipped()) {
@@ -195,8 +195,8 @@ public class ChunkedUploadServiceImpl implements ChunkedUploadService {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "用户配额不足");
         }
 
-        Path targetPath = FilePathUtil.resolvePhysicalPath(
-                context.space(), userId, pathName, resolution.finalName());
+        String filePathName = FilePathUtil.buildPathName(parentPathName, resolution.finalName());
+        Path targetPath = FilePathUtil.resolvePhysicalPath(context.space(), userId, filePathName);
 
         mergeChunks(context, chunks, targetPath);
 
@@ -216,8 +216,8 @@ public class ChunkedUploadServiceImpl implements ChunkedUploadService {
         node.setSize(context.size());
         node.setHash(hash);
         node.setStorageSpaceId(context.space().getId());
-        node.setPath(pathName);
-        node.setPathName(pathName);
+        node.setPath(filePathName);
+        node.setPathName(filePathName);
         node.setMimeType(mimeType);
         node.setStatus(1);
         fileMapper.insert(node);
@@ -228,7 +228,7 @@ public class ChunkedUploadServiceImpl implements ChunkedUploadService {
         cleanupUpload(context.tempDir(), uploadId, userId);
 
         FileNodeVo vo = fileConvert.poToVo(node);
-        vo.setPhysicalPath(buildPhysicalPath(context.space(), userId, pathName, resolution.finalName()));
+        vo.setPhysicalPath(buildPhysicalPath(context.space(), userId, filePathName));
         return vo;
     }
 
@@ -247,7 +247,7 @@ public class ChunkedUploadServiceImpl implements ChunkedUploadService {
         }
     }
 
-    private String resolvePathName(long parentId, Long userId) {
+    private String resolveParentPathName(long parentId, Long userId) {
         if (parentId == 0L) {
             return "/";
         }
@@ -310,10 +310,10 @@ public class ChunkedUploadServiceImpl implements ChunkedUploadService {
         }
     }
 
-    private String buildPhysicalPath(StorageSpace space, Long userId, String pathName, String fileName) {
+    private String buildPhysicalPath(StorageSpace space, Long userId, String pathName) {
         String base = space.getPath() + "/" + userId + "/files";
         String relative = "/".equals(pathName) ? "" : pathName;
-        return base + relative + "/" + fileName;
+        return base + relative;
     }
 
     private User requireUser(Long userId) {

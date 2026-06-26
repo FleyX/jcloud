@@ -8,9 +8,12 @@ import java.nio.file.Path;
 /**
  * 文件物理路径工具。
  * <p>
- * pathName 约定：
- * - 文件节点：pathName 为父目录的完整虚拟路径（不含自身文件名）。
- * - 文件夹节点：pathName 为包含自身的完整虚拟路径。
+ * pathName 约定：对文件和文件夹统一表示节点自身的完整虚拟路径，均以 '/' 开头。
+ * <ul>
+ *     <li>文件：/docs/report.pdf</li>
+ *     <li>文件夹：/docs 或 /docs/sub</li>
+ * </ul>
+ * 物理路径公式：storageSpace.path / userId / files / pathName（去掉前导 '/'）
  */
 public final class FilePathUtil {
 
@@ -19,64 +22,63 @@ public final class FilePathUtil {
 
     /**
      * 解析文件节点在存储空间中的绝对物理路径。
-     * <p>
-     * 路径公式：storageSpace.path / userId / files / pathName / name
-     * 其中 pathName 以 '/' 开头表示根目录，根目录 pathName 为空字符串。
      *
      * @param node  文件节点
      * @param space 存储空间
      * @return 物理路径
      */
     public static Path resolvePhysicalPath(FileNode node, StorageSpace space) {
-        return resolvePhysicalPath(space, node.getUserId(), node.getPathName(), node.getName());
+        return resolvePhysicalPath(space, node.getUserId(), node.getPathName());
     }
 
     /**
-     * 解析指定 pathName 与名称对应的物理路径。
+     * 解析指定完整虚拟路径对应的绝对物理路径。
      *
      * @param space    存储空间
      * @param userId   用户 ID
-     * @param pathName 父目录 pathName（文件）或自身完整 pathName（文件夹）
-     * @param name     节点名称
+     * @param pathName 节点自身完整虚拟路径
      * @return 物理路径
      */
-    public static Path resolvePhysicalPath(StorageSpace space, Long userId,
-                                           String pathName, String name) {
-        String userCode = userId.toString();
-        Path base = Path.of(space.getPath(), userCode, "files");
-        if (pathName == null || pathName.isBlank() || "/".equals(pathName)) {
-            return base.resolve(name);
+    public static Path resolvePhysicalPath(StorageSpace space, Long userId, String pathName) {
+        Path base = Path.of(space.getPath(), userId.toString(), "files");
+        String relative = stripLeadingSlash(pathName);
+        if (relative.isEmpty()) {
+            return base;
         }
-        String relative = pathName.startsWith("/") ? pathName.substring(1) : pathName;
-        return base.resolve(relative).resolve(name);
+        return base.resolve(relative);
     }
 
     /**
-     * 解析文件夹节点的绝对物理路径（不含文件名）。
+     * 根据父路径和名称解析绝对物理路径。
+     *
+     * @param space          存储空间
+     * @param userId         用户 ID
+     * @param parentPathName 父目录完整虚拟路径
+     * @param name           节点名称
+     * @return 物理路径
+     */
+    public static Path resolvePhysicalPath(StorageSpace space, Long userId,
+                                           String parentPathName, String name) {
+        return resolvePhysicalPath(space, userId, buildPathName(parentPathName, name));
+    }
+
+    /**
+     * 解析文件夹节点的绝对物理路径（与文件节点等价，pathName 包含自身）。
      *
      * @param node  文件夹节点
      * @param space 存储空间
      * @return 文件夹物理路径
      */
     public static Path resolveFolderPhysicalPath(FileNode node, StorageSpace space) {
-        String userCode = node.getUserId().toString();
-        Path base = Path.of(space.getPath(), userCode, "files");
-        String pathName = node.getPathName();
-        if (pathName == null || pathName.isBlank() || "/".equals(pathName)) {
-            return base;
-        }
-        String relative = pathName.startsWith("/") ? pathName.substring(1) : pathName;
-        return base.resolve(relative);
+        return resolvePhysicalPath(node, space);
     }
 
     /**
-     * 根据父节点 pathName 和名称构建子节点 pathName。
-     * <p>
-     * 适用于文件夹节点；文件节点的 pathName 应直接复用父 pathName。
+     * 根据父节点 pathName 和名称构建子节点完整 pathName。
      *
-     * @param parentPathName 父节点 pathName
+     * @param parentPathName 父节点完整虚拟路径
      * @param name           子节点名称
-     * @return 子节点 pathName
+     * @return 子节点完整虚拟路径
      */
     public static String buildPathName(String parentPathName, String name) {
         if (parentPathName == null || parentPathName.isBlank() || "/".equals(parentPathName)) {
@@ -86,5 +88,55 @@ public final class FilePathUtil {
             return parentPathName + name;
         }
         return parentPathName + "/" + name;
+    }
+
+    /**
+     * 获取指定完整虚拟路径的父目录路径。
+     *
+     * @param pathName 节点自身完整虚拟路径
+     * @return 父目录完整虚拟路径，根目录返回 "/"
+     */
+    public static String parentOf(String pathName) {
+        if (pathName == null || "/".equals(pathName) || pathName.isBlank()) {
+            return "/";
+        }
+        String normalized = pathName.endsWith("/")
+                ? pathName.substring(0, pathName.length() - 1)
+                : pathName;
+        int idx = normalized.lastIndexOf('/');
+        if (idx <= 0) {
+            return "/";
+        }
+        return normalized.substring(0, idx);
+    }
+
+    /**
+     * 获取指定完整虚拟路径的节点名称。
+     *
+     * @param pathName 节点自身完整虚拟路径
+     * @return 节点名称
+     */
+    public static String nameOf(String pathName) {
+        if (pathName == null || pathName.isBlank() || "/".equals(pathName)) {
+            return "";
+        }
+        String normalized = pathName.endsWith("/")
+                ? pathName.substring(0, pathName.length() - 1)
+                : pathName;
+        int idx = normalized.lastIndexOf('/');
+        return idx < 0 ? normalized : normalized.substring(idx + 1);
+    }
+
+    /**
+     * 去掉 pathName 的前导 '/'，根目录返回空字符串。
+     *
+     * @param pathName 节点自身完整虚拟路径
+     * @return 相对路径
+     */
+    public static String stripLeadingSlash(String pathName) {
+        if (pathName == null || pathName.isBlank() || "/".equals(pathName)) {
+            return "";
+        }
+        return pathName.startsWith("/") ? pathName.substring(1) : pathName;
     }
 }

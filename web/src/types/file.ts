@@ -118,10 +118,8 @@ export interface FileExecuteOperationRequest {
  */
 export interface RecycleRecordVo {
   id: string
-  nodeId: string
   name: string
   type: 'file' | 'folder'
-  originalParentId: string
   originalPathName: string
   totalSize: string
   createTime: string

@@ -193,12 +193,7 @@ public class FileDownloadServiceImpl implements FileDownloadService {
     }
 
     private String resolveEntryName(FileNode file) {
-        String pathName = file.getPathName();
-        if (pathName == null || "/".equals(pathName)) {
-            return file.getName();
-        }
-        String base = pathName.startsWith("/") ? pathName.substring(1) : pathName;
-        return base + "/" + file.getName();
+        return FilePathUtil.stripLeadingSlash(file.getPathName());
     }
 
     private void updateTaskStatus(String taskId, FileZipTaskStatus status, String message) {

@@ -1,6 +1,5 @@
 package com.fleyx.jcloud.job;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fleyx.jcloud.mapper.RecycleRecordMapper;
 import com.fleyx.jcloud.model.dto.FileDeleteDto;
 import com.fleyx.jcloud.model.dto.StorageSpaceSaveDto;
@@ -66,9 +65,11 @@ class RecycleBinCleanupJobTest {
 
         FileDeleteDto deleteDto = new FileDeleteDto();
         deleteDto.setIds(List.of(file.getId()));
-        fileRecycleService.deleteToTrash(deleteDto, user.getId());
+        List<com.fleyx.jcloud.model.vo.OperationResultVo> deleteResults =
+                fileRecycleService.deleteToTrash(deleteDto, user.getId());
+        Long recordId = deleteResults.get(0).getNodeId();
 
-        RecycleRecord record = recycleRecordMapper.selectById(getRecycleRecordId(file.getId(), user.getId()));
+        RecycleRecord record = recycleRecordMapper.selectById(recordId);
         record.setCreateTime(LocalDateTime.now().minusDays(31));
         recycleRecordMapper.updateById(record);
 
@@ -85,19 +86,13 @@ class RecycleBinCleanupJobTest {
 
         FileDeleteDto deleteDto = new FileDeleteDto();
         deleteDto.setIds(List.of(file.getId()));
-        fileRecycleService.deleteToTrash(deleteDto, user.getId());
+        List<com.fleyx.jcloud.model.vo.OperationResultVo> deleteResults =
+                fileRecycleService.deleteToTrash(deleteDto, user.getId());
+        Long recordId = deleteResults.get(0).getNodeId();
 
         cleanupJob.cleanup();
 
-        Long recordId = getRecycleRecordId(file.getId(), user.getId());
         assertEquals(recordId, recycleRecordMapper.selectById(recordId).getId());
-    }
-
-    private Long getRecycleRecordId(Long nodeId, Long userId) {
-        LambdaQueryWrapper<RecycleRecord> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(RecycleRecord::getNodeId, nodeId).eq(RecycleRecord::getUserId, userId);
-        RecycleRecord record = recycleRecordMapper.selectOne(wrapper);
-        return record == null ? null : record.getId();
     }
 
     private MultipartFile buildFile(String name, String content) {

@@ -98,7 +98,7 @@ class FileRecycleServiceTest {
                 new LambdaQueryWrapper<RecycleRecord>().eq(RecycleRecord::getUserId, user.getId()));
         assertEquals(1, records.size());
         RecycleRecord record = records.get(0);
-        assertEquals(file.getId(), record.getNodeId());
+        assertNotNull(record.getId());
         assertEquals("hello.txt", record.getName());
         assertEquals("file", record.getType());
         assertEquals(5L, record.getTotalSize());
@@ -108,8 +108,8 @@ class FileRecycleServiceTest {
         Path trashPath = userWithSpace.spacePath()
                 .resolve(user.getId().toString())
                 .resolve("trash")
-                .resolve(record.getNodeId().toString().substring(0, 10))
-                .resolve(record.getNodeId().toString())
+                .resolve(record.getId().toString().substring(0, 10))
+                .resolve(record.getId().toString())
                 .resolve("hello.txt");
         assertTrue(Files.exists(trashPath));
     }
@@ -142,7 +142,7 @@ class FileRecycleServiceTest {
                 new LambdaQueryWrapper<RecycleRecord>().eq(RecycleRecord::getUserId, user.getId()));
         assertEquals(1, records.size());
         RecycleRecord record = records.get(0);
-        assertEquals(docs.getId(), record.getNodeId());
+        assertNotNull(record.getId());
         assertEquals("docs", record.getName());
         assertEquals("folder", record.getType());
         assertEquals(6L, record.getTotalSize());
@@ -152,8 +152,8 @@ class FileRecycleServiceTest {
         Path trashPath = userWithSpace.spacePath()
                 .resolve(user.getId().toString())
                 .resolve("trash")
-                .resolve(record.getNodeId().toString().substring(0, 10))
-                .resolve(record.getNodeId().toString())
+                .resolve(record.getId().toString().substring(0, 10))
+                .resolve(record.getId().toString())
                 .resolve("docs/report.txt");
         assertTrue(Files.exists(trashPath));
     }
@@ -180,7 +180,7 @@ class FileRecycleServiceTest {
                 new LambdaQueryWrapper<RecycleRecord>().eq(RecycleRecord::getUserId, user.getId()));
         assertEquals(1, records.size());
         RecycleRecord record = records.get(0);
-        assertEquals(docs.getId(), record.getNodeId());
+        assertNotNull(record.getId());
         assertEquals("docs", record.getName());
         assertEquals("folder", record.getType());
         assertEquals(0L, record.getTotalSize());
@@ -189,8 +189,8 @@ class FileRecycleServiceTest {
         Path trashFolderPath = userWithSpace.spacePath()
                 .resolve(user.getId().toString())
                 .resolve("trash")
-                .resolve(record.getNodeId().toString().substring(0, 10))
-                .resolve(record.getNodeId().toString())
+                .resolve(record.getId().toString().substring(0, 10))
+                .resolve(record.getId().toString())
                 .resolve("docs");
         assertTrue(Files.exists(trashFolderPath));
         assertTrue(Files.isDirectory(trashFolderPath));
@@ -207,7 +207,7 @@ class FileRecycleServiceTest {
         List<OperationResultVo> deleteResults = fileRecycleService.deleteToTrash(deleteDto, user.getId());
         Long recordId = deleteResults.get(0).getNodeId();
 
-        Path trashPath = resolveTrashPath(userWithSpace, file.getId(), "hello.txt");
+        Path trashPath = resolveTrashPath(userWithSpace, recordId, "hello.txt");
         assertTrue(Files.exists(trashPath));
 
         FileExecuteRestoreDto restoreDto = new FileExecuteRestoreDto();
@@ -232,7 +232,7 @@ class FileRecycleServiceTest {
         FileNodeVo restored = fileService.list(query, user.getId()).getRecords().get(0);
         assertEquals("hello.txt", restored.getName());
         assertEquals("file", restored.getType());
-        assertEquals("/", restored.getPathName());
+        assertEquals("/hello.txt", restored.getPathName());
 
         // 物理文件移回 files
         assertFalse(Files.exists(trashPath));
@@ -252,7 +252,7 @@ class FileRecycleServiceTest {
         List<OperationResultVo> deleteResults = fileRecycleService.deleteToTrash(deleteDto, user.getId());
         Long recordId = deleteResults.get(0).getNodeId();
 
-        Path trashPath = resolveTrashPath(userWithSpace, docs.getId(), "docs/report.txt");
+        Path trashPath = resolveTrashPath(userWithSpace, recordId, "docs/report.txt");
         assertTrue(Files.exists(trashPath));
 
         FileExecuteRestoreDto restoreDto = new FileExecuteRestoreDto();
@@ -319,14 +319,15 @@ class FileRecycleServiceTest {
 
         FileDeleteDto deleteDto = new FileDeleteDto();
         deleteDto.setIds(List.of(file.getId()));
-        fileRecycleService.deleteToTrash(deleteDto, user.getId());
+        List<OperationResultVo> deleteResults = fileRecycleService.deleteToTrash(deleteDto, user.getId());
+        Long recordId = deleteResults.get(0).getNodeId();
 
         userWithSpace = refreshUser(userWithSpace);
         assertEquals(5L, userWithSpace.user().getUsedSpace());
-        Path trashPath = resolveTrashPath(userWithSpace, file.getId(), "hello.txt");
+        Path trashPath = resolveTrashPath(userWithSpace, recordId, "hello.txt");
         assertTrue(Files.exists(trashPath));
 
-        RecycleRecord record = getRecycleRecordByNodeId(file.getId(), user.getId());
+        RecycleRecord record = recycleRecordMapper.selectById(recordId);
         FilePermanentDeleteDto dto = new FilePermanentDeleteDto();
         dto.setIds(List.of(record.getId()));
         List<OperationResultVo> results = fileRecycleService.permanentDelete(dto, user.getId());
@@ -351,14 +352,15 @@ class FileRecycleServiceTest {
 
         fileService.upload(buildFile("hello.txt", "World"), user.getId(), 0L, null);
 
-        RecycleRecord record = getRecycleRecordByNodeId(file.getId(), user.getId());
+        RecycleRecord record = recycleRecordMapper.selectList(
+                new LambdaQueryWrapper<RecycleRecord>().eq(RecycleRecord::getUserId, user.getId())).get(0);
         FilePreCheckRestoreDto dto = new FilePreCheckRestoreDto();
         dto.setIds(List.of(record.getId()));
 
         List<ConflictItemVo> conflicts = fileRecycleService.preCheckRestore(dto, user.getId());
 
         assertEquals(1, conflicts.size());
-        assertEquals(record.getNodeId(), conflicts.get(0).getSourceId());
+        assertEquals(record.getId(), conflicts.get(0).getSourceId());
         assertEquals("hello.txt", conflicts.get(0).getSourceName());
         assertEquals("file", conflicts.get(0).getExistingType());
     }
@@ -377,7 +379,8 @@ class FileRecycleServiceTest {
 
         createFolder(user.getId(), "docs", 0L);
 
-        RecycleRecord record = getRecycleRecordByNodeId(docs.getId(), user.getId());
+        RecycleRecord record = recycleRecordMapper.selectList(
+                new LambdaQueryWrapper<RecycleRecord>().eq(RecycleRecord::getUserId, user.getId())).get(0);
         FileExecuteRestoreDto dto = new FileExecuteRestoreDto();
         RestoreItemDto item = new RestoreItemDto();
         item.setId(record.getId());
@@ -406,7 +409,8 @@ class FileRecycleServiceTest {
 
         FileNodeVo existingDocs = createFolder(user.getId(), "docs", 0L);
 
-        RecycleRecord record = getRecycleRecordByNodeId(docs.getId(), user.getId());
+        RecycleRecord record = recycleRecordMapper.selectList(
+                new LambdaQueryWrapper<RecycleRecord>().eq(RecycleRecord::getUserId, user.getId())).get(0);
         FileExecuteRestoreDto dto = new FileExecuteRestoreDto();
         RestoreItemDto item = new RestoreItemDto();
         item.setId(record.getId());
@@ -439,7 +443,8 @@ class FileRecycleServiceTest {
         fileService.upload(buildFile("archive.zip", "ExistingA"), user.getId(), existingFolder.getId(), null);
         fileService.upload(buildFile("archive (3).zip", "ExistingB"), user.getId(), existingFolder.getId(), null);
 
-        RecycleRecord record = getRecycleRecordByNodeId(folder.getId(), user.getId());
+        RecycleRecord record = recycleRecordMapper.selectList(
+                new LambdaQueryWrapper<RecycleRecord>().eq(RecycleRecord::getUserId, user.getId())).get(0);
         FilePreCheckRestoreDto preCheckDto = new FilePreCheckRestoreDto();
         preCheckDto.setIds(List.of(record.getId()));
 
@@ -462,7 +467,8 @@ class FileRecycleServiceTest {
 
         fileService.upload(buildFile("hello.txt", "World"), user.getId(), 0L, null);
 
-        RecycleRecord record = getRecycleRecordByNodeId(file.getId(), user.getId());
+        RecycleRecord record = recycleRecordMapper.selectList(
+                new LambdaQueryWrapper<RecycleRecord>().eq(RecycleRecord::getUserId, user.getId())).get(0);
         FileExecuteRestoreDto dto = new FileExecuteRestoreDto();
         RestoreItemDto item = new RestoreItemDto();
         item.setId(record.getId());
@@ -497,7 +503,8 @@ class FileRecycleServiceTest {
         fileService.upload(buildFile("a(1).txt", "third"), user.getId(), 0L, null);
         fileService.upload(buildFile("a(2).txt", "fourth"), user.getId(), 0L, null);
 
-        RecycleRecord record = getRecycleRecordByNodeId(file.getId(), user.getId());
+        RecycleRecord record = recycleRecordMapper.selectList(
+                new LambdaQueryWrapper<RecycleRecord>().eq(RecycleRecord::getUserId, user.getId())).get(0);
         FileExecuteRestoreDto dto = new FileExecuteRestoreDto();
         RestoreItemDto item = new RestoreItemDto();
         item.setId(record.getId());
@@ -540,8 +547,8 @@ class FileRecycleServiceTest {
                 .resolve(relativePath);
     }
 
-    private Path resolveTrashPath(UserWithSpace userWithSpace, Long nodeId, String relativePath) {
-        String idStr = nodeId.toString();
+    private Path resolveTrashPath(UserWithSpace userWithSpace, Long recordId, String relativePath) {
+        String idStr = recordId.toString();
         String prefix = idStr.length() >= 10 ? idStr.substring(0, 10) : idStr;
         return userWithSpace.spacePath()
                 .resolve(userWithSpace.user().getId().toString())
@@ -554,12 +561,6 @@ class FileRecycleServiceTest {
     private UserWithSpace refreshUser(UserWithSpace original) {
         UserVo user = userService.getById(original.user().getId());
         return new UserWithSpace(user, original.spacePath());
-    }
-
-    private RecycleRecord getRecycleRecordByNodeId(Long nodeId, Long userId) {
-        LambdaQueryWrapper<RecycleRecord> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(RecycleRecord::getNodeId, nodeId).eq(RecycleRecord::getUserId, userId);
-        return recycleRecordMapper.selectOne(wrapper);
     }
 
     private UserWithSpace prepareUserWithStorageSpace() {
