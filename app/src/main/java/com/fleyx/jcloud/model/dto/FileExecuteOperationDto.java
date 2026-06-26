@@ -24,4 +24,9 @@ public class FileExecuteOperationDto {
      * 待操作项及冲突策略。
      */
     private List<OperationItemDto> items;
+
+    /**
+     * 全局冲突解决策略，用户选择「统一全部」时使用。
+     */
+    private String globalStrategy;
 }

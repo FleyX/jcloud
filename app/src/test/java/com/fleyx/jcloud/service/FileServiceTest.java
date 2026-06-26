@@ -160,10 +160,10 @@ class FileServiceTest {
         fileService.upload(buildFile("hello.txt", "hello"), user.getId(), 0L, null);
 
         FileNodeVo renamed = fileService.upload(buildFile("hello.txt", "world"), user.getId(), 0L,
-                ConflictStrategy.AUTO_RENAME.getCode());
+                ConflictStrategy.KEEP.getCode());
 
         assertNotNull(renamed);
-        assertEquals("hello.1.txt", renamed.getName());
+        assertEquals("hello(1).txt", renamed.getName());
     }
 
     @Test

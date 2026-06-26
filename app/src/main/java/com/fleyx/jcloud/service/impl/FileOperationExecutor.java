@@ -12,6 +12,8 @@ import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.po.StorageSpace;
 import com.fleyx.jcloud.model.po.User;
 import com.fleyx.jcloud.util.FileConflictHelper;
+import com.fleyx.jcloud.util.FileConflictOverwriteHandler;
+import com.fleyx.jcloud.util.FileConflictResolver;
 import com.fleyx.jcloud.util.FileLinkUtil;
 import com.fleyx.jcloud.util.FilePathUtil;
 import lombok.RequiredArgsConstructor;
@@ -37,13 +39,15 @@ public class FileOperationExecutor {
     private final FileMapper fileMapper;
     private final UserMapper userMapper;
     private final StorageSpaceMapper storageSpaceMapper;
+    private final FileConflictResolver conflictResolver;
+    private final FileConflictOverwriteHandler overwriteHandler;
 
     /**
      * 执行单条移动。
      *
-     * @param item               操作项
-     * @param userId             用户 ID
-     * @param targetParentId     目标父节点 ID
+     * @param item                 操作项
+     * @param userId               用户 ID
+     * @param targetParentId       目标父节点 ID
      * @param targetParentPathName 目标父节点 pathName
      * @return 操作结果
      */
@@ -51,38 +55,41 @@ public class FileOperationExecutor {
                                      Long targetParentId, String targetParentPathName) {
         FileNode source = getOwnedNode(item.getId(), userId);
         String targetName = resolveTargetName(item, source);
-        ConflictStrategy strategy = ConflictStrategy.fromCode(item.getStrategy());
-        FileNode existing = FileConflictHelper.findSameName(fileMapper, userId, targetParentId, targetName);
+        ConflictStrategy strategy = resolveStrategy(item);
 
-        if (existing != null) {
-            if (strategy == ConflictStrategy.SKIP ||
-                    (strategy == ConflictStrategy.AUTO_RENAME && TYPE_FOLDER.equals(source.getType()))) {
-                return OperationOutcome.skipped(source);
-            }
-            if (strategy == ConflictStrategy.OVERWRITE) {
-                fileMapper.deleteById(existing.getId());
-            } else {
-                targetName = FileConflictHelper.generateAutoRename(fileMapper, userId, targetParentId, targetName);
-            }
+        validateNotMoveToSelfSubtree(source, targetParentId, userId);
+
+        FileNode existing = FileConflictHelper.findSameName(fileMapper, userId, targetParentId, targetName);
+        if (existing != null && TYPE_FOLDER.equals(source.getType()) && TYPE_FOLDER.equals(existing.getType())) {
+            moveFolderContents(source, existing, userId);
+            return OperationOutcome.success(source, source.getName());
+        }
+
+        FileConflictResolver.ConflictResolution resolution =
+                conflictResolver.resolveName(userId, targetParentId, targetName, existing, strategy);
+        if (resolution.skipped()) {
+            return OperationOutcome.skipped(source);
         }
 
         StorageSpace space = storageSpaceMapper.selectById(source.getStorageSpaceId());
-        Path sourcePath = FilePathUtil.resolvePhysicalPath(source, space);
-        String newPathName = resolveNodePathName(targetParentPathName, targetName, source.getType());
+        User user = userMapper.selectById(userId);
+        applyOverwriteIfNeeded(resolution, user);
 
+        String newPathName = resolveNodePathName(targetParentPathName, targetName, source.getType());
         if (TYPE_FILE.equals(source.getType())) {
-            Path targetPath = FilePathUtil.resolvePhysicalPath(space, source.getUserId(), newPathName, targetName);
+            Path sourcePath = FilePathUtil.resolvePhysicalPath(source, space);
+            Path targetPath = FilePathUtil.resolvePhysicalPath(space, userId, newPathName, resolution.finalName());
             movePhysicalFile(sourcePath, targetPath);
         } else {
             updateFolderPathName(source, newPathName);
         }
 
         source.setParentId(targetParentId);
-        source.setName(targetName);
+        source.setName(resolution.finalName());
         source.setPathName(newPathName);
         source.setPath(newPathName);
         fileMapper.updateById(source);
-        return OperationOutcome.success(source, targetName);
+        return OperationOutcome.success(source, resolution.finalName());
     }
 
     /**
@@ -100,25 +107,83 @@ public class FileOperationExecutor {
                                      User user) {
         FileNode source = getOwnedNode(item.getId(), userId);
         String targetName = resolveTargetName(item, source);
-        ConflictStrategy strategy = ConflictStrategy.fromCode(item.getStrategy());
-        FileNode existing = FileConflictHelper.findSameName(fileMapper, userId, targetParentId, targetName);
+        ConflictStrategy strategy = resolveStrategy(item);
 
-        if (existing != null) {
-            if (strategy == ConflictStrategy.SKIP ||
-                    (strategy == ConflictStrategy.AUTO_RENAME && TYPE_FOLDER.equals(source.getType()))) {
-                return OperationOutcome.skipped(source);
-            }
-            if (strategy == ConflictStrategy.OVERWRITE) {
-                fileMapper.deleteById(existing.getId());
-            } else {
-                targetName = FileConflictHelper.generateAutoRename(fileMapper, userId, targetParentId, targetName);
-            }
+        validateNotMoveToSelfSubtree(source, targetParentId, userId);
+
+        FileNode existing = FileConflictHelper.findSameName(fileMapper, userId, targetParentId, targetName);
+        if (existing != null && TYPE_FOLDER.equals(source.getType()) && TYPE_FOLDER.equals(existing.getType())) {
+            copyFolderContents(source, existing, user);
+            return OperationOutcome.success(existing, existing.getName());
         }
 
+        FileConflictResolver.ConflictResolution resolution =
+                conflictResolver.resolveName(userId, targetParentId, targetName, existing, strategy);
+        if (resolution.skipped()) {
+            return OperationOutcome.skipped(source);
+        }
+
+        applyOverwriteIfNeeded(resolution, user);
         String newPathName = resolveNodePathName(targetParentPathName, targetName, source.getType());
         StorageSpace space = storageSpaceMapper.selectById(source.getStorageSpaceId());
         FileNode copied = copyNodeRecursively(source, targetParentId, newPathName, user, space);
         return OperationOutcome.success(copied, copied.getName());
+    }
+
+    private ConflictStrategy resolveStrategy(OperationItemDto item) {
+        ConflictStrategy strategy = ConflictStrategy.fromCode(item.getStrategy());
+        return strategy == null ? ConflictStrategy.KEEP : strategy;
+    }
+
+    private void applyOverwriteIfNeeded(FileConflictResolver.ConflictResolution resolution, User user) {
+        if (resolution.existingToReplace() != null) {
+            overwriteHandler.deleteExistingForOverwrite(resolution.existingToReplace(), user);
+        }
+    }
+
+    private void validateNotMoveToSelfSubtree(FileNode source, Long targetParentId, Long userId) {
+        if (!TYPE_FOLDER.equals(source.getType())) {
+            return;
+        }
+        if (targetParentId.equals(source.getId())) {
+            throw new BusinessException(ResultCode.BUSINESS_ERROR, "不能将文件夹移动到自身内部");
+        }
+        FileNode targetParent = fileMapper.selectById(targetParentId);
+        if (targetParent == null || !userId.equals(targetParent.getUserId())) {
+            return;
+        }
+        String sourcePrefix = source.getPathName().endsWith("/") ? source.getPathName() : source.getPathName() + "/";
+        if (targetParent.getPathName().startsWith(sourcePrefix) || targetParent.getPathName().equals(source.getPathName())) {
+            throw new BusinessException(ResultCode.BUSINESS_ERROR, "不能将文件夹移动到自身子目录");
+        }
+    }
+
+    private void moveFolderContents(FileNode sourceFolder, FileNode targetFolder, Long userId) {
+        List<FileNode> children = fileMapper.selectList(
+                new LambdaQueryWrapper<FileNode>()
+                        .eq(FileNode::getParentId, sourceFolder.getId())
+                        .eq(FileNode::getDeleteAt, 0L));
+        for (FileNode child : children) {
+            OperationItemDto childItem = new OperationItemDto();
+            childItem.setId(child.getId());
+            childItem.setName(child.getName());
+            childItem.setStrategy(ConflictStrategy.KEEP.getCode());
+            moveItem(childItem, userId, targetFolder.getId(), targetFolder.getPathName());
+        }
+    }
+
+    private void copyFolderContents(FileNode sourceFolder, FileNode targetFolder, User user) {
+        List<FileNode> children = fileMapper.selectList(
+                new LambdaQueryWrapper<FileNode>()
+                        .eq(FileNode::getParentId, sourceFolder.getId())
+                        .eq(FileNode::getDeleteAt, 0L));
+        for (FileNode child : children) {
+            OperationItemDto childItem = new OperationItemDto();
+            childItem.setId(child.getId());
+            childItem.setName(child.getName());
+            childItem.setStrategy(ConflictStrategy.KEEP.getCode());
+            copyItem(childItem, user.getId(), targetFolder.getId(), targetFolder.getPathName(), user);
+        }
     }
 
     private FileNode copyNodeRecursively(FileNode source, Long parentId,

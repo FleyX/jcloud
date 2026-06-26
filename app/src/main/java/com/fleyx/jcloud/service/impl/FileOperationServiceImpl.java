@@ -1,6 +1,7 @@
 package com.fleyx.jcloud.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.fleyx.jcloud.common.enums.ConflictStrategy;
 import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.FileMapper;
@@ -120,18 +121,38 @@ public class FileOperationServiceImpl implements FileOperationService {
     protected List<ConflictItemVo> doPreCheck(FilePreCheckOperationDto dto, Long userId) {
         Long targetParentId = dto.getTargetParentId() == null ? 0L : dto.getTargetParentId();
         validateTargetParent(targetParentId, userId);
+        String targetParentPathName = resolveParentPathName(targetParentId, userId);
         List<ConflictItemVo> conflicts = new ArrayList<>();
         for (OperationItemDto item : dto.getItems()) {
             FileNode source = getOwnedNode(item.getId(), userId);
             String targetName = StringUtils.hasText(item.getNewName())
                     ? item.getNewName().trim()
                     : source.getName();
-            FileNode existing = FileConflictHelper.findSameName(fileMapper, userId, targetParentId, targetName);
-            if (existing != null) {
-                conflicts.add(buildConflictItem(source, existing));
-            }
+            collectConflicts(source, targetName, targetParentId, targetParentPathName, userId, conflicts);
         }
         return conflicts;
+    }
+
+    private void collectConflicts(FileNode source, String targetName, Long targetParentId,
+                                  String targetParentPathName, Long userId, List<ConflictItemVo> conflicts) {
+        FileNode existing = FileConflictHelper.findSameName(fileMapper, userId, targetParentId, targetName);
+        if (TYPE_FOLDER.equals(source.getType())) {
+            if (existing != null && TYPE_FOLDER.equals(existing.getType())) {
+                conflicts.add(buildAutoMergeConflictItem(source, existing, targetParentPathName));
+                String currentPathName = FilePathUtil.buildPathName(targetParentPathName, targetName);
+                List<FileNode> children = fileMapper.selectList(
+                        new LambdaQueryWrapper<FileNode>()
+                                .eq(FileNode::getParentId, source.getId())
+                                .eq(FileNode::getDeleteAt, 0L));
+                for (FileNode child : children) {
+                    collectConflicts(child, child.getName(), existing.getId(), currentPathName, userId, conflicts);
+                }
+            } else if (existing != null) {
+                conflicts.add(buildConflictItem(source, existing, targetParentPathName));
+            }
+        } else if (existing != null) {
+            conflicts.add(buildConflictItem(source, existing, targetParentPathName));
+        }
     }
 
     @Override
@@ -151,8 +172,10 @@ public class FileOperationServiceImpl implements FileOperationService {
         Long targetParentId = dto.getTargetParentId() == null ? 0L : dto.getTargetParentId();
         validateTargetParent(targetParentId, userId);
         String targetParentPathName = resolveParentPathName(targetParentId, userId);
+        ConflictStrategy globalStrategy = ConflictStrategy.fromCode(dto.getGlobalStrategy());
         List<OperationResultVo> results = new ArrayList<>();
         for (OperationItemDto item : dto.getItems()) {
+            fillDefaultStrategy(item, globalStrategy);
             FileOperationExecutor.OperationOutcome outcome = executor.moveItem(
                     item, userId, targetParentId, targetParentPathName);
             results.add(toResultVo(outcome));
@@ -178,13 +201,24 @@ public class FileOperationServiceImpl implements FileOperationService {
         validateTargetParent(targetParentId, userId);
         String targetParentPathName = resolveParentPathName(targetParentId, userId);
         User user = userMapper.selectById(userId);
+        ConflictStrategy globalStrategy = ConflictStrategy.fromCode(dto.getGlobalStrategy());
         List<OperationResultVo> results = new ArrayList<>();
         for (OperationItemDto item : dto.getItems()) {
+            fillDefaultStrategy(item, globalStrategy);
             FileOperationExecutor.OperationOutcome outcome = executor.copyItem(
                     item, userId, targetParentId, targetParentPathName, user);
             results.add(toResultVo(outcome));
         }
         return results;
+    }
+
+    private void fillDefaultStrategy(OperationItemDto item, ConflictStrategy globalStrategy) {
+        if (!StringUtils.hasText(item.getStrategy()) && globalStrategy != null) {
+            item.setStrategy(globalStrategy.getCode());
+        }
+        if (!StringUtils.hasText(item.getStrategy())) {
+            item.setStrategy(ConflictStrategy.KEEP.getCode());
+        }
     }
 
     private void renamePhysicalFile(FileNode node, String newName) {
@@ -286,15 +320,40 @@ public class FileOperationServiceImpl implements FileOperationService {
         return trimmed;
     }
 
-    private ConflictItemVo buildConflictItem(FileNode source, FileNode existing) {
+    private ConflictItemVo buildConflictItem(FileNode source, FileNode existing, String targetParentPathName) {
+        ConflictItemVo vo = buildBaseConflictItem(source, existing, targetParentPathName);
+        vo.setAutoMerge(false);
+        return vo;
+    }
+
+    private ConflictItemVo buildAutoMergeConflictItem(FileNode source, FileNode existing, String targetParentPathName) {
+        ConflictItemVo vo = buildBaseConflictItem(source, existing, targetParentPathName);
+        vo.setType(TYPE_FOLDER);
+        vo.setAutoMerge(true);
+        return vo;
+    }
+
+    private ConflictItemVo buildBaseConflictItem(FileNode source, FileNode existing, String targetParentPathName) {
         ConflictItemVo vo = new ConflictItemVo();
+        vo.setNodeId(source.getId());
         vo.setSourceId(source.getId());
         vo.setSourceName(source.getName());
         vo.setSourceType(source.getType());
         vo.setExistingId(existing.getId());
         vo.setExistingName(existing.getName());
         vo.setExistingType(existing.getType());
+        vo.setType(source.getType());
+        vo.setSuggestedStrategy(ConflictStrategy.KEEP.getCode());
+        vo.setSourcePath(buildDisplayPath(source.getPathName(), source.getName(), source.getType()));
+        vo.setTargetPath(buildDisplayPath(targetParentPathName, existing.getName(), existing.getType()));
         return vo;
+    }
+
+    private String buildDisplayPath(String parentPathName, String name, String type) {
+        if (TYPE_FOLDER.equals(type)) {
+            return FilePathUtil.buildPathName(parentPathName, name);
+        }
+        return "/".equals(parentPathName) ? "/" + name : parentPathName + "/" + name;
     }
 
     private OperationResultVo toResultVo(FileOperationExecutor.OperationOutcome outcome) {

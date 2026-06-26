@@ -9,7 +9,7 @@ import lombok.Data;
 public class ChunkedUploadCompleteDto {
 
     /**
-     * 冲突解决策略：skip / overwrite / auto_rename。
+     * 冲突解决策略：skip / overwrite / keep。
      * <p>
      * 当目标位置已存在同名节点时生效；若未指定且存在冲突则报错。
      */

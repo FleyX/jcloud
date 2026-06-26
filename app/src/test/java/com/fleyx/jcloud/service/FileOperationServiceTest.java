@@ -156,11 +156,11 @@ class FileOperationServiceTest {
         FileNodeVo fileToMove = fileService.upload(buildFile("same.txt", "second"), user.getId(), 0L, null);
 
         FileExecuteOperationDto dto = buildOperationDto("move", folder.getId(), fileToMove);
-        dto.getItems().get(0).setStrategy(ConflictStrategy.AUTO_RENAME.getCode());
+        dto.getItems().get(0).setStrategy(ConflictStrategy.KEEP.getCode());
         List<OperationResultVo> results = fileOperationService.move(dto, user.getId());
 
         assertEquals("success", results.get(0).getStatus());
-        assertEquals("same.1.txt", results.get(0).getNewName());
+        assertEquals("same(1).txt", results.get(0).getNewName());
     }
 
     @Test

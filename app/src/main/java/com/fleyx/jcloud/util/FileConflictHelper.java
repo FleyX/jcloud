@@ -11,6 +11,8 @@ import java.util.regex.Pattern;
 
 /**
  * 文件冲突检测与自动重命名辅助类。
+ * <p>
+ * 保留（keep）命名规则：name(n).ext；无扩展名时为 name(n)。
  */
 public final class FileConflictHelper {
 
@@ -39,10 +41,11 @@ public final class FileConflictHelper {
     }
 
     /**
-     * 在指定父目录下生成自动重命名名称。
+     * 在指定父目录下生成保留名称。
      * <p>
-     * 命名规则：name.1.ext、name.2.ext，若无扩展名则为 name.1、name.2。
-     * 取当前目录下已存在的最大后缀数字 + 1，避免重名。
+     * 命名规则：name(n).ext、name(n)，若无扩展名则为 name(n)。
+     * 取当前目录下已存在的最大序号数字 + 1，避免重名。
+     * 若原始名称未被占用，直接返回原始名称。
      *
      * @param fileMapper   文件 Mapper
      * @param userId       用户 ID
@@ -50,11 +53,14 @@ public final class FileConflictHelper {
      * @param originalName 原始名称
      * @return 可用名称
      */
-    public static String generateAutoRename(FileMapper fileMapper, Long userId,
-                                            Long parentId, String originalName) {
+    public static String generateKeepName(FileMapper fileMapper, Long userId,
+                                          Long parentId, String originalName) {
         NameParts parts = splitName(originalName);
+        if (findSameName(fileMapper, userId, parentId, originalName) == null) {
+            return originalName;
+        }
         int maxIndex = resolveMaxSuffixIndex(fileMapper, userId, parentId, parts);
-        return parts.base() + "." + (maxIndex + 1) + parts.ext();
+        return buildKeepName(parts, maxIndex + 1);
     }
 
     private static int resolveMaxSuffixIndex(FileMapper fileMapper, Long userId,
@@ -62,9 +68,9 @@ public final class FileConflictHelper {
         String base = parts.base();
         String ext = parts.ext();
         String pattern = ext.isEmpty()
-                ? "^" + java.util.regex.Pattern.quote(base) + "\\.(\\d+)$"
-                : "^" + java.util.regex.Pattern.quote(base) + "\\.(\\d+)" + java.util.regex.Pattern.quote(ext) + "$";
-        java.util.regex.Pattern regex = java.util.regex.Pattern.compile(pattern);
+                ? "^" + Pattern.quote(base) + "\\((\\d+)\\)$"
+                : "^" + Pattern.quote(base) + "\\((\\d+)\\)" + Pattern.quote(ext) + "$";
+        Pattern regex = Pattern.compile(pattern);
 
         List<FileNode> siblings = fileMapper.selectList(new LambdaQueryWrapper<FileNode>()
                 .eq(FileNode::getUserId, userId)
@@ -83,6 +89,13 @@ public final class FileConflictHelper {
             }
         }
         return maxIndex;
+    }
+
+    private static String buildKeepName(NameParts parts, int index) {
+        if (parts.ext().isEmpty()) {
+            return parts.base() + "(" + index + ")";
+        }
+        return parts.base() + "(" + index + ")" + parts.ext();
     }
 
     /**

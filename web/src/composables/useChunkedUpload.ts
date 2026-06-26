@@ -202,7 +202,7 @@ export function useChunkedUpload() {
           }
           strategy = chosen
         } else {
-          strategy = 'auto_rename'
+          strategy = 'keep'
         }
       }
 

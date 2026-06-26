@@ -22,7 +22,7 @@ import {
   preCheckRestore,
   restoreFiles,
 } from '@/api/file'
-import ConflictResolveModal from '@/components/files/ConflictResolveModal.vue'
+import FileConflictModal from '@/components/files/FileConflictModal.vue'
 import { useConfirmStore } from '@/store/confirm'
 import { useNotificationStore } from '@/store/notification'
 import type { Component } from 'vue'
@@ -142,7 +142,7 @@ async function executeRestore(targets: RecycleRecordVo[], strategies?: Record<st
   const results = await restoreFiles({
     items: targets.map((r) => ({
       id: r.id,
-      strategy: strategies?.[r.nodeId ?? r.id] ?? 'auto_rename',
+      strategy: strategies?.[r.nodeId ?? r.id] ?? 'keep',
     })),
   })
   showResult('恢复', results)
@@ -327,9 +327,10 @@ function showResult(action: string, results: OperationResultVo[]) {
       </div>
     </div>
 
-    <ConflictResolveModal
+    <FileConflictModal
       v-model:open="conflictOpen"
       title="恢复冲突"
+      confirm-text="确认恢复"
       :conflicts="conflicts"
       @confirm="handleConflictConfirm"
       @cancel="handleConflictCancel"

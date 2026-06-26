@@ -26,7 +26,7 @@ import { useBatchUpload } from '@/composables/useBatchUpload'
 import FilePreviewDrawer from '@/components/files/FilePreviewDrawer.vue'
 import MoveCopyModal from '@/views/pc/files/components/MoveCopyModal.vue'
 import MobileBatchActionBar from './components/MobileBatchActionBar.vue'
-import UploadConflictModal from '@/components/files/UploadConflictModal.vue'
+import FileConflictModal from '@/components/files/FileConflictModal.vue'
 import type { Component } from 'vue'
 import type { ConflictItemVo, ConflictStrategy, FileNodeVo, OperationResultVo } from '@/types/file'
 
@@ -471,8 +471,10 @@ async function handleBatchDownload() {
       :file="previewTarget"
     />
 
-    <UploadConflictModal
+    <FileConflictModal
       v-model:open="uploadConflictOpen"
+      title="上传冲突"
+      confirm-text="确认上传"
       :conflicts="uploadConflicts"
       @confirm="handleUploadConflictConfirm"
       @cancel="handleUploadConflictCancel"
