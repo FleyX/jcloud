@@ -1,9 +1,9 @@
 import { describe, it, expect, afterEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
-import UploadConflictModal from './UploadConflictModal.vue'
+import FileConflictModal from './FileConflictModal.vue'
 import type { ConflictItemVo } from '@/types/file'
 
-function buildConflict(name: string): ConflictItemVo {
+function buildFileConflict(name: string): ConflictItemVo {
   return {
     sourceId: `id-${name}`,
     sourceName: name,
@@ -11,6 +11,20 @@ function buildConflict(name: string): ConflictItemVo {
     existingId: `existing-${name}`,
     existingName: name,
     existingType: 'file',
+    type: 'file',
+  }
+}
+
+function buildFolderConflict(name: string): ConflictItemVo {
+  return {
+    sourceId: `folder-${name}`,
+    sourceName: name,
+    sourceType: 'folder',
+    existingId: `existing-folder-${name}`,
+    existingName: name,
+    existingType: 'folder',
+    type: 'folder',
+    autoMerge: true,
   }
 }
 
@@ -30,30 +44,32 @@ function findStrategyButtons(): HTMLButtonElement[] {
   ) as HTMLButtonElement[]
 }
 
-describe('UploadConflictModal', () => {
+describe('FileConflictModal', () => {
   afterEach(() => {
     document.body.innerHTML = ''
   })
 
-  it('renders conflict list when open', async () => {
-    mount(UploadConflictModal, {
+  it('renders file conflict list and folder merge summary', async () => {
+    mount(FileConflictModal, {
       props: {
         open: true,
-        conflicts: [buildConflict('a.txt'), buildConflict('b.txt')],
+        conflicts: [buildFileConflict('a.txt'), buildFolderConflict('docs')],
+        title: '上传冲突',
       },
       attachTo: document.body,
     })
     await flushPromises()
 
+    expect(document.body.textContent).toContain('上传冲突')
     expect(document.body.textContent).toContain('a.txt')
-    expect(document.body.textContent).toContain('b.txt')
+    expect(document.body.textContent).toContain('1 个文件夹将自动合并')
   })
 
-  it('defaults all conflicts to auto_rename', async () => {
-    const wrapper = mount(UploadConflictModal, {
+  it('defaults all conflicts to keep', async () => {
+    const wrapper = mount(FileConflictModal, {
       props: {
         open: true,
-        conflicts: [buildConflict('a.txt'), buildConflict('b.txt')],
+        conflicts: [buildFileConflict('a.txt'), buildFileConflict('b.txt')],
       },
       attachTo: document.body,
     })
@@ -63,16 +79,16 @@ describe('UploadConflictModal', () => {
 
     expect(wrapper.emitted('confirm')).toHaveLength(1)
     expect(wrapper.emitted('confirm')![0][0]).toEqual({
-      'id-a.txt': 'auto_rename',
-      'id-b.txt': 'auto_rename',
+      'id-a.txt': 'keep',
+      'id-b.txt': 'keep',
     })
   })
 
   it('supports apply all skip', async () => {
-    const wrapper = mount(UploadConflictModal, {
+    const wrapper = mount(FileConflictModal, {
       props: {
         open: true,
-        conflicts: [buildConflict('a.txt'), buildConflict('b.txt')],
+        conflicts: [buildFileConflict('a.txt'), buildFileConflict('b.txt')],
       },
       attachTo: document.body,
     })
@@ -89,10 +105,10 @@ describe('UploadConflictModal', () => {
   })
 
   it('supports per-item strategy change', async () => {
-    const wrapper = mount(UploadConflictModal, {
+    const wrapper = mount(FileConflictModal, {
       props: {
         open: true,
-        conflicts: [buildConflict('a.txt'), buildConflict('b.txt')],
+        conflicts: [buildFileConflict('a.txt'), buildFileConflict('b.txt')],
       },
       attachTo: document.body,
     })
@@ -106,15 +122,32 @@ describe('UploadConflictModal', () => {
 
     expect(wrapper.emitted('confirm')![0][0]).toEqual({
       'id-a.txt': 'overwrite',
-      'id-b.txt': 'auto_rename',
+      'id-b.txt': 'keep',
     })
   })
 
-  it('emits cancel on cancel click', async () => {
-    const wrapper = mount(UploadConflictModal, {
+  it('enables confirm by default because keep is preselected', async () => {
+    const wrapper = mount(FileConflictModal, {
       props: {
         open: true,
-        conflicts: [buildConflict('a.txt')],
+        conflicts: [buildFileConflict('a.txt')],
+      },
+      attachTo: document.body,
+    })
+    await flushPromises()
+
+    const confirmButton = findButtonByText('确认')!
+    expect(confirmButton.disabled).toBe(false)
+
+    await confirmButton.click()
+    expect(wrapper.emitted('confirm')).toHaveLength(1)
+  })
+
+  it('emits cancel on cancel click', async () => {
+    const wrapper = mount(FileConflictModal, {
+      props: {
+        open: true,
+        conflicts: [buildFileConflict('a.txt')],
       },
       attachTo: document.body,
     })

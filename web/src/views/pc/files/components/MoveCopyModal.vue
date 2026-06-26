@@ -1,19 +1,14 @@
 <script setup lang="ts">
 /**
- * 移动/复制弹窗，含冲突解决。
- * 自包含：内部完成预检、冲突选择、执行，最终通过 confirm 事件返回结果。
+ * 移动/复制弹窗。
+ * 自包含：内部完成目标选择、预检、统一冲突解决、执行，最终通过 confirm 事件返回结果。
  */
 import { computed, ref, watch } from 'vue'
 import { X, Folder, FolderInput, Copy, Check } from '@lucide/vue'
 import { cn } from '@/utils/cn'
 import { copyFiles, moveFiles, preCheckOperation } from '@/api/file'
+import FileConflictModal from '@/components/files/FileConflictModal.vue'
 import type { ConflictItemVo, ConflictStrategy, FileNodeVo, OperationResultVo } from '@/types/file'
-
-function availableStrategies(conflict: ConflictItemVo): ConflictStrategy[] {
-  return conflict.sourceType === 'folder'
-    ? ['skip', 'overwrite']
-    : ['skip', 'overwrite', 'auto_rename']
-}
 
 interface Props {
   open: boolean
@@ -28,7 +23,7 @@ const emit = defineEmits<{
   confirm: [results: OperationResultVo[]]
 }>()
 
-type Step = 'select' | 'conflict' | 'result'
+type Step = 'select' | 'result'
 
 const targetParentId = ref<string>('0')
 const conflicts = ref<ConflictItemVo[]>([])
@@ -36,6 +31,7 @@ const strategies = ref<Record<string, ConflictStrategy>>({})
 const results = ref<OperationResultVo[]>([])
 const step = ref<Step>('select')
 const loading = ref(false)
+const conflictOpen = ref(false)
 
 const isMove = computed(() => props.type === 'move')
 const title = computed(() => (isMove.value ? '移动' : '复制'))
@@ -56,6 +52,7 @@ watch(
       strategies.value = {}
       results.value = []
       loading.value = false
+      conflictOpen.value = false
     }
   },
 )
@@ -78,11 +75,9 @@ async function handleNext() {
     })
     conflicts.value = conflictList
     strategies.value = {}
-    conflictList.forEach((conflict) => {
-      strategies.value[conflict.sourceId] = conflict.sourceType === 'folder' ? 'skip' : 'auto_rename'
-    })
-    step.value = conflictList.length > 0 ? 'conflict' : 'result'
-    if (conflictList.length === 0) {
+    if (conflictList.length > 0) {
+      conflictOpen.value = true
+    } else {
       await executeMoveCopy()
     }
   } finally {
@@ -94,7 +89,7 @@ async function executeMoveCopy() {
   const items = props.files.map((file) => ({
     id: file.id,
     name: file.name,
-    strategy: strategies.value[file.id] ?? 'overwrite',
+    strategy: strategies.value[file.id],
   }))
   loading.value = true
   try {
@@ -107,16 +102,13 @@ async function executeMoveCopy() {
   }
 }
 
-function handleConfirmFromConflict() {
+function handleConflictConfirm(chosen: Record<string, ConflictStrategy>) {
+  strategies.value = chosen
   executeMoveCopy()
 }
 
-function applyAll(strategy: ConflictStrategy) {
-  conflicts.value.forEach((conflict) => {
-    if (availableStrategies(conflict).includes(strategy)) {
-      strategies.value[conflict.sourceId] = strategy
-    }
-  })
+function handleConflictCancel() {
+  conflictOpen.value = false
 }
 
 function handleFinish() {
@@ -198,79 +190,6 @@ function handleFinish() {
         </div>
       </div>
 
-      <!-- 冲突解决 -->
-      <div v-else-if="step === 'conflict'">
-        <p class="mb-3 text-sm text-surface-500">
-          检测到以下同名冲突，请选择处理方式
-        </p>
-        <div class="mb-4 flex gap-2">
-          <button
-            v-for="action in (['skip', 'overwrite', 'auto_rename'] as ConflictStrategy[])"
-            :key="action"
-            class="flex-1 rounded-lg border border-surface-200 bg-surface-50 px-2 py-1.5 text-xs font-medium text-surface-600 transition-colors hover:border-primary-300 hover:bg-primary-50 hover:text-primary-700"
-            @click="applyAll(action)"
-          >
-            全部{{ action === 'skip' ? '跳过' : action === 'overwrite' ? '覆盖' : '重命名' }}
-          </button>
-        </div>
-
-        <div class="max-h-64 space-y-2 overflow-y-auto">
-          <div
-            v-for="conflict in conflicts"
-            :key="conflict.sourceId"
-            class="rounded-2xl border border-surface-200 bg-surface-50/50 p-3"
-          >
-            <p class="mb-2 text-sm font-medium text-surface-800">
-              {{ conflict.sourceName }}
-            </p>
-            <div :class="cn('grid gap-2', conflict.sourceType === 'folder' ? 'grid-cols-2' : 'grid-cols-3')">
-              <button
-                v-for="option in (
-                  conflict.sourceType === 'folder'
-                    ? [
-                      { code: 'skip', label: '跳过' },
-                      { code: 'overwrite', label: '覆盖' },
-                    ]
-                    : [
-                      { code: 'skip', label: '跳过' },
-                      { code: 'overwrite', label: '覆盖' },
-                      { code: 'auto_rename', label: '自动重命名' },
-                    ]
-                ) as { code: ConflictStrategy; label: string }[]"
-                :key="option.code"
-                :class="
-                  cn(
-                    'rounded-lg px-2 py-1.5 text-xs font-medium transition-colors',
-                    strategies[conflict.sourceId] === option.code
-                      ? 'bg-primary-600 text-white'
-                      : 'bg-white text-surface-600 hover:bg-surface-100'
-                  )
-                "
-                @click="strategies[conflict.sourceId] = option.code"
-              >
-                {{ option.label }}
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <div class="mt-5 flex justify-end gap-2">
-          <button
-            class="rounded-xl px-4 py-2 text-sm font-medium text-surface-600 transition-colors hover:bg-surface-100"
-            @click="step = 'select'"
-          >
-            上一步
-          </button>
-          <button
-            :disabled="loading"
-            class="rounded-xl bg-primary-600 px-4 py-2 text-sm font-semibold text-white shadow-soft transition-all hover:bg-primary-700 hover:shadow-card active:scale-95 disabled:opacity-60"
-            @click="handleConfirmFromConflict"
-          >
-            {{ loading ? '执行中...' : `确认${title}` }}
-          </button>
-        </div>
-      </div>
-
       <!-- 结果 -->
       <div v-else-if="step === 'result'">
         <p class="mb-3 text-sm text-surface-500">
@@ -306,4 +225,13 @@ function handleFinish() {
       </div>
     </div>
   </div>
+
+  <FileConflictModal
+    v-model:open="conflictOpen"
+    :title="`${title}冲突`"
+    :confirm-text="`确认${title}`"
+    :conflicts="conflicts"
+    @confirm="handleConflictConfirm"
+    @cancel="handleConflictCancel"
+  />
 </template>

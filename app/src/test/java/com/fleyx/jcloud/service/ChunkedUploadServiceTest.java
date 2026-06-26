@@ -254,11 +254,11 @@ class ChunkedUploadServiceTest {
                 buildChunk(chunk1), DigestUtil.md5Hex(chunk1));
 
         ChunkedUploadCompleteDto completeDto = new ChunkedUploadCompleteDto();
-        completeDto.setStrategy(ConflictStrategy.AUTO_RENAME.getCode());
+        completeDto.setStrategy(ConflictStrategy.KEEP.getCode());
         FileNodeVo vo = chunkedUploadService.complete(user.getId(), initVo.getUploadId(), completeDto);
 
         assertNotNull(vo);
-        assertEquals("chunked.1.bin", vo.getName());
+        assertEquals("chunked(1).bin", vo.getName());
     }
 
     @Test

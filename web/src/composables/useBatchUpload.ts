@@ -13,7 +13,7 @@ function generateConflictId(): string {
  * 批量上传组合式函数。
  *
  * 对选中的多个文件先统一进行冲突预检；若存在冲突则弹出批量冲突弹窗，
- * 支持每项单独选择 skip / overwrite / auto_rename，也支持全部应用同一策略。
+ * 支持每项单独选择 skip / overwrite / keep，也支持全部应用同一策略。
  * 文件夹不参与重名检测（未来支持文件夹上传时直接合并）。
  */
 export function useBatchUpload() {
@@ -58,20 +58,20 @@ export function useBatchUpload() {
           existingName: conflict.existingName,
           existingType: conflict.existingType,
         })
-        strategyByFileName[file.name] = 'auto_rename'
+        strategyByFileName[file.name] = 'keep'
       }
     }
 
     if (conflicts.length > 0) {
       if (!openConflict) {
         conflicts.forEach((conflict) => {
-          strategyByFileName[conflict.sourceName] = 'auto_rename'
+          strategyByFileName[conflict.sourceName] = 'keep'
         })
       } else {
         const chosen = await openConflict(conflicts)
         if (chosen === null) return
         conflicts.forEach((conflict) => {
-          strategyByFileName[conflict.sourceName] = chosen[conflict.sourceId] ?? 'auto_rename'
+          strategyByFileName[conflict.sourceName] = chosen[conflict.sourceId] ?? 'keep'
         })
       }
     }
@@ -108,7 +108,7 @@ export function useBatchUpload() {
       existingName: conflict.existingName,
       existingType: conflict.existingType,
     }
-    if (!openConflict) return 'auto_rename'
+    if (!openConflict) return 'keep'
     const chosen = await openConflict([wrapped])
     if (chosen === null) return null
     return chosen[id]

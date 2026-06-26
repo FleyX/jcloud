@@ -3,6 +3,7 @@ package com.fleyx.jcloud.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.fleyx.jcloud.common.enums.ConflictStrategy;
 import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.FileMapper;
@@ -24,6 +25,7 @@ import com.fleyx.jcloud.util.FileConflictHelper;
 import com.fleyx.jcloud.util.FileHashUtil;
 import com.fleyx.jcloud.util.FileLinkUtil;
 import com.fleyx.jcloud.util.FilePathUtil;
+import com.fleyx.jcloud.util.FileConflictResolver;
 import com.fleyx.jcloud.util.UploadConflictResolver;
 import com.fleyx.jcloud.util.UserReadOnlyChecker;
 import com.fleyx.jcloud.util.UserReadWriteLock;
@@ -77,7 +79,7 @@ public class FileServiceImpl implements FileService {
         Long resolvedParentId = parentId == null ? 0L : parentId;
         String pathName = resolvePathName(resolvedParentId, userId);
 
-        UploadConflictResolver.ConflictResolution resolution =
+        FileConflictResolver.ConflictResolution resolution =
                 conflictResolver.resolve(userId, resolvedParentId, fileName, strategy);
         if (resolution.skipped()) {
             return null;
@@ -152,10 +154,13 @@ public class FileServiceImpl implements FileService {
             return List.of();
         }
         ConflictItemVo vo = new ConflictItemVo();
+        vo.setNodeId(existing.getId());
         vo.setSourceName(dto.getFileName());
         vo.setExistingId(existing.getId());
         vo.setExistingName(existing.getName());
         vo.setExistingType(existing.getType());
+        vo.setType(existing.getType());
+        vo.setSuggestedStrategy(ConflictStrategy.KEEP.getCode());
         return List.of(vo);
     }
 
@@ -270,7 +275,7 @@ public class FileServiceImpl implements FileService {
         String pathName = resolvePathName(parentId, userId);
         String fileName = normalizeFileName(dto.getFileName());
 
-        UploadConflictResolver.ConflictResolution resolution =
+        FileConflictResolver.ConflictResolution resolution =
                 conflictResolver.resolve(userId, parentId, fileName, dto.getStrategy());
         if (resolution.skipped()) {
             return null;

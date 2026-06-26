@@ -20,6 +20,7 @@ import com.fleyx.jcloud.model.vo.ChunkedUploadInitVo;
 import com.fleyx.jcloud.model.vo.FileNodeVo;
 import com.fleyx.jcloud.service.ChunkedUploadService;
 import com.fleyx.jcloud.util.FileHashUtil;
+import com.fleyx.jcloud.util.FileConflictResolver;
 import com.fleyx.jcloud.util.FilePathUtil;
 import com.fleyx.jcloud.util.UploadConflictResolver;
 import com.fleyx.jcloud.util.UserReadOnlyChecker;
@@ -177,7 +178,7 @@ public class ChunkedUploadServiceImpl implements ChunkedUploadService {
         validateChunksComplete(chunks, context);
 
         String pathName = resolvePathName(context.parentId(), userId);
-        UploadConflictResolver.ConflictResolution resolution =
+        FileConflictResolver.ConflictResolution resolution =
                 conflictResolver.resolve(userId, context.parentId(), context.fileName(), strategy);
         if (resolution.skipped()) {
             cleanupUpload(context.tempDir(), uploadId, userId);

@@ -364,10 +364,12 @@ class FileRecycleServiceTest {
     }
 
     @Test
-    void shouldRejectOverwriteWhenRestoreFolderConflicts() {
+    void shouldMergeRestoreFolderEvenWithOverwriteStrategy() throws Exception {
         UserWithSpace userWithSpace = prepareUserWithStorageSpace();
         UserVo user = userWithSpace.user();
         FileNodeVo docs = createFolder(user.getId(), "docs", 0L);
+        FileNodeVo report = fileService.upload(buildFile("report.txt", "Report"), user.getId(), 0L, null);
+        moveFileToFolder(user.getId(), report, docs);
 
         FileDeleteDto deleteDto = new FileDeleteDto();
         deleteDto.setIds(List.of(docs.getId()));
@@ -382,29 +384,70 @@ class FileRecycleServiceTest {
         item.setStrategy(ConflictStrategy.OVERWRITE.getCode());
         dto.setItems(List.of(item));
 
-        assertThrows(BusinessException.class, () -> fileRecycleService.restore(dto, user.getId()));
+        List<OperationResultVo> results = fileRecycleService.restore(dto, user.getId());
+
+        assertEquals(1, results.size());
+        assertEquals("success", results.get(0).getStatus());
+        Path restoredFile = resolvePhysicalPath(userWithSpace, "docs/report.txt");
+        assertTrue(Files.exists(restoredFile));
     }
 
     @Test
-    void shouldRejectAutoRenameWhenRestoreFolderConflicts() {
+    void shouldMergeRestoreFolderWhenTargetFolderExists() throws Exception {
         UserWithSpace userWithSpace = prepareUserWithStorageSpace();
         UserVo user = userWithSpace.user();
         FileNodeVo docs = createFolder(user.getId(), "docs", 0L);
+        FileNodeVo report = fileService.upload(buildFile("report.txt", "Report"), user.getId(), 0L, null);
+        moveFileToFolder(user.getId(), report, docs);
 
         FileDeleteDto deleteDto = new FileDeleteDto();
         deleteDto.setIds(List.of(docs.getId()));
         fileRecycleService.deleteToTrash(deleteDto, user.getId());
 
-        createFolder(user.getId(), "docs", 0L);
+        FileNodeVo existingDocs = createFolder(user.getId(), "docs", 0L);
 
         RecycleRecord record = getRecycleRecordByNodeId(docs.getId(), user.getId());
         FileExecuteRestoreDto dto = new FileExecuteRestoreDto();
         RestoreItemDto item = new RestoreItemDto();
         item.setId(record.getId());
-        item.setStrategy(ConflictStrategy.AUTO_RENAME.getCode());
+        item.setStrategy(ConflictStrategy.KEEP.getCode());
         dto.setItems(List.of(item));
 
-        assertThrows(BusinessException.class, () -> fileRecycleService.restore(dto, user.getId()));
+        List<OperationResultVo> results = fileRecycleService.restore(dto, user.getId());
+
+        assertEquals(1, results.size());
+        assertEquals("success", results.get(0).getStatus());
+        Path restoredFile = resolvePhysicalPath(userWithSpace, "docs/report.txt");
+        assertTrue(Files.exists(restoredFile));
+    }
+
+    @Test
+    void shouldDetectFileConflictsInsideRestoredFolder() throws Exception {
+        UserWithSpace userWithSpace = prepareUserWithStorageSpace();
+        UserVo user = userWithSpace.user();
+        FileNodeVo folder = createFolder(user.getId(), "1", 0L);
+        FileNodeVo file1 = fileService.upload(buildFile("archive.zip", "A"), user.getId(), 0L, null);
+        FileNodeVo file2 = fileService.upload(buildFile("archive (3).zip", "B"), user.getId(), 0L, null);
+        moveFileToFolder(user.getId(), file1, folder);
+        moveFileToFolder(user.getId(), file2, folder);
+
+        FileDeleteDto deleteDto = new FileDeleteDto();
+        deleteDto.setIds(List.of(folder.getId()));
+        fileRecycleService.deleteToTrash(deleteDto, user.getId());
+
+        FileNodeVo existingFolder = createFolder(user.getId(), "1", 0L);
+        fileService.upload(buildFile("archive.zip", "ExistingA"), user.getId(), existingFolder.getId(), null);
+        fileService.upload(buildFile("archive (3).zip", "ExistingB"), user.getId(), existingFolder.getId(), null);
+
+        RecycleRecord record = getRecycleRecordByNodeId(folder.getId(), user.getId());
+        FilePreCheckRestoreDto preCheckDto = new FilePreCheckRestoreDto();
+        preCheckDto.setIds(List.of(record.getId()));
+
+        List<ConflictItemVo> conflicts = fileRecycleService.preCheckRestore(preCheckDto, user.getId());
+
+        assertEquals(3, conflicts.size());
+        long fileConflicts = conflicts.stream().filter(c -> "file".equals(c.getType())).count();
+        assertEquals(2, fileConflicts);
     }
 
     @Test
@@ -423,14 +466,14 @@ class FileRecycleServiceTest {
         FileExecuteRestoreDto dto = new FileExecuteRestoreDto();
         RestoreItemDto item = new RestoreItemDto();
         item.setId(record.getId());
-        item.setStrategy(ConflictStrategy.AUTO_RENAME.getCode());
+        item.setStrategy(ConflictStrategy.KEEP.getCode());
         dto.setItems(List.of(item));
         List<OperationResultVo> results = fileRecycleService.restore(dto, user.getId());
 
         assertEquals(1, results.size());
         assertEquals("success", results.get(0).getStatus());
         assertNotNull(results.get(0).getNewName());
-        assertTrue(results.get(0).getNewName().startsWith("hello"));
+        assertEquals("hello(1).txt", results.get(0).getNewName());
 
         FilePageQueryDto query = new FilePageQueryDto();
         query.setParentId(0L);
@@ -451,20 +494,20 @@ class FileRecycleServiceTest {
         fileRecycleService.deleteToTrash(deleteDto, user.getId());
 
         fileService.upload(buildFile("a.txt", "second"), user.getId(), 0L, null);
-        fileService.upload(buildFile("a.1.txt", "third"), user.getId(), 0L, null);
-        fileService.upload(buildFile("a.2.txt", "fourth"), user.getId(), 0L, null);
+        fileService.upload(buildFile("a(1).txt", "third"), user.getId(), 0L, null);
+        fileService.upload(buildFile("a(2).txt", "fourth"), user.getId(), 0L, null);
 
         RecycleRecord record = getRecycleRecordByNodeId(file.getId(), user.getId());
         FileExecuteRestoreDto dto = new FileExecuteRestoreDto();
         RestoreItemDto item = new RestoreItemDto();
         item.setId(record.getId());
-        item.setStrategy(ConflictStrategy.AUTO_RENAME.getCode());
+        item.setStrategy(ConflictStrategy.KEEP.getCode());
         dto.setItems(List.of(item));
         List<OperationResultVo> results = fileRecycleService.restore(dto, user.getId());
 
         assertEquals(1, results.size());
         assertEquals("success", results.get(0).getStatus());
-        assertEquals("a.3.txt", results.get(0).getNewName());
+        assertEquals("a(3).txt", results.get(0).getNewName());
     }
 
     private FileNodeVo createFolder(Long userId, String name, Long parentId) {

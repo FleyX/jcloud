@@ -27,6 +27,8 @@ import com.fleyx.jcloud.model.vo.OperationResultVo;
 import com.fleyx.jcloud.model.vo.RecycleRecordVo;
 import com.fleyx.jcloud.service.FileRecycleService;
 import com.fleyx.jcloud.util.FileConflictHelper;
+import com.fleyx.jcloud.util.FileConflictOverwriteHandler;
+import com.fleyx.jcloud.util.FileConflictResolver;
 import com.fleyx.jcloud.util.FileHashUtil;
 import com.fleyx.jcloud.util.FilePathUtil;
 import com.fleyx.jcloud.util.UserReadOnlyChecker;
@@ -66,6 +68,8 @@ public class FileRecycleServiceImpl implements FileRecycleService {
     private final RecycleRecordConvert recycleRecordConvert;
     private final UserReadWriteLock userReadWriteLock;
     private final UserReadOnlyChecker userReadOnlyChecker;
+    private final FileConflictResolver conflictResolver;
+    private final FileConflictOverwriteHandler overwriteHandler;
 
     @Override
     public List<OperationResultVo> deleteToTrash(FileDeleteDto dto, Long userId) {
@@ -250,6 +254,8 @@ public class FileRecycleServiceImpl implements FileRecycleService {
     }
 
     private List<ConflictItemVo> doPreCheckRestore(FilePreCheckRestoreDto dto, Long userId) {
+        User user = userMapper.selectById(userId);
+        StorageSpace space = storageSpaceMapper.selectById(user.getStorageSpaceId());
         List<ConflictItemVo> conflicts = new ArrayList<>();
         for (Long id : dto.getIds()) {
             RecycleRecord record = getOwnedRecord(id, userId);
@@ -257,19 +263,90 @@ public class FileRecycleServiceImpl implements FileRecycleService {
                 continue;
             }
             Long targetParentId = resolveRestoreParentId(record, userId);
-            FileNode existing = findExistingChild(targetParentId, record.getName(), userId);
-            if (existing != null) {
-                ConflictItemVo conflict = new ConflictItemVo();
-                conflict.setSourceId(record.getNodeId());
-                conflict.setSourceName(record.getName());
-                conflict.setSourceType(record.getType());
-                conflict.setExistingId(existing.getId());
-                conflict.setExistingName(existing.getName());
-                conflict.setExistingType(existing.getType());
-                conflicts.add(conflict);
-            }
+            String targetParentPathName = resolveRestorePathName(targetParentId, userId);
+            collectRestoreConflicts(record, targetParentId, targetParentPathName, userId, space, conflicts);
         }
         return conflicts;
+    }
+
+    private void collectRestoreConflicts(RecycleRecord record, Long targetParentId,
+                                         String targetParentPathName, Long userId,
+                                         StorageSpace space, List<ConflictItemVo> conflicts) {
+        FileNode existing = findExistingChild(targetParentId, record.getName(), userId);
+        if (TYPE_FOLDER.equals(record.getType())) {
+            if (existing != null && TYPE_FOLDER.equals(existing.getType())) {
+                conflicts.add(buildAutoMergeConflictItem(record, existing, targetParentPathName));
+                String targetTopPathName = FilePathUtil.buildPathName(targetParentPathName, record.getName());
+                walkTrashTreeForConflicts(record, existing, targetTopPathName, userId, space, conflicts);
+            } else if (existing != null) {
+                conflicts.add(buildConflictItem(record, existing, targetParentPathName));
+            }
+        } else if (existing != null) {
+            conflicts.add(buildConflictItem(record, existing, targetParentPathName));
+        }
+    }
+
+    private void walkTrashTreeForConflicts(RecycleRecord record, FileNode targetFolder,
+                                           String targetTopPathName, Long userId,
+                                           StorageSpace space, List<ConflictItemVo> conflicts) {
+        Path trashRoot = resolveTrashRoot(space, userId, record.getNodeId());
+        Path sourceTop = trashRoot.resolve(record.getName());
+        if (!Files.exists(sourceTop)) {
+            return;
+        }
+        try {
+            Files.walk(sourceTop).forEach(sourcePath -> {
+                if (sourcePath.equals(sourceTop) || Files.isDirectory(sourcePath)) {
+                    return;
+                }
+                Path relative = sourceTop.relativize(sourcePath);
+                String rel = relative.toString().replace(java.io.File.separator, "/");
+                String targetName = sourcePath.getFileName().toString();
+                String targetPathName;
+                String relParent = relative.getParent() == null ? "" : relative.getParent().toString().replace(java.io.File.separator, "/");
+                if (relParent.isEmpty()) {
+                    targetPathName = targetTopPathName;
+                } else {
+                    targetPathName = targetTopPathName.endsWith("/")
+                            ? targetTopPathName + relParent
+                            : targetTopPathName + "/" + relParent;
+                }
+                FileNode targetParent = findFolderByPathName(userId, targetPathName);
+                Long parentId = targetParent == null ? null : targetParent.getId();
+                if (parentId == null) {
+                    return;
+                }
+                FileNode existingFile = findExistingChild(parentId, targetName, userId);
+                if (existingFile != null) {
+                    conflicts.add(buildTrashFileConflictItem(record, sourcePath, rel, targetPathName, existingFile));
+                }
+            });
+        } catch (IOException e) {
+            throw new BusinessException(ResultCode.BUSINESS_ERROR, "扫描回收站目录失败");
+        }
+    }
+
+    private ConflictItemVo buildTrashFileConflictItem(RecycleRecord record, Path sourcePath,
+                                                      String relativePath, String targetPathName,
+                                                      FileNode existingFile) {
+        String sourceName = sourcePath.getFileName().toString();
+        String sourceFullPath = "/".equals(record.getOriginalPathName())
+                ? "/" + relativePath
+                : record.getOriginalPathName() + "/" + relativePath;
+        ConflictItemVo vo = new ConflictItemVo();
+        vo.setNodeId(record.getNodeId());
+        vo.setSourceId(record.getNodeId());
+        vo.setSourceName(sourceName);
+        vo.setSourceType(TYPE_FILE);
+        vo.setExistingId(existingFile.getId());
+        vo.setExistingName(existingFile.getName());
+        vo.setExistingType(existingFile.getType());
+        vo.setType(TYPE_FILE);
+        vo.setSuggestedStrategy(ConflictStrategy.KEEP.getCode());
+        vo.setSourcePath(sourceFullPath);
+        vo.setTargetPath("/".equals(targetPathName) ? "/" + sourceName : targetPathName + "/" + sourceName);
+        vo.setAutoMerge(false);
+        return vo;
     }
 
     private FileNode findExistingChild(Long parentId, String name, Long userId) {
@@ -290,23 +367,24 @@ public class FileRecycleServiceImpl implements FileRecycleService {
         RLock lock = userReadWriteLock.writeLock(userId);
         lock.lock();
         try {
-            return doRestore(dto.getItems(), userId);
+            return doRestore(dto.getItems(), userId, ConflictStrategy.fromCode(dto.getGlobalStrategy()));
         } finally {
             lock.unlock();
         }
     }
 
     @Transactional(rollbackFor = Exception.class)
-    protected List<OperationResultVo> doRestore(List<RestoreItemDto> items, Long userId) {
+    protected List<OperationResultVo> doRestore(List<RestoreItemDto> items, Long userId,
+                                                ConflictStrategy globalStrategy) {
         List<OperationResultVo> results = new ArrayList<>();
         for (RestoreItemDto item : items) {
-            OperationResultVo result = restoreOne(item, userId);
+            OperationResultVo result = restoreOne(item, userId, globalStrategy);
             results.add(result);
         }
         return results;
     }
 
-    private OperationResultVo restoreOne(RestoreItemDto item, Long userId) {
+    private OperationResultVo restoreOne(RestoreItemDto item, Long userId, ConflictStrategy globalStrategy) {
         RecycleRecord record = getOwnedRecord(item.getId(), userId);
         User user = userMapper.selectById(userId);
         StorageSpace space = storageSpaceMapper.selectById(user.getStorageSpaceId());
@@ -316,7 +394,7 @@ public class FileRecycleServiceImpl implements FileRecycleService {
 
         Long targetParentId = resolveRestoreParentId(record, userId);
         String targetPathName = resolveRestorePathName(targetParentId, userId);
-        ConflictStrategy strategy = ConflictStrategy.fromCode(item.getStrategy());
+        ConflictStrategy strategy = resolveStrategy(item, globalStrategy);
 
         if (TYPE_FILE.equals(record.getType())) {
             return restoreFile(record, targetParentId, targetPathName, space, userId, strategy);
@@ -324,12 +402,20 @@ public class FileRecycleServiceImpl implements FileRecycleService {
         return restoreFolder(record, targetParentId, targetPathName, space, userId, strategy);
     }
 
+    private ConflictStrategy resolveStrategy(RestoreItemDto item, ConflictStrategy globalStrategy) {
+        ConflictStrategy strategy = ConflictStrategy.fromCode(item.getStrategy());
+        if (strategy == null && globalStrategy != null) {
+            strategy = globalStrategy;
+        }
+        return strategy == null ? ConflictStrategy.KEEP : strategy;
+    }
+
     private OperationResultVo restoreFile(RecycleRecord record, Long targetParentId,
                                           String targetPathName, StorageSpace space, Long userId,
                                           ConflictStrategy strategy) {
         Path trashRoot = resolveTrashRoot(space, userId, record.getNodeId());
         Path source = trashRoot.resolve(buildRelativePath(record.getOriginalPathName(), record.getName()));
-        String resolvedName = resolveRestoreName(targetParentId, record.getName(), userId, strategy, record.getNodeId(), TYPE_FILE);
+        String resolvedName = resolveRestoreName(targetParentId, record.getName(), userId, strategy, record.getNodeId());
         if (resolvedName == null) {
             OperationResultVo vo = new OperationResultVo();
             vo.setSourceId(record.getNodeId());
@@ -342,7 +428,7 @@ public class FileRecycleServiceImpl implements FileRecycleService {
 
         FileNode existing = findExistingChild(targetParentId, resolvedName, userId);
         if (existing != null) {
-            deleteExistingFileForOverwrite(existing, space, userId);
+            overwriteHandler.deleteExistingForOverwrite(existing, userMapper.selectById(userId));
         }
 
         try {
@@ -389,7 +475,7 @@ public class FileRecycleServiceImpl implements FileRecycleService {
     }
 
     private String resolveRestoreName(Long parentId, String originalName, Long userId,
-                                      ConflictStrategy strategy, Long sourceId, String sourceType) {
+                                      ConflictStrategy strategy, Long sourceId) {
         FileNode existing = findExistingChild(parentId, originalName, userId);
         if (existing == null) {
             return originalName;
@@ -403,21 +489,7 @@ public class FileRecycleServiceImpl implements FileRecycleService {
             }
             return originalName;
         }
-        if (TYPE_FOLDER.equals(sourceType)) {
-            throw new BusinessException(ResultCode.BUSINESS_ERROR, "文件夹不支持自动重命名");
-        }
-        return FileConflictHelper.generateAutoRename(fileMapper, userId, parentId, originalName);
-    }
-
-    private void deleteExistingFileForOverwrite(FileNode existing, StorageSpace space, Long userId) {
-        Path existingPath = FilePathUtil.resolvePhysicalPath(space, userId, existing.getPathName(), existing.getName());
-        try {
-            Files.deleteIfExists(existingPath);
-        } catch (IOException e) {
-            throw new BusinessException(ResultCode.BUSINESS_ERROR, "覆盖已有文件失败: " + existing.getName());
-        }
-        fileMapper.physicalDeleteById(existing.getId());
-        updateUsedSpace(userMapper.selectById(userId), space, -existing.getSize());
+        return conflictResolver.keepNameGenerator(userId, parentId, originalName);
     }
 
     private OperationResultVo restoreFolder(RecycleRecord record, Long targetParentId,
@@ -425,7 +497,23 @@ public class FileRecycleServiceImpl implements FileRecycleService {
                                             ConflictStrategy strategy) {
         Path trashRoot = resolveTrashRoot(space, userId, record.getNodeId());
         Path sourceTop = trashRoot.resolve(record.getName());
-        String resolvedFolderName = resolveRestoreName(targetParentId, record.getName(), userId, strategy, record.getNodeId(), TYPE_FOLDER);
+
+        FileNode existingFolder = findExistingChild(targetParentId, record.getName(), userId);
+        if (existingFolder != null && TYPE_FOLDER.equals(existingFolder.getType())) {
+            String topPathName = FilePathUtil.buildPathName(targetPathName, record.getName());
+            Path targetTop = resolveFolderPhysicalPath(space, userId, topPathName);
+            mergeTrashFolderIntoExisting(sourceTop, targetTop, existingFolder, space, userId, strategy);
+            recycleRecordMapper.physicalDeleteById(record.getId());
+
+            OperationResultVo vo = new OperationResultVo();
+            vo.setSourceId(record.getNodeId());
+            vo.setSourceName(record.getName());
+            vo.setStatus(STATUS_SUCCESS);
+            vo.setNodeId(existingFolder.getId());
+            return vo;
+        }
+
+        String resolvedFolderName = resolveRestoreName(targetParentId, record.getName(), userId, strategy, record.getNodeId());
         if (resolvedFolderName == null) {
             OperationResultVo vo = new OperationResultVo();
             vo.setSourceId(record.getNodeId());
@@ -438,13 +526,10 @@ public class FileRecycleServiceImpl implements FileRecycleService {
         Path targetTop = resolveFolderPhysicalPath(space, userId, topPathName);
 
         FileNode existing = findExistingChild(targetParentId, resolvedFolderName, userId);
+        FileNode topFolder;
         if (existing != null) {
-            if (TYPE_FOLDER.equals(existing.getType())) {
-                throw new BusinessException(ResultCode.BUSINESS_ERROR, "不能覆盖文件夹");
-            }
-            deleteExistingFileForOverwrite(existing, space, userId);
+            overwriteHandler.deleteExistingForOverwrite(existing, userMapper.selectById(userId));
         }
-
         try {
             Files.createDirectories(targetTop.getParent());
             if (Files.isDirectory(targetTop) && isEmptyDirectory(targetTop)) {
@@ -454,38 +539,10 @@ public class FileRecycleServiceImpl implements FileRecycleService {
         } catch (Exception e) {
             throw new SystemException(ResultCode.BUSINESS_ERROR, "恢复文件夹失败: " + record.getName(), e);
         }
-
-        Map<Path, Long> folderIds = new HashMap<>();
-        FileNode topFolder = buildFolderNode(userId, targetParentId, resolvedFolderName, topPathName);
+        topFolder = buildFolderNode(userId, targetParentId, resolvedFolderName, topPathName);
         topFolder.setStorageSpaceId(space.getId());
         fileMapper.insert(topFolder);
-        folderIds.put(targetTop, topFolder.getId());
-
-        final Path finalTargetTop = targetTop;
-        final String finalTopPathName = topPathName;
-        try {
-            java.util.stream.Stream<Path> stream = Files.walk(finalTargetTop);
-            stream.forEach(path -> {
-                if (path.equals(finalTargetTop)) {
-                    return;
-                }
-                Path parentPath = path.getParent();
-                Long parentId = folderIds.get(parentPath);
-                String name = path.getFileName().toString();
-                String parentPathName = resolvePathNameByPhysicalPath(finalTargetTop, finalTopPathName, parentPath);
-                if (Files.isDirectory(path)) {
-                    String pathName = FilePathUtil.buildPathName(parentPathName, name);
-                    FileNode folder = buildFolderNode(userId, parentId, name, pathName);
-                    folder.setStorageSpaceId(space.getId());
-                    fileMapper.insert(folder);
-                    folderIds.put(path, folder.getId());
-                } else {
-                    restoreFileFromPath(path, userId, parentId, parentPathName, space);
-                }
-            });
-        } catch (IOException e) {
-            throw new BusinessException(ResultCode.BUSINESS_ERROR, "遍历恢复文件夹失败");
-        }
+        restoreFolderChildrenFromTarget(targetTop, topPathName, topFolder, space, userId);
 
         recycleRecordMapper.physicalDeleteById(record.getId());
 
@@ -498,9 +555,96 @@ public class FileRecycleServiceImpl implements FileRecycleService {
         return vo;
     }
 
+    private void mergeTrashFolderIntoExisting(Path sourceTop, Path targetTop, FileNode targetFolder,
+                                              StorageSpace space, Long userId, ConflictStrategy strategy) {
+        User user = userMapper.selectById(userId);
+        Map<Path, Long> folderIds = new HashMap<>();
+        folderIds.put(targetTop, targetFolder.getId());
+        try {
+            Files.walk(sourceTop).forEach(sourcePath -> {
+                if (sourcePath.equals(sourceTop)) {
+                    return;
+                }
+                Path relative = sourceTop.relativize(sourcePath);
+                Path targetParentPath = targetTop.resolve(relative).getParent();
+                Long parentId = folderIds.get(targetParentPath);
+                String parentPathName = resolvePathNameByPhysicalPath(targetTop, targetFolder.getPathName(), targetParentPath);
+                String name = sourcePath.getFileName().toString();
+                if (Files.isDirectory(sourcePath)) {
+                    FileNode existing = findExistingChild(parentId, name, userId);
+                    FileNode folder;
+                    if (existing != null && TYPE_FOLDER.equals(existing.getType())) {
+                        folder = existing;
+                    } else {
+                        if (existing != null) {
+                            overwriteHandler.deleteExistingForOverwrite(existing, user);
+                        }
+                        String pathName = FilePathUtil.buildPathName(parentPathName, name);
+                        folder = buildFolderNode(userId, parentId, name, pathName);
+                        folder.setStorageSpaceId(space.getId());
+                        fileMapper.insert(folder);
+                    }
+                    folderIds.put(targetTop.resolve(relative), folder.getId());
+                } else {
+                    FileNode existing = findExistingChild(parentId, name, userId);
+                    String resolvedName = name;
+                    if (existing != null) {
+                        FileConflictResolver.ConflictResolution resolution =
+                                conflictResolver.resolveName(userId, parentId, name, existing, strategy);
+                        if (resolution.skipped()) {
+                            return;
+                        }
+                        if (resolution.existingToReplace() != null) {
+                            overwriteHandler.deleteExistingForOverwrite(resolution.existingToReplace(), user);
+                        }
+                        resolvedName = resolution.finalName();
+                    }
+                    Path targetPath = FilePathUtil.resolvePhysicalPath(space, userId, parentPathName, resolvedName);
+                    try {
+                        Files.createDirectories(targetPath.getParent());
+                        Files.move(sourcePath, targetPath);
+                    } catch (IOException e) {
+                        throw new BusinessException(ResultCode.BUSINESS_ERROR, "恢复文件失败: " + name);
+                    }
+                    restoreFileFromPath(targetPath, userId, parentId, parentPathName, space, resolvedName);
+                }
+            });
+        } catch (IOException e) {
+            throw new BusinessException(ResultCode.BUSINESS_ERROR, "遍历恢复文件夹失败");
+        }
+    }
+
+    private void restoreFolderChildrenFromTarget(Path targetTop, String topPathName, FileNode topFolder,
+                                                 StorageSpace space, Long userId) {
+        Map<Path, Long> folderIds = new HashMap<>();
+        folderIds.put(targetTop, topFolder.getId());
+        try {
+            java.util.stream.Stream<Path> stream = Files.walk(targetTop);
+            stream.forEach(path -> {
+                if (path.equals(targetTop)) {
+                    return;
+                }
+                Path parentPath = path.getParent();
+                Long parentId = folderIds.get(parentPath);
+                String name = path.getFileName().toString();
+                String parentPathName = resolvePathNameByPhysicalPath(targetTop, topPathName, parentPath);
+                if (Files.isDirectory(path)) {
+                    String pathName = FilePathUtil.buildPathName(parentPathName, name);
+                    FileNode folder = buildFolderNode(userId, parentId, name, pathName);
+                    folder.setStorageSpaceId(space.getId());
+                    fileMapper.insert(folder);
+                    folderIds.put(path, folder.getId());
+                } else {
+                    restoreFileFromPath(path, userId, parentId, parentPathName, space, path.getFileName().toString());
+                }
+            });
+        } catch (IOException e) {
+            throw new BusinessException(ResultCode.BUSINESS_ERROR, "遍历恢复文件夹失败");
+        }
+    }
+
     private void restoreFileFromPath(Path path, Long userId, Long parentId,
-                                     String parentPathName, StorageSpace space) {
-        String name = path.getFileName().toString();
+                                     String parentPathName, StorageSpace space, String name) {
         long size;
         String hash;
         String mimeType;
@@ -592,6 +736,15 @@ public class FileRecycleServiceImpl implements FileRecycleService {
                         .eq(FileNode::getDeleteAt, 0L));
     }
 
+    private FileNode findFolderByPathName(Long userId, String pathName) {
+        return fileMapper.selectOne(
+                new LambdaQueryWrapper<FileNode>()
+                        .eq(FileNode::getUserId, userId)
+                        .eq(FileNode::getPathName, pathName)
+                        .eq(FileNode::getType, TYPE_FOLDER)
+                        .eq(FileNode::getDeleteAt, 0L));
+    }
+
     private String resolveRestorePathName(Long parentId, Long userId) {
         if (parentId == null || parentId == 0L) {
             return "/";
@@ -612,6 +765,42 @@ public class FileRecycleServiceImpl implements FileRecycleService {
             throw new BusinessException(ResultCode.NOT_FOUND, "回收站记录不存在");
         }
         return record;
+    }
+
+    private ConflictItemVo buildConflictItem(RecycleRecord record, FileNode existing, String targetParentPathName) {
+        ConflictItemVo vo = buildBaseConflictItem(record, existing, targetParentPathName);
+        vo.setAutoMerge(false);
+        return vo;
+    }
+
+    private ConflictItemVo buildAutoMergeConflictItem(RecycleRecord record, FileNode existing, String targetParentPathName) {
+        ConflictItemVo vo = buildBaseConflictItem(record, existing, targetParentPathName);
+        vo.setType(TYPE_FOLDER);
+        vo.setAutoMerge(true);
+        return vo;
+    }
+
+    private ConflictItemVo buildBaseConflictItem(RecycleRecord record, FileNode existing, String targetParentPathName) {
+        ConflictItemVo vo = new ConflictItemVo();
+        vo.setNodeId(record.getNodeId());
+        vo.setSourceId(record.getNodeId());
+        vo.setSourceName(record.getName());
+        vo.setSourceType(record.getType());
+        vo.setExistingId(existing.getId());
+        vo.setExistingName(existing.getName());
+        vo.setExistingType(existing.getType());
+        vo.setType(record.getType());
+        vo.setSuggestedStrategy(ConflictStrategy.KEEP.getCode());
+        vo.setSourcePath(buildDisplayPath(record.getOriginalPathName(), record.getName(), record.getType()));
+        vo.setTargetPath(buildDisplayPath(targetParentPathName, existing.getName(), existing.getType()));
+        return vo;
+    }
+
+    private String buildDisplayPath(String parentPathName, String name, String type) {
+        if (TYPE_FOLDER.equals(type)) {
+            return FilePathUtil.buildPathName(parentPathName, name);
+        }
+        return "/".equals(parentPathName) ? "/" + name : parentPathName + "/" + name;
     }
 
     private FileNode buildFolderNode(Long userId, Long parentId, String name, String pathName) {

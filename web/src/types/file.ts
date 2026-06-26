@@ -31,7 +31,7 @@ export interface FilePageQuery {
 /**
  * 冲突解决策略
  */
-export type ConflictStrategy = 'skip' | 'overwrite' | 'auto_rename'
+export type ConflictStrategy = 'skip' | 'overwrite' | 'keep'
 
 /**
  * 操作类型
@@ -48,6 +48,12 @@ export interface ConflictItemVo {
   existingId: string
   existingName: string
   existingType: 'file' | 'folder'
+  nodeId?: string
+  sourcePath?: string
+  targetPath?: string
+  type?: 'file' | 'folder'
+  suggestedStrategy?: ConflictStrategy
+  autoMerge?: boolean
 }
 
 /**
@@ -104,6 +110,7 @@ export interface FileExecuteOperationRequest {
   type: OperationType
   targetParentId: string
   items: OperationItem[]
+  globalStrategy?: ConflictStrategy
 }
 
 /**
@@ -140,6 +147,7 @@ export interface RestoreItem {
  */
 export interface FileExecuteRestoreRequest {
   items: RestoreItem[]
+  globalStrategy?: ConflictStrategy
 }
 
 /**

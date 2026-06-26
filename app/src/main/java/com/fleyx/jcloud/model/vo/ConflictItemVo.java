@@ -43,4 +43,34 @@ public class ConflictItemVo implements Serializable {
      * 目标已存在节点类型：file / folder。
      */
     private String existingType;
+
+    /**
+     * 冲突节点 ID（同 sourceId，便于前端统一键值）。
+     */
+    private Long nodeId;
+
+    /**
+     * 源路径（用于展示）。
+     */
+    private String sourcePath;
+
+    /**
+     * 目标路径（用于展示）。
+     */
+    private String targetPath;
+
+    /**
+     * 冲突类型：file / folder。
+     */
+    private String type;
+
+    /**
+     * 建议策略：skip / overwrite / keep。
+     */
+    private String suggestedStrategy;
+
+    /**
+     * 是否为可自动合并的文件夹冲突。
+     */
+    private Boolean autoMerge;
 }

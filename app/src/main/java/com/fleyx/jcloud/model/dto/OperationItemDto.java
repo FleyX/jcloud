@@ -19,7 +19,7 @@ public class OperationItemDto {
     private String name;
 
     /**
-     * 冲突解决策略：skip / overwrite / auto_rename。
+     * 冲突解决策略：skip / overwrite / keep。
      */
     private String strategy;
 

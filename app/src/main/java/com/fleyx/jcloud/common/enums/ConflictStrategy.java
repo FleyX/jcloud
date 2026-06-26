@@ -19,9 +19,9 @@ public enum ConflictStrategy {
     OVERWRITE("overwrite", "覆盖"),
 
     /**
-     * 自动重命名，格式为 name.1.ext。
+     * 保留，自动重命名为 name(n).ext。
      */
-    AUTO_RENAME("auto_rename", "自动重命名");
+    KEEP("keep", "保留");
 
     private final String code;
     private final String label;
