@@ -7,19 +7,23 @@ import com.fleyx.jcloud.mapper.UserRoleMapper;
 import com.fleyx.jcloud.model.dto.BatchUserStatusDto;
 import com.fleyx.jcloud.model.dto.StorageSpaceSaveDto;
 import com.fleyx.jcloud.model.dto.UserSaveDto;
+import com.fleyx.jcloud.model.dto.UserStatusDto;
 import com.fleyx.jcloud.model.dto.UserStorageDto;
 import com.fleyx.jcloud.model.dto.UserUpdateDto;
+import com.fleyx.jcloud.model.dto.UserUpdateRolesDto;
 import com.fleyx.jcloud.model.po.User;
 import com.fleyx.jcloud.model.po.UserRole;
 import com.fleyx.jcloud.model.vo.StorageSpaceVo;
 import com.fleyx.jcloud.model.vo.UserVo;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.nio.file.Path;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -35,6 +39,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @Transactional
 class UserServiceTest {
 
+    @TempDir
+    Path tempDir;
+
     @Autowired
     private UserService userService;
 
@@ -47,17 +54,28 @@ class UserServiceTest {
     @Autowired
     private StorageSpaceService storageSpaceService;
 
+    private StorageSpaceVo defaultSpace;
+
     private UserSaveDto buildDto(String username) {
         UserSaveDto dto = new UserSaveDto();
         dto.setUsername(username);
         dto.setPassword("123456");
         dto.setEmail(username + "@example.com");
         dto.setNickname("昵称" + username);
+        dto.setStorageSpaceId(defaultSpace.getId());
+        dto.setQuota(10L);
+        dto.setQuotaUnit("GB");
         return dto;
     }
 
     @BeforeEach
     void setUp() {
+        StorageSpaceSaveDto spaceDto = new StorageSpaceSaveDto();
+        spaceDto.setName("默认测试空间");
+        spaceDto.setPath(tempDir.resolve("user-space").toString());
+        spaceDto.setType("USER");
+        defaultSpace = storageSpaceService.save(spaceDto);
+
         // 清理非管理员测试用户及其角色关联，确保每个测试方法独立运行。
         LambdaQueryWrapper<User> wrapper = new LambdaQueryWrapper<>();
         wrapper.ne(User::getUsername, "admin");
@@ -73,13 +91,35 @@ class UserServiceTest {
     @Test
     void saveUserShouldReturnUserVo() {
         UserSaveDto dto = buildDto("saveTest");
+
         UserVo vo = userService.saveUser(dto);
 
         assertNotNull(vo.getId());
         assertEquals(dto.getUsername(), vo.getUsername());
         assertEquals(dto.getEmail(), vo.getEmail());
         assertEquals(dto.getNickname(), vo.getNickname());
+        assertEquals(defaultSpace.getId(), vo.getStorageSpaceId());
+        assertEquals(10L * 1024 * 1024 * 1024, vo.getQuota());
         assertEquals(1, vo.getStatus());
+    }
+
+    @Test
+    void saveUserWithZeroQuotaShouldBeUnlimited() {
+        UserSaveDto dto = buildDto("zeroQuotaUser");
+        dto.setQuota(0L);
+        dto.setQuotaUnit("GB");
+
+        UserVo vo = userService.saveUser(dto);
+
+        assertEquals(0L, vo.getQuota());
+    }
+
+    @Test
+    void saveUserWithoutStorageSpaceShouldThrow() {
+        UserSaveDto dto = buildDto("noSpaceUser");
+        dto.setStorageSpaceId(null);
+
+        assertThrows(BusinessException.class, () -> userService.saveUser(dto));
     }
 
     @Test
@@ -147,11 +187,29 @@ class UserServiceTest {
         updateDto.setNickname("新昵称");
         updateDto.setEmail("new@example.com");
         updateDto.setStatus(0);
+        updateDto.setQuota(5L);
+        updateDto.setQuotaUnit("GB");
 
         UserVo updated = userService.updateUser(updateDto);
         assertEquals("新昵称", updated.getNickname());
         assertEquals("new@example.com", updated.getEmail());
         assertEquals(0, updated.getStatus());
+        assertEquals(5L * 1024 * 1024 * 1024, updated.getQuota());
+    }
+
+    @Test
+    void updateUserShouldNotChangeStorageSpace() {
+        UserSaveDto saveDto = buildDto("noSpaceChangeUser");
+        UserVo saved = userService.saveUser(saveDto);
+
+        UserUpdateDto updateDto = new UserUpdateDto();
+        updateDto.setId(saved.getId());
+        updateDto.setQuota(1L);
+        updateDto.setQuotaUnit("TB");
+
+        UserVo updated = userService.updateUser(updateDto);
+        assertEquals(defaultSpace.getId(), updated.getStorageSpaceId());
+        assertEquals(1L * 1024 * 1024 * 1024 * 1024, updated.getQuota());
     }
 
     @Test
@@ -165,6 +223,69 @@ class UserServiceTest {
 
         UserVo updated = userService.updateUser(updateDto);
         assertNotNull(updated.getId());
+    }
+
+    @Test
+    void updateBuiltInAdminShouldAllowCommonFields() {
+        User admin = userMapper.selectOne(new LambdaQueryWrapper<User>().eq(User::getUsername, "admin"));
+        assertNotNull(admin);
+
+        UserUpdateDto updateDto = new UserUpdateDto();
+        updateDto.setId(admin.getId());
+        updateDto.setNickname("新昵称");
+        updateDto.setEmail("new@example.com");
+        updateDto.setPassword("newpassword");
+        updateDto.setQuota(20L);
+        updateDto.setQuotaUnit("GB");
+
+        UserVo updated = userService.updateUser(updateDto);
+        assertEquals("新昵称", updated.getNickname());
+        assertEquals("new@example.com", updated.getEmail());
+        assertEquals(20L * 1024 * 1024 * 1024, updated.getQuota());
+    }
+
+    @Test
+    void updateBuiltInAdminShouldIgnoreStatusAndRoles() {
+        User admin = userMapper.selectOne(new LambdaQueryWrapper<User>().eq(User::getUsername, "admin"));
+        assertNotNull(admin);
+        int originalStatus = admin.getStatus();
+        List<Long> originalRoleIds = userRoleMapper.selectRoleIdsByUserId(admin.getId());
+
+        UserUpdateDto updateDto = new UserUpdateDto();
+        updateDto.setId(admin.getId());
+        updateDto.setStatus(originalStatus == 0 ? 1 : 0);
+        updateDto.setRoleIds(List.of());
+
+        userService.updateUser(updateDto);
+
+        User refreshed = userMapper.selectById(admin.getId());
+        assertEquals(originalStatus, refreshed.getStatus());
+        List<Long> currentRoleIds = userRoleMapper.selectRoleIdsByUserId(admin.getId());
+        assertEquals(originalRoleIds, currentRoleIds);
+    }
+
+    @Test
+    void updateBuiltInAdminStatusShouldThrowBusinessException() {
+        User admin = userMapper.selectOne(new LambdaQueryWrapper<User>().eq(User::getUsername, "admin"));
+        assertNotNull(admin);
+
+        UserStatusDto dto = new UserStatusDto();
+        dto.setUserId(admin.getId());
+        dto.setStatus(0);
+
+        assertThrows(BusinessException.class, () -> userService.updateStatus(dto));
+    }
+
+    @Test
+    void updateBuiltInAdminRolesShouldThrowBusinessException() {
+        User admin = userMapper.selectOne(new LambdaQueryWrapper<User>().eq(User::getUsername, "admin"));
+        assertNotNull(admin);
+
+        UserUpdateRolesDto dto = new UserUpdateRolesDto();
+        dto.setUserId(admin.getId());
+        dto.setRoleIds(List.of());
+
+        assertThrows(BusinessException.class, () -> userService.updateRoles(dto));
     }
 
     @Test
@@ -211,9 +332,8 @@ class UserServiceTest {
     void shouldBindStorageSpaceAndQuotaToUser() {
         StorageSpaceSaveDto spaceDto = new StorageSpaceSaveDto();
         spaceDto.setName("用户空间");
-        spaceDto.setPath("/data/jcloud/user-binding");
+        spaceDto.setPath(tempDir.resolve("user-binding").toString());
         spaceDto.setType("USER");
-        spaceDto.setCapacity(107374182400L);
         StorageSpaceVo space = storageSpaceService.save(spaceDto);
 
         UserSaveDto userDto = buildDto("bindStorageUser");

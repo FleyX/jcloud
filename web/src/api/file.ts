@@ -1,11 +1,12 @@
 import { useNotificationStore } from '@/store/notification'
 import { useUserStore } from '@/store/user'
-import { fullHash, identityHash } from '@/utils/fileHash'
+import { fullHash } from '@/utils/fileHash'
 import { get, post } from './request'
 import type { PageResult } from '@/types/auth'
 import type { DownloadProgress } from '@/store/transfer'
 import type {
   ConflictItemVo,
+  ConflictStrategy,
   FileBatchDownloadRequest,
   FileCreateFolderRequest,
   FileDeleteRequest,
@@ -17,65 +18,41 @@ import type {
   FilePreCheckOperationRequest,
   FilePreCheckRestoreRequest,
   FileRenameRequest,
+  FileUploadPreCheckRequest,
   FileZipTaskVo,
   OperationResultVo,
   RecycleRecordVo,
+  UploadPreCheckResult,
 } from '@/types/file'
 
 export function fetchFilePage(params: FilePageQuery): Promise<PageResult<FileNodeVo>> {
   return get<PageResult<FileNodeVo>>('/files', params as Record<string, unknown>)
 }
 
-export async function uploadFile(file: File, parentId = '0'): Promise<FileNodeVo> {
-  const instant = await tryInstantUpload(file, parentId)
-  if (instant) {
-    return instant
-  }
-
-  const userStore = useUserStore()
-  const formData = new FormData()
-  formData.append('file', file)
-
-  const response = await fetch('/jcloud/api/files/upload', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${userStore.token}`,
-    },
-    body: formData,
-  })
-  return handleJsonResponse<FileNodeVo>(response)
+export function preCheckUpload(dto: FileUploadPreCheckRequest): Promise<UploadPreCheckResult> {
+  return post<UploadPreCheckResult>('/files/upload/pre-check', dto)
 }
 
 /**
- * 尝试秒传。仅当文件小于 150MB 时启用；大文件直接返回 null 退化到普通上传。
+ * 尝试秒传：复用预检返回的候选文件，通过完整 hash 校验后创建新文件节点。
  */
-async function tryInstantUpload(file: File, parentId: string): Promise<FileNodeVo | null> {
-  const partialHash = await identityHash(file)
-  if (!partialHash) {
-    return null
-  }
-
-  const candidates = await post<FileNodeVo[]>('/files/pre-check', {
-    fileName: file.name,
-    size: file.size,
-    partialHash,
-  })
-
-  if (candidates.length === 0) {
-    return null
-  }
-
-  const candidate = candidates[0]
+export async function tryInstantUpload(
+  file: File,
+  candidate: FileNodeVo,
+  parentId: string,
+  strategy?: ConflictStrategy,
+): Promise<FileNodeVo | null> {
   const hash = await fullHash(file)
   if (hash !== candidate.hash) {
     return null
   }
 
-  const result = await post<FileNodeVo>('/files/instant', {
+  const result = await post<FileNodeVo | null>('/files/instant', {
     candidateId: candidate.id,
     fullHash: hash,
     fileName: file.name,
     parentId,
+    strategy,
   })
 
   useNotificationStore().success('秒传成功')
@@ -256,8 +233,11 @@ export function listUploadedChunks(uploadId: string): Promise<number[]> {
 /**
  * 完成分片上传并创建文件节点。
  */
-export function completeChunkedUpload(uploadId: string): Promise<FileNodeVo> {
-  return post<FileNodeVo>(`/files/chunked-upload/${uploadId}/complete`)
+export function completeChunkedUpload(
+  uploadId: string,
+  strategy?: ConflictStrategy,
+): Promise<FileNodeVo | null> {
+  return post<FileNodeVo | null>(`/files/chunked-upload/${uploadId}/complete`, { strategy })
 }
 
 export function fetchTextPreview(id: string): Promise<PreviewTextResponse> {
@@ -383,14 +363,4 @@ async function saveResponseToFile(
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
-}
-
-async function handleJsonResponse<T>(response: Response): Promise<T> {
-  const json = (await response.json()) as { code: number; msg: string; data: T }
-  if (json.code !== 200) {
-    const message = json.msg || '请求失败'
-    useNotificationStore().error(message)
-    throw new Error(message)
-  }
-  return json.data
 }

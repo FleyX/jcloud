@@ -93,3 +93,52 @@ describe('menuStore secondary menus', () => {
     expect(menus.map((menu) => menu.key)).toEqual(['users'])
   })
 })
+
+describe('menuStore syncWithRoute', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    localStorage.clear()
+  })
+
+  it('syncs /files/trash to files primary and trash secondary', () => {
+    const menuStore = useMenuStore()
+    menuStore.syncWithRoute('/files/trash')
+
+    expect(menuStore.activePrimary).toBe('files')
+    expect(menuStore.activeSecondary).toBe('trash')
+  })
+
+  it('syncs /admin/storage-spaces to system primary and storage-spaces secondary', () => {
+    const userStore = useUserStore()
+    userStore.userInfo = buildAdminUser()
+
+    const menuStore = useMenuStore()
+    menuStore.syncWithRoute('/admin/storage-spaces')
+
+    expect(menuStore.activePrimary).toBe('system')
+    expect(menuStore.activeSecondary).toBe('storage-spaces')
+    expect(menuStore.secondaryMenus.map((menu) => menu.key)).toContain('storage-spaces')
+  })
+
+  it('syncs /admin/roles to system primary and roles secondary', () => {
+    const userStore = useUserStore()
+    userStore.userInfo = buildAdminUser()
+
+    const menuStore = useMenuStore()
+    menuStore.syncWithRoute('/admin/roles')
+
+    expect(menuStore.activePrimary).toBe('system')
+    expect(menuStore.activeSecondary).toBe('roles')
+  })
+
+  it('does not change state for routes that do not belong to any primary module', () => {
+    const userStore = useUserStore()
+    userStore.userInfo = buildAdminUser()
+
+    const menuStore = useMenuStore()
+    menuStore.syncWithRoute('/profile')
+
+    expect(menuStore.activePrimary).toBe('files')
+    expect(menuStore.activeSecondary).toBe('all')
+  })
+})

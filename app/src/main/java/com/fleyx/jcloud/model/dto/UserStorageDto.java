@@ -23,9 +23,9 @@ public class UserStorageDto {
     private Long storageSpaceId;
 
     /**
-     * 用户配额（字节）。
+     * 用户配额（字节），0 表示不限制。
      */
     @NotNull(message = "配额不能为空")
-    @Min(value = 1, message = "配额必须大于 0")
+    @Min(value = 0, message = "配额不能为负数")
     private Long quota;
 }

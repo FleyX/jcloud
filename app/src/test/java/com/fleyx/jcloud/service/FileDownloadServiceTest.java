@@ -11,7 +11,6 @@ import com.fleyx.jcloud.model.dto.FileExecuteOperationDto;
 import com.fleyx.jcloud.model.dto.OperationItemDto;
 import com.fleyx.jcloud.model.dto.StorageSpaceSaveDto;
 import com.fleyx.jcloud.model.dto.UserSaveDto;
-import com.fleyx.jcloud.model.dto.UserStorageDto;
 import com.fleyx.jcloud.model.vo.FileNodeVo;
 import com.fleyx.jcloud.model.vo.OperationResultVo;
 import com.fleyx.jcloud.model.vo.StorageSpaceVo;
@@ -95,7 +94,7 @@ class FileDownloadServiceTest {
     void shouldDownloadSingleFileAsZip() throws Exception {
         UserWithSpace userWithSpace = prepareUserWithStorageSpace();
         UserVo user = userWithSpace.user();
-        FileNodeVo file = fileService.upload(buildFile("hello.txt", "Hello"), user.getId());
+        FileNodeVo file = fileService.upload(buildFile("hello.txt", "Hello"), user.getId(), 0L, null);
 
         FileBatchDownloadDto dto = new FileBatchDownloadDto();
         dto.setIds(List.of(file.getId()));
@@ -122,7 +121,7 @@ class FileDownloadServiceTest {
         UserWithSpace userWithSpace = prepareUserWithStorageSpace();
         UserVo user = userWithSpace.user();
         FileNodeVo docs = createFolder(user.getId(), "docs", 0L);
-        FileNodeVo report = fileService.upload(buildFile("report.txt", "Report"), user.getId());
+        FileNodeVo report = fileService.upload(buildFile("report.txt", "Report"), user.getId(), 0L, null);
         moveFileToFolder(user.getId(), report, docs);
 
         FileBatchDownloadDto dto = new FileBatchDownloadDto();
@@ -144,7 +143,7 @@ class FileDownloadServiceTest {
     void shouldCreateAsyncTaskWhenExceedThreshold() throws Exception {
         UserWithSpace userWithSpace = prepareUserWithStorageSpace();
         UserVo user = userWithSpace.user();
-        FileNodeVo file = fileService.upload(buildFile("big.txt", "Large content"), user.getId());
+        FileNodeVo file = fileService.upload(buildFile("big.txt", "Large content"), user.getId(), 0L, null);
 
         // 临时把阈值降到 1 字节，强制走异步任务
         setField(fileDownloadService, "streamThresholdSize", 1L);
@@ -172,7 +171,7 @@ class FileDownloadServiceTest {
     void shouldRejectOtherUserTaskAccess() {
         UserVo userA = prepareUserWithStorageSpace().user();
         UserVo userB = prepareUserWithStorageSpace().user();
-        FileNodeVo fileA = fileService.upload(buildFile("a.txt", "A"), userA.getId());
+        FileNodeVo fileA = fileService.upload(buildFile("a.txt", "A"), userA.getId(), 0L, null);
 
         setField(fileDownloadService, "streamThresholdSize", 0L);
         BatchDownloadResult result = fileDownloadService.downloadBatch(
@@ -242,22 +241,26 @@ class FileDownloadServiceTest {
         spaceDto.setName("用户空间");
         spaceDto.setPath(spacePath.toString());
         spaceDto.setType("USER");
-        spaceDto.setCapacity(Math.max(quota, 107374182400L));
         StorageSpaceVo space = storageSpaceService.save(spaceDto);
         systemConfigService.setValue("system.storage.space.id", String.valueOf(space.getId()));
 
         UserSaveDto userDto = new UserSaveDto();
         userDto.setUsername("downloadUser" + quota + "-" + System.nanoTime());
         userDto.setPassword("123456");
+        userDto.setStorageSpaceId(space.getId());
+        userDto.setQuota(toQuotaValue(quota));
+        userDto.setQuotaUnit(toQuotaUnit(quota));
         UserVo user = userService.saveUser(userDto);
 
-        UserStorageDto bindDto = new UserStorageDto();
-        bindDto.setUserId(user.getId());
-        bindDto.setStorageSpaceId(space.getId());
-        bindDto.setQuota(quota);
-        userService.bindStorageSpace(bindDto);
-
         return new UserWithSpace(user, spacePath);
+    }
+
+    private static long toQuotaValue(long quotaBytes) {
+        return quotaBytes == 10737418240L ? 10L : quotaBytes;
+    }
+
+    private static String toQuotaUnit(long quotaBytes) {
+        return quotaBytes == 10737418240L ? "GB" : "B";
     }
 
     private record UserWithSpace(UserVo user, Path spacePath) {

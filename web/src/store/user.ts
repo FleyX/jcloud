@@ -14,6 +14,7 @@ export const useUserStore = defineStore('user', () => {
   const userInfo = ref<UserVo | null>(null)
   const permissions = ref<string[]>([])
   const dynamicRoutesAdded = ref(false)
+  const initialized = ref<boolean>(true)
 
   const isLoggedIn = computed(() => !!token.value && !!userInfo.value)
   const isAdmin = computed(() => userInfo.value?.isAdmin === true)
@@ -31,6 +32,7 @@ export const useUserStore = defineStore('user', () => {
     setToken(data.token)
     userInfo.value = data.userInfo
     permissions.value = data.permissions ?? []
+    initialized.value = data.initialized ?? true
     dynamicRoutesAdded.value = false
   }
 
@@ -54,6 +56,7 @@ export const useUserStore = defineStore('user', () => {
     const data = await getCurrentUser()
     userInfo.value = data.userInfo
     permissions.value = data.permissions ?? []
+    initialized.value = data.initialized ?? true
     return data
   }
 
@@ -64,6 +67,7 @@ export const useUserStore = defineStore('user', () => {
     setToken('')
     userInfo.value = null
     permissions.value = []
+    initialized.value = true
     dynamicRoutesAdded.value = false
   }
 
@@ -94,6 +98,7 @@ export const useUserStore = defineStore('user', () => {
     userInfo,
     permissions,
     dynamicRoutesAdded,
+    initialized,
     isLoggedIn,
     isAdmin,
     loginAction,

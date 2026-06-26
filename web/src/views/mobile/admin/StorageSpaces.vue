@@ -5,6 +5,7 @@ import {
   deleteStorageSpace,
   fetchStorageSpacePage,
   fetchSystemStorageConfig,
+  refreshStorageSpace,
   updateStorageSpace,
 } from '@/api/storage-space'
 import { useConfirmStore } from '@/store/confirm'
@@ -82,6 +83,19 @@ function openConfigDialog() {
 
 async function handleConfigUpdated() {
   await loadSpaces()
+}
+
+async function handleRefresh(space: StorageSpaceVo) {
+  submitting.value = true
+  try {
+    await refreshStorageSpace(space.id)
+    notificationStore.success('存储空间信息已刷新')
+    await loadSpaces()
+  } catch {
+    // request.ts 已统一处理异常提示
+  } finally {
+    submitting.value = false
+  }
 }
 
 async function handleSubmit(dto: StorageSpaceSaveDto | StorageSpaceUpdateDto) {
@@ -211,6 +225,12 @@ onMounted(() => {
               {{ space.type === 'USER' ? '用户' : '系统' }}
             </span>
             <span
+              v-if="space.isPrimary === 1"
+              class="rounded bg-primary-50 px-1.5 py-0.5 text-[10px] text-primary-600"
+            >
+              主空间
+            </span>
+            <span
               v-if="systemConfig.systemSpaceId === space.id"
               class="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] text-emerald-600"
             >
@@ -221,10 +241,16 @@ onMounted(() => {
             {{ space.path }}
           </p>
           <p class="mt-0.5 text-xs text-surface-500">
-            容量 {{ formatBytes(space.capacity) }} · 已用 {{ formatBytes(space.usedSpace) }}
+            容量 {{ formatBytes(space.capacity) }} · 已用 {{ formatBytes(space.usedSpace) }} · 剩余 {{ formatBytes(space.freeSpace) }}
           </p>
         </div>
         <div class="ml-3 flex flex-col gap-2">
+          <button
+            class="text-xs text-primary-600"
+            @click="handleRefresh(space)"
+          >
+            刷新
+          </button>
           <button
             class="text-xs text-primary-600"
             @click="openEditDialog(space)"

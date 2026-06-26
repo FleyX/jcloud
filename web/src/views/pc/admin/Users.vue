@@ -3,7 +3,6 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import {
   batchDeleteUser,
   batchUpdateUserStatus,
-  bindUserStorageSpace,
   createUser,
   deleteUser,
   fetchUserPage,
@@ -54,17 +53,18 @@ const confirmStore = useConfirmStore()
 const notificationStore = useNotificationStore()
 
 const createDialogOpen = ref(false)
-const createForm = reactive<UserSaveDto & { storageSpaceId?: string; quota?: string }>({
+const createForm = reactive<UserSaveDto>({
   username: '',
   nickname: '',
   email: '',
   password: '',
   storageSpaceId: '',
-  quota: '',
+  quota: '10',
+  quotaUnit: 'GB',
 })
 
 const editDialogOpen = ref(false)
-const editForm = reactive<UserUpdateDto & { storageSpaceId?: string; quota?: string }>({
+const editForm = reactive<UserUpdateDto & { storageSpaceId?: string; quota?: string; quotaUnit?: string }>({
   id: '',
   nickname: '',
   email: '',
@@ -72,12 +72,15 @@ const editForm = reactive<UserUpdateDto & { storageSpaceId?: string; quota?: str
   status: 1,
   password: '',
   storageSpaceId: '',
-  quota: '',
+  quota: '10',
+  quotaUnit: 'GB',
 })
 const editingUser = ref<UserVo | null>(null)
 const migrationDialogOpen = ref(false)
 const migrationUser = ref<(UserVo & { storageSpaceId?: string }) | null>(null)
 const spaces = ref<StorageSpaceVo[]>([])
+
+const primarySpace = computed(() => spaces.value.find((s) => s.isPrimary === 1) || spaces.value[0] || null)
 
 const selectableUsers = computed(() => pageData.value.records.filter((u) => !u.isAdmin))
 const allSelected = computed(
@@ -165,23 +168,16 @@ function openCreateDialog() {
   createForm.nickname = ''
   createForm.email = ''
   createForm.password = ''
-  createForm.storageSpaceId = ''
-  createForm.quota = ''
+  createForm.storageSpaceId = primarySpace.value?.id || ''
+  createForm.quota = '10'
+  createForm.quotaUnit = 'GB'
   createDialogOpen.value = true
 }
 
 async function submitCreateUser() {
   submitting.value = true
   try {
-    const { storageSpaceId, quota, ...userDto } = createForm
-    const user = await createUser(userDto)
-    if (storageSpaceId && quota) {
-      await bindUserStorageSpace(user.id, {
-        userId: user.id,
-        storageSpaceId,
-        quota,
-      })
-    }
+    await createUser(createForm)
     createDialogOpen.value = false
     notificationStore.success('用户创建成功')
     await loadUsers()
@@ -200,8 +196,9 @@ function openEditDialog(user: UserVo) {
   editForm.roleIds = user.roles.map((role) => role.id)
   editForm.status = user.status
   editForm.password = ''
-  editForm.storageSpaceId = (user as UserVo & { storageSpaceId?: string }).storageSpaceId || ''
-  editForm.quota = (user as UserVo & { quota?: string }).quota || ''
+  editForm.storageSpaceId = user.storageSpaceId || ''
+  editForm.quota = user.quota || '10'
+  editForm.quotaUnit = user.quotaUnit || 'GB'
   editDialogOpen.value = true
 }
 
@@ -213,6 +210,8 @@ async function submitEditUser() {
     email: editForm.email,
     roleIds: editForm.roleIds,
     status: editForm.status,
+    quota: editForm.quota,
+    quotaUnit: editForm.quotaUnit,
   }
   if (editForm.password) {
     dto.password = editForm.password
@@ -220,13 +219,6 @@ async function submitEditUser() {
   submitting.value = true
   try {
     await updateUser(editingUser.value.id, dto)
-    if (editForm.storageSpaceId && editForm.quota) {
-      await bindUserStorageSpace(editingUser.value.id, {
-        userId: editingUser.value.id,
-        storageSpaceId: editForm.storageSpaceId,
-        quota: editForm.quota,
-      })
-    }
     editDialogOpen.value = false
     notificationStore.success('用户信息更新成功')
     await loadUsers()

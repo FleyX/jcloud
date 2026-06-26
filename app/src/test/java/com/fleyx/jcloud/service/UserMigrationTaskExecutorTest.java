@@ -3,7 +3,6 @@ package com.fleyx.jcloud.service;
 import com.fleyx.jcloud.model.dto.StorageSpaceSaveDto;
 import com.fleyx.jcloud.model.dto.UserMigrationSubmitDto;
 import com.fleyx.jcloud.model.dto.UserSaveDto;
-import com.fleyx.jcloud.model.dto.UserStorageDto;
 import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.po.User;
 import com.fleyx.jcloud.model.vo.FileNodeVo;
@@ -65,23 +64,19 @@ class UserMigrationTaskExecutorTest {
         StorageSpaceVo sourceSpace = storageSpaceService.save(sourceDto);
 
         StorageSpaceSaveDto targetDto = buildSpaceDto("target-" + testId, targetPath.toString());
-        targetDto.setCapacity(214748364800L);
         StorageSpaceVo targetSpace = storageSpaceService.save(targetDto);
 
         UserSaveDto userDto = new UserSaveDto();
         userDto.setUsername("migrateExec" + testId);
         userDto.setPassword("123456");
+        userDto.setStorageSpaceId(sourceSpace.getId());
+        userDto.setQuota(10L);
+        userDto.setQuotaUnit("GB");
         UserVo user = userService.saveUser(userDto);
-
-        UserStorageDto bindDto = new UserStorageDto();
-        bindDto.setUserId(user.getId());
-        bindDto.setStorageSpaceId(sourceSpace.getId());
-        bindDto.setQuota(10737418240L);
-        userService.bindStorageSpace(bindDto);
 
         MockMultipartFile multipartFile = new MockMultipartFile(
                 "file", "hello.txt", "text/plain", "hello".getBytes(StandardCharsets.UTF_8));
-        FileNodeVo uploaded = fileService.upload(multipartFile, user.getId());
+        FileNodeVo uploaded = fileService.upload(multipartFile, user.getId(), 0L, null);
         assertNotNull(uploaded.getId());
 
         UserMigrationSubmitDto submitDto = new UserMigrationSubmitDto();
@@ -114,29 +109,36 @@ class UserMigrationTaskExecutorTest {
     void shouldRollbackOnCopyFailure() throws Exception {
         String testId = String.valueOf(System.nanoTime());
         Path sourcePath = Files.createTempDirectory("jcloud-source-" + testId);
-        Path targetAsFile = Files.createTempFile("jcloud-target-file-" + testId, "");
+        Path targetPath = Files.createTempDirectory("jcloud-target-" + testId);
 
         StorageSpaceSaveDto sourceDto = buildSpaceDto("source-" + testId, sourcePath.toString());
         StorageSpaceVo sourceSpace = storageSpaceService.save(sourceDto);
 
-        StorageSpaceSaveDto targetDto = buildSpaceDto("target-" + testId, targetAsFile.toString());
-        targetDto.setCapacity(214748364800L);
+        StorageSpaceSaveDto targetDto = buildSpaceDto("target-" + testId, targetPath.toString());
         StorageSpaceVo targetSpace = storageSpaceService.save(targetDto);
+
+        Files.walk(targetPath)
+                .sorted(java.util.Comparator.reverseOrder())
+                .forEach(p -> {
+                    try {
+                        Files.delete(p);
+                    } catch (Exception e) {
+                        throw new RuntimeException(e);
+                    }
+                });
+        Files.createFile(targetPath);
 
         UserSaveDto userDto = new UserSaveDto();
         userDto.setUsername("migrateRollback" + testId);
         userDto.setPassword("123456");
+        userDto.setStorageSpaceId(sourceSpace.getId());
+        userDto.setQuota(10L);
+        userDto.setQuotaUnit("GB");
         UserVo user = userService.saveUser(userDto);
-
-        UserStorageDto bindDto = new UserStorageDto();
-        bindDto.setUserId(user.getId());
-        bindDto.setStorageSpaceId(sourceSpace.getId());
-        bindDto.setQuota(10737418240L);
-        userService.bindStorageSpace(bindDto);
 
         MockMultipartFile multipartFile = new MockMultipartFile(
                 "file", "hello.txt", "text/plain", "hello".getBytes(StandardCharsets.UTF_8));
-        FileNodeVo uploaded = fileService.upload(multipartFile, user.getId());
+        FileNodeVo uploaded = fileService.upload(multipartFile, user.getId(), 0L, null);
 
         UserMigrationSubmitDto submitDto = new UserMigrationSubmitDto();
         submitDto.setUserId(user.getId());
@@ -166,7 +168,6 @@ class UserMigrationTaskExecutorTest {
         dto.setName(name);
         dto.setPath(path);
         dto.setType("USER");
-        dto.setCapacity(107374182400L);
         return dto;
     }
 }

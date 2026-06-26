@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import type { RoleVo, UserUpdateDto, UserVo } from '@/types/auth'
 import type { StorageSpaceVo } from '@/types/storage-space'
 import { Settings2, X } from '@lucide/vue'
@@ -15,10 +15,11 @@ import {
   SwitchThumb,
 } from 'radix-vue'
 import { cn } from '@/utils/cn'
+import { bytesToUnitValue, unitValueToBytes, STORAGE_UNITS, type StorageUnit } from '@/utils/storage'
 
 const props = withDefaults(defineProps<{
   open: boolean
-  form: UserUpdateDto & { storageSpaceId?: string; quota?: string }
+  form: UserUpdateDto & { storageSpaceId?: string; quota?: string; quotaUnit?: string }
   editingUser: UserVo | null
   roles: RoleVo[]
   spaces?: StorageSpaceVo[]
@@ -36,6 +37,40 @@ const localOpen = computed({
   get: () => props.open,
   set: (value) => emit('update:open', value),
 })
+
+const displayQuota = ref('10')
+const displayUnit = ref<StorageUnit>('GB')
+const isUnitInitializing = ref(false)
+
+const currentSpaceName = computed(() => {
+  if (!props.form.storageSpaceId) return '-'
+  return props.spaces.find((s) => s.id === props.form.storageSpaceId)?.name || '-'
+})
+
+const isBuiltInAdmin = computed(() => props.editingUser?.username === 'admin')
+
+watch(() => props.open, (open) => {
+  if (open) {
+    const unit = (props.form.quotaUnit || 'GB') as StorageUnit
+    isUnitInitializing.value = true
+    displayQuota.value = bytesToUnitValue(props.form.quota, unit)
+    displayUnit.value = unit
+    nextTick(() => {
+      isUnitInitializing.value = false
+    })
+  }
+})
+
+watch(displayUnit, (newUnit, oldUnit) => {
+  if (isUnitInitializing.value || !oldUnit) return
+  displayQuota.value = bytesToUnitValue(unitValueToBytes(displayQuota.value, oldUnit), newUnit)
+})
+
+function handleSubmit() {
+  props.form.quota = displayQuota.value
+  props.form.quotaUnit = displayUnit.value
+  emit('submit')
+}
 </script>
 
 <template>
@@ -68,16 +103,9 @@ const localOpen = computed({
             <input
               v-model="props.form.nickname"
               type="text"
-              :disabled="editingUser?.isAdmin"
               placeholder="请输入昵称"
-              class="w-full rounded-xl border border-surface-200 bg-surface-50 px-3 py-2 text-sm outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100 disabled:cursor-not-allowed disabled:opacity-60"
+              class="w-full rounded-xl border border-surface-200 bg-surface-50 px-3 py-2 text-sm outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100"
             >
-            <p
-              v-if="editingUser?.isAdmin"
-              class="mt-1 text-xs text-surface-400"
-            >
-              超级管理员昵称不可修改
-            </p>
           </div>
           <div>
             <label class="mb-1 block text-xs font-medium text-surface-700">邮箱</label>
@@ -93,7 +121,7 @@ const localOpen = computed({
             <div
               :class="cn(
                 'space-y-2 rounded-xl border border-surface-200 p-3',
-                editingUser?.isAdmin && 'cursor-not-allowed opacity-60',
+                isBuiltInAdmin && 'cursor-not-allowed opacity-60',
               )"
             >
               <label
@@ -105,7 +133,7 @@ const localOpen = computed({
                   v-model="props.form.roleIds"
                   type="checkbox"
                   :value="role.id"
-                  :disabled="editingUser?.isAdmin"
+                  :disabled="isBuiltInAdmin"
                   class="h-4 w-4 rounded border-surface-300 text-primary-600 focus:ring-primary-500 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                 <div class="flex-1">
@@ -115,10 +143,10 @@ const localOpen = computed({
               </label>
             </div>
             <p
-              v-if="editingUser?.isAdmin"
+              v-if="isBuiltInAdmin"
               class="mt-1 text-xs text-surface-400"
             >
-              超级管理员角色不可修改
+              admin 角色不可修改
             </p>
           </div>
           <div>
@@ -126,7 +154,7 @@ const localOpen = computed({
             <div class="flex items-center gap-3">
               <SwitchRoot
                 :checked="props.form.status === 1"
-                :disabled="editingUser?.isAdmin"
+                :disabled="isBuiltInAdmin"
                 class="relative h-6 w-11 cursor-pointer rounded-full bg-surface-200 outline-none transition-colors data-[state=checked]:bg-primary-600 data-[disabled]:cursor-not-allowed data-[disabled]:opacity-50"
                 @update:checked="(checked: boolean) => (props.form.status = checked ? 1 : 0)"
               >
@@ -137,10 +165,10 @@ const localOpen = computed({
               <span class="text-sm text-surface-700">{{ props.form.status === 1 ? '启用' : '禁用' }}</span>
             </div>
             <p
-              v-if="editingUser?.isAdmin"
+              v-if="isBuiltInAdmin"
               class="mt-1 text-xs text-surface-400"
             >
-              超级管理员状态不可修改
+              admin 状态不可修改
             </p>
           </div>
           <div>
@@ -154,30 +182,38 @@ const localOpen = computed({
           </div>
           <div>
             <label class="mb-1 block text-xs font-medium text-surface-700">默认存储空间</label>
-            <select
-              v-model="props.form.storageSpaceId"
-              class="w-full rounded-xl border border-surface-200 bg-surface-50 px-3 py-2 text-sm outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100"
-            >
-              <option value="">
-                暂不分配
-              </option>
-              <option
-                v-for="space in spaces"
-                :key="space.id"
-                :value="space.id"
-              >
-                {{ space.name }}
-              </option>
-            </select>
-          </div>
-          <div v-if="props.form.storageSpaceId">
-            <label class="mb-1 block text-xs font-medium text-surface-700">配额（字节）</label>
             <input
-              v-model="props.form.quota"
+              :value="currentSpaceName"
               type="text"
-              placeholder="请输入用户配额"
-              class="w-full rounded-xl border border-surface-200 bg-surface-50 px-3 py-2 text-sm outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100"
+              disabled
+              class="w-full rounded-xl border border-surface-200 bg-surface-100 px-3 py-2 text-sm text-surface-500 outline-none disabled:cursor-not-allowed"
             >
+            <p class="mt-1 text-xs text-surface-400">
+              编辑用户时不可更换存储空间
+            </p>
+          </div>
+          <div>
+            <label class="mb-1 block text-xs font-medium text-surface-700">配额（0 表示无限）</label>
+            <div class="flex gap-2">
+              <input
+                v-model="displayQuota"
+                type="text"
+                placeholder="请输入配额"
+                class="flex-1 rounded-xl border border-surface-200 bg-surface-50 px-3 py-2 text-sm outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100"
+              >
+              <select
+                v-model="displayUnit"
+                class="rounded-xl border border-surface-200 bg-surface-50 px-3 py-2 text-sm outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100"
+              >
+                <option
+                  v-for="unit in STORAGE_UNITS"
+                  :key="unit"
+                  :value="unit"
+                >
+                  {{ unit }}
+                </option>
+              </select>
+            </div>
           </div>
         </div>
 
@@ -193,7 +229,7 @@ const localOpen = computed({
           <button
             :disabled="submitting"
             class="rounded-xl bg-primary-600 px-4 py-2 text-sm font-medium text-white shadow-soft transition-colors hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-70"
-            @click="emit('submit')"
+            @click="handleSubmit"
           >
             {{ submitting ? '保存中...' : '保存' }}
           </button>

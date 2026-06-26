@@ -20,6 +20,7 @@ import com.fleyx.jcloud.model.po.UserRole;
 import com.fleyx.jcloud.model.vo.LoginVo;
 import com.fleyx.jcloud.model.vo.UserVo;
 import com.fleyx.jcloud.service.AuthService;
+import com.fleyx.jcloud.service.SystemInitService;
 import com.fleyx.jcloud.util.JwtUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -42,6 +43,7 @@ public class AuthServiceImpl implements AuthService {
     private final RoleConvert roleConvert;
     private final JwtUtil jwtUtil;
     private final PermissionResolver permissionResolver;
+    private final SystemInitService systemInitService;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -101,6 +103,7 @@ public class AuthServiceImpl implements AuthService {
         vo.setToken(token);
         vo.setUserInfo(toUserVo(user));
         vo.setPermissions(permissions);
+        vo.setInitialized(systemInitService.isInitialized());
         return vo;
     }
 

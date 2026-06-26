@@ -53,6 +53,11 @@ public class UserVo implements Serializable {
     private List<RoleVo> roles;
 
     /**
+     * 用户绑定的存储空间 ID。
+     */
+    private Long storageSpaceId;
+
+    /**
      * 用户配额（字节）。
      */
     private Long quota;

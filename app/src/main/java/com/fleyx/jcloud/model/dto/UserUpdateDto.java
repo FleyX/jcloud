@@ -51,4 +51,15 @@ public class UserUpdateDto implements Serializable {
      */
     @Size(min = 6, max = 128, message = "密码长度需在 6-128 之间")
     private String password;
+
+    /**
+     * 用户配额数值，0 表示不限制。
+     */
+    private Long quota;
+
+    /**
+     * 配额单位：MB / GB / TB，为空时默认 GB。
+     */
+    @Size(max = 8, message = "配额单位长度不能超过 8")
+    private String quotaUnit;
 }

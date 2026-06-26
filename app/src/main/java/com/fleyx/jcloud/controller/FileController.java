@@ -9,6 +9,7 @@ import com.fleyx.jcloud.model.bo.BatchDownloadResult;
 import com.fleyx.jcloud.model.bo.FileDownloadResult;
 import com.fleyx.jcloud.model.bo.FileZipTask;
 import com.fleyx.jcloud.model.bo.PreviewResult;
+import com.fleyx.jcloud.model.dto.ChunkedUploadCompleteDto;
 import com.fleyx.jcloud.model.dto.ChunkedUploadInitDto;
 import com.fleyx.jcloud.model.dto.FileBatchDownloadDto;
 import com.fleyx.jcloud.model.dto.FileCreateFolderDto;
@@ -18,14 +19,15 @@ import com.fleyx.jcloud.model.dto.FileExecuteRestoreDto;
 import com.fleyx.jcloud.model.dto.FileInstantUploadDto;
 import com.fleyx.jcloud.model.dto.FilePageQueryDto;
 import com.fleyx.jcloud.model.dto.FilePermanentDeleteDto;
-import com.fleyx.jcloud.model.dto.FilePreCheckDto;
 import com.fleyx.jcloud.model.dto.FilePreCheckOperationDto;
 import com.fleyx.jcloud.model.dto.FilePreCheckRestoreDto;
+import com.fleyx.jcloud.model.dto.FileUploadPreCheckDto;
 import com.fleyx.jcloud.model.dto.FileRenameDto;
 import com.fleyx.jcloud.model.vo.ChunkedUploadChunkVo;
 import com.fleyx.jcloud.model.vo.ChunkedUploadInitVo;
 import com.fleyx.jcloud.model.vo.ConflictItemVo;
 import com.fleyx.jcloud.model.vo.FileNodeVo;
+import com.fleyx.jcloud.model.vo.UploadPreCheckVo;
 import com.fleyx.jcloud.model.vo.FileZipTaskVo;
 import com.fleyx.jcloud.model.vo.OperationResultVo;
 import com.fleyx.jcloud.model.vo.RecycleRecordVo;
@@ -75,8 +77,18 @@ public class FileController {
      * 上传文件到当前用户根目录。
      */
     @PostMapping(value = "/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public R<FileNodeVo> upload(@RequestParam("file") MultipartFile file) {
-        return R.ok(fileService.upload(file, UserContext.get().id()));
+    public R<FileNodeVo> upload(@RequestParam("file") MultipartFile file,
+                                @RequestParam(required = false, defaultValue = "0") Long parentId,
+                                @RequestParam(required = false) String strategy) {
+        return R.ok(fileService.upload(file, UserContext.get().id(), parentId, strategy));
+    }
+
+    /**
+     * 上传前预检：检查目标目录是否存在同名冲突，并返回可用于秒传的候选文件。
+     */
+    @PostMapping("/upload/pre-check")
+    public R<UploadPreCheckVo> preCheckUpload(@RequestBody FileUploadPreCheckDto dto) {
+        return R.ok(fileService.preCheckUpload(dto, UserContext.get().id()));
     }
 
     /**
@@ -88,14 +100,6 @@ public class FileController {
             dto.setParentId(0L);
         }
         return R.ok(fileService.list(dto, UserContext.get().id()));
-    }
-
-    /**
-     * 秒传预检查：根据文件身份 hash 返回候选文件列表。
-     */
-    @PostMapping("/pre-check")
-    public R<List<FileNodeVo>> preCheck(@RequestBody FilePreCheckDto dto) {
-        return R.ok(fileService.preCheck(dto, UserContext.get().id()));
     }
 
     /**
@@ -137,8 +141,9 @@ public class FileController {
      * 完成分片上传并创建文件节点。
      */
     @PostMapping("/chunked-upload/{uploadId}/complete")
-    public R<FileNodeVo> completeChunkedUpload(@PathVariable String uploadId) {
-        return R.ok(chunkedUploadService.complete(UserContext.get().id(), uploadId));
+    public R<FileNodeVo> completeChunkedUpload(@PathVariable String uploadId,
+                                               @RequestBody(required = false) ChunkedUploadCompleteDto dto) {
+        return R.ok(chunkedUploadService.complete(UserContext.get().id(), uploadId, dto));
     }
 
     /**

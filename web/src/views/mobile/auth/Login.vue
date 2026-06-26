@@ -33,8 +33,12 @@ async function handleLogin() {
   errorMsg.value = ''
   loading.value = true
   try {
-    await userStore.loginAction(form.username, form.password)
-    router.push('/')
+    const data = await userStore.loginAction(form.username, form.password)
+    if (data.userInfo.isAdmin && !data.initialized) {
+      router.push('/init')
+    } else {
+      router.push('/')
+    }
   } catch (error) {
     errorMsg.value = error instanceof Error ? error.message : '登录失败'
   } finally {

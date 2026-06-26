@@ -15,7 +15,7 @@ import {
 
 const props = withDefaults(defineProps<{
   open: boolean
-  form: UserSaveDto & { storageSpaceId?: string; quota?: string }
+  form: UserSaveDto
   spaces?: StorageSpaceVo[]
   submitting: boolean
 }>(), {
@@ -31,6 +31,8 @@ const localOpen = computed({
   get: () => props.open,
   set: (value) => emit('update:open', value),
 })
+
+const unitOptions = ['MB', 'GB', 'TB']
 </script>
 
 <template>
@@ -100,26 +102,38 @@ const localOpen = computed({
               v-model="props.form.storageSpaceId"
               class="w-full rounded-xl border border-surface-200 bg-surface-50 px-3 py-2 text-sm outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100"
             >
-              <option value="">
-                暂不分配
-              </option>
               <option
                 v-for="space in spaces"
                 :key="space.id"
                 :value="space.id"
               >
                 {{ space.name }}
+                <span v-if="space.isPrimary === 1">（主空间）</span>
               </option>
             </select>
           </div>
-          <div v-if="props.form.storageSpaceId">
-            <label class="mb-1 block text-xs font-medium text-surface-700">配额（字节）</label>
-            <input
-              v-model="props.form.quota"
-              type="text"
-              placeholder="请输入用户配额"
-              class="w-full rounded-xl border border-surface-200 bg-surface-50 px-3 py-2 text-sm outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100"
-            >
+          <div>
+            <label class="mb-1 block text-xs font-medium text-surface-700">配额（0 表示无限）</label>
+            <div class="flex gap-2">
+              <input
+                v-model="props.form.quota"
+                type="text"
+                placeholder="请输入配额"
+                class="flex-1 rounded-xl border border-surface-200 bg-surface-50 px-3 py-2 text-sm outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100"
+              >
+              <select
+                v-model="props.form.quotaUnit"
+                class="rounded-xl border border-surface-200 bg-surface-50 px-3 py-2 text-sm outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100"
+              >
+                <option
+                  v-for="unit in unitOptions"
+                  :key="unit"
+                  :value="unit"
+                >
+                  {{ unit }}
+                </option>
+              </select>
+            </div>
           </div>
         </div>
 

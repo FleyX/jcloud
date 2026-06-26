@@ -1,5 +1,6 @@
 package com.fleyx.jcloud.service;
 
+import com.fleyx.jcloud.model.dto.ChunkedUploadCompleteDto;
 import com.fleyx.jcloud.model.dto.ChunkedUploadInitDto;
 import com.fleyx.jcloud.model.vo.ChunkedUploadChunkVo;
 import com.fleyx.jcloud.model.vo.ChunkedUploadInitVo;
@@ -49,7 +50,8 @@ public interface ChunkedUploadService {
      *
      * @param userId   用户 ID
      * @param uploadId 上传任务 ID
-     * @return 创建的文件节点视图
+     * @param dto      完成参数，包含冲突解决策略
+     * @return 创建的文件节点视图；跳过返回 {@code null}
      */
-    FileNodeVo complete(Long userId, String uploadId);
+    FileNodeVo complete(Long userId, String uploadId, ChunkedUploadCompleteDto dto);
 }

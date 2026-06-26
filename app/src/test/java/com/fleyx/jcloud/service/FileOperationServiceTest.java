@@ -9,7 +9,6 @@ import com.fleyx.jcloud.model.dto.FileRenameDto;
 import com.fleyx.jcloud.model.dto.OperationItemDto;
 import com.fleyx.jcloud.model.dto.StorageSpaceSaveDto;
 import com.fleyx.jcloud.model.dto.UserSaveDto;
-import com.fleyx.jcloud.model.dto.UserStorageDto;
 import com.fleyx.jcloud.model.vo.ConflictItemVo;
 import com.fleyx.jcloud.model.vo.FileNodeVo;
 import com.fleyx.jcloud.model.vo.OperationResultVo;
@@ -61,7 +60,7 @@ class FileOperationServiceTest {
     void shouldRenameFile() throws Exception {
         UserWithSpace userWithSpace = prepareUserWithStorageSpace();
         UserVo user = userWithSpace.user();
-        FileNodeVo file = fileService.upload(buildFile("old.txt", "content"), user.getId());
+        FileNodeVo file = fileService.upload(buildFile("old.txt", "content"), user.getId(), 0L, null);
 
         FileRenameDto dto = new FileRenameDto();
         dto.setId(file.getId());
@@ -79,8 +78,8 @@ class FileOperationServiceTest {
     @Test
     void shouldRejectRenameWhenNameConflict() throws Exception {
         UserVo user = prepareUserWithStorageSpace().user();
-        fileService.upload(buildFile("a.txt", "A"), user.getId());
-        FileNodeVo b = fileService.upload(buildFile("b.txt", "B"), user.getId());
+        fileService.upload(buildFile("a.txt", "A"), user.getId(), 0L, null);
+        FileNodeVo b = fileService.upload(buildFile("b.txt", "B"), user.getId(), 0L, null);
 
         FileRenameDto dto = new FileRenameDto();
         dto.setId(b.getId());
@@ -120,7 +119,7 @@ class FileOperationServiceTest {
         UserWithSpace userWithSpace = prepareUserWithStorageSpace();
         UserVo user = userWithSpace.user();
         FileNodeVo folder = createFolder(user.getId(), "docs", 0L);
-        FileNodeVo file = fileService.upload(buildFile("report.txt", "report"), user.getId());
+        FileNodeVo file = fileService.upload(buildFile("report.txt", "report"), user.getId(), 0L, null);
 
         FileExecuteOperationDto dto = buildOperationDto("move", folder.getId(), file);
         List<OperationResultVo> results = fileOperationService.move(dto, user.getId());
@@ -137,9 +136,9 @@ class FileOperationServiceTest {
     void shouldSkipOnMoveConflict() throws Exception {
         UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo folder = createFolder(user.getId(), "docs", 0L);
-        FileNodeVo first = fileService.upload(buildFile("same.txt", "first"), user.getId());
+        FileNodeVo first = fileService.upload(buildFile("same.txt", "first"), user.getId(), 0L, null);
         fileOperationService.move(buildOperationDto("move", folder.getId(), first), user.getId());
-        FileNodeVo fileToMove = fileService.upload(buildFile("same.txt", "second"), user.getId());
+        FileNodeVo fileToMove = fileService.upload(buildFile("same.txt", "second"), user.getId(), 0L, null);
 
         FileExecuteOperationDto dto = buildOperationDto("move", folder.getId(), fileToMove);
         dto.getItems().get(0).setStrategy(ConflictStrategy.SKIP.getCode());
@@ -152,9 +151,9 @@ class FileOperationServiceTest {
     void shouldAutoRenameOnMoveConflict() throws Exception {
         UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo folder = createFolder(user.getId(), "docs", 0L);
-        FileNodeVo first = fileService.upload(buildFile("same.txt", "first"), user.getId());
+        FileNodeVo first = fileService.upload(buildFile("same.txt", "first"), user.getId(), 0L, null);
         fileOperationService.move(buildOperationDto("move", folder.getId(), first), user.getId());
-        FileNodeVo fileToMove = fileService.upload(buildFile("same.txt", "second"), user.getId());
+        FileNodeVo fileToMove = fileService.upload(buildFile("same.txt", "second"), user.getId(), 0L, null);
 
         FileExecuteOperationDto dto = buildOperationDto("move", folder.getId(), fileToMove);
         dto.getItems().get(0).setStrategy(ConflictStrategy.AUTO_RENAME.getCode());
@@ -168,9 +167,9 @@ class FileOperationServiceTest {
     void shouldPreCheckMoveConflict() throws Exception {
         UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo folder = createFolder(user.getId(), "docs", 0L);
-        FileNodeVo first = fileService.upload(buildFile("same.txt", "first"), user.getId());
+        FileNodeVo first = fileService.upload(buildFile("same.txt", "first"), user.getId(), 0L, null);
         fileOperationService.move(buildOperationDto("move", folder.getId(), first), user.getId());
-        FileNodeVo fileToMove = fileService.upload(buildFile("same.txt", "second"), user.getId());
+        FileNodeVo fileToMove = fileService.upload(buildFile("same.txt", "second"), user.getId(), 0L, null);
 
         FilePreCheckOperationDto dto = buildPreCheckDto("move", folder.getId(), fileToMove);
         List<ConflictItemVo> conflicts = fileOperationService.preCheckOperation(dto, user.getId());
@@ -185,7 +184,7 @@ class FileOperationServiceTest {
         UserWithSpace userWithSpace = prepareUserWithStorageSpace();
         UserVo user = userWithSpace.user();
         FileNodeVo folder = createFolder(user.getId(), "backup", 0L);
-        FileNodeVo file = fileService.upload(buildFile("note.txt", "note"), user.getId());
+        FileNodeVo file = fileService.upload(buildFile("note.txt", "note"), user.getId(), 0L, null);
 
         FileExecuteOperationDto dto = buildOperationDto("copy", folder.getId(), file);
         List<OperationResultVo> results = fileOperationService.copy(dto, user.getId());
@@ -203,7 +202,7 @@ class FileOperationServiceTest {
         UserWithSpace userWithSpace = prepareUserWithStorageSpace();
         UserVo user = userWithSpace.user();
         FileNodeVo docs = createFolder(user.getId(), "docs", 0L);
-        FileNodeVo report = fileService.upload(buildFile("report.txt", "report"), user.getId());
+        FileNodeVo report = fileService.upload(buildFile("report.txt", "report"), user.getId(), 0L, null);
         FileExecuteOperationDto moveDto = buildOperationDto("move", docs.getId(), report);
         fileOperationService.move(moveDto, user.getId());
 
@@ -285,21 +284,25 @@ class FileOperationServiceTest {
         spaceDto.setName("用户空间");
         spaceDto.setPath(spacePath.toString());
         spaceDto.setType("USER");
-        spaceDto.setCapacity(Math.max(quota, 107374182400L));
         StorageSpaceVo space = storageSpaceService.save(spaceDto);
 
         UserSaveDto userDto = new UserSaveDto();
         userDto.setUsername("fileOpUser" + quota + "-" + System.nanoTime());
         userDto.setPassword("123456");
+        userDto.setStorageSpaceId(space.getId());
+        userDto.setQuota(toQuotaValue(quota));
+        userDto.setQuotaUnit(toQuotaUnit(quota));
         UserVo user = userService.saveUser(userDto);
 
-        UserStorageDto bindDto = new UserStorageDto();
-        bindDto.setUserId(user.getId());
-        bindDto.setStorageSpaceId(space.getId());
-        bindDto.setQuota(quota);
-        userService.bindStorageSpace(bindDto);
-
         return new UserWithSpace(user, spacePath);
+    }
+
+    private static long toQuotaValue(long quotaBytes) {
+        return quotaBytes == 10737418240L ? 10L : quotaBytes;
+    }
+
+    private static String toQuotaUnit(long quotaBytes) {
+        return quotaBytes == 10737418240L ? "GB" : "B";
     }
 
     private record UserWithSpace(UserVo user, Path spacePath) {

@@ -33,6 +33,7 @@ import com.fleyx.jcloud.model.vo.RoleVo;
 import com.fleyx.jcloud.model.vo.UserProfileVo;
 import com.fleyx.jcloud.model.vo.UserVo;
 import com.fleyx.jcloud.service.UserService;
+import com.fleyx.jcloud.util.ByteFormatUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -61,12 +62,20 @@ public class UserServiceImpl implements UserService {
     private final UserPermissionCache userPermissionCache;
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public UserVo saveUser(UserSaveDto dto) {
         checkUsernameUnique(dto.getUsername());
+        StorageSpace space = requireEnabledStorageSpace(dto.getStorageSpaceId());
+        long quotaBytes = ByteFormatUtil.parse(dto.getQuota(), dto.getQuotaUnit());
+
         User user = userConvert.dtoToPo(dto);
         user.setPassword(BCrypt.hashpw(user.getPassword(), BCrypt.gensalt()));
         user.setStatus(UserStatus.ENABLED.getCode());
         user.setIsAdmin(0);
+        user.setStorageSpaceId(space.getId());
+        user.setQuota(quotaBytes);
+        user.setUsedSpace(0L);
+        user.setReservedSpace(0L);
         userMapper.insert(user);
         return enrichUserVo(user);
     }
@@ -114,7 +123,7 @@ public class UserServiceImpl implements UserService {
     @Transactional(rollbackFor = Exception.class)
     public void updateRoles(UserUpdateRolesDto dto) {
         User user = requireUser(dto.getUserId());
-        rejectIfSuperAdmin(user, "不能修改超级管理员的角色");
+        rejectIfBuiltInAdmin(user, "不能修改内置管理员的角色");
         validateRoleIds(dto.getRoleIds());
 
         LambdaQueryWrapper<UserRole> wrapper = new LambdaQueryWrapper<>();
@@ -133,7 +142,7 @@ public class UserServiceImpl implements UserService {
     @Override
     public void updateStatus(UserStatusDto dto) {
         User user = requireUser(dto.getUserId());
-        rejectIfSuperAdmin(user, "不能禁用/启用超级管理员账号");
+        rejectIfBuiltInAdmin(user, "不能禁用/启用内置管理员账号");
         if (dto.getStatus() != UserStatus.ENABLED.getCode() && dto.getStatus() != UserStatus.DISABLED.getCode()) {
             throw new BusinessException(ResultCode.PARAM_ERROR, "用户状态只能是 1（启用）或 0（禁用）");
         }
@@ -147,17 +156,16 @@ public class UserServiceImpl implements UserService {
     @Transactional(rollbackFor = Exception.class)
     public UserVo updateUser(UserUpdateDto dto) {
         User user = requireUser(dto.getId());
-        boolean isSuperAdmin = user.isSuperAdmin();
-        if (isSuperAdmin) {
-            rejectSuperAdminFieldChange(dto, user);
+        boolean isBuiltInAdmin = isBuiltInAdmin(user);
+        if (!isBuiltInAdmin) {
+            validateStatus(dto.getStatus());
+            validateRoleIds(dto.getRoleIds());
         }
-        validateStatus(dto.getStatus());
-        validateRoleIds(dto.getRoleIds());
 
-        User update = buildUserUpdate(user, dto, isSuperAdmin);
+        User update = buildUserUpdate(user, dto, isBuiltInAdmin);
         userMapper.updateById(update);
 
-        if (dto.getRoleIds() != null && !isSuperAdmin) {
+        if (dto.getRoleIds() != null && !isBuiltInAdmin) {
             updateUserRoles(user.getId(), dto.getRoleIds());
             userPermissionCache.evict(user.getId());
         }
@@ -245,32 +253,23 @@ public class UserServiceImpl implements UserService {
         userMapper.updateById(update);
     }
 
-    private void rejectSuperAdminFieldChange(UserUpdateDto dto, User user) {
-        if (CollUtil.isNotEmpty(dto.getRoleIds())) {
-            throw new BusinessException(ResultCode.FORBIDDEN, "不能修改超级管理员的角色");
-        }
-        if (dto.getNickname() != null && !dto.getNickname().equals(user.getNickname())) {
-            throw new BusinessException(ResultCode.FORBIDDEN, "不能修改超级管理员的昵称");
-        }
-        if (dto.getStatus() != null && !dto.getStatus().equals(user.getStatus())) {
-            throw new BusinessException(ResultCode.FORBIDDEN, "不能禁用/启用超级管理员账号");
-        }
-    }
-
-    private User buildUserUpdate(User user, UserUpdateDto dto, boolean isSuperAdmin) {
+    private User buildUserUpdate(User user, UserUpdateDto dto, boolean isBuiltInAdmin) {
         User update = new User();
         update.setId(user.getId());
-        if (!isSuperAdmin && dto.getNickname() != null) {
+        if (dto.getNickname() != null) {
             update.setNickname(dto.getNickname());
         }
         if (dto.getEmail() != null) {
             update.setEmail(dto.getEmail());
         }
-        if (dto.getStatus() != null && !isSuperAdmin) {
+        if (dto.getStatus() != null && !isBuiltInAdmin) {
             update.setStatus(dto.getStatus());
         }
         if (StrUtil.isNotBlank(dto.getPassword())) {
             update.setPassword(BCrypt.hashpw(dto.getPassword(), BCrypt.gensalt()));
+        }
+        if (dto.getQuota() != null) {
+            update.setQuota(ByteFormatUtil.parse(dto.getQuota(), dto.getQuotaUnit()));
         }
         return update;
     }
@@ -398,6 +397,16 @@ public class UserServiceImpl implements UserService {
         }
     }
 
+    private void rejectIfBuiltInAdmin(User user, String message) {
+        if (isBuiltInAdmin(user)) {
+            throw new BusinessException(ResultCode.FORBIDDEN, message);
+        }
+    }
+
+    private boolean isBuiltInAdmin(User user) {
+        return "admin".equals(user.getUsername());
+    }
+
     private void validateRoleIds(List<Long> roleIds) {
         if (roleIds == null || roleIds.isEmpty()) {
             return;
@@ -428,15 +437,27 @@ public class UserServiceImpl implements UserService {
     @Transactional(rollbackFor = Exception.class)
     public void bindStorageSpace(UserStorageDto dto) {
         User user = requireUser(dto.getUserId());
-        StorageSpace space = storageSpaceMapper.selectById(dto.getStorageSpaceId());
+        StorageSpace space = requireEnabledStorageSpace(dto.getStorageSpaceId());
+        long quota = dto.getQuota() == null ? 0L : dto.getQuota();
+        if (quota > 0 && quota > space.getCapacity()) {
+            throw new BusinessException(ResultCode.BUSINESS_ERROR, "用户配额不能超过存储空间容量");
+        }
+        user.setStorageSpaceId(space.getId());
+        user.setQuota(quota);
+        userMapper.updateById(user);
+    }
+
+    private StorageSpace requireEnabledStorageSpace(Long storageSpaceId) {
+        if (storageSpaceId == null) {
+            throw new BusinessException(ResultCode.PARAM_ERROR, "存储空间不能为空");
+        }
+        StorageSpace space = storageSpaceMapper.selectById(storageSpaceId);
         if (space == null) {
             throw new BusinessException(ResultCode.NOT_FOUND, "存储空间不存在");
         }
-        if (dto.getQuota() > space.getCapacity()) {
-            throw new BusinessException(ResultCode.BUSINESS_ERROR, "用户配额不能超过存储空间容量");
+        if (!Integer.valueOf(1).equals(space.getStatus())) {
+            throw new BusinessException(ResultCode.BUSINESS_ERROR, "存储空间已被禁用");
         }
-        user.setStorageSpaceId(dto.getStorageSpaceId());
-        user.setQuota(dto.getQuota());
-        userMapper.updateById(user);
+        return space;
     }
 }

@@ -12,15 +12,19 @@ import com.fleyx.jcloud.model.bo.FileDownloadResult;
 import com.fleyx.jcloud.model.convert.FileConvert;
 import com.fleyx.jcloud.model.dto.FileInstantUploadDto;
 import com.fleyx.jcloud.model.dto.FilePageQueryDto;
-import com.fleyx.jcloud.model.dto.FilePreCheckDto;
+import com.fleyx.jcloud.model.dto.FileUploadPreCheckDto;
 import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.po.StorageSpace;
 import com.fleyx.jcloud.model.po.User;
+import com.fleyx.jcloud.model.vo.ConflictItemVo;
 import com.fleyx.jcloud.model.vo.FileNodeVo;
+import com.fleyx.jcloud.model.vo.UploadPreCheckVo;
 import com.fleyx.jcloud.service.FileService;
+import com.fleyx.jcloud.util.FileConflictHelper;
 import com.fleyx.jcloud.util.FileHashUtil;
 import com.fleyx.jcloud.util.FileLinkUtil;
 import com.fleyx.jcloud.util.FilePathUtil;
+import com.fleyx.jcloud.util.UploadConflictResolver;
 import com.fleyx.jcloud.util.UserReadOnlyChecker;
 import com.fleyx.jcloud.util.UserReadWriteLock;
 import lombok.RequiredArgsConstructor;
@@ -42,72 +46,74 @@ import java.util.List;
 @RequiredArgsConstructor
 public class FileServiceImpl implements FileService {
 
+    private static final String TYPE_FILE = "file";
+    private static final String TYPE_FOLDER = "folder";
+
     private final FileMapper fileMapper;
     private final UserMapper userMapper;
     private final StorageSpaceMapper storageSpaceMapper;
     private final FileConvert fileConvert;
     private final UserReadWriteLock userReadWriteLock;
     private final UserReadOnlyChecker userReadOnlyChecker;
+    private final UploadConflictResolver conflictResolver;
 
     @Override
-    public FileNodeVo upload(MultipartFile file, Long userId) {
+    public FileNodeVo upload(MultipartFile file, Long userId, Long parentId, String strategy) {
         userReadOnlyChecker.checkWriteAllowed(userId);
         RLock lock = userReadWriteLock.writeLock(userId);
         lock.lock();
         try {
-            return doUpload(file, userId);
+            return doUpload(file, userId, parentId, strategy);
         } finally {
             lock.unlock();
         }
     }
 
     @Transactional(rollbackFor = Exception.class)
-    protected FileNodeVo doUpload(MultipartFile file, Long userId) {
+    protected FileNodeVo doUpload(MultipartFile file, Long userId, Long parentId, String strategy) {
         userReadOnlyChecker.checkWriteAllowed(userId);
-        User user = userMapper.selectById(userId);
-        if (user == null) {
-            throw new BusinessException(ResultCode.NOT_FOUND, "用户不存在");
-        }
-        if (user.getStorageSpaceId() == null) {
-            throw new BusinessException(ResultCode.BUSINESS_ERROR, "用户未绑定存储空间");
-        }
-        StorageSpace space = storageSpaceMapper.selectById(user.getStorageSpaceId());
-        if (space == null) {
-            throw new BusinessException(ResultCode.NOT_FOUND, "存储空间不存在");
+
+        String fileName = normalizeFileName(file.getOriginalFilename());
+        Long resolvedParentId = parentId == null ? 0L : parentId;
+        String pathName = resolvePathName(resolvedParentId, userId);
+
+        UploadConflictResolver.ConflictResolution resolution =
+                conflictResolver.resolve(userId, resolvedParentId, fileName, strategy);
+        if (resolution.skipped()) {
+            return null;
         }
 
+        User user = requireUser(userId);
+        StorageSpace space = requireSpace(user.getStorageSpaceId());
         long fileSize = file.getSize();
+
+        if (resolution.existingToReplace() != null) {
+            conflictResolver.deleteExistingForOverwrite(resolution.existingToReplace(), user);
+        }
+
         long usedSpace = user.getUsedSpace() == null ? 0L : user.getUsedSpace();
         long quota = user.getQuota() == null ? 0L : user.getQuota();
         if (usedSpace + fileSize > quota) {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "用户配额不足");
         }
 
-        String fileName = file.getOriginalFilename();
-        if (fileName == null || fileName.isBlank()) {
-            fileName = "unnamed";
-        }
-
-        Long parentId = 0L;
-        String pathName = "/";
-        Path physicalPath = resolvePhysicalPath(space, userId, pathName, fileName);
-
+        Path physicalPath = resolvePhysicalPath(space, userId, pathName, resolution.finalName());
         try {
             Files.createDirectories(physicalPath.getParent());
             Files.copy(file.getInputStream(), physicalPath);
         } catch (Exception e) {
-            throw new BusinessException(ResultCode.BUSINESS_ERROR, "文件保存失败");
+            throw new BusinessException(ResultCode.BUSINESS_ERROR, "文件保存失败", e);
         }
 
         String hash;
         try {
             hash = FileHashUtil.identityHash(physicalPath);
         } catch (Exception e) {
-            throw new BusinessException(ResultCode.BUSINESS_ERROR, "文件 hash 计算失败");
+            throw new BusinessException(ResultCode.BUSINESS_ERROR, "文件 hash 计算失败", e);
         }
 
-        FileNode node = buildFileNode(userId, parentId, fileName, fileSize, hash, space.getId(),
-                pathName, pathName, file.getContentType());
+        FileNode node = buildFileNode(userId, resolvedParentId, resolution.finalName(), fileSize, hash,
+                space.getId(), pathName, pathName, file.getContentType());
         fileMapper.insert(node);
 
         user.setUsedSpace(usedSpace + fileSize);
@@ -116,6 +122,55 @@ public class FileServiceImpl implements FileService {
         FileNodeVo vo = fileConvert.poToVo(node);
         vo.setPhysicalPath(relativizePhysicalPath(space, userId, physicalPath));
         return vo;
+    }
+
+    @Override
+    public UploadPreCheckVo preCheckUpload(FileUploadPreCheckDto dto, Long userId) {
+        userReadOnlyChecker.checkWriteAllowed(userId);
+        RLock lock = userReadWriteLock.writeLock(userId);
+        lock.lock();
+        try {
+            return doPreCheckUpload(dto, userId);
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    protected UploadPreCheckVo doPreCheckUpload(FileUploadPreCheckDto dto, Long userId) {
+        Long parentId = dto.getParentId() == null ? 0L : dto.getParentId();
+        validateTargetParent(parentId, userId);
+
+        UploadPreCheckVo result = new UploadPreCheckVo();
+        result.setConflicts(buildConflictItems(dto, userId, parentId));
+        result.setCandidates(buildInstantCandidates(dto, userId));
+        return result;
+    }
+
+    private List<ConflictItemVo> buildConflictItems(FileUploadPreCheckDto dto, Long userId, Long parentId) {
+        FileNode existing = FileConflictHelper.findSameName(fileMapper, userId, parentId, dto.getFileName());
+        if (existing == null) {
+            return List.of();
+        }
+        ConflictItemVo vo = new ConflictItemVo();
+        vo.setSourceName(dto.getFileName());
+        vo.setExistingId(existing.getId());
+        vo.setExistingName(existing.getName());
+        vo.setExistingType(existing.getType());
+        return List.of(vo);
+    }
+
+    private List<FileNodeVo> buildInstantCandidates(FileUploadPreCheckDto dto, Long userId) {
+        if (!StringUtils.hasText(dto.getPartialHash())) {
+            return List.of();
+        }
+        LambdaQueryWrapper<FileNode> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(FileNode::getUserId, userId);
+        wrapper.eq(FileNode::getHash, dto.getPartialHash());
+        wrapper.eq(FileNode::getType, TYPE_FILE);
+        wrapper.orderByDesc(FileNode::getCreateTime);
+        return fileMapper.selectList(wrapper).stream()
+                .map(fileConvert::poToVo)
+                .toList();
     }
 
     @Override
@@ -181,20 +236,8 @@ public class FileServiceImpl implements FileService {
             InputStream inputStream = Files.newInputStream(physicalPath);
             return new FileDownloadResult(node.getName(), inputStream, node.getMimeType(), node.getSize());
         } catch (Exception e) {
-            throw new BusinessException(ResultCode.BUSINESS_ERROR, "文件读取失败");
+            throw new BusinessException(ResultCode.BUSINESS_ERROR, "文件读取失败", e);
         }
-    }
-
-    @Override
-    public List<FileNodeVo> preCheck(FilePreCheckDto dto, Long userId) {
-        LambdaQueryWrapper<FileNode> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(FileNode::getUserId, userId);
-        wrapper.eq(FileNode::getHash, dto.getPartialHash());
-        wrapper.eq(FileNode::getType, "file");
-        wrapper.orderByDesc(FileNode::getCreateTime);
-        return fileMapper.selectList(wrapper).stream()
-                .map(fileConvert::poToVo)
-                .toList();
     }
 
     @Override
@@ -216,27 +259,36 @@ public class FileServiceImpl implements FileService {
         if (candidate == null || !candidate.getUserId().equals(userId)) {
             throw new BusinessException(ResultCode.NOT_FOUND, "候选文件不存在");
         }
-        if (!"file".equals(candidate.getType())) {
+        if (!TYPE_FILE.equals(candidate.getType())) {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "候选文件类型错误");
         }
 
-        User user = userMapper.selectById(userId);
-        StorageSpace space = storageSpaceMapper.selectById(candidate.getStorageSpaceId());
-        if (space == null) {
-            throw new BusinessException(ResultCode.NOT_FOUND, "存储空间不存在");
+        User user = requireUser(userId);
+        StorageSpace space = requireSpace(candidate.getStorageSpaceId());
+
+        Long parentId = dto.getParentId() == null ? 0L : dto.getParentId();
+        String pathName = resolvePathName(parentId, userId);
+        String fileName = normalizeFileName(dto.getFileName());
+
+        UploadConflictResolver.ConflictResolution resolution =
+                conflictResolver.resolve(userId, parentId, fileName, dto.getStrategy());
+        if (resolution.skipped()) {
+            return null;
         }
 
         long fileSize = candidate.getSize();
+        if (resolution.existingToReplace() != null) {
+            conflictResolver.deleteExistingForOverwrite(resolution.existingToReplace(), user);
+        }
+
         long usedSpace = user.getUsedSpace() == null ? 0L : user.getUsedSpace();
         long quota = user.getQuota() == null ? 0L : user.getQuota();
         if (usedSpace + fileSize > quota) {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "用户配额不足");
         }
 
-        Long parentId = dto.getParentId() == null ? 0L : dto.getParentId();
-        String pathName = resolvePathName(parentId, userId);
         Path sourcePath = FilePathUtil.resolvePhysicalPath(candidate, space);
-        Path targetPath = resolvePhysicalPath(space, userId, pathName, dto.getFileName());
+        Path targetPath = resolvePhysicalPath(space, userId, pathName, resolution.finalName());
 
         if (!Files.exists(sourcePath)) {
             throw new BusinessException(ResultCode.NOT_FOUND, "候选文件物理数据已丢失");
@@ -246,24 +298,20 @@ public class FileServiceImpl implements FileService {
         try {
             actualFullHash = FileHashUtil.fullHash(sourcePath);
         } catch (Exception e) {
-            throw new BusinessException(ResultCode.BUSINESS_ERROR, "候选文件完整 hash 计算失败");
+            throw new BusinessException(ResultCode.BUSINESS_ERROR, "候选文件完整 hash 计算失败", e);
         }
         if (!dto.getFullHash().equals(actualFullHash)) {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "完整 hash 校验失败");
-        }
-
-        if (Files.exists(targetPath)) {
-            throw new BusinessException(ResultCode.BUSINESS_ERROR, "目标文件已存在");
         }
 
         try {
             Files.createDirectories(targetPath.getParent());
             FileLinkUtil.linkOrCopy(sourcePath, targetPath);
         } catch (Exception e) {
-            throw new BusinessException(ResultCode.BUSINESS_ERROR, "秒传文件复制失败");
+            throw new BusinessException(ResultCode.BUSINESS_ERROR, "秒传文件复制失败", e);
         }
 
-        FileNode node = buildFileNode(userId, parentId, dto.getFileName(), fileSize,
+        FileNode node = buildFileNode(userId, parentId, resolution.finalName(), fileSize,
                 candidate.getHash(), space.getId(), pathName, pathName, candidate.getMimeType());
         fileMapper.insert(node);
 
@@ -273,6 +321,19 @@ public class FileServiceImpl implements FileService {
         FileNodeVo vo = fileConvert.poToVo(node);
         vo.setPhysicalPath(relativizePhysicalPath(space, userId, targetPath));
         return vo;
+    }
+
+    private void validateTargetParent(Long parentId, Long userId) {
+        if (parentId == null || parentId == 0L) {
+            return;
+        }
+        FileNode parent = fileMapper.selectById(parentId);
+        if (parent == null || !parent.getUserId().equals(userId) || parent.getDeleteAt() != 0L) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "父目录不存在");
+        }
+        if (!TYPE_FOLDER.equals(parent.getType())) {
+            throw new BusinessException(ResultCode.BUSINESS_ERROR, "目标父节点不是文件夹");
+        }
     }
 
     private String resolvePathName(Long parentId, Long userId) {
@@ -304,6 +365,17 @@ public class FileServiceImpl implements FileService {
         return base.relativize(physicalPath).toString();
     }
 
+    private String normalizeFileName(String originalFilename) {
+        if (!StringUtils.hasText(originalFilename)) {
+            return "unnamed";
+        }
+        String trimmed = originalFilename.trim();
+        if (trimmed.contains("/") || trimmed.contains("\\")) {
+            throw new BusinessException(ResultCode.PARAM_ERROR, "文件名包含非法字符");
+        }
+        return trimmed;
+    }
+
     private FileNode buildFileNode(Long userId, Long parentId, String name, long size,
                                    String hash, Long storageSpaceId, String path,
                                    String pathName, String mimeType) {
@@ -311,14 +383,34 @@ public class FileServiceImpl implements FileService {
         node.setUserId(userId);
         node.setParentId(parentId);
         node.setName(name);
-        node.setType("file");
+        node.setType(TYPE_FILE);
         node.setSize(size);
         node.setHash(hash);
         node.setStorageSpaceId(storageSpaceId);
-        node.setPath(path);
+        node.setPath(pathName);
         node.setPathName(pathName);
         node.setMimeType(mimeType);
         node.setStatus(1);
         return node;
     }
+
+    private User requireUser(Long userId) {
+        User user = userMapper.selectById(userId);
+        if (user == null) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "用户不存在");
+        }
+        return user;
+    }
+
+    private StorageSpace requireSpace(Long spaceId) {
+        if (spaceId == null) {
+            throw new BusinessException(ResultCode.BUSINESS_ERROR, "用户未绑定存储空间");
+        }
+        StorageSpace space = storageSpaceMapper.selectById(spaceId);
+        if (space == null) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "存储空间不存在");
+        }
+        return space;
+    }
+
 }

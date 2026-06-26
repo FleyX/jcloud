@@ -28,13 +28,13 @@ const emit = defineEmits<{
 
 const isEdit = computed(() => props.editingSpace !== null)
 
-const form = ref<StorageSpaceSaveDto & { id?: string; status?: number }>({
+const form = ref<StorageSpaceSaveDto & { id?: string; status?: number; isPrimary?: number }>({
   name: '',
   path: '',
   type: 'USER',
-  capacity: '',
   remark: '',
   status: 1,
+  isPrimary: 0,
 })
 
 watch(() => props.editingSpace, (space) => {
@@ -44,18 +44,18 @@ watch(() => props.editingSpace, (space) => {
       name: space.name,
       path: space.path,
       type: space.type,
-      capacity: space.capacity,
       remark: space.remark || '',
       status: space.status,
+      isPrimary: space.isPrimary,
     }
   } else {
     form.value = {
       name: '',
       path: '',
       type: 'USER',
-      capacity: '',
       remark: '',
       status: 1,
+      isPrimary: 0,
     }
   }
 }, { immediate: true })
@@ -66,14 +66,14 @@ const localOpen = computed({
 })
 
 function handleSubmit() {
-  if (isEdit.value && form.value.id !== undefined && form.value.status !== undefined) {
+  if (isEdit.value && form.value.id !== undefined && form.value.status !== undefined && form.value.isPrimary !== undefined) {
     const dto: StorageSpaceUpdateDto = {
       id: form.value.id,
       name: form.value.name,
       path: form.value.path,
       type: form.value.type,
-      capacity: form.value.capacity,
       status: form.value.status,
+      isPrimary: form.value.isPrimary,
       remark: form.value.remark,
     }
     emit('submit', dto)
@@ -82,7 +82,6 @@ function handleSubmit() {
       name: form.value.name,
       path: form.value.path,
       type: form.value.type,
-      capacity: form.value.capacity,
       remark: form.value.remark,
     }
     emit('submit', dto)
@@ -111,7 +110,7 @@ function handleSubmit() {
           </DialogClose>
         </div>
         <DialogDescription class="mb-4 text-sm text-surface-500">
-          {{ isEdit ? '修改存储空间配置信息' : '请输入新存储空间的基本信息' }}
+          {{ isEdit ? '修改存储空间配置信息' : '请输入新存储空间的基本信息，容量由系统自动探测' }}
         </DialogDescription>
 
         <div class="mb-6 space-y-4">
@@ -134,13 +133,19 @@ function handleSubmit() {
             >
           </div>
           <div>
-            <label class="mb-1 block text-xs font-medium text-surface-700">容量（字节）</label>
-            <input
-              v-model="form.capacity"
-              type="text"
-              placeholder="请输入容量字节数"
-              class="w-full rounded-xl border border-surface-200 bg-surface-50 px-3 py-2 text-sm outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100"
-            >
+            <label class="mb-1 block text-xs font-medium text-surface-700">设为主存储空间</label>
+            <div class="flex items-center gap-3">
+              <SwitchRoot
+                :checked="form.isPrimary === 1"
+                class="relative h-6 w-11 cursor-pointer rounded-full bg-surface-200 outline-none transition-colors data-[state=checked]:bg-primary-600"
+                @update:checked="(checked: boolean) => (form.isPrimary = checked ? 1 : 0)"
+              >
+                <SwitchThumb
+                  class="block h-5 w-5 translate-x-0.5 rounded-full bg-white shadow-sm transition-transform data-[state=checked]:translate-x-[22px]"
+                />
+              </SwitchRoot>
+              <span class="text-sm text-surface-700">{{ form.isPrimary === 1 ? '是' : '否' }}</span>
+            </div>
           </div>
           <div v-if="isEdit">
             <label class="mb-1 block text-xs font-medium text-surface-700">状态</label>

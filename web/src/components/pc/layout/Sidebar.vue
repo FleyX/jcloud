@@ -9,6 +9,7 @@ import { computed, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useMenuStore } from '@/store/menu'
 import { useUserStore } from '@/store/user'
+
 import {
   FolderOpen,
   Share2,
@@ -45,6 +46,7 @@ function bytesToGB(bytes?: string | number): number {
 
 const usedGB = computed(() => bytesToGB(userStore.userInfo?.usedSpace))
 const totalGB = computed(() => bytesToGB(userStore.userInfo?.quota))
+const isUnlimited = computed(() => userStore.userInfo?.quota === '0')
 const usagePercent = computed(() => {
   if (totalGB.value <= 0) return 0
   return Math.min((usedGB.value / totalGB.value) * 100, 100)
@@ -60,24 +62,7 @@ function handleMenuClick(item: { key: string; route?: string }) {
 const showCapacityWidget = computed(() => menuStore.activePrimary === 'files')
 
 function syncMenuWithRoute(path: string) {
-  if (path.startsWith('/files')) {
-    menuStore.activePrimary = 'files'
-    if (path === '/files') {
-      // 停留在文件首页时保持当前二级菜单高亮（如“正在传输”）
-      menuStore.activeSecondary = menuStore.activeSecondary || 'all'
-    } else {
-      menuStore.activeSecondary = path.split('/')[2] || 'all'
-    }
-  } else if (path.startsWith('/admin/users')) {
-    menuStore.activePrimary = 'system'
-    menuStore.activeSecondary = 'users'
-  } else if (path.startsWith('/notes')) {
-    menuStore.activePrimary = 'notes'
-    menuStore.activeSecondary = path === '/notes' ? 'recent' : 'tags'
-  } else if (path.startsWith('/todos')) {
-    menuStore.activePrimary = 'todos'
-    menuStore.activeSecondary = path === '/todos' ? 'today' : 'archive'
-  }
+  menuStore.syncWithRoute(path)
 }
 
 onMounted(() => syncMenuWithRoute(route.path))
@@ -141,21 +126,23 @@ watch(() => route.path, syncMenuWithRoute)
               个人空间
             </p>
             <p class="text-sm font-semibold text-surface-900">
-              {{ usedGB.toFixed(2) }} GB / {{ totalGB.toFixed(2) }} GB
+              {{ usedGB.toFixed(2) }} GB / {{ isUnlimited ? '不限制' : `${totalGB.toFixed(2)} GB` }}
             </p>
           </div>
         </div>
 
         <!-- 进度条 -->
-        <div class="h-2 w-full overflow-hidden rounded-full bg-surface-200">
-          <div
-            class="h-full rounded-full bg-gradient-to-r from-primary-500 to-primary-400 transition-all duration-700 ease-out-expo"
-            :style="{ width: `${usagePercent}%` }"
-          />
-        </div>
-        <p class="mt-2 text-right text-[10px] text-surface-400">
-          已用 {{ usagePercent.toFixed(1) }}%
-        </p>
+        <template v-if="!isUnlimited">
+          <div class="h-2 w-full overflow-hidden rounded-full bg-surface-200">
+            <div
+              class="h-full rounded-full bg-gradient-to-r from-primary-500 to-primary-400 transition-all duration-700 ease-out-expo"
+              :style="{ width: `${usagePercent}%` }"
+            />
+          </div>
+          <p class="mt-2 text-right text-[10px] text-surface-400">
+            已用 {{ usagePercent.toFixed(1) }}%
+          </p>
+        </template>
       </div>
     </div>
   </aside>

@@ -13,6 +13,8 @@ export interface StorageSpaceVo {
   type: StorageSpaceType
   capacity: string
   usedSpace: string
+  freeSpace: string
+  isPrimary: number
   status: number
   remark?: string
   createTime?: string
@@ -37,7 +39,6 @@ export interface StorageSpaceSaveDto {
   name: string
   path: string
   type: StorageSpaceType
-  capacity: string
   remark?: string
 }
 
@@ -49,17 +50,9 @@ export interface StorageSpaceUpdateDto {
   name: string
   path: string
   type: StorageSpaceType
-  capacity: string
   status: number
+  isPrimary: number
   remark?: string
-}
-
-/**
- * 存储空间扩容 DTO
- */
-export interface StorageSpaceExpandDto {
-  id: string
-  capacity: string
 }
 
 /**
@@ -109,4 +102,30 @@ export interface SystemStorageConfigVo {
  */
 export interface SystemStorageConfigUpdateDto {
   systemSpaceId: string
+}
+
+/**
+ * 系统初始化状态视图
+ */
+export interface SystemInitStatusVo {
+  initialized: boolean
+  admin: boolean
+}
+
+/**
+ * 系统初始化单空间项
+ */
+export interface InitSpaceItem {
+  name: string
+  path: string
+  remark?: string
+}
+
+/**
+ * 系统初始化 DTO
+ */
+export interface SystemInitDto {
+  spaces: InitSpaceItem[]
+  primaryIndex: number
+  systemDataIndex: number
 }

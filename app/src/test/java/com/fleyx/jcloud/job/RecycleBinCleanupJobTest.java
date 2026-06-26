@@ -5,7 +5,6 @@ import com.fleyx.jcloud.mapper.RecycleRecordMapper;
 import com.fleyx.jcloud.model.dto.FileDeleteDto;
 import com.fleyx.jcloud.model.dto.StorageSpaceSaveDto;
 import com.fleyx.jcloud.model.dto.UserSaveDto;
-import com.fleyx.jcloud.model.dto.UserStorageDto;
 import com.fleyx.jcloud.model.po.RecycleRecord;
 import com.fleyx.jcloud.model.vo.FileNodeVo;
 import com.fleyx.jcloud.model.vo.StorageSpaceVo;
@@ -63,7 +62,7 @@ class RecycleBinCleanupJobTest {
     void shouldDeleteExpiredRecycleRecords() {
         UserWithSpace userWithSpace = prepareUserWithStorageSpace();
         UserVo user = userWithSpace.user();
-        FileNodeVo file = fileService.upload(buildFile("old.txt", "Old"), user.getId());
+        FileNodeVo file = fileService.upload(buildFile("old.txt", "Old"), user.getId(), 0L, null);
 
         FileDeleteDto deleteDto = new FileDeleteDto();
         deleteDto.setIds(List.of(file.getId()));
@@ -82,7 +81,7 @@ class RecycleBinCleanupJobTest {
     void shouldKeepRecentRecycleRecords() {
         UserWithSpace userWithSpace = prepareUserWithStorageSpace();
         UserVo user = userWithSpace.user();
-        FileNodeVo file = fileService.upload(buildFile("recent.txt", "Recent"), user.getId());
+        FileNodeVo file = fileService.upload(buildFile("recent.txt", "Recent"), user.getId(), 0L, null);
 
         FileDeleteDto deleteDto = new FileDeleteDto();
         deleteDto.setIds(List.of(file.getId()));
@@ -111,19 +110,15 @@ class RecycleBinCleanupJobTest {
         spaceDto.setName("用户空间");
         spaceDto.setPath(spacePath.toString());
         spaceDto.setType("USER");
-        spaceDto.setCapacity(107374182400L);
         StorageSpaceVo space = storageSpaceService.save(spaceDto);
 
         UserSaveDto userDto = new UserSaveDto();
         userDto.setUsername("cleanupUser" + System.nanoTime());
         userDto.setPassword("123456");
+        userDto.setStorageSpaceId(space.getId());
+        userDto.setQuota(10L);
+        userDto.setQuotaUnit("GB");
         UserVo user = userService.saveUser(userDto);
-
-        UserStorageDto bindDto = new UserStorageDto();
-        bindDto.setUserId(user.getId());
-        bindDto.setStorageSpaceId(space.getId());
-        bindDto.setQuota(10737418240L);
-        userService.bindStorageSpace(bindDto);
 
         return new UserWithSpace(user, spacePath);
     }

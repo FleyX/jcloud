@@ -22,7 +22,7 @@ public class ChunkedUploadInitVo implements Serializable {
     /**
      * 分片大小（字节）。
      */
-    private Long chunkSize;
+    private Integer chunkSize;
 
     /**
      * 总分片数。
