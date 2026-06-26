@@ -290,6 +290,7 @@ public class FileOperationServiceImpl implements FileOperationService {
         ConflictItemVo vo = new ConflictItemVo();
         vo.setSourceId(source.getId());
         vo.setSourceName(source.getName());
+        vo.setSourceType(source.getType());
         vo.setExistingId(existing.getId());
         vo.setExistingName(existing.getName());
         vo.setExistingType(existing.getType());

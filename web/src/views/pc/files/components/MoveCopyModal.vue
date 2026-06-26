@@ -9,6 +9,12 @@ import { cn } from '@/utils/cn'
 import { copyFiles, moveFiles, preCheckOperation } from '@/api/file'
 import type { ConflictItemVo, ConflictStrategy, FileNodeVo, OperationResultVo } from '@/types/file'
 
+function availableStrategies(conflict: ConflictItemVo): ConflictStrategy[] {
+  return conflict.sourceType === 'folder'
+    ? ['skip', 'overwrite']
+    : ['skip', 'overwrite', 'auto_rename']
+}
+
 interface Props {
   open: boolean
   type: 'move' | 'copy'
@@ -73,7 +79,7 @@ async function handleNext() {
     conflicts.value = conflictList
     strategies.value = {}
     conflictList.forEach((conflict) => {
-      strategies.value[conflict.sourceId] = 'auto_rename'
+      strategies.value[conflict.sourceId] = conflict.sourceType === 'folder' ? 'skip' : 'auto_rename'
     })
     step.value = conflictList.length > 0 ? 'conflict' : 'result'
     if (conflictList.length === 0) {
@@ -103,6 +109,14 @@ async function executeMoveCopy() {
 
 function handleConfirmFromConflict() {
   executeMoveCopy()
+}
+
+function applyAll(strategy: ConflictStrategy) {
+  conflicts.value.forEach((conflict) => {
+    if (availableStrategies(conflict).includes(strategy)) {
+      strategies.value[conflict.sourceId] = strategy
+    }
+  })
 }
 
 function handleFinish() {
@@ -189,6 +203,17 @@ function handleFinish() {
         <p class="mb-3 text-sm text-surface-500">
           检测到以下同名冲突，请选择处理方式
         </p>
+        <div class="mb-4 flex gap-2">
+          <button
+            v-for="action in (['skip', 'overwrite', 'auto_rename'] as ConflictStrategy[])"
+            :key="action"
+            class="flex-1 rounded-lg border border-surface-200 bg-surface-50 px-2 py-1.5 text-xs font-medium text-surface-600 transition-colors hover:border-primary-300 hover:bg-primary-50 hover:text-primary-700"
+            @click="applyAll(action)"
+          >
+            全部{{ action === 'skip' ? '跳过' : action === 'overwrite' ? '覆盖' : '重命名' }}
+          </button>
+        </div>
+
         <div class="max-h-64 space-y-2 overflow-y-auto">
           <div
             v-for="conflict in conflicts"
@@ -198,17 +223,24 @@ function handleFinish() {
             <p class="mb-2 text-sm font-medium text-surface-800">
               {{ conflict.sourceName }}
             </p>
-            <div class="flex gap-2">
+            <div :class="cn('grid gap-2', conflict.sourceType === 'folder' ? 'grid-cols-2' : 'grid-cols-3')">
               <button
-                v-for="option in [
-                  { code: 'skip', label: '跳过' },
-                  { code: 'overwrite', label: '覆盖' },
-                  { code: 'auto_rename', label: '自动重命名' },
-                ] as { code: ConflictStrategy; label: string }[]"
+                v-for="option in (
+                  conflict.sourceType === 'folder'
+                    ? [
+                      { code: 'skip', label: '跳过' },
+                      { code: 'overwrite', label: '覆盖' },
+                    ]
+                    : [
+                      { code: 'skip', label: '跳过' },
+                      { code: 'overwrite', label: '覆盖' },
+                      { code: 'auto_rename', label: '自动重命名' },
+                    ]
+                ) as { code: ConflictStrategy; label: string }[]"
                 :key="option.code"
                 :class="
                   cn(
-                    'flex-1 rounded-lg px-2 py-1.5 text-xs font-medium transition-colors',
+                    'rounded-lg px-2 py-1.5 text-xs font-medium transition-colors',
                     strategies[conflict.sourceId] === option.code
                       ? 'bg-primary-600 text-white'
                       : 'bg-white text-surface-600 hover:bg-surface-100'
