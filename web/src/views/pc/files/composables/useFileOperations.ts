@@ -14,9 +14,9 @@ export function useFileOperations(loadFiles: () => Promise<void>) {
     createFolderOpen.value = true
   }
 
-  async function handleCreateFolder(name: string) {
+  async function handleCreateFolder(name: string, parentId: string) {
     try {
-      await createFolder({ parentId: '0', name })
+      await createFolder({ parentId, name })
       createFolderOpen.value = false
       notificationStore.success('文件夹创建成功')
       await loadFiles()
