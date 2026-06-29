@@ -34,6 +34,7 @@ import com.fleyx.jcloud.model.vo.UserProfileVo;
 import com.fleyx.jcloud.model.vo.UserVo;
 import com.fleyx.jcloud.service.UserService;
 import com.fleyx.jcloud.util.ByteFormatUtil;
+import com.fleyx.jcloud.util.IdUtil;
 import com.fleyx.jcloud.util.UsernameUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -436,6 +437,7 @@ public class UserServiceImpl implements UserService {
 
     private UserRole buildUserRole(String userId, String roleId) {
         UserRole relation = new UserRole();
+        relation.setId(IdUtil.nextId());
         relation.setUserId(userId);
         relation.setRoleId(roleId);
         relation.setCreateTime(LocalDateTime.now());

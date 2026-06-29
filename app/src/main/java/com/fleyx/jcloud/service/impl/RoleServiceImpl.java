@@ -23,6 +23,7 @@ import com.fleyx.jcloud.model.po.RolePermission;
 import com.fleyx.jcloud.model.po.UserRole;
 import com.fleyx.jcloud.model.vo.RoleVo;
 import com.fleyx.jcloud.service.RoleService;
+import com.fleyx.jcloud.util.IdUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -201,6 +202,7 @@ public class RoleServiceImpl implements RoleService {
                 .distinct()
                 .map(pid -> {
                     RolePermission rp = new RolePermission();
+                    rp.setId(IdUtil.nextId());
                     rp.setRoleId(roleId);
                     rp.setPermissionId(pid);
                     rp.setCreateTime(LocalDateTime.now());

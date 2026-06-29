@@ -3,6 +3,7 @@ package com.fleyx.jcloud.service.impl;
 import com.fleyx.jcloud.common.enums.CommonStatus;
 import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.exception.BusinessException;
+import com.fleyx.jcloud.mapper.PermissionResourceMapper;
 import com.fleyx.jcloud.model.dto.PermissionSaveDto;
 import com.fleyx.jcloud.model.dto.PermissionUpdateDto;
 import com.fleyx.jcloud.model.vo.PermissionTreeVo;
@@ -35,6 +36,9 @@ class PermissionServiceImplTest {
     @Autowired
     private PermissionService permissionService;
 
+    @Autowired
+    private PermissionResourceMapper permissionResourceMapper;
+
     private static String uniqueCode() {
         return "perm_" + UUID.randomUUID().toString().replace("-", "").substring(0, 16);
     }
@@ -54,6 +58,23 @@ class PermissionServiceImplTest {
         assertEquals(dto.getCode(), vo.getCode());
         assertEquals(dto.getName(), vo.getName());
         assertNull(vo.getParentId(), "顶级权限的 parentId 应为 null");
+    }
+
+    @Test
+    void shouldCreatePermissionWithResources() {
+        PermissionSaveDto dto = new PermissionSaveDto();
+        dto.setCode(uniqueCode());
+        dto.setName("带资源权限");
+        dto.setParentId(null);
+        dto.setResourceIds(List.of("0000000000008"));
+
+        PermissionVo vo = permissionService.savePermission(dto);
+
+        assertNotNull(vo);
+        assertNotNull(vo.getId());
+        List<String> resourceIds = permissionResourceMapper.selectResourceIdsByPermissionId(vo.getId());
+        assertEquals(1, resourceIds.size());
+        assertEquals("0000000000008", resourceIds.get(0));
     }
 
     @Test

@@ -9,10 +9,10 @@
     </select>
 
     <insert id="batchInsert">
-        INSERT INTO t_user_role (user_id, role_id, create_time, update_time)
+        INSERT INTO t_user_role (id, user_id, role_id, create_time, update_time)
         VALUES
         <foreach collection="list" item="item" separator=",">
-            (#{item.userId}, #{item.roleId}, #{item.createTime}, #{item.updateTime})
+            (#{item.id}, #{item.userId}, #{item.roleId}, #{item.createTime}, #{item.updateTime})
         </foreach>
     </insert>
 
