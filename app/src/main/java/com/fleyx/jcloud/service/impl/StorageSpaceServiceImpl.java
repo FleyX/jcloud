@@ -5,7 +5,6 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fleyx.jcloud.common.enums.ResultCode;
-import com.fleyx.jcloud.common.enums.StorageSpaceType;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.StorageSpaceMapper;
 import com.fleyx.jcloud.mapper.UserMapper;
@@ -43,8 +42,6 @@ public class StorageSpaceServiceImpl implements StorageSpaceService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public StorageSpaceVo save(StorageSpaceSaveDto dto) {
-        rejectSystemType(dto.getType());
-        validateType(dto.getType());
         checkPathUnique(dto.getPath());
         StorageSpace po = storageSpaceConvert.dtoToPo(dto);
         po.setStatus(1);
@@ -60,7 +57,6 @@ public class StorageSpaceServiceImpl implements StorageSpaceService {
     public IPage<StorageSpaceVo> page(StorageSpacePageQueryDto dto) {
         LambdaQueryWrapper<StorageSpace> wrapper = new LambdaQueryWrapper<>();
         wrapper.like(StringUtils.hasText(dto.getName()), StorageSpace::getName, dto.getName());
-        wrapper.eq(StringUtils.hasText(dto.getType()), StorageSpace::getType, dto.getType());
         wrapper.eq(dto.getStatus() != null, StorageSpace::getStatus, dto.getStatus());
         wrapper.orderByDesc(StorageSpace::getCreateTime);
 
@@ -77,8 +73,6 @@ public class StorageSpaceServiceImpl implements StorageSpaceService {
         if (existing == null) {
             throw new BusinessException(ResultCode.NOT_FOUND, "存储空间不存在");
         }
-        rejectSystemType(dto.getType());
-        validateType(dto.getType());
         if (!existing.getPath().equals(dto.getPath())) {
             checkPathUnique(dto.getPath());
         }
@@ -138,18 +132,6 @@ public class StorageSpaceServiceImpl implements StorageSpaceService {
         DiskSpaceUtil.refreshSpace(po);
         storageSpaceMapper.updateById(po);
         return storageSpaceConvert.poToVo(po);
-    }
-
-    private void validateType(String type) {
-        if (StorageSpaceType.fromCode(type) == null) {
-            throw new BusinessException("存储空间类型不合法");
-        }
-    }
-
-    private void rejectSystemType(String type) {
-        if (StorageSpaceType.SYSTEM.getCode().equals(type)) {
-            throw new BusinessException(ResultCode.BUSINESS_ERROR, "不允许创建或设置为系统类型存储空间，请通过系统目录配置指定");
-        }
     }
 
     private void rejectIfSystemSpaceConfigured(String id) {

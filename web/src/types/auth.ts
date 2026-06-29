@@ -10,6 +10,7 @@ export interface UserVo {
   isAdmin: boolean
   roles: RoleVo[]
   storageSpaceId?: string
+  storageSpaceName?: string
   quota?: string
   quotaUnit?: string
   usedSpace?: string

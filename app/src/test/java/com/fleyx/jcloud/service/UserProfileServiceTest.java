@@ -51,7 +51,6 @@ class UserProfileServiceTest {
         StorageSpaceSaveDto spaceDto = new StorageSpaceSaveDto();
         spaceDto.setName("用户空间");
         spaceDto.setPath(spacePath.toString());
-        spaceDto.setType("USER");
         StorageSpaceVo space = storageSpaceService.save(spaceDto);
 
         UserSaveDto dto = new UserSaveDto();

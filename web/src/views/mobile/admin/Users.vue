@@ -119,6 +119,19 @@ function isSelectable(user: UserVo): boolean {
   return !user.isAdmin
 }
 
+function formatBytes(bytes?: string | number): string {
+  const num = Number(bytes)
+  if (!num) return '-'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  let i = 0
+  let size = num
+  while (size >= 1024 && i < units.length - 1) {
+    size /= 1024
+    i++
+  }
+  return `${size.toFixed(2)} ${units[i]}`
+}
+
 function toggleSelectAll() {
   if (allSelected.value) {
     selectableUsers.value.forEach((u) => {
@@ -388,6 +401,9 @@ onMounted(() => {
                 </p>
                 <p class="text-xs text-surface-500">
                   {{ user.nickname || '-' }} · {{ user.email || '-' }}
+                </p>
+                <p class="mt-0.5 text-xs text-surface-500">
+                  空间 {{ user.storageSpaceName || '-' }} · 限额 {{ formatBytes(user.quota) }}
                 </p>
               </div>
             </div>

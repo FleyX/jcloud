@@ -32,11 +32,6 @@ public class StorageSpaceVo implements Serializable {
     private String path;
 
     /**
-     * 类型。
-     */
-    private String type;
-
-    /**
      * 容量（字节）。
      */
     private Long capacity;

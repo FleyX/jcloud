@@ -31,7 +31,6 @@ const isEdit = computed(() => props.editingSpace !== null)
 const form = ref<StorageSpaceSaveDto & { id?: string; status?: number; isPrimary?: number }>({
   name: '',
   path: '',
-  type: 'USER',
   remark: '',
   status: 1,
   isPrimary: 0,
@@ -43,7 +42,6 @@ watch(() => props.editingSpace, (space) => {
       id: space.id,
       name: space.name,
       path: space.path,
-      type: space.type,
       remark: space.remark || '',
       status: space.status,
       isPrimary: space.isPrimary,
@@ -52,7 +50,6 @@ watch(() => props.editingSpace, (space) => {
     form.value = {
       name: '',
       path: '',
-      type: 'USER',
       remark: '',
       status: 1,
       isPrimary: 0,
@@ -71,7 +68,6 @@ function handleSubmit() {
       id: form.value.id,
       name: form.value.name,
       path: form.value.path,
-      type: form.value.type,
       status: form.value.status,
       isPrimary: form.value.isPrimary,
       remark: form.value.remark,
@@ -81,7 +77,6 @@ function handleSubmit() {
     const dto: StorageSpaceSaveDto = {
       name: form.value.name,
       path: form.value.path,
-      type: form.value.type,
       remark: form.value.remark,
     }
     emit('submit', dto)

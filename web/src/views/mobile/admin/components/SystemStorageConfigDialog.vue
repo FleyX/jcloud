@@ -34,7 +34,6 @@ const submitting = ref(false)
 const selectedId = ref<string>('')
 
 const query = computed<StorageSpacePageQuery>(() => ({
-  type: 'USER',
   status: 1,
   pageNum: 1,
   pageSize: 1000,

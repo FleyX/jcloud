@@ -2,7 +2,6 @@ package com.fleyx.jcloud.service.impl;
 
 import cn.hutool.core.util.StrUtil;
 import com.fleyx.jcloud.common.enums.ResultCode;
-import com.fleyx.jcloud.common.enums.StorageSpaceType;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.StorageSpaceMapper;
 import com.fleyx.jcloud.model.po.StorageSpace;
@@ -38,9 +37,6 @@ public class SystemStorageSpaceProviderImpl implements SystemStorageSpaceProvide
         if (space == null) {
             throw new BusinessException(ResultCode.NOT_FOUND, "系统数据目录配置的存储空间不存在");
         }
-        if (!StorageSpaceType.USER.getCode().equals(space.getType())) {
-            throw new BusinessException(ResultCode.BUSINESS_ERROR, "系统数据目录必须配置为用户存储空间");
-        }
         return buildSystemSpace(space);
     }
 
@@ -49,7 +45,6 @@ public class SystemStorageSpaceProviderImpl implements SystemStorageSpaceProvide
         systemSpace.setId(userSpace.getId());
         systemSpace.setName(userSpace.getName());
         systemSpace.setPath(Path.of(userSpace.getPath()).resolve(SYSTEM_SUB_DIRECTORY).toString());
-        systemSpace.setType(StorageSpaceType.USER.getCode());
         systemSpace.setCapacity(userSpace.getCapacity());
         systemSpace.setUsedSpace(userSpace.getUsedSpace());
         systemSpace.setStatus(userSpace.getStatus());

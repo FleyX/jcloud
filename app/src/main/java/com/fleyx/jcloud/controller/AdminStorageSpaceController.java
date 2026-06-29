@@ -4,7 +4,6 @@ import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.fleyx.jcloud.common.R;
 import com.fleyx.jcloud.common.constant.CommonConstant;
 import com.fleyx.jcloud.common.enums.ResultCode;
-import com.fleyx.jcloud.common.enums.StorageSpaceType;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.model.dto.StorageSpacePageQueryDto;
 import com.fleyx.jcloud.model.dto.StorageSpaceSaveDto;
@@ -103,10 +102,7 @@ public class AdminStorageSpaceController {
      */
     @PutMapping("/system-config")
     public R<Void> updateSystemConfig(@Valid @RequestBody SystemStorageConfigUpdateDto dto) {
-        StorageSpaceVo space = storageSpaceService.getById(dto.getSystemSpaceId());
-        if (!StorageSpaceType.USER.getCode().equals(space.getType())) {
-            throw new BusinessException(ResultCode.PARAM_ERROR, "只能指定用户存储空间作为系统数据目录");
-        }
+        storageSpaceService.getById(dto.getSystemSpaceId());
         systemConfigService.setValue(SYSTEM_STORAGE_SPACE_ID_KEY, dto.getSystemSpaceId());
         return R.ok();
     }

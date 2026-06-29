@@ -168,7 +168,6 @@ class UserMigrationTaskExecutorTest {
         StorageSpaceSaveDto dto = new StorageSpaceSaveDto();
         dto.setName(name);
         dto.setPath(path);
-        dto.setType("USER");
         return dto;
     }
 }

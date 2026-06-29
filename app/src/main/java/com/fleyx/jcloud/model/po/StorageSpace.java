@@ -25,11 +25,6 @@ public class StorageSpace extends SoftDeleteEntity {
     private String path;
 
     /**
-     * 类型：USER / SYSTEM。
-     */
-    private String type;
-
-    /**
      * 容量（字节），根据磁盘实际总空间自动刷新。
      */
     private Long capacity;

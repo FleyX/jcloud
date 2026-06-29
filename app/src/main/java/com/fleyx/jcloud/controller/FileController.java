@@ -112,6 +112,14 @@ public class FileController {
     }
 
     /**
+     * 查询指定父目录下的直接子文件夹。
+     */
+    @GetMapping("/folders")
+    public R<List<FileNodeVo>> listChildFolders(@RequestParam(required = false, defaultValue = FileNodeConstants.ROOT_ID) String parentId) {
+        return R.ok(fileService.listChildFolders(parentId, UserContext.get().id()));
+    }
+
+    /**
      * 初始化分片上传任务。
      */
     @PostMapping("/chunked-upload/init")

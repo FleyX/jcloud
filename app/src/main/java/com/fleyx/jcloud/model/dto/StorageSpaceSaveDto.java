@@ -25,12 +25,6 @@ public class StorageSpaceSaveDto {
     private String path;
 
     /**
-     * 类型：USER / SYSTEM。
-     */
-    @NotBlank(message = "类型不能为空")
-    private String type;
-
-    /**
      * 是否主存储空间：1 是，0 否。
      */
     private Integer isPrimary;

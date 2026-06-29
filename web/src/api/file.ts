@@ -29,6 +29,10 @@ export function fetchFilePage(params: FilePageQuery): Promise<PageResult<FileNod
   return get<PageResult<FileNodeVo>>('/files', params as Record<string, unknown>)
 }
 
+export function fetchChildFolders(parentId: string): Promise<FileNodeVo[]> {
+  return get<FileNodeVo[]>('/files/folders', { parentId })
+}
+
 export function preCheckUpload(dto: FileUploadPreCheckRequest): Promise<UploadPreCheckResult> {
   return post<UploadPreCheckResult>('/files/upload/pre-check', dto)
 }

@@ -58,6 +58,11 @@ public class UserVo implements Serializable {
     private String storageSpaceId;
 
     /**
+     * 用户绑定的存储空间名称。
+     */
+    private String storageSpaceName;
+
+    /**
      * 用户配额（字节）。
      */
     private Long quota;

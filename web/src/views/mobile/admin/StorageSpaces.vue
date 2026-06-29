@@ -24,7 +24,6 @@ import { Database, Plus, Settings } from '@lucide/vue'
 
 const query = reactive<StorageSpacePageQuery>({
   name: '',
-  type: undefined,
   status: undefined,
   pageNum: 1,
   pageSize: 20,
@@ -189,17 +188,6 @@ onMounted(() => {
         placeholder="搜索名称"
         class="flex-1 rounded-xl border border-surface-200 bg-surface-50 px-3 py-2 text-sm outline-none focus:border-primary-500"
       >
-      <select
-        v-model="query.type"
-        class="rounded-xl border border-surface-200 bg-surface-50 px-2 py-2 text-sm outline-none focus:border-primary-500"
-      >
-        <option value="">
-          全部
-        </option>
-        <option value="USER">
-          用户
-        </option>
-      </select>
       <button
         class="rounded-xl bg-primary-600 px-3 py-2 text-sm font-medium text-white"
         @click="handleSearch"
@@ -218,12 +206,6 @@ onMounted(() => {
         <div class="min-w-0 flex-1">
           <div class="flex items-center gap-2">
             <span class="truncate font-medium text-surface-900">{{ space.name }}</span>
-            <span
-              class="rounded px-1.5 py-0.5 text-[10px]"
-              :class="space.type === 'USER' ? 'bg-blue-50 text-blue-600' : 'bg-purple-50 text-purple-600'"
-            >
-              {{ space.type === 'USER' ? '用户' : '系统' }}
-            </span>
             <span
               v-if="space.isPrimary === 1"
               class="rounded bg-primary-50 px-1.5 py-0.5 text-[10px] text-primary-600"

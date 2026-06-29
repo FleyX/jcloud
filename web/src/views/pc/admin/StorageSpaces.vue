@@ -34,7 +34,6 @@ import {
 
 const query = reactive<StorageSpacePageQuery>({
   name: '',
-  type: undefined,
   status: undefined,
   pageNum: 1,
   pageSize: 10,
@@ -196,17 +195,6 @@ onMounted(() => {
           class="rounded-xl border border-surface-200 bg-surface-50 px-3 py-2 text-sm outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100"
         >
         <select
-          v-model="query.type"
-          class="rounded-xl border border-surface-200 bg-surface-50 px-3 py-2 text-sm outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100"
-        >
-          <option value="">
-            全部类型
-          </option>
-          <option value="USER">
-            用户存储空间
-          </option>
-        </select>
-        <select
           v-model="query.status"
           class="rounded-xl border border-surface-200 bg-surface-50 px-3 py-2 text-sm outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100"
         >
@@ -256,9 +244,6 @@ onMounted(() => {
                 物理路径
               </th>
               <th class="px-5 py-3 font-medium">
-                类型
-              </th>
-              <th class="px-5 py-3 font-medium">
                 容量
               </th>
               <th class="px-5 py-3 font-medium">
@@ -300,16 +285,6 @@ onMounted(() => {
               </td>
               <td class="px-5 py-3 font-mono text-xs text-surface-600">
                 {{ space.path }}
-              </td>
-              <td class="px-5 py-3">
-                <span
-                  :class="cn(
-                    'rounded-md px-2 py-0.5 text-xs',
-                    space.type === 'USER' ? 'bg-blue-50 text-blue-600' : 'bg-purple-50 text-purple-600',
-                  )"
-                >
-                  {{ space.type === 'USER' ? '用户' : '系统' }}
-                </span>
               </td>
               <td class="px-5 py-3 text-surface-600">
                 {{ formatBytes(space.capacity) }}

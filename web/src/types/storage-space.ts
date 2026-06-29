@@ -1,16 +1,10 @@
 /**
- * 存储空间类型枚举
- */
-export type StorageSpaceType = 'USER' | 'SYSTEM'
-
-/**
  * 存储空间视图对象
  */
 export interface StorageSpaceVo {
   id: string
   name: string
   path: string
-  type: StorageSpaceType
   capacity: string
   usedSpace: string
   freeSpace: string
@@ -26,7 +20,6 @@ export interface StorageSpaceVo {
  */
 export interface StorageSpacePageQuery {
   name?: string
-  type?: StorageSpaceType
   status?: number
   pageNum?: number
   pageSize?: number
@@ -38,7 +31,6 @@ export interface StorageSpacePageQuery {
 export interface StorageSpaceSaveDto {
   name: string
   path: string
-  type: StorageSpaceType
   remark?: string
 }
 
@@ -49,7 +41,6 @@ export interface StorageSpaceUpdateDto {
   id: string
   name: string
   path: string
-  type: StorageSpaceType
   status: number
   isPrimary: number
   remark?: string

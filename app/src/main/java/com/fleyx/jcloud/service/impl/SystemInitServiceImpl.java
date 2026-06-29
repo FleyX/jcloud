@@ -100,7 +100,6 @@ public class SystemInitServiceImpl implements SystemInitService {
         StorageSpace space = new StorageSpace();
         space.setName(item.getName());
         space.setPath(item.getPath());
-        space.setType("USER");
         space.setStatus(1);
         space.setIsPrimary(0);
         space.setRemark(item.getRemark());

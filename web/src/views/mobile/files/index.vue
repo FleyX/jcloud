@@ -16,6 +16,8 @@ import {
   Download,
   Check,
   ChevronRight,
+  ArrowUp,
+  ArrowDown,
 } from '@lucide/vue'
 import { cn } from '@/utils/cn'
 import { deleteToTrash, downloadBatchFiles, downloadFile, fetchFilePage } from '@/api/file'
@@ -28,7 +30,7 @@ import MoveCopyModal from '@/views/pc/files/components/MoveCopyModal.vue'
 import MobileBatchActionBar from './components/MobileBatchActionBar.vue'
 import FileConflictModal from '@/components/files/FileConflictModal.vue'
 import type { Component } from 'vue'
-import type { ConflictItemVo, ConflictStrategy, FileNodeVo, OperationResultVo } from '@/types/file'
+import type { ConflictItemVo, ConflictStrategy, FileNodeVo, OperationResultVo, FileSortField, FileSortOrder } from '@/types/file'
 
 const confirmStore = useConfirmStore()
 const notificationStore = useNotificationStore()
@@ -48,6 +50,8 @@ const moveCopyType = ref<'move' | 'copy'>('move')
 const moveCopyTargets = ref<FileNodeVo[]>([])
 const currentParentId = ref('0')
 const breadcrumbStack = ref<Array<{ id: string; name: string }>>([{ id: '0', name: '全部文件' }])
+const sortField = ref<FileSortField>('createTime')
+const sortOrder = ref<FileSortOrder>('desc')
 const uploadConflictOpen = ref(false)
 const uploadConflicts = ref<ConflictItemVo[]>([])
 let uploadConflictResolve: ((strategies: Record<string, ConflictStrategy> | null) => void) | null = null
@@ -111,7 +115,7 @@ function formatSize(bytes?: string | number): string {
 
 function formatDate(time?: string): string {
   if (!time) return '-'
-  return time.split(' ')[0]
+  return time
 }
 
 const isSearching = computed(() => keyword.value.trim().length > 0)
@@ -135,6 +139,8 @@ async function loadFiles() {
     const res = await fetchFilePage({
       parentId: currentParentId.value,
       name: keyword.value,
+      sortField: sortField.value,
+      sortOrder: sortOrder.value,
       pageNum: 1,
       pageSize: 100,
     })
@@ -143,6 +149,23 @@ async function loadFiles() {
   } finally {
     loading.value = false
   }
+}
+
+const sortFieldOptions: { label: string; value: FileSortField }[] = [
+  { label: '上传时间', value: 'createTime' },
+  { label: '文件名', value: 'name' },
+  { label: '大小', value: 'size' },
+]
+
+function handleSortFieldChange(event: Event) {
+  const value = (event.target as HTMLSelectElement).value as FileSortField
+  sortField.value = value
+  loadFiles()
+}
+
+function toggleSortOrder() {
+  sortOrder.value = sortOrder.value === 'asc' ? 'desc' : 'asc'
+  loadFiles()
 }
 
 onMounted(loadFiles)
@@ -346,6 +369,39 @@ async function handleBatchDownload() {
           class="hidden"
           @change="handleFileChange"
         >
+      </div>
+    </div>
+
+    <!-- 排序栏 -->
+    <div class="flex items-center justify-between border-b border-surface-200 bg-white px-4 py-2">
+      <span class="text-xs text-surface-500">排序</span>
+      <div class="flex items-center gap-2">
+        <select
+          :value="sortField"
+          class="rounded-lg border border-surface-200 bg-surface-50 px-2 py-1 text-xs outline-none"
+          @change="handleSortFieldChange"
+        >
+          <option
+            v-for="option in sortFieldOptions"
+            :key="option.value"
+            :value="option.value"
+          >
+            {{ option.label }}
+          </option>
+        </select>
+        <button
+          class="flex h-7 w-7 items-center justify-center rounded-lg border border-surface-200 bg-surface-50 text-surface-600 active:bg-surface-100"
+          @click="toggleSortOrder"
+        >
+          <ArrowUp
+            v-if="sortOrder === 'asc'"
+            class="h-3.5 w-3.5"
+          />
+          <ArrowDown
+            v-else
+            class="h-3.5 w-3.5"
+          />
+        </button>
       </div>
     </div>
 

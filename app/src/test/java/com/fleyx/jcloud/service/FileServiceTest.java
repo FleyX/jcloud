@@ -342,6 +342,104 @@ class FileServiceTest {
     }
 
     @Test
+    void shouldSortFilesByNameAsc() throws Exception {
+        UserVo user = prepareUserWithStorageSpace().user();
+        fileService.upload(buildFile("b.txt", "B"), user.getId(), FileNodeConstants.ROOT_ID, null);
+        fileService.upload(buildFile("a.txt", "A"), user.getId(), FileNodeConstants.ROOT_ID, null);
+        fileService.upload(buildFile("c.txt", "C"), user.getId(), FileNodeConstants.ROOT_ID, null);
+
+        FilePageQueryDto query = new FilePageQueryDto();
+        query.setParentId(FileNodeConstants.ROOT_ID);
+        query.setSortField("name");
+        query.setSortOrder("asc");
+        query.setPageNum(1L);
+        query.setPageSize(10L);
+
+        IPage<FileNodeVo> page = fileService.list(query, user.getId());
+
+        List<String> names = page.getRecords().stream().map(FileNodeVo::getName).toList();
+        assertEquals(List.of("a.txt", "b.txt", "c.txt"), names);
+    }
+
+    @Test
+    void shouldSortFilesBySizeDesc() throws Exception {
+        UserVo user = prepareUserWithStorageSpace().user();
+        fileService.upload(buildFile("small.txt", "S"), user.getId(), FileNodeConstants.ROOT_ID, null);
+        fileService.upload(buildFile("large.txt", "LARGE CONTENT"), user.getId(), FileNodeConstants.ROOT_ID, null);
+
+        FilePageQueryDto query = new FilePageQueryDto();
+        query.setParentId(FileNodeConstants.ROOT_ID);
+        query.setSortField("size");
+        query.setSortOrder("desc");
+        query.setPageNum(1L);
+        query.setPageSize(10L);
+
+        IPage<FileNodeVo> page = fileService.list(query, user.getId());
+
+        List<String> names = page.getRecords().stream().map(FileNodeVo::getName).toList();
+        assertEquals(2, names.size());
+        assertEquals("large.txt", names.get(0));
+        assertEquals("small.txt", names.get(1));
+    }
+
+    @Test
+    void shouldSortFilesByCreateTimeAsc() throws Exception {
+        UserVo user = prepareUserWithStorageSpace().user();
+        fileService.upload(buildFile("second.txt", "2"), user.getId(), FileNodeConstants.ROOT_ID, null);
+        Thread.sleep(10);
+        fileService.upload(buildFile("first.txt", "1"), user.getId(), FileNodeConstants.ROOT_ID, null);
+
+        FilePageQueryDto query = new FilePageQueryDto();
+        query.setParentId(FileNodeConstants.ROOT_ID);
+        query.setSortField("createTime");
+        query.setSortOrder("asc");
+        query.setPageNum(1L);
+        query.setPageSize(10L);
+
+        IPage<FileNodeVo> page = fileService.list(query, user.getId());
+
+        List<String> names = page.getRecords().stream().map(FileNodeVo::getName).toList();
+        assertEquals(2, names.size());
+        assertEquals("second.txt", names.get(0));
+        assertEquals("first.txt", names.get(1));
+    }
+
+    @Test
+    void shouldListChildFolders() throws Exception {
+        UserVo user = prepareUserWithStorageSpace().user();
+        FileNodeVo folderA = createFolder(user.getId(), "folder-a");
+        FileNodeVo folderB = createFolder(user.getId(), "folder-b");
+        fileService.upload(buildFile("file.txt", "F"), user.getId(), FileNodeConstants.ROOT_ID, null);
+
+        List<FileNodeVo> folders = fileService.listChildFolders(FileNodeConstants.ROOT_ID, user.getId());
+
+        List<String> names = folders.stream().map(FileNodeVo::getName).toList();
+        assertEquals(2, folders.size());
+        assertTrue(names.contains("folder-a"));
+        assertTrue(names.contains("folder-b"));
+    }
+
+    @Test
+    void shouldListChildFoldersUnderSpecificParent() throws Exception {
+        UserVo user = prepareUserWithStorageSpace().user();
+        FileNodeVo parent = createFolder(user.getId(), "parent");
+        FileNodeVo child = fileOperationService.createFolder(buildCreateFolderDto(parent.getId(), "child"), user.getId());
+        fileOperationService.createFolder(buildCreateFolderDto(FileNodeConstants.ROOT_ID, "sibling"), user.getId());
+
+        List<FileNodeVo> folders = fileService.listChildFolders(parent.getId(), user.getId());
+
+        assertEquals(1, folders.size());
+        assertEquals("child", folders.get(0).getName());
+    }
+
+    @Test
+    void shouldRejectListChildFoldersForNonFolderParent() {
+        UserVo user = prepareUserWithStorageSpace().user();
+
+        assertThrows(BusinessException.class, () -> fileService.listChildFolders("nonexistent", user.getId()));
+    }
+
+    @Test
     void shouldDownloadUploadedFile() throws Exception {
         UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo uploaded = fileService.upload(buildFile("download.txt", "Download me"), user.getId(), FileNodeConstants.ROOT_ID, null);
@@ -532,6 +630,13 @@ class FileServiceTest {
         return fileOperationService.createFolder(dto, userId);
     }
 
+    private FileCreateFolderDto buildCreateFolderDto(String parentId, String name) {
+        FileCreateFolderDto dto = new FileCreateFolderDto();
+        dto.setParentId(parentId);
+        dto.setName(name);
+        return dto;
+    }
+
     private void moveFileToFolder(String userId, String fileId, String folderId) {
         FileExecuteOperationDto dto = new FileExecuteOperationDto();
         dto.setType("move");
@@ -558,7 +663,6 @@ class FileServiceTest {
         StorageSpaceSaveDto spaceDto = new StorageSpaceSaveDto();
         spaceDto.setName("用户空间");
         spaceDto.setPath(spacePath.toString());
-        spaceDto.setType("USER");
         StorageSpaceVo space = storageSpaceService.save(spaceDto);
 
         UserSaveDto userDto = new UserSaveDto();

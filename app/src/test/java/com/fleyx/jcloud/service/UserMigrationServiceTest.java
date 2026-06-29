@@ -182,7 +182,6 @@ class UserMigrationServiceTest {
         StorageSpaceSaveDto dto = new StorageSpaceSaveDto();
         dto.setName(name);
         dto.setPath(path.toString());
-        dto.setType("USER");
         return dto;
     }
 

@@ -23,11 +23,6 @@ public class StorageSpacePageQueryDto implements Serializable {
     private String name;
 
     /**
-     * 类型：USER / SYSTEM。
-     */
-    private String type;
-
-    /**
      * 状态：1 启用，0 禁用。
      */
     private Integer status;

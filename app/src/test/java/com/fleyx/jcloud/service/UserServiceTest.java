@@ -1,11 +1,13 @@
 package com.fleyx.jcloud.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.UserMapper;
 import com.fleyx.jcloud.mapper.UserRoleMapper;
 import com.fleyx.jcloud.model.dto.BatchUserStatusDto;
 import com.fleyx.jcloud.model.dto.StorageSpaceSaveDto;
+import com.fleyx.jcloud.model.dto.UserPageQueryDto;
 import com.fleyx.jcloud.model.dto.UserSaveDto;
 import com.fleyx.jcloud.model.dto.UserStatusDto;
 import com.fleyx.jcloud.model.dto.UserStorageDto;
@@ -73,7 +75,6 @@ class UserServiceTest {
         StorageSpaceSaveDto spaceDto = new StorageSpaceSaveDto();
         spaceDto.setName("默认测试空间");
         spaceDto.setPath(tempDir.resolve("user-space").toString());
-        spaceDto.setType("USER");
         defaultSpace = storageSpaceService.save(spaceDto);
 
         // 清理非管理员测试用户及其角色关联，确保每个测试方法独立运行。
@@ -112,6 +113,22 @@ class UserServiceTest {
         UserVo vo = userService.saveUser(dto);
 
         assertEquals(0L, vo.getQuota());
+    }
+
+    @Test
+    void pageUsersShouldFillStorageSpaceName() {
+        userService.saveUser(buildDto("pageUser"));
+
+        UserPageQueryDto query = new UserPageQueryDto();
+        query.setUsername("pageuser");
+        query.setPageNum(1L);
+        query.setPageSize(10L);
+
+        IPage<UserVo> page = userService.pageUsers(query);
+
+        assertEquals(1L, page.getTotal());
+        UserVo vo = page.getRecords().get(0);
+        assertEquals(defaultSpace.getName(), vo.getStorageSpaceName());
     }
 
     @Test
@@ -331,7 +348,6 @@ class UserServiceTest {
         StorageSpaceSaveDto spaceDto = new StorageSpaceSaveDto();
         spaceDto.setName("用户空间");
         spaceDto.setPath(tempDir.resolve("user-binding").toString());
-        spaceDto.setType("USER");
         StorageSpaceVo space = storageSpaceService.save(spaceDto);
 
         UserSaveDto userDto = buildDto("bindStorageUser");
