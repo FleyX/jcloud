@@ -571,7 +571,7 @@ async function handleBatchDownload() {
       :open="createFolderOpen"
       :parent-id="currentParentId"
       @close="createFolderOpen = false"
-      @confirm="handleCreateFolder"
+      @confirm="(name: string) => handleCreateFolder(name, currentParentId)"
     />
 
     <RenameModal

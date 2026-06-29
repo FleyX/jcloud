@@ -1,0 +1,27 @@
+package com.fleyx.jcloud.common.constant;
+
+/**
+ * 文件节点相关常量。
+ */
+public final class FileNodeConstants {
+
+    private FileNodeConstants() {
+    }
+
+    /**
+     * 虚拟根节点占位 ID。
+     * <p>
+     * 数值 0 的 base36 表示，左补零至 13 位。所有文件树根节点的 parent_id 都指向它。
+     */
+    public static final String ROOT_ID = "0000000000000";
+
+    /**
+     * id 路径分隔符。
+     */
+    public static final String PATH_SEPARATOR = ".";
+
+    /**
+     * id 路径最大深度（业务软限制），约 5 层祖先。
+     */
+    public static final int MAX_PATH_DEPTH = 5;
+}
