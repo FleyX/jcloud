@@ -1,5 +1,8 @@
 package com.fleyx.jcloud.common.context;
 
+import com.fleyx.jcloud.common.enums.ResultCode;
+import com.fleyx.jcloud.common.exception.BusinessException;
+
 /**
  * 当前登录用户上下文，基于 ThreadLocal 实现。
  */
@@ -26,6 +29,28 @@ public final class UserContext {
      */
     public static CurrentUser get() {
         return HOLDER.get();
+    }
+
+    /**
+     * 获取当前用户，未登录时抛出异常。
+     *
+     * @return 当前用户
+     */
+    public static CurrentUser requireCurrentUser() {
+        CurrentUser user = get();
+        if (user == null) {
+            throw new BusinessException(ResultCode.UNAUTHORIZED, "用户未登录");
+        }
+        return user;
+    }
+
+    /**
+     * 获取当前用户的登录名（userCode，即 username），未登录时抛出异常。
+     *
+     * @return 当前用户的 username
+     */
+    public static String requireUserCode() {
+        return requireCurrentUser().userCode();
     }
 
     /**

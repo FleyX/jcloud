@@ -22,6 +22,7 @@ import com.fleyx.jcloud.model.vo.UserVo;
 import com.fleyx.jcloud.service.AuthService;
 import com.fleyx.jcloud.service.SystemInitService;
 import com.fleyx.jcloud.util.JwtUtil;
+import com.fleyx.jcloud.util.UsernameUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -48,9 +49,10 @@ public class AuthServiceImpl implements AuthService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public UserVo register(UserRegisterDto dto) {
-        checkUsernameUnique(dto.getUsername());
+        String username = UsernameUtil.requireValid(dto.getUsername());
+        checkUsernameUnique(username);
         User user = new User();
-        user.setUsername(dto.getUsername());
+        user.setUsername(username);
         user.setPassword(encryptPassword(dto.getPassword()));
         user.setEmail(dto.getEmail());
         user.setNickname(dto.getNickname());
@@ -122,7 +124,7 @@ public class AuthServiceImpl implements AuthService {
 
     private User findActiveUserByUsername(String username) {
         LambdaQueryWrapper<User> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(User::getUsername, username);
+        wrapper.eq(User::getUsername, UsernameUtil.normalize(username));
         User user = userMapper.selectOne(wrapper);
         if (user == null) {
             throw new BusinessException(ResultCode.UNAUTHORIZED, "用户名或密码错误");
@@ -134,9 +136,7 @@ public class AuthServiceImpl implements AuthService {
     }
 
     private void checkUsernameUnique(String username) {
-        LambdaQueryWrapper<User> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(User::getUsername, username);
-        if (userMapper.selectCount(wrapper) > 0) {
+        if (userMapper.countByUsernameIncludingDeleted(username) > 0) {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "用户名已存在");
         }
     }

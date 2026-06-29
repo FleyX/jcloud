@@ -64,9 +64,9 @@ class FilePathUtilTest {
 
         Map<String, String> cache = new HashMap<>();
         cache.put("docs", "docs");
-        FilePathUtil.ResolveContext ctx = FilePathUtil.contextOf(space, "1", cache);
+        FilePathUtil.ResolveContext ctx = FilePathUtil.contextOf(space, "alice", cache);
         Path path = FilePathUtil.resolvePhysicalPath(node, ctx);
-        assertEquals(Path.of("/storage/1/files/docs/report.pdf"), path);
+        assertEquals(Path.of("/storage/files/alice/docs/report.pdf"), path);
     }
 
     @Test
@@ -79,9 +79,9 @@ class FilePathUtilTest {
         StorageSpace space = new StorageSpace();
         space.setPath("/storage");
 
-        FilePathUtil.ResolveContext ctx = FilePathUtil.contextOf(space, "1");
+        FilePathUtil.ResolveContext ctx = FilePathUtil.contextOf(space, "alice");
         Path path = FilePathUtil.resolvePhysicalPath(node, ctx);
-        assertEquals(Path.of("/storage/1/files/docs"), path);
+        assertEquals(Path.of("/storage/files/alice/docs"), path);
     }
 
     @Test
@@ -89,7 +89,7 @@ class FilePathUtilTest {
         StorageSpace space = new StorageSpace();
         space.setPath("/storage");
 
-        Path path = FilePathUtil.resolvePhysicalPath(space, "2", "/docs", "report.pdf");
-        assertEquals(Path.of("/storage/2/files/docs/report.pdf"), path);
+        Path path = FilePathUtil.resolvePhysicalPath(space, "bob", "/docs", "report.pdf");
+        assertEquals(Path.of("/storage/files/bob/docs/report.pdf"), path);
     }
 }

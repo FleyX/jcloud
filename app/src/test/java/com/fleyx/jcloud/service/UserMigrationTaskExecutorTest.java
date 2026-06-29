@@ -68,7 +68,7 @@ class UserMigrationTaskExecutorTest {
         StorageSpaceVo targetSpace = storageSpaceService.save(targetDto);
 
         UserSaveDto userDto = new UserSaveDto();
-        userDto.setUsername("migrateExec" + testId);
+        userDto.setUsername("mig_" + Long.toUnsignedString(System.nanoTime(), 36));
         userDto.setPassword("123456");
         userDto.setStorageSpaceId(sourceSpace.getId());
         userDto.setQuota(10L);
@@ -101,7 +101,7 @@ class UserMigrationTaskExecutorTest {
         FileNode fileNode = fileMapper.selectById(uploaded.getId());
         assertEquals(targetSpace.getId(), fileNode.getStorageSpaceId());
 
-        Path targetFile = targetPath.resolve(user.getId().toString()).resolve("files").resolve("hello.txt");
+        Path targetFile = targetPath.resolve("files").resolve(user.getUsername()).resolve("hello.txt");
         assertTrue(Files.exists(targetFile), "文件应已复制到目标存储空间");
         assertEquals("hello", Files.readString(targetFile));
     }
@@ -130,7 +130,7 @@ class UserMigrationTaskExecutorTest {
         Files.createFile(targetPath);
 
         UserSaveDto userDto = new UserSaveDto();
-        userDto.setUsername("migrateRollback" + testId);
+        userDto.setUsername("rlb_" + Long.toUnsignedString(System.nanoTime(), 36));
         userDto.setPassword("123456");
         userDto.setStorageSpaceId(sourceSpace.getId());
         userDto.setQuota(10L);
@@ -160,7 +160,7 @@ class UserMigrationTaskExecutorTest {
         FileNode fileNode = fileMapper.selectById(uploaded.getId());
         assertEquals(sourceSpace.getId(), fileNode.getStorageSpaceId());
 
-        Path sourceFile = sourcePath.resolve(user.getId().toString()).resolve("files").resolve("hello.txt");
+        Path sourceFile = sourcePath.resolve("files").resolve(user.getUsername()).resolve("hello.txt");
         assertTrue(Files.exists(sourceFile), "源文件应保留");
     }
 

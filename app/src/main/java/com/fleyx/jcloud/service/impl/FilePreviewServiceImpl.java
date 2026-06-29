@@ -11,6 +11,7 @@ import com.fleyx.jcloud.model.bo.PreviewResult;
 import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.po.PreviewFile;
 import com.fleyx.jcloud.model.po.StorageSpace;
+import com.fleyx.jcloud.common.context.UserContext;
 import com.fleyx.jcloud.service.FilePreviewGenerator;
 import com.fleyx.jcloud.service.FilePreviewService;
 import com.fleyx.jcloud.service.SystemStorageSpaceProvider;
@@ -75,7 +76,8 @@ public class FilePreviewServiceImpl implements FilePreviewService {
 
         StorageSpace space = systemStorageSpaceProvider.getSystemSpace();
         StorageSpace userSpace = getUserSpace(node);
-        Path sourcePath = FilePathUtil.resolvePhysicalPath(node, buildResolveContext(node, userId, userSpace));
+        String username = UserContext.requireUserCode();
+        Path sourcePath = FilePathUtil.resolvePhysicalPath(node, buildResolveContext(node, username, userSpace));
         if (!Files.exists(sourcePath)) {
             throw new BusinessException(ResultCode.NOT_FOUND, "文件已丢失");
         }
@@ -176,7 +178,8 @@ public class FilePreviewServiceImpl implements FilePreviewService {
         }
     }
 
-    private FilePathUtil.ResolveContext buildResolveContext(FileNode node, String userId, StorageSpace space) {
+    private FilePathUtil.ResolveContext buildResolveContext(FileNode node, String username, StorageSpace space) {
+        String userId = node.getUserId();
         Set<String> ancestorIds = FilePathUtil.extractAncestorIds(List.of(node));
         Map<String, String> cache = new HashMap<>();
         if (!ancestorIds.isEmpty()) {
@@ -187,6 +190,6 @@ public class FilePreviewServiceImpl implements FilePreviewService {
                 }
             }
         }
-        return FilePathUtil.contextOf(space, userId, cache);
+        return FilePathUtil.contextOf(space, username, cache);
     }
 }

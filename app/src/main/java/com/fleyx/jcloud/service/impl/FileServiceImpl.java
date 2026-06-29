@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fleyx.jcloud.common.constant.FileNodeConstants;
+import com.fleyx.jcloud.common.constant.StorageConstant;
 import com.fleyx.jcloud.common.enums.ConflictStrategy;
 import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.exception.BusinessException;
@@ -106,8 +107,9 @@ public class FileServiceImpl implements FileService {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "用户配额不足");
         }
 
+        String username = user.getUsername();
         String filePathName = FilePathUtil.buildPathName(parentPathName, resolution.finalName());
-        Path physicalPath = FilePathUtil.resolvePhysicalPath(space, userId, filePathName);
+        Path physicalPath = FilePathUtil.resolvePhysicalPath(space, username, filePathName);
         try {
             Files.createDirectories(physicalPath.getParent());
             Files.copy(file.getInputStream(), physicalPath);
@@ -131,7 +133,7 @@ public class FileServiceImpl implements FileService {
         userMapper.updateById(user);
 
         FileNodeVo vo = fileConvert.poToVo(node);
-        vo.setPhysicalPath(relativizePhysicalPath(space, userId, physicalPath));
+        vo.setPhysicalPath(relativizePhysicalPath(space, username, physicalPath));
         return vo;
     }
 
@@ -229,6 +231,7 @@ public class FileServiceImpl implements FileService {
 
     @Override
     public FileDownloadResult download(String fileId, String userId) {
+        User user = requireUser(userId);
         FileNode node = fileMapper.selectById(fileId);
         if (node == null) {
             throw new BusinessException(ResultCode.NOT_FOUND, "文件不存在");
@@ -242,7 +245,7 @@ public class FileServiceImpl implements FileService {
             throw new BusinessException(ResultCode.NOT_FOUND, "存储空间不存在");
         }
 
-        FilePathUtil.ResolveContext ctx = buildResolveContext(node, userId, space);
+        FilePathUtil.ResolveContext ctx = buildResolveContext(node, user.getUsername(), space);
         Path physicalPath = FilePathUtil.resolvePhysicalPath(node, ctx);
         if (!Files.exists(physicalPath)) {
             throw new BusinessException(ResultCode.NOT_FOUND, "文件已丢失");
@@ -304,10 +307,11 @@ public class FileServiceImpl implements FileService {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "用户配额不足");
         }
 
-        FilePathUtil.ResolveContext ctx = buildResolveContext(candidate, userId, space);
+        String username = user.getUsername();
+        FilePathUtil.ResolveContext ctx = buildResolveContext(candidate, username, space);
         Path sourcePath = FilePathUtil.resolvePhysicalPath(candidate, ctx);
         String filePathName = FilePathUtil.buildPathName(parentPathName, resolution.finalName());
-        Path targetPath = FilePathUtil.resolvePhysicalPath(space, userId, filePathName);
+        Path targetPath = FilePathUtil.resolvePhysicalPath(space, username, filePathName);
 
         if (!Files.exists(sourcePath)) {
             throw new BusinessException(ResultCode.NOT_FOUND, "候选文件物理数据已丢失");
@@ -339,7 +343,7 @@ public class FileServiceImpl implements FileService {
         userMapper.updateById(user);
 
         FileNodeVo vo = fileConvert.poToVo(node);
-        vo.setPhysicalPath(relativizePhysicalPath(space, userId, targetPath));
+        vo.setPhysicalPath(relativizePhysicalPath(space, username, targetPath));
         return vo;
     }
 
@@ -394,14 +398,15 @@ public class FileServiceImpl implements FileService {
         return cache;
     }
 
-    private FilePathUtil.ResolveContext buildResolveContext(FileNode node, String userId, StorageSpace space) {
+    private FilePathUtil.ResolveContext buildResolveContext(FileNode node, String username, StorageSpace space) {
+        String userId = node.getUserId();
         Set<String> ancestorIds = FilePathUtil.extractAncestorIds(List.of(node));
         Map<String, String> cache = queryAncestorNames(userId, ancestorIds);
-        return FilePathUtil.contextOf(space, userId, cache);
+        return FilePathUtil.contextOf(space, username, cache);
     }
 
-    private String relativizePhysicalPath(StorageSpace space, String userId, Path physicalPath) {
-        Path base = Path.of(space.getPath(), userId, "files");
+    private String relativizePhysicalPath(StorageSpace space, String username, Path physicalPath) {
+        Path base = Path.of(space.getPath(), StorageConstant.FILES_DIR, username);
         return base.relativize(physicalPath).toString();
     }
 

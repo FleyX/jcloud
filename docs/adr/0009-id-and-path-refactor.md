@@ -53,5 +53,5 @@
 - 前端 id 类型继续按 `string` 处理（与现有规范一致）。
 - `FilePathUtil` 需要重构：入参合并为对象，支持单条/批量，批量内缓存 `id -> name` 映射。
 - 子树查询、移动批量更新、回收站恢复等依赖 `path_name` 的逻辑需要重写。
-- `t_recycle_bin` 的 trash 目录分层由 id 前十位决定；id 改为字符串后，目录名直接使用字符串 id 本身。
+- `t_recycle_bin` 的 trash 目录按 `trash/<username>/<recycle_bin.id>` 组织，不再使用 id 前缀分层；id 改为字符串后，目录名直接使用字符串 id 本身。
 - 需要新增单元测试覆盖 ID 生成、路径解析、子树查询与批量更新、物理删除。

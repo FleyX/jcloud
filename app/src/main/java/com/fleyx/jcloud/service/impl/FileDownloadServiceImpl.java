@@ -11,6 +11,8 @@ import com.fleyx.jcloud.model.bo.FileZipTask;
 import com.fleyx.jcloud.model.dto.FileBatchDownloadDto;
 import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.po.StorageSpace;
+import com.fleyx.jcloud.common.constant.StorageConstant;
+import com.fleyx.jcloud.common.context.UserContext;
 import com.fleyx.jcloud.service.FileDownloadService;
 import com.fleyx.jcloud.service.SystemStorageSpaceProvider;
 import com.fleyx.jcloud.util.FilePathUtil;
@@ -88,18 +90,19 @@ public class FileDownloadServiceImpl implements FileDownloadService {
             throw new BusinessException(ResultCode.NOT_FOUND, "没有可下载的文件");
         }
 
+        String username = UserContext.requireUserCode();
         long totalSize = files.stream().mapToLong(n -> n.getSize() == null ? 0L : n.getSize()).sum();
         if (totalSize <= streamThresholdSize && files.size() <= streamThresholdCount) {
-            return buildSyncZip(files, userId, totalSize);
+            return buildSyncZip(files, userId, username, totalSize);
         }
 
         String taskId = UUID.randomUUID().toString();
-        Path taskDir = resolveTaskDir(userId, taskId);
+        Path taskDir = resolveTaskDir(username, taskId);
         Path zipPath = taskDir.resolve(ZIP_FILE_NAME);
-        FileZipTask pendingTask = new FileZipTask(taskId, userId, FileZipTaskStatus.PENDING, zipPath, totalSize, null, Instant.now());
+        FileZipTask pendingTask = new FileZipTask(taskId, userId, username, FileZipTaskStatus.PENDING, zipPath, totalSize, null, Instant.now());
         taskStore.put(taskId, pendingTask);
 
-        taskExecutor.execute(() -> buildZipAsync(taskId, files, userId, zipPath));
+        taskExecutor.execute(() -> buildZipAsync(taskId, files, userId, username, zipPath));
         FileZipTask task = taskStore.get(taskId);
         return new BatchDownloadResult.TaskResult(taskId, task.status());
     }
@@ -151,10 +154,10 @@ public class FileDownloadServiceImpl implements FileDownloadService {
         return result;
     }
 
-    private BatchDownloadResult buildSyncZip(List<FileNode> files, String userId, long totalSize) {
+    private BatchDownloadResult buildSyncZip(List<FileNode> files, String userId, String username, long totalSize) {
         try {
             Path tempFile = Files.createTempFile("jcloud-batch-", ".zip");
-            writeZip(files, userId, tempFile);
+            writeZip(files, userId, username, tempFile);
             InputStream inputStream = Files.newInputStream(tempFile);
             return new BatchDownloadResult.StreamResult(ZIP_FILE_NAME, inputStream, Files.size(tempFile));
         } catch (IOException e) {
@@ -162,18 +165,18 @@ public class FileDownloadServiceImpl implements FileDownloadService {
         }
     }
 
-    private void buildZipAsync(String taskId, List<FileNode> files, String userId, Path zipPath) {
+    private void buildZipAsync(String taskId, List<FileNode> files, String userId, String username, Path zipPath) {
         updateTaskStatus(taskId, FileZipTaskStatus.RUNNING, null);
         try {
             Files.createDirectories(zipPath.getParent());
-            writeZip(files, userId, zipPath);
+            writeZip(files, userId, username, zipPath);
             updateTaskStatus(taskId, FileZipTaskStatus.COMPLETED, null);
         } catch (Exception e) {
             updateTaskStatus(taskId, FileZipTaskStatus.FAILED, e.getMessage());
         }
     }
 
-    private void writeZip(List<FileNode> files, String userId, Path zipPath) throws IOException {
+    private void writeZip(List<FileNode> files, String userId, String username, Path zipPath) throws IOException {
         FilePathUtil.ResolveContext ctx = buildResolveContext(files, userId);
         try (OutputStream os = Files.newOutputStream(zipPath);
              ZipOutputStream zos = new ZipOutputStream(os)) {
@@ -182,7 +185,7 @@ public class FileDownloadServiceImpl implements FileDownloadService {
                 if (space == null) {
                     throw new BusinessException(ResultCode.NOT_FOUND, "存储空间不存在");
                 }
-                Path physicalPath = FilePathUtil.resolvePhysicalPath(file, FilePathUtil.contextOf(space, userId, ctx.idToNameCache()));
+                Path physicalPath = FilePathUtil.resolvePhysicalPath(file, FilePathUtil.contextOf(space, username, ctx.idToNameCache()));
                 if (!Files.exists(physicalPath)) {
                     throw new BusinessException(ResultCode.NOT_FOUND, "文件已丢失: " + file.getName());
                 }
@@ -217,12 +220,12 @@ public class FileDownloadServiceImpl implements FileDownloadService {
             return;
         }
         taskStore.put(taskId, new FileZipTask(
-                current.taskId(), current.userId(), status, current.zipPath(), current.totalBytes(), message, current.createdAt()));
+                current.taskId(), current.userId(), current.username(), status, current.zipPath(), current.totalBytes(), message, current.createdAt()));
     }
 
-    private Path resolveTaskDir(String userId, String taskId) {
+    private Path resolveTaskDir(String username, String taskId) {
         StorageSpace systemSpace = systemStorageSpaceProvider.getSystemSpace();
-        return Path.of(systemSpace.getPath(), ZIP_TASKS_SUB_DIRECTORY, userId, taskId);
+        return Path.of(systemSpace.getPath(), StorageConstant.ZIP_TASKS_DIR, username, taskId);
     }
 
     @Scheduled(fixedRate = 300_000)

@@ -34,6 +34,7 @@ import com.fleyx.jcloud.model.vo.UserProfileVo;
 import com.fleyx.jcloud.model.vo.UserVo;
 import com.fleyx.jcloud.service.UserService;
 import com.fleyx.jcloud.util.ByteFormatUtil;
+import com.fleyx.jcloud.util.UsernameUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -64,11 +65,13 @@ public class UserServiceImpl implements UserService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public UserVo saveUser(UserSaveDto dto) {
-        checkUsernameUnique(dto.getUsername());
+        String username = UsernameUtil.requireValid(dto.getUsername());
+        checkUsernameUnique(username);
         StorageSpace space = requireEnabledStorageSpace(dto.getStorageSpaceId());
         long quotaBytes = ByteFormatUtil.parse(dto.getQuota(), dto.getQuotaUnit());
 
         User user = userConvert.dtoToPo(dto);
+        user.setUsername(username);
         user.setPassword(BCrypt.hashpw(user.getPassword(), BCrypt.gensalt()));
         user.setStatus(UserStatus.ENABLED.getCode());
         user.setIsAdmin(0);
@@ -94,7 +97,7 @@ public class UserServiceImpl implements UserService {
         if (StrUtil.isBlank(username)) {
             throw new BusinessException(ResultCode.PARAM_ERROR, "用户名关键字不能为空");
         }
-        List<User> list = userMapper.selectByUsernameLike(username);
+        List<User> list = userMapper.selectByUsernameLike(UsernameUtil.normalize(username));
         return enrichUserVos(list);
     }
 
@@ -426,9 +429,7 @@ public class UserServiceImpl implements UserService {
     }
 
     private void checkUsernameUnique(String username) {
-        LambdaQueryWrapper<User> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(User::getUsername, username);
-        if (userMapper.selectCount(wrapper) > 0) {
+        if (userMapper.countByUsernameIncludingDeleted(username) > 0) {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "用户名已存在");
         }
     }

@@ -20,6 +20,7 @@ import com.fleyx.jcloud.model.po.User;
 import com.fleyx.jcloud.model.vo.ConflictItemVo;
 import com.fleyx.jcloud.model.vo.FileNodeVo;
 import com.fleyx.jcloud.model.vo.OperationResultVo;
+import com.fleyx.jcloud.common.context.UserContext;
 import com.fleyx.jcloud.service.FileOperationService;
 import com.fleyx.jcloud.util.FileConflictHelper;
 import com.fleyx.jcloud.util.FileNodeUtil;
@@ -78,14 +79,15 @@ public class FileOperationServiceImpl implements FileOperationService {
         validateNameConflict(fileMapper, userId, node.getParentId(), newName, node.getId());
 
         StorageSpace space = storageSpaceMapper.selectById(node.getStorageSpaceId());
+        String username = UserContext.requireUserCode();
         String oldPathName = resolveNamePath(node, userId);
         String newPathName = FilePathUtil.buildPathName(FilePathUtil.parentOf(oldPathName), newName);
 
         if (TYPE_FILE.equals(node.getType())) {
-            renamePhysicalFile(node, space, oldPathName, newPathName);
+            renamePhysicalFile(node, space, username, oldPathName, newPathName);
         }
         if (TYPE_FOLDER.equals(node.getType())) {
-            renamePhysicalFolder(node, space, oldPathName, newPathName);
+            renamePhysicalFolder(node, space, username, oldPathName, newPathName);
         }
         node.setName(newName);
         fileMapper.updateById(node);
@@ -229,10 +231,10 @@ public class FileOperationServiceImpl implements FileOperationService {
         }
     }
 
-    private void renamePhysicalFile(FileNode node, StorageSpace space, String oldPathName, String newPathName) {
-        String userId = node.getUserId();
-        Path oldPath = FilePathUtil.resolvePhysicalPath(space, userId, oldPathName);
-        Path newPath = FilePathUtil.resolvePhysicalPath(space, userId, newPathName);
+    private void renamePhysicalFile(FileNode node, StorageSpace space, String username,
+                                    String oldPathName, String newPathName) {
+        Path oldPath = FilePathUtil.resolvePhysicalPath(space, username, oldPathName);
+        Path newPath = FilePathUtil.resolvePhysicalPath(space, username, newPathName);
         try {
             Files.createDirectories(newPath.getParent());
             Files.move(oldPath, newPath);
@@ -241,13 +243,13 @@ public class FileOperationServiceImpl implements FileOperationService {
         }
     }
 
-    private void renamePhysicalFolder(FileNode folder, StorageSpace space, String oldPathName, String newPathName) {
-        String userId = folder.getUserId();
-        Path oldPhysicalPath = FilePathUtil.resolvePhysicalPath(space, userId, oldPathName);
+    private void renamePhysicalFolder(FileNode folder, StorageSpace space, String username,
+                                      String oldPathName, String newPathName) {
+        Path oldPhysicalPath = FilePathUtil.resolvePhysicalPath(space, username, oldPathName);
         if (!Files.exists(oldPhysicalPath)) {
             return;
         }
-        Path newPhysicalPath = FilePathUtil.resolvePhysicalPath(space, userId, newPathName);
+        Path newPhysicalPath = FilePathUtil.resolvePhysicalPath(space, username, newPathName);
         try {
             Files.createDirectories(newPhysicalPath.getParent());
             Files.move(oldPhysicalPath, newPhysicalPath);

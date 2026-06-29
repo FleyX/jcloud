@@ -12,6 +12,8 @@ import com.fleyx.jcloud.model.po.User;
 import com.fleyx.jcloud.model.vo.StorageSpaceVo;
 import com.fleyx.jcloud.model.vo.UserMigrationTaskVo;
 import com.fleyx.jcloud.model.vo.UserVo;
+import com.fleyx.jcloud.common.context.CurrentUser;
+import com.fleyx.jcloud.common.context.UserContext;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -165,12 +167,13 @@ class UserMigrationServiceTest {
         StorageSpaceVo targetSpace = storageSpaceService.save(targetDto);
 
         UserSaveDto userDto = new UserSaveDto();
-        userDto.setUsername("migrateUser" + System.nanoTime());
+        userDto.setUsername("user_" + Long.toUnsignedString(System.nanoTime(), 36));
         userDto.setPassword("123456");
         userDto.setStorageSpaceId(sourceSpace.getId());
         userDto.setQuota(10L);
         userDto.setQuotaUnit("GB");
         UserVo user = userService.saveUser(userDto);
+        UserContext.set(new CurrentUser(user.getId(), user.getUsername()));
 
         return new UserWithSpaces(user, sourceSpace, targetSpace);
     }

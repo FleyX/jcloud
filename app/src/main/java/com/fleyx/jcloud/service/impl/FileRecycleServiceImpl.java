@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fleyx.jcloud.common.constant.FileNodeConstants;
+import com.fleyx.jcloud.common.constant.StorageConstant;
 import com.fleyx.jcloud.common.enums.ConflictStrategy;
 import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.exception.BusinessException;
@@ -101,7 +102,9 @@ public class FileRecycleServiceImpl implements FileRecycleService {
 
     private OperationResultVo deleteOneToTrash(String id, String userId) {
         FileNode node = getOwnedNode(id, userId);
-        StorageSpace space = requireSpace(userId);
+        User user = requireUser(userId);
+        StorageSpace space = requireSpace(user);
+        String username = user.getUsername();
 
         List<FileNode> subtree = collectSubtree(node, userId);
         long totalSize = subtree.stream()
@@ -113,8 +116,8 @@ public class FileRecycleServiceImpl implements FileRecycleService {
         RecycleRecord record = buildRecycleRecord(userId, node, originalPathName, totalSize);
         recycleRecordMapper.insert(record);
 
-        Path trashRoot = resolveTrashRoot(space, userId, record.getId());
-        moveFilesToTrash(node, subtree, space, userId, trashRoot);
+        Path trashRoot = resolveTrashRoot(space, username, record.getId());
+        moveFilesToTrash(node, subtree, space, username, trashRoot);
 
         List<String> nodeIds = subtree.stream().map(FileNode::getId).toList();
         fileMapper.physicalDeleteByIds(nodeIds);
@@ -139,7 +142,8 @@ public class FileRecycleServiceImpl implements FileRecycleService {
     }
 
     private void moveFilesToTrash(FileNode topNode, List<FileNode> subtree, StorageSpace space,
-                                  String userId, Path trashRoot) {
+                                  String username, Path trashRoot) {
+        String userId = topNode.getUserId();
         String topNamePath = resolveNamePath(topNode, userId);
         if (TYPE_FOLDER.equals(topNode.getType())) {
             try {
@@ -155,7 +159,7 @@ public class FileRecycleServiceImpl implements FileRecycleService {
             }
             String fileNamePath = resolveNamePath(node, userId);
             String relative = computeTrashRelativePath(topNode, topNamePath, node, fileNamePath);
-            Path source = FilePathUtil.resolvePhysicalPath(space, userId, fileNamePath);
+            Path source = FilePathUtil.resolvePhysicalPath(space, username, fileNamePath);
             if (!Files.exists(source)) {
                 continue;
             }
@@ -168,7 +172,7 @@ public class FileRecycleServiceImpl implements FileRecycleService {
                         "移动文件到回收站失败: " + node.getName());
             }
         }
-        deleteIfEmpty(FilePathUtil.resolvePhysicalPath(space, userId, topNamePath));
+        deleteIfEmpty(FilePathUtil.resolvePhysicalPath(space, username, topNamePath));
     }
 
     private String computeTrashRelativePath(FileNode topNode, String topNamePath,
@@ -207,9 +211,8 @@ public class FileRecycleServiceImpl implements FileRecycleService {
         return record;
     }
 
-    private Path resolveTrashRoot(StorageSpace space, String userId, String recordId) {
-        String prefix = recordId.length() >= 10 ? recordId.substring(0, 10) : recordId;
-        return Path.of(space.getPath(), userId, "trash", prefix, recordId);
+    private Path resolveTrashRoot(StorageSpace space, String username, String recordId) {
+        return Path.of(space.getPath(), StorageConstant.TRASH_DIR, username, recordId);
     }
 
     private FileNode getOwnedNode(String nodeId, String userId) {
@@ -275,25 +278,27 @@ public class FileRecycleServiceImpl implements FileRecycleService {
     private List<ConflictItemVo> doPreCheckRestore(FilePreCheckRestoreDto dto, String userId) {
         User user = requireUser(userId);
         StorageSpace space = storageSpaceMapper.selectById(user.getStorageSpaceId());
+        String username = user.getUsername();
         List<ConflictItemVo> conflicts = new ArrayList<>();
         for (String id : dto.getIds()) {
             RecycleRecord record = getOwnedRecord(id, userId);
             String targetParentId = resolveRestoreParentId(record, userId);
             String targetParentPathName = resolveRestorePathName(targetParentId, userId);
-            collectRestoreConflicts(record, targetParentId, targetParentPathName, userId, space, conflicts);
+            collectRestoreConflicts(record, targetParentId, targetParentPathName, userId, username, space, conflicts);
         }
         return conflicts;
     }
 
     private void collectRestoreConflicts(RecycleRecord record, String targetParentId,
                                          String targetParentPathName, String userId,
-                                         StorageSpace space, List<ConflictItemVo> conflicts) {
+                                         String username, StorageSpace space,
+                                         List<ConflictItemVo> conflicts) {
         FileNode existing = findExistingChild(targetParentId, record.getName(), userId);
         if (TYPE_FOLDER.equals(record.getType())) {
             if (existing != null && TYPE_FOLDER.equals(existing.getType())) {
                 conflicts.add(buildAutoMergeConflictItem(record, existing, targetParentPathName));
                 String targetTopPathName = FilePathUtil.buildPathName(targetParentPathName, record.getName());
-                walkTrashTreeForConflicts(record, existing, targetTopPathName, userId, space, conflicts);
+                walkTrashTreeForConflicts(record, existing, targetTopPathName, userId, username, space, conflicts);
             } else if (existing != null) {
                 conflicts.add(buildConflictItem(record, existing, targetParentPathName));
             }
@@ -304,8 +309,9 @@ public class FileRecycleServiceImpl implements FileRecycleService {
 
     private void walkTrashTreeForConflicts(RecycleRecord record, FileNode targetFolder,
                                            String targetTopPathName, String userId,
-                                           StorageSpace space, List<ConflictItemVo> conflicts) {
-        Path trashRoot = resolveTrashRoot(space, userId, record.getId());
+                                           String username, StorageSpace space,
+                                           List<ConflictItemVo> conflicts) {
+        Path trashRoot = resolveTrashRoot(space, username, record.getId());
         Path sourceTop = trashRoot.resolve(record.getName());
         if (!Files.exists(sourceTop)) {
             return;
@@ -398,15 +404,16 @@ public class FileRecycleServiceImpl implements FileRecycleService {
         if (space == null) {
             return failedResult(record.getId(), record.getName(), "存储空间不存在");
         }
+        String username = user.getUsername();
 
         String targetParentId = resolveRestoreParentId(record, userId);
         String targetPathName = resolveRestorePathName(targetParentId, userId);
         ConflictStrategy strategy = resolveStrategy(item, globalStrategy);
 
         if (TYPE_FILE.equals(record.getType())) {
-            return restoreFile(record, targetParentId, targetPathName, space, userId, strategy);
+            return restoreFile(record, targetParentId, targetPathName, space, username, strategy);
         }
-        return restoreFolder(record, targetParentId, targetPathName, space, userId, strategy);
+        return restoreFolder(record, targetParentId, targetPathName, space, username, strategy);
     }
 
     private ConflictStrategy resolveStrategy(RestoreItemDto item, ConflictStrategy globalStrategy) {
@@ -419,9 +426,10 @@ public class FileRecycleServiceImpl implements FileRecycleService {
 
     private OperationResultVo restoreFile(RecycleRecord record, String targetParentId,
                                           String targetParentPathName, StorageSpace space,
-                                          String userId, ConflictStrategy strategy) {
+                                          String username, ConflictStrategy strategy) {
+        String userId = record.getUserId();
         User user = requireUser(userId);
-        Path trashRoot = resolveTrashRoot(space, userId, record.getId());
+        Path trashRoot = resolveTrashRoot(space, username, record.getId());
         Path source = trashRoot.resolve(FilePathUtil.stripLeadingSlash(record.getOriginalPathName()));
         String resolvedName = resolveRestoreName(targetParentId, record.getName(), userId, strategy);
         if (resolvedName == null) {
@@ -434,7 +442,7 @@ public class FileRecycleServiceImpl implements FileRecycleService {
         }
 
         String filePathName = FilePathUtil.buildPathName(targetParentPathName, resolvedName);
-        Path target = FilePathUtil.resolvePhysicalPath(space, userId, filePathName);
+        Path target = FilePathUtil.resolvePhysicalPath(space, username, filePathName);
 
         FileNode existing = findExistingChild(targetParentId, resolvedName, userId);
         if (existing != null) {
@@ -496,14 +504,15 @@ public class FileRecycleServiceImpl implements FileRecycleService {
 
     private OperationResultVo restoreFolder(RecycleRecord record, String targetParentId,
                                             String targetParentPathName, StorageSpace space,
-                                            String userId, ConflictStrategy strategy) {
-        Path trashRoot = resolveTrashRoot(space, userId, record.getId());
+                                            String username, ConflictStrategy strategy) {
+        String userId = record.getUserId();
+        Path trashRoot = resolveTrashRoot(space, username, record.getId());
         Path sourceTop = trashRoot.resolve(record.getName());
 
         FileNode existingFolder = findExistingChild(targetParentId, record.getName(), userId);
         if (existingFolder != null && TYPE_FOLDER.equals(existingFolder.getType())) {
             String topPathName = FilePathUtil.buildPathName(targetParentPathName, record.getName());
-            restoreFolderTree(sourceTop, topPathName, existingFolder, space, userId, strategy, true);
+            restoreFolderTree(sourceTop, topPathName, existingFolder, space, username, strategy, true);
             recycleRecordMapper.physicalDeleteById(record.getId());
             OperationResultVo vo = new OperationResultVo();
             vo.setSourceId(record.getId());
@@ -523,7 +532,7 @@ public class FileRecycleServiceImpl implements FileRecycleService {
             return vo;
         }
         String topPathName = FilePathUtil.buildPathName(targetParentPathName, resolvedFolderName);
-        Path targetTop = FilePathUtil.resolvePhysicalPath(space, userId, topPathName);
+        Path targetTop = FilePathUtil.resolvePhysicalPath(space, username, topPathName);
 
         FileNode existing = findExistingChild(targetParentId, resolvedFolderName, userId);
         if (existing != null) {
@@ -542,7 +551,7 @@ public class FileRecycleServiceImpl implements FileRecycleService {
         FileNode topFolder = buildFolderNode(userId, targetParentId, resolvedFolderName, space.getId());
         setNodePath(topFolder, targetParentId);
         fileMapper.insert(topFolder);
-        restoreFolderTree(targetTop, topPathName, topFolder, space, userId, strategy, false);
+        restoreFolderTree(targetTop, topPathName, topFolder, space, username, strategy, false);
 
         recycleRecordMapper.physicalDeleteById(record.getId());
 
@@ -556,8 +565,9 @@ public class FileRecycleServiceImpl implements FileRecycleService {
     }
 
     private void restoreFolderTree(Path sourceTop, String topPathName, FileNode topFolder,
-                                   StorageSpace space, String userId, ConflictStrategy strategy,
+                                   StorageSpace space, String username, ConflictStrategy strategy,
                                    boolean merge) {
+        String userId = topFolder.getUserId();
         Path realTop = merge ? sourceTop : sourceTop;
         Map<Path, String> folderIds = new HashMap<>();
         Map<Path, String> folderPathNames = new HashMap<>();
@@ -610,7 +620,7 @@ public class FileRecycleServiceImpl implements FileRecycleService {
                         resolvedName = resolution.finalName();
                     }
                     String filePathName = FilePathUtil.buildPathName(parentPathName, resolvedName);
-                    Path finalTargetPath = FilePathUtil.resolvePhysicalPath(space, userId, filePathName);
+                    Path finalTargetPath = FilePathUtil.resolvePhysicalPath(space, username, filePathName);
                     try {
                         Files.createDirectories(finalTargetPath.getParent());
                         Files.move(sourcePath, finalTargetPath);
@@ -814,7 +824,10 @@ public class FileRecycleServiceImpl implements FileRecycleService {
     }
 
     private StorageSpace requireSpace(String userId) {
-        User user = requireUser(userId);
+        return requireSpace(requireUser(userId));
+    }
+
+    private StorageSpace requireSpace(User user) {
         StorageSpace space = storageSpaceMapper.selectById(user.getStorageSpaceId());
         if (space == null) {
             throw new BusinessException(ResultCode.NOT_FOUND, "存储空间不存在");
@@ -887,7 +900,7 @@ public class FileRecycleServiceImpl implements FileRecycleService {
         if (space == null) {
             return failedResult(recordId, record.getName(), "用户未绑定存储空间");
         }
-        Path trashBase = resolveTrashRoot(space, userId, record.getId());
+        Path trashBase = resolveTrashRoot(space, user.getUsername(), record.getId());
         try {
             if (Files.exists(trashBase)) {
                 deleteRecursively(trashBase);
