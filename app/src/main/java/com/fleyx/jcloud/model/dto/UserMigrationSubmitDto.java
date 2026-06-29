@@ -23,9 +23,8 @@ public class UserMigrationSubmitDto {
     private String targetSpaceId;
 
     /**
-     * 新配额（字节）。
+     * 新配额（字节），为空时保持用户当前配额不变。
      */
-    @NotNull(message = "新配额不能为空")
     @Min(value = 1, message = "新配额必须大于 0")
     private Long newQuota;
 }

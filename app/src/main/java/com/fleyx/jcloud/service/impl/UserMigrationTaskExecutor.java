@@ -2,6 +2,7 @@ package com.fleyx.jcloud.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fleyx.jcloud.common.constant.StorageConstant;
+import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.event.UserMigrationSubmittedEvent;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.FileMapper;
@@ -111,33 +112,30 @@ public class UserMigrationTaskExecutor {
         long totalBytes = computeTotalBytes(userId);
         transactionHelper.markRunning(task.getId(), totalBytes);
 
-        Path sourceDir = resolveUserFilesDir(sourceSpace, username);
-        Path targetDir = resolveUserFilesDir(targetSpace, username);
-        deleteIfExists(targetDir);
+        Path sourceFilesDir = resolveUserFilesDir(sourceSpace, username);
+        Path targetFilesDir = resolveUserFilesDir(targetSpace, username);
+        Path sourceTrashDir = resolveUserTrashDir(sourceSpace, username);
+        Path targetTrashDir = resolveUserTrashDir(targetSpace, username);
 
-        long migratedBytes = 0L;
-        if (Files.exists(sourceDir)) {
-            List<Path> files;
-            try (var stream = Files.walk(sourceDir)) {
-                files = stream.filter(Files::isRegularFile).toList();
-            } catch (Exception e) {
-                throw new BusinessException("遍历源文件失败: " + e.getMessage());
-            }
-            for (Path sourceFile : files) {
-                Path relative = sourceDir.relativize(sourceFile);
-                Path targetFile = targetDir.resolve(relative);
-                try {
-                    Files.createDirectories(targetFile.getParent());
-                    Files.copy(sourceFile, targetFile, StandardCopyOption.COPY_ATTRIBUTES);
-                    migratedBytes += Files.size(sourceFile);
-                } catch (Exception e) {
-                    throw new BusinessException("复制文件失败: " + relative + ", " + e.getMessage());
-                }
-                transactionHelper.updateProgress(task.getId(), migratedBytes);
-            }
+        deleteIfExists(targetFilesDir);
+        deleteIfExists(targetTrashDir);
+        createDirectories(targetFilesDir.getParent());
+        createDirectories(targetTrashDir.getParent());
+
+        if (Files.exists(sourceFilesDir)) {
+            moveDirectory(sourceFilesDir, targetFilesDir);
+        }
+        if (Files.exists(sourceTrashDir)) {
+            moveDirectory(sourceTrashDir, targetTrashDir);
         }
 
-        transactionHelper.completeTask(task, userId, targetSpace.getId(), task.getNewQuota());
+        try {
+            transactionHelper.completeTask(task, userId, targetSpace.getId(), task.getNewQuota());
+        } catch (Exception e) {
+            moveDirectoryIfExists(targetFilesDir, sourceFilesDir);
+            moveDirectoryIfExists(targetTrashDir, sourceTrashDir);
+            throw new BusinessException(ResultCode.BUSINESS_ERROR, "迁移数据库更新失败，已回滚文件位置: " + e.getMessage(), e);
+        }
         log.info("迁移任务完成，taskId={}", task.getId());
     }
 
@@ -153,6 +151,10 @@ public class UserMigrationTaskExecutor {
         return Path.of(space.getPath(), StorageConstant.FILES_DIR, username);
     }
 
+    private Path resolveUserTrashDir(StorageSpace space, String username) {
+        return Path.of(space.getPath(), StorageConstant.TRASH_DIR, username);
+    }
+
     private void deleteIfExists(Path path) {
         if (Files.exists(path)) {
             try {
@@ -163,14 +165,36 @@ public class UserMigrationTaskExecutor {
         }
     }
 
+    private void createDirectories(Path path) {
+        try {
+            Files.createDirectories(path);
+        } catch (Exception e) {
+            throw new BusinessException(ResultCode.BUSINESS_ERROR, "创建目标目录失败: " + e.getMessage(), e);
+        }
+    }
+
+    private void moveDirectory(Path source, Path target) {
+        try {
+            Files.move(source, target, StandardCopyOption.REPLACE_EXISTING);
+        } catch (Exception e) {
+            throw new BusinessException(ResultCode.BUSINESS_ERROR, "移动用户文件目录失败: " + e.getMessage(), e);
+        }
+    }
+
+    private void moveDirectoryIfExists(Path source, Path target) {
+        if (Files.exists(source)) {
+            moveDirectory(source, target);
+        }
+    }
+
     private void rollback(UserMigrationTask task, String errorMsg) {
         transactionHelper.failTask(task, task.getUserId(), errorMsg);
         StorageSpace targetSpace = storageSpaceMapper.selectById(task.getTargetSpaceId());
         if (targetSpace != null) {
             User user = userMapper.selectById(task.getUserId());
             String username = user == null ? task.getUserId() : user.getUsername();
-            Path targetDir = resolveUserFilesDir(targetSpace, username);
-            deleteIfExists(targetDir);
+            deleteIfExists(resolveUserFilesDir(targetSpace, username));
+            deleteIfExists(resolveUserTrashDir(targetSpace, username));
         }
         log.info("迁移任务已回滚，taskId={}", task.getId());
     }
