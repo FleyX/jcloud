@@ -124,6 +124,19 @@ function isSelectable(user: UserVo): boolean {
   return !user.isAdmin
 }
 
+function formatBytes(bytes?: string | number): string {
+  const num = Number(bytes)
+  if (!num) return '-'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  let i = 0
+  let size = num
+  while (size >= 1024 && i < units.length - 1) {
+    size /= 1024
+    i++
+  }
+  return `${size.toFixed(2)} ${units[i]}`
+}
+
 function toggleSelectAll() {
   if (allSelected.value) {
     selectableUsers.value.forEach((u) => {
@@ -431,6 +444,12 @@ onMounted(() => {
                 角色
               </th>
               <th class="px-5 py-3 font-medium">
+                存储空间
+              </th>
+              <th class="px-5 py-3 font-medium">
+                限额
+              </th>
+              <th class="px-5 py-3 font-medium">
                 状态
               </th>
               <th class="px-5 py-3 font-medium">
@@ -482,6 +501,12 @@ onMounted(() => {
                     class="text-xs text-surface-400"
                   >未分配</span>
                 </div>
+              </td>
+              <td class="px-5 py-3 text-surface-600">
+                {{ user.storageSpaceName || '-' }}
+              </td>
+              <td class="px-5 py-3 text-surface-600">
+                {{ formatBytes(user.quota) }}
               </td>
               <td class="px-5 py-3">
                 <SwitchRoot

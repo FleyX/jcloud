@@ -46,6 +46,15 @@ public interface FileService {
     FileDownloadResult download(String fileId, String userId);
 
     /**
+     * 查询指定父目录下的直接子文件夹。
+     *
+     * @param parentId 父节点 ID
+     * @param userId   用户 ID
+     * @return 子文件夹列表
+     */
+    List<FileNodeVo> listChildFolders(String parentId, String userId);
+
+    /**
      * 上传前预检：检查目标父目录下是否存在同名节点，并查询可用于秒传的候选文件。
      *
      * @param dto    预检参数

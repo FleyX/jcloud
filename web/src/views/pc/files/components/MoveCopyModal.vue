@@ -4,10 +4,11 @@
  * 自包含：内部完成目标选择、预检、统一冲突解决、执行，最终通过 confirm 事件返回结果。
  */
 import { computed, ref, watch } from 'vue'
-import { X, Folder, FolderInput, Copy, Check } from '@lucide/vue'
+import { X, FolderInput, Copy, Search } from '@lucide/vue'
 import { cn } from '@/utils/cn'
 import { copyFiles, moveFiles, preCheckOperation } from '@/api/file'
 import FileConflictModal from '@/components/files/FileConflictModal.vue'
+import FolderTree from '@/components/files/FolderTree.vue'
 import type { ConflictItemVo, ConflictStrategy, FileNodeVo, OperationResultVo } from '@/types/file'
 
 interface Props {
@@ -36,11 +37,8 @@ const conflictOpen = ref(false)
 const isMove = computed(() => props.type === 'move')
 const title = computed(() => (isMove.value ? '移动' : '复制'))
 const icon = computed(() => (isMove.value ? FolderInput : Copy))
-
-const targets = computed(() => [
-  { id: '0', name: '根目录' },
-  ...props.folders.map((folder) => ({ id: folder.id, name: folder.name })),
-])
+const keyword = ref('')
+const disabledIds = computed(() => props.files.map((file) => file.id))
 
 watch(
   () => props.open,
@@ -48,6 +46,7 @@ watch(
     if (open) {
       step.value = 'select'
       targetParentId.value = '0'
+      keyword.value = ''
       conflicts.value = []
       strategies.value = {}
       results.value = []
@@ -147,30 +146,22 @@ function handleFinish() {
         <p class="mb-2 text-sm text-surface-500">
           选择目标位置
         </p>
-        <div class="max-h-64 overflow-y-auto rounded-2xl border border-surface-200 bg-surface-50/50 p-1">
-          <button
-            v-for="target in targets"
-            :key="target.id"
-            :class="
-              cn(
-                'flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm transition-colors',
-                targetParentId === target.id
-                  ? 'bg-primary-50 text-primary-700'
-                  : 'text-surface-700 hover:bg-surface-100'
-              )
-            "
-            @click="targetParentId = target.id"
+        <div class="mb-3 flex items-center gap-2 rounded-xl border border-surface-200 bg-white px-3 py-2 shadow-sm">
+          <Search class="h-4 w-4 text-surface-400" />
+          <input
+            v-model="keyword"
+            type="text"
+            placeholder="搜索文件夹..."
+            class="flex-1 bg-transparent text-sm outline-none placeholder:text-surface-400"
           >
-            <Check
-              v-if="targetParentId === target.id"
-              class="h-4 w-4 text-primary-500"
-            />
-            <Folder
-              v-else
-              class="h-4 w-4 text-surface-400"
-            />
-            {{ target.name }}
-          </button>
+        </div>
+        <div class="max-h-64 overflow-y-auto">
+          <FolderTree
+            :selected-id="targetParentId"
+            :disabled-ids="disabledIds"
+            :keyword="keyword"
+            @select="targetParentId = $event"
+          />
         </div>
 
         <div class="mt-5 flex justify-end gap-2">

@@ -28,6 +28,16 @@ public class FilePageQueryDto implements Serializable {
      */
     private String name;
 
+    /**
+     * 排序字段：name / size / createTime。
+     */
+    private String sortField;
+
+    /**
+     * 排序方向：asc / desc。
+     */
+    private String sortOrder;
+
     @Min(value = 1, message = "页码从 1 开始")
     private Long pageNum = CommonConstant.DEFAULT_PAGE_NUM;
 

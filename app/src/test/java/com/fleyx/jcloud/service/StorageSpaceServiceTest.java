@@ -57,7 +57,6 @@ class StorageSpaceServiceTest {
         assertNotNull(vo.getId());
         assertEquals(dto.getName(), vo.getName());
         assertEquals(dto.getPath(), vo.getPath());
-        assertEquals(dto.getType(), vo.getType());
         assertTrue(vo.getCapacity() > 0);
         assertTrue(vo.getUsedSpace() >= 0);
         assertTrue(vo.getFreeSpace() >= 0);
@@ -97,7 +96,6 @@ class StorageSpaceServiceTest {
         update.setId(saved.getId());
         update.setName("新名称");
         update.setPath(tempDir.resolve("update-new").toString());
-        update.setType("USER");
         update.setStatus(0);
         update.setRemark("更新后");
 
@@ -118,7 +116,6 @@ class StorageSpaceServiceTest {
         update.setId(second.getId());
         update.setName(second.getName());
         update.setPath(second.getPath());
-        update.setType("USER");
         update.setStatus(1);
         update.setIsPrimary(1);
         storageSpaceService.update(update);
@@ -159,34 +156,11 @@ class StorageSpaceServiceTest {
         update.setId(saved.getId());
         update.setName(saved.getName());
         update.setPath(saved.getPath());
-        update.setType("USER");
         update.setStatus(1);
         update.setIsPrimary(1);
         storageSpaceService.update(update);
 
         assertThrows(BusinessException.class, () -> storageSpaceService.removeById(saved.getId()));
-    }
-
-    @Test
-    void shouldRejectSystemTypeOnCreate() {
-        StorageSpaceSaveDto dto = buildDto("系统空间", "system-create");
-        dto.setType("SYSTEM");
-
-        assertThrows(BusinessException.class, () -> storageSpaceService.save(dto));
-    }
-
-    @Test
-    void shouldRejectSystemTypeOnUpdate() {
-        StorageSpaceVo saved = storageSpaceService.save(buildDto("用户空间", "system-update"));
-
-        StorageSpaceUpdateDto update = new StorageSpaceUpdateDto();
-        update.setId(saved.getId());
-        update.setName(saved.getName());
-        update.setPath(saved.getPath());
-        update.setType("SYSTEM");
-        update.setStatus(saved.getStatus());
-
-        assertThrows(BusinessException.class, () -> storageSpaceService.update(update));
     }
 
     @Test
@@ -201,7 +175,6 @@ class StorageSpaceServiceTest {
         StorageSpaceSaveDto dto = new StorageSpaceSaveDto();
         dto.setName(name);
         dto.setPath(tempDir.resolve(relativePath).toString());
-        dto.setType("USER");
         dto.setRemark("测试存储空间");
         return dto;
     }

@@ -19,11 +19,23 @@ export interface FileNodeVo {
 }
 
 /**
+ * 文件排序字段
+ */
+export type FileSortField = 'name' | 'size' | 'createTime'
+
+/**
+ * 文件排序方向
+ */
+export type FileSortOrder = 'asc' | 'desc'
+
+/**
  * 文件分页查询参数
  */
 export interface FilePageQuery {
   parentId?: string
   name?: string
+  sortField?: FileSortField
+  sortOrder?: FileSortOrder
   pageNum?: number
   pageSize?: number
 }

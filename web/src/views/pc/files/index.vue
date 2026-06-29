@@ -6,46 +6,30 @@
  */
 import { computed, onMounted, ref } from 'vue'
 import {
-  DropdownMenuRoot,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-} from 'radix-vue'
-import {
-  ChevronRight,
-  Upload,
-  FileUp,
-  FolderUp,
-  Plus,
-  FolderPlus,
-  Download,
   FileText,
+  FolderUp,
   Image as ImageIcon,
   Film,
   Music,
-  Search,
-  X,
-  LayoutGrid,
-  List,
-  Check,
 } from '@lucide/vue'
-import { cn } from '@/utils/cn'
 import { deleteToTrash, downloadBatchFiles, downloadFile, fetchFilePage } from '@/api/file'
 import { useConfirmStore } from '@/store/confirm'
 import { useNotificationStore } from '@/store/notification'
 import { useTransferStore } from '@/store/transfer'
 import { useFileOperations } from './composables/useFileOperations'
 import { useBatchUpload } from '@/composables/useBatchUpload'
-import FileRowActions from './components/FileRowActions.vue'
 import CreateFolderModal from './components/CreateFolderModal.vue'
 import RenameModal from './components/RenameModal.vue'
 import MoveCopyModal from './components/MoveCopyModal.vue'
 import BatchActionBar from './components/BatchActionBar.vue'
+import FileListHeader from './components/FileListHeader.vue'
+import FileListRow from './components/FileListRow.vue'
+import FileListToolbar from './components/FileListToolbar.vue'
 import FilePreviewModal from '@/components/files/FilePreviewModal.vue'
 import FileConflictModal from '@/components/files/FileConflictModal.vue'
+import { useFileSort } from './composables/useFileSort'
 import type { Component } from 'vue'
-import type { ConflictItemVo, ConflictStrategy, FileNodeVo, OperationResultVo } from '@/types/file'
+import type { ConflictItemVo, ConflictStrategy, FileNodeVo, OperationResultVo, FileSortField } from '@/types/file'
 
 const transferStore = useTransferStore()
 const notificationStore = useNotificationStore()
@@ -55,7 +39,6 @@ const { uploadBatch } = useBatchUpload()
 const files = ref<FileNodeVo[]>([])
 const keyword = ref('')
 const loading = ref(false)
-const fileInput = ref<HTMLInputElement | null>(null)
 const selectedIds = ref<Set<string>>(new Set())
 const moveCopyOpen = ref(false)
 const moveCopyType = ref<'move' | 'copy'>('move')
@@ -64,6 +47,7 @@ const previewOpen = ref(false)
 const previewTarget = ref<FileNodeVo | null>(null)
 const currentParentId = ref('0')
 const breadcrumbStack = ref<Array<{ id: string; name: string }>>([{ id: '0', name: '全部文件' }])
+const { sortField, sortOrder, toggleSort } = useFileSort()
 const uploadConflictOpen = ref(false)
 const uploadConflicts = ref<ConflictItemVo[]>([])
 let uploadConflictResolve: ((strategies: Record<string, ConflictStrategy> | null) => void) | null = null
@@ -169,7 +153,7 @@ function formatSize(bytes?: string | number): string {
 
 function formatDate(time?: string): string {
   if (!time) return '-'
-  return time.replace(' ', '\n').split('\n')[0]
+  return time
 }
 
 const isSearching = computed(() => keyword.value.trim().length > 0)
@@ -190,6 +174,8 @@ async function loadFiles() {
     const res = await fetchFilePage({
       parentId: currentParentId.value,
       name: keyword.value,
+      sortField: sortField.value,
+      sortOrder: sortOrder.value,
       pageNum: 1,
       pageSize: 100,
     })
@@ -198,6 +184,10 @@ async function loadFiles() {
   } finally {
     loading.value = false
   }
+}
+
+function onSort(field: FileSortField) {
+  toggleSort(field, loadFiles)
 }
 
 onMounted(loadFiles)
@@ -209,10 +199,6 @@ function handleSearch() {
 function clearSearch() {
   keyword.value = ''
   loadFiles()
-}
-
-function triggerFileSelect() {
-  fileInput.value?.click()
 }
 
 async function handleFileChange(event: Event) {
@@ -318,152 +304,30 @@ async function handleBatchDownload() {
 <template>
   <div class="mx-auto h-full max-w-7xl">
     <!-- 顶部工具栏 -->
-    <div class="mb-6 flex items-center justify-between">
-      <!-- 面包屑导航 -->
-      <nav class="flex items-center gap-1 text-sm">
-        <span
-          v-for="(crumb, index) in breadcrumbStack"
-          :key="crumb.id"
-          class="flex items-center gap-1"
-        >
-          <button
-            :class="
-              cn(
-                'font-medium',
-                index === breadcrumbStack.length - 1 ? 'font-semibold text-surface-900' : 'text-surface-500 hover:text-surface-700'
-              )
-            "
-            :disabled="index === breadcrumbStack.length - 1"
-            @click="navigateToBreadcrumb(index)"
-          >
-            {{ crumb.name }}
-          </button>
-          <ChevronRight
-            v-if="index < breadcrumbStack.length - 1"
-            class="h-4 w-4 text-surface-300"
-          />
-        </span>
-      </nav>
-
-      <div class="flex items-center gap-3">
-        <!-- 视图切换 -->
-        <div class="flex items-center rounded-xl border border-surface-200 bg-white p-1 shadow-card">
-          <button class="rounded-lg p-1.5 text-surface-400 hover:bg-surface-100 hover:text-surface-700">
-            <LayoutGrid class="h-4 w-4" />
-          </button>
-          <button class="rounded-lg bg-surface-100 p-1.5 text-surface-700">
-            <List class="h-4 w-4" />
-          </button>
-        </div>
-
-        <!-- 搜索框 -->
-        <div
-          class="flex h-9 items-center gap-2 rounded-xl border border-surface-200 bg-white px-3 shadow-card transition-shadow duration-200 focus-within:border-primary-300 focus-within:ring-2 focus-within:ring-primary-100"
-        >
-          <Search class="h-4 w-4 text-surface-400" />
-          <input
-            v-model="keyword"
-            type="text"
-            placeholder="搜索文件..."
-            class="w-48 bg-transparent text-sm outline-none placeholder:text-surface-400"
-            @keyup.enter="handleSearch"
-          >
-          <button
-            v-if="isSearching"
-            class="rounded p-0.5 text-surface-400 hover:bg-surface-100 hover:text-surface-600"
-            @click="clearSearch"
-          >
-            <X class="h-3.5 w-3.5" />
-          </button>
-        </div>
-
-        <button
-          class="flex h-9 items-center gap-2 rounded-xl border border-surface-200 bg-white px-3 text-sm font-medium text-surface-700 shadow-card transition-all hover:bg-surface-50 hover:text-surface-900"
-          @click="openCreateFolder"
-        >
-          <FolderPlus class="h-4 w-4 text-primary-500" />
-          新建文件夹
-        </button>
-
-        <!-- 上传按钮：Radix Vue DropdownMenu -->
-        <DropdownMenuRoot>
-          <DropdownMenuTrigger as-child>
-            <button
-              class="flex h-9 items-center gap-2 rounded-xl bg-primary-600 px-4 text-sm font-semibold text-white shadow-soft transition-all duration-200 hover:bg-primary-700 hover:shadow-card active:scale-95"
-            >
-              <Plus class="h-4 w-4" />
-              上传
-            </button>
-          </DropdownMenuTrigger>
-
-          <DropdownMenuContent
-            align="end"
-            :side-offset="8"
-            class="min-w-[180px] overflow-hidden rounded-2xl border border-surface-200 bg-white p-1.5 shadow-soft outline-none"
-          >
-            <DropdownMenuItem
-              class="flex cursor-pointer items-center gap-2.5 rounded-xl px-3 py-2 text-sm text-surface-700 outline-none transition-colors duration-150 hover:bg-primary-50 hover:text-primary-700 focus:bg-primary-50"
-              @click="triggerFileSelect"
-            >
-              <FileUp class="h-4 w-4 text-primary-500" />
-              上传文件
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              class="flex cursor-pointer items-center gap-2.5 rounded-xl px-3 py-2 text-sm text-surface-700 outline-none transition-colors duration-150 hover:bg-primary-50 hover:text-primary-700 focus:bg-primary-50"
-              @click="handleMockUpload"
-            >
-              <FolderUp class="h-4 w-4 text-primary-500" />
-              上传文件夹（占位）
-            </DropdownMenuItem>
-            <DropdownMenuSeparator class="my-1.5 h-px bg-surface-200" />
-            <DropdownMenuItem
-              class="flex cursor-pointer items-center gap-2.5 rounded-xl px-3 py-2 text-sm text-surface-700 outline-none transition-colors duration-150 hover:bg-primary-50 hover:text-primary-700 focus:bg-primary-50"
-            >
-              <Upload class="h-4 w-4 text-primary-500" />
-              离线下载（占位）
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenuRoot>
-
-        <input
-          ref="fileInput"
-          type="file"
-          multiple
-          class="hidden"
-          @change="handleFileChange"
-        >
-      </div>
-    </div>
+    <FileListToolbar
+      v-model:keyword="keyword"
+      :breadcrumb-stack="breadcrumbStack"
+      :is-searching="isSearching"
+      @navigate-to-breadcrumb="navigateToBreadcrumb"
+      @search="handleSearch"
+      @clear-search="clearSearch"
+      @create-folder="openCreateFolder"
+      @mock-upload="handleMockUpload"
+      @file-change="handleFileChange"
+    />
 
     <!-- 文件列表表格 -->
     <div
       class="overflow-hidden rounded-3xl border border-surface-200 bg-white shadow-soft"
     >
       <!-- 表头 -->
-      <div
-        class="grid grid-cols-[48px_1fr_140px_160px_80px] items-center border-b border-surface-200 bg-surface-50/80 px-5 py-3 text-xs font-semibold uppercase tracking-wider text-surface-500"
-      >
-        <div>
-          <button
-            :class="
-              cn(
-                'flex h-4 w-4 items-center justify-center rounded border border-surface-300 bg-white transition-colors duration-150 hover:border-primary-400',
-                isAllSelected && 'border-primary-500 bg-primary-500 text-white'
-              )
-            "
-            @click="toggleSelectAll"
-          >
-            <Check
-              v-if="isAllSelected"
-              class="h-3 w-3"
-            />
-          </button>
-        </div>
-        <span>文件名</span>
-        <span>大小</span>
-        <span>上传时间</span>
-        <span class="text-right">操作</span>
-      </div>
+      <FileListHeader
+        :is-all-selected="isAllSelected"
+        :sort-field="sortField"
+        :sort-order="sortOrder"
+        @toggle-select-all="toggleSelectAll"
+        @sort="onSort"
+      />
 
       <!-- 加载中 -->
       <div
@@ -478,85 +342,19 @@ async function handleBatchDownload() {
         v-else
         class="divide-y divide-surface-100"
       >
-        <div
+        <FileListRow
           v-for="file in displayFiles"
           :key="file.id"
-          :class="
-            cn(
-              'group grid cursor-pointer grid-cols-[48px_1fr_140px_160px_80px] items-center px-5 py-3.5 text-sm transition-all duration-200 ease-out-expo hover:bg-surface-50',
-              file.selected && 'bg-primary-50/40 hover:bg-primary-50/60'
-            )
-          "
-          @click="handleRowClick(file)"
-        >
-          <!-- 复选框 -->
-          <div
-            class="flex items-center"
-            @click.stop="toggleSelect(file.id)"
-          >
-            <button
-              :class="
-                cn(
-                  'flex h-4 w-4 items-center justify-center rounded border border-surface-300 bg-white transition-colors duration-200 hover:border-primary-400',
-                  file.selected && 'border-primary-500 bg-primary-500 text-white'
-                )
-              "
-            >
-              <Check
-                v-if="file.selected"
-                class="h-3 w-3"
-              />
-            </button>
-          </div>
-
-          <!-- 文件名 -->
-          <div class="flex min-w-0 items-center gap-3">
-            <div
-              :class="
-                cn(
-                  'flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition-colors duration-200',
-                  file.iconType === 'image' && 'bg-purple-100 text-purple-600',
-                  file.iconType === 'video' && 'bg-rose-100 text-rose-600',
-                  file.iconType === 'audio' && 'bg-amber-100 text-amber-600',
-                  file.iconType === 'doc' && 'bg-blue-100 text-blue-600',
-                  file.iconType === 'folder' && 'bg-emerald-100 text-emerald-600'
-                )
-              "
-            >
-              <component
-                :is="fileIconMap[file.iconType]"
-                class="h-5 w-5"
-              />
-            </div>
-            <span class="line-clamp-1 font-medium text-surface-800">
-              {{ file.name }}
-            </span>
-          </div>
-
-          <!-- 大小 -->
-          <span class="text-surface-500">{{ file.displaySize }}</span>
-
-          <!-- 上传时间 -->
-          <span class="text-surface-500">{{ file.displayDate }}</span>
-
-          <!-- 操作按钮 -->
-          <div class="flex justify-end gap-1">
-            <button
-              class="rounded-lg p-1.5 text-surface-400 opacity-0 transition-all duration-200 hover:bg-surface-100 hover:text-surface-700 group-hover:opacity-100"
-              @click.stop="downloadFile(file.id)"
-            >
-              <Download class="h-4 w-4" />
-            </button>
-            <FileRowActions
-              :file="file"
-              class="opacity-0 group-hover:opacity-100"
-              @rename="openRename"
-              @copy="(f) => openMoveCopy('copy', [f])"
-              @move="(f) => openMoveCopy('move', [f])"
-              @delete="handleDelete"
-            />
-          </div>
-        </div>
+          :file="file"
+          :file-icon-map="fileIconMap"
+          @row-click="handleRowClick"
+          @toggle-select="toggleSelect"
+          @download="downloadFile"
+          @rename="openRename"
+          @copy="(f) => openMoveCopy('copy', [f])"
+          @move="(f) => openMoveCopy('move', [f])"
+          @remove="handleDelete"
+        />
 
         <p
           v-if="displayFiles.length === 0"

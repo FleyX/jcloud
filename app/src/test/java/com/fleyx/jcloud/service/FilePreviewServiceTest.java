@@ -212,7 +212,6 @@ class FilePreviewServiceTest {
         StorageSpaceSaveDto spaceDto = new StorageSpaceSaveDto();
         spaceDto.setName("用户空间");
         spaceDto.setPath(spacePath.toString());
-        spaceDto.setType("USER");
         StorageSpaceVo space = storageSpaceService.save(spaceDto);
         systemConfigService.setValue("system.storage.space.id", String.valueOf(space.getId()));
 

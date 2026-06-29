@@ -359,6 +359,14 @@ public class UserServiceImpl implements UserService {
                 : roleMapper.selectBatchIds(new ArrayList<>(allRoleIds)).stream()
                 .collect(Collectors.toMap(Role::getId, r -> r));
 
+        Set<String> storageSpaceIds = users.stream()
+                .map(User::getStorageSpaceId)
+                .filter(StrUtil::isNotBlank)
+                .collect(Collectors.toSet());
+        Map<String, StorageSpace> spaceMap = storageSpaceIds.isEmpty() ? Map.of()
+                : storageSpaceMapper.selectBatchIds(new ArrayList<>(storageSpaceIds)).stream()
+                .collect(Collectors.toMap(StorageSpace::getId, s -> s));
+
         for (int i = 0; i < vos.size(); i++) {
             UserVo vo = vos.get(i);
             String uid = vo.getId();
@@ -374,6 +382,12 @@ public class UserServiceImpl implements UserService {
                 roles.add(0, buildSuperAdminRoleVo());
             }
             vo.setRoles(roles);
+            if (StrUtil.isNotBlank(vo.getStorageSpaceId())) {
+                StorageSpace space = spaceMap.get(vo.getStorageSpaceId());
+                if (space != null) {
+                    vo.setStorageSpaceName(space.getName());
+                }
+            }
         }
         return vos;
     }

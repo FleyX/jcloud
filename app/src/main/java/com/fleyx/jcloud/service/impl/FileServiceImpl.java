@@ -42,6 +42,7 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -199,7 +200,7 @@ public class FileServiceImpl implements FileService {
         LambdaQueryWrapper<FileNode> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(FileNode::getUserId, userId);
         wrapper.eq(FileNode::getParentId, parentId);
-        wrapper.orderByDesc(FileNode::getCreateTime);
+        applySort(wrapper, dto);
 
         Page<FileNode> page = new Page<>(dto.getPageNum(), dto.getPageSize());
         IPage<FileNode> poPage = fileMapper.selectPage(page, wrapper);
@@ -210,6 +211,9 @@ public class FileServiceImpl implements FileService {
         String keyword = dto.getName().trim();
         String likePattern = escapeLikePattern(keyword);
         List<FileNode> records = fileMapper.searchByName(userId, keyword, likePattern);
+        if (StringUtils.hasText(dto.getSortField())) {
+            records.sort(buildComparator(dto));
+        }
         Page<FileNodeVo> resultPage = new Page<>(dto.getPageNum(), dto.getPageSize());
         resultPage.setTotal(records.size());
 
@@ -227,6 +231,44 @@ public class FileServiceImpl implements FileService {
         return keyword.replace("\\", "\\\\")
                 .replace("%", "\\%")
                 .replace("_", "\\_");
+    }
+
+    private void applySort(LambdaQueryWrapper<FileNode> wrapper, FilePageQueryDto dto) {
+        String field = dto.getSortField();
+        boolean asc = "asc".equalsIgnoreCase(dto.getSortOrder());
+        if ("name".equals(field)) {
+            if (asc) {
+                wrapper.orderByAsc(FileNode::getName);
+            } else {
+                wrapper.orderByDesc(FileNode::getName);
+            }
+        } else if ("size".equals(field)) {
+            if (asc) {
+                wrapper.orderByAsc(FileNode::getSize);
+            } else {
+                wrapper.orderByDesc(FileNode::getSize);
+            }
+        } else {
+            if (asc) {
+                wrapper.orderByAsc(FileNode::getCreateTime);
+            } else {
+                wrapper.orderByDesc(FileNode::getCreateTime);
+            }
+        }
+    }
+
+    private Comparator<FileNode> buildComparator(FilePageQueryDto dto) {
+        String field = dto.getSortField();
+        boolean asc = "asc".equalsIgnoreCase(dto.getSortOrder());
+        Comparator<FileNode> comparator;
+        if ("name".equals(field)) {
+            comparator = Comparator.comparing(FileNode::getName, Comparator.nullsFirst(String::compareTo));
+        } else if ("size".equals(field)) {
+            comparator = Comparator.comparing(FileNode::getSize, Comparator.nullsFirst(Long::compareTo));
+        } else {
+            comparator = Comparator.comparing(FileNode::getCreateTime, Comparator.nullsFirst(Comparator.naturalOrder()));
+        }
+        return asc ? comparator : comparator.reversed();
     }
 
     @Override
@@ -257,6 +299,20 @@ public class FileServiceImpl implements FileService {
         } catch (Exception e) {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "文件读取失败", e);
         }
+    }
+
+    @Override
+    public List<FileNodeVo> listChildFolders(String parentId, String userId) {
+        String normalizedParentId = FileNodeUtil.normalizeParentId(parentId);
+        validateTargetParent(normalizedParentId, userId);
+        LambdaQueryWrapper<FileNode> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(FileNode::getUserId, userId);
+        wrapper.eq(FileNode::getParentId, normalizedParentId);
+        wrapper.eq(FileNode::getType, TYPE_FOLDER);
+        wrapper.orderByAsc(FileNode::getName);
+        return fileMapper.selectList(wrapper).stream()
+                .map(fileConvert::poToVo)
+                .toList();
     }
 
     @Override
