@@ -96,7 +96,7 @@ class AuthTokenFilterTest {
     void loginResourceWithValidTokenShouldPass() throws ServletException, IOException {
         Claims claims = mock(Claims.class);
         when(jwtUtil.parseToken("valid-token")).thenReturn(claims);
-        when(jwtUtil.getUserId(claims)).thenReturn(1L);
+        when(jwtUtil.getUserId(claims)).thenReturn("1");
         when(jwtUtil.getUserCode(claims)).thenReturn("user");
 
         MockHttpServletRequest request = new MockHttpServletRequest("GET", LOGIN_PATH);
@@ -113,13 +113,13 @@ class AuthTokenFilterTest {
     void authorizedResourceWithValidTokenShouldPass() throws ServletException, IOException {
         Claims claims = mock(Claims.class);
         when(jwtUtil.parseToken("valid-token")).thenReturn(claims);
-        when(jwtUtil.getUserId(claims)).thenReturn(1L);
+        when(jwtUtil.getUserId(claims)).thenReturn("1");
         when(jwtUtil.getUserCode(claims)).thenReturn("user");
 
         User user = new User();
-        user.setId(1L);
+        user.setId("1");
         user.setIsAdmin(0);
-        when(userMapper.selectById(1L)).thenReturn(user);
+        when(userMapper.selectById("1")).thenReturn(user);
         when(permissionResolver.resolveResourceCodes(any())).thenReturn(List.of("GET:" + API_PATH));
 
         MockHttpServletRequest request = new MockHttpServletRequest("GET", API_PATH);
@@ -136,13 +136,13 @@ class AuthTokenFilterTest {
     void unauthorizedResourceWithValidTokenShouldReturn403() throws ServletException, IOException {
         Claims claims = mock(Claims.class);
         when(jwtUtil.parseToken("valid-token")).thenReturn(claims);
-        when(jwtUtil.getUserId(claims)).thenReturn(1L);
+        when(jwtUtil.getUserId(claims)).thenReturn("1");
         when(jwtUtil.getUserCode(claims)).thenReturn("user");
 
         User user = new User();
-        user.setId(1L);
+        user.setId("1");
         user.setIsAdmin(0);
-        when(userMapper.selectById(1L)).thenReturn(user);
+        when(userMapper.selectById("1")).thenReturn(user);
         when(permissionResolver.resolveResourceCodes(any())).thenReturn(List.of());
 
         MockHttpServletRequest request = new MockHttpServletRequest("GET", API_PATH);

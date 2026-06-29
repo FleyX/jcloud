@@ -19,7 +19,7 @@ public interface UserRoleMapper extends BaseMapper<UserRole> {
      * @param userId 用户 ID
      * @return 角色 ID 列表
      */
-    List<Long> selectRoleIdsByUserId(@Param("userId") Long userId);
+    List<String> selectRoleIdsByUserId(@Param("userId") String userId);
 
     /**
      * 批量插入用户角色关联。
@@ -35,7 +35,7 @@ public interface UserRoleMapper extends BaseMapper<UserRole> {
      * @param userIds 用户 ID 列表
      * @return 用户角色关联列表
      */
-    List<UserRole> selectByUserIds(@Param("userIds") List<Long> userIds);
+    List<UserRole> selectByUserIds(@Param("userIds") List<String> userIds);
 
     /**
      * 根据角色 ID 查询用户 ID 列表。
@@ -43,5 +43,5 @@ public interface UserRoleMapper extends BaseMapper<UserRole> {
      * @param roleId 角色 ID
      * @return 用户 ID 列表
      */
-    List<Long> selectUserIdsByRoleId(@Param("roleId") Long roleId);
+    List<String> selectUserIdsByRoleId(@Param("roleId") String roleId);
 }

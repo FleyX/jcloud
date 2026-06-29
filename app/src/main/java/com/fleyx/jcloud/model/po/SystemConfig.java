@@ -10,7 +10,7 @@ import lombok.EqualsAndHashCode;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("t_system_config")
-public class SystemConfig extends BaseEntity {
+public class SystemConfig extends SoftDeleteEntity {
 
     private static final long serialVersionUID = 1L;
 

@@ -13,5 +13,5 @@ public class FilePreCheckRestoreDto {
     /**
      * 要恢复的回收站记录 ID 列表。
      */
-    private List<Long> ids;
+    private List<String> ids;
 }

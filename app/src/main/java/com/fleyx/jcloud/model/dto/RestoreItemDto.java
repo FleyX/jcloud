@@ -11,7 +11,7 @@ public class RestoreItemDto {
     /**
      * 回收站记录 ID。
      */
-    private Long id;
+    private String id;
 
     /**
      * 冲突解决策略：skip / overwrite / keep。

@@ -21,7 +21,7 @@ public class BatchUserStatusDto implements Serializable {
      * 用户 ID 列表。
      */
     @NotEmpty(message = "用户 ID 列表不能为空")
-    private List<Long> userIds;
+    private List<String> userIds;
 
     /**
      * 状态：1 启用，0 禁用。

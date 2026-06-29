@@ -11,6 +11,7 @@ import com.fleyx.jcloud.model.vo.FileNodeVo;
 import com.fleyx.jcloud.model.vo.StorageSpaceVo;
 import com.fleyx.jcloud.model.vo.UserVo;
 import com.fleyx.jcloud.service.SystemConfigService;
+import com.fleyx.jcloud.common.constant.FileNodeConstants;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -69,8 +70,8 @@ class FilePreviewServiceTest {
         UserVo user = userWithSpace.user();
         MultipartFile file = new MockMultipartFile("file", "photo.png", "image/png", createImageBytes());
 
-        FileNodeVo uploaded = fileService.upload(file, user.getId(), 0L, null);
-        PreviewResult result = filePreviewService.preview(Long.valueOf(uploaded.getId()), user.getId(), PreviewType.THUMBNAIL);
+        FileNodeVo uploaded = fileService.upload(file, user.getId(), FileNodeConstants.ROOT_ID, null);
+        PreviewResult result = filePreviewService.preview(uploaded.getId(), user.getId(), PreviewType.THUMBNAIL);
 
         assertEquals("image/jpeg", result.getContentType());
         assertTrue(result.getSize() > 0);
@@ -87,8 +88,8 @@ class FilePreviewServiceTest {
         String content = "Hello, jcloud preview!";
         MultipartFile file = buildFile("note.txt", content);
 
-        FileNodeVo uploaded = fileService.upload(file, user.getId(), 0L, null);
-        PreviewResult result = filePreviewService.preview(Long.valueOf(uploaded.getId()), user.getId(), PreviewType.TEXT);
+        FileNodeVo uploaded = fileService.upload(file, user.getId(), FileNodeConstants.ROOT_ID, null);
+        PreviewResult result = filePreviewService.preview(uploaded.getId(), user.getId(), PreviewType.TEXT);
 
         assertEquals("text/plain", result.getContentType());
         String previewContent = new String(result.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
@@ -100,16 +101,16 @@ class FilePreviewServiceTest {
         UserWithSpace userWithSpace = prepareUserWithStorageSpace();
         UserVo user = userWithSpace.user();
         MultipartFile file = new MockMultipartFile("file", "photo.png", "image/png", createImageBytes());
-        FileNodeVo uploaded = fileService.upload(file, user.getId(), 0L, null);
+        FileNodeVo uploaded = fileService.upload(file, user.getId(), FileNodeConstants.ROOT_ID, null);
 
-        filePreviewService.preview(Long.valueOf(uploaded.getId()), user.getId(), PreviewType.THUMBNAIL);
+        filePreviewService.preview(uploaded.getId(), user.getId(), PreviewType.THUMBNAIL);
         PreviewFile recordBefore = previewFileMapper.selectList(
                 new LambdaQueryWrapper<PreviewFile>()
-                        .eq(PreviewFile::getFileNodeId, Long.valueOf(uploaded.getId()))
+                        .eq(PreviewFile::getFileNodeId, uploaded.getId())
                         .eq(PreviewFile::getType, PreviewType.THUMBNAIL.getCode())
         ).get(0);
 
-        PreviewResult result = filePreviewService.preview(Long.valueOf(uploaded.getId()), user.getId(), PreviewType.THUMBNAIL);
+        PreviewResult result = filePreviewService.preview(uploaded.getId(), user.getId(), PreviewType.THUMBNAIL);
         PreviewFile recordAfter = previewFileMapper.selectById(recordBefore.getId());
 
         assertEquals(recordBefore.getSize(), recordAfter.getSize());
@@ -122,12 +123,12 @@ class FilePreviewServiceTest {
         UserVo user = userWithSpace.user();
         MultipartFile file = buildFile("note.txt", "system space check");
 
-        FileNodeVo uploaded = fileService.upload(file, user.getId(), 0L, null);
-        filePreviewService.preview(Long.valueOf(uploaded.getId()), user.getId(), PreviewType.TEXT);
+        FileNodeVo uploaded = fileService.upload(file, user.getId(), FileNodeConstants.ROOT_ID, null);
+        filePreviewService.preview(uploaded.getId(), user.getId(), PreviewType.TEXT);
 
         PreviewFile record = previewFileMapper.selectList(
                 new LambdaQueryWrapper<PreviewFile>()
-                        .eq(PreviewFile::getFileNodeId, Long.valueOf(uploaded.getId()))
+                        .eq(PreviewFile::getFileNodeId, uploaded.getId())
         ).get(0);
 
         Path systemPath = userWithSpace.spacePath().resolve("system");
@@ -143,8 +144,8 @@ class FilePreviewServiceTest {
         Path videoPath = createTestVideo();
         MultipartFile file = new MockMultipartFile("file", "clip.mp4", "video/mp4", Files.readAllBytes(videoPath));
 
-        FileNodeVo uploaded = fileService.upload(file, user.getId(), 0L, null);
-        PreviewResult result = filePreviewService.preview(Long.valueOf(uploaded.getId()), user.getId(), PreviewType.POSTER);
+        FileNodeVo uploaded = fileService.upload(file, user.getId(), FileNodeConstants.ROOT_ID, null);
+        PreviewResult result = filePreviewService.preview(uploaded.getId(), user.getId(), PreviewType.POSTER);
 
         assertEquals("image/jpeg", result.getContentType());
         assertTrue(result.getSize() > 0);
@@ -160,10 +161,10 @@ class FilePreviewServiceTest {
         UserVo userB = userBWithSpace.user();
         MultipartFile file = buildFile("private.txt", "private content");
 
-        FileNodeVo uploaded = fileService.upload(file, userA.getId(), 0L, null);
+        FileNodeVo uploaded = fileService.upload(file, userA.getId(), FileNodeConstants.ROOT_ID, null);
 
         assertThrows(com.fleyx.jcloud.common.exception.BusinessException.class,
-                () -> filePreviewService.preview(Long.valueOf(uploaded.getId()), userB.getId(), PreviewType.TEXT));
+                () -> filePreviewService.preview(uploaded.getId(), userB.getId(), PreviewType.TEXT));
     }
 
     private Path createTestVideo() throws Exception {

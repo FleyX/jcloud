@@ -34,7 +34,7 @@ public interface UserService {
      * @param id 用户 ID
      * @return 用户视图
      */
-    UserVo getById(Long id);
+    UserVo getById(String id);
 
     /**
      * 根据用户名关键字查询用户。
@@ -50,7 +50,7 @@ public interface UserService {
      * @param id 用户 ID
      * @return 是否成功
      */
-    boolean removeById(Long id);
+    boolean removeById(String id);
 
     /**
      * 分页查询用户。
@@ -88,7 +88,7 @@ public interface UserService {
      * @param userIds 用户 ID 列表
      * @return 实际删除的用户 ID 列表
      */
-    List<Long> batchDelete(List<Long> userIds);
+    List<String> batchDelete(List<String> userIds);
 
     /**
      * 批量修改用户状态（自动跳过超级管理员）。
@@ -96,7 +96,7 @@ public interface UserService {
      * @param dto 批量状态 DTO
      * @return 实际更新状态的用户 ID 列表
      */
-    List<Long> batchUpdateStatus(BatchUserStatusDto dto);
+    List<String> batchUpdateStatus(BatchUserStatusDto dto);
 
     /**
      * 获取当前登录用户个人信息。
@@ -104,7 +104,7 @@ public interface UserService {
      * @param userId 当前用户 ID
      * @return 个人信息视图
      */
-    UserProfileVo getUserProfile(Long userId);
+    UserProfileVo getUserProfile(String userId);
 
     /**
      * 更新当前登录用户个人信息。
@@ -113,7 +113,7 @@ public interface UserService {
      * @param dto    更新内容
      * @return 更新后的个人信息视图
      */
-    UserProfileVo updateUserProfile(Long userId, UserProfileUpdateDto dto);
+    UserProfileVo updateUserProfile(String userId, UserProfileUpdateDto dto);
 
     /**
      * 修改当前登录用户密码。
@@ -121,7 +121,7 @@ public interface UserService {
      * @param userId 当前用户 ID
      * @param dto    密码修改 DTO
      */
-    void changePassword(Long userId, ChangePasswordDto dto);
+    void changePassword(String userId, ChangePasswordDto dto);
 
     /**
      * 为用户绑定默认存储空间与配额。

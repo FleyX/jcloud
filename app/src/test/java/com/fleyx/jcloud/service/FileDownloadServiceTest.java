@@ -16,6 +16,7 @@ import com.fleyx.jcloud.model.vo.OperationResultVo;
 import com.fleyx.jcloud.model.vo.StorageSpaceVo;
 import com.fleyx.jcloud.model.vo.UserVo;
 import com.fleyx.jcloud.service.impl.FileDownloadServiceImpl;
+import com.fleyx.jcloud.common.constant.FileNodeConstants;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -94,7 +95,7 @@ class FileDownloadServiceTest {
     void shouldDownloadSingleFileAsZip() throws Exception {
         UserWithSpace userWithSpace = prepareUserWithStorageSpace();
         UserVo user = userWithSpace.user();
-        FileNodeVo file = fileService.upload(buildFile("hello.txt", "Hello"), user.getId(), 0L, null);
+        FileNodeVo file = fileService.upload(buildFile("hello.txt", "Hello"), user.getId(), FileNodeConstants.ROOT_ID, null);
 
         FileBatchDownloadDto dto = new FileBatchDownloadDto();
         dto.setIds(List.of(file.getId()));
@@ -120,8 +121,8 @@ class FileDownloadServiceTest {
     void shouldDownloadFolderRecursivelyAsZip() throws Exception {
         UserWithSpace userWithSpace = prepareUserWithStorageSpace();
         UserVo user = userWithSpace.user();
-        FileNodeVo docs = createFolder(user.getId(), "docs", 0L);
-        FileNodeVo report = fileService.upload(buildFile("report.txt", "Report"), user.getId(), 0L, null);
+        FileNodeVo docs = createFolder(user.getId(), "docs", FileNodeConstants.ROOT_ID);
+        FileNodeVo report = fileService.upload(buildFile("report.txt", "Report"), user.getId(), FileNodeConstants.ROOT_ID, null);
         moveFileToFolder(user.getId(), report, docs);
 
         FileBatchDownloadDto dto = new FileBatchDownloadDto();
@@ -143,7 +144,7 @@ class FileDownloadServiceTest {
     void shouldCreateAsyncTaskWhenExceedThreshold() throws Exception {
         UserWithSpace userWithSpace = prepareUserWithStorageSpace();
         UserVo user = userWithSpace.user();
-        FileNodeVo file = fileService.upload(buildFile("big.txt", "Large content"), user.getId(), 0L, null);
+        FileNodeVo file = fileService.upload(buildFile("big.txt", "Large content"), user.getId(), FileNodeConstants.ROOT_ID, null);
 
         // 临时把阈值降到 1 字节，强制走异步任务
         setField(fileDownloadService, "streamThresholdSize", 1L);
@@ -171,7 +172,7 @@ class FileDownloadServiceTest {
     void shouldRejectOtherUserTaskAccess() {
         UserVo userA = prepareUserWithStorageSpace().user();
         UserVo userB = prepareUserWithStorageSpace().user();
-        FileNodeVo fileA = fileService.upload(buildFile("a.txt", "A"), userA.getId(), 0L, null);
+        FileNodeVo fileA = fileService.upload(buildFile("a.txt", "A"), userA.getId(), FileNodeConstants.ROOT_ID, null);
 
         setField(fileDownloadService, "streamThresholdSize", 0L);
         BatchDownloadResult result = fileDownloadService.downloadBatch(
@@ -194,20 +195,20 @@ class FileDownloadServiceTest {
                 () -> fileDownloadService.downloadBatch(dto, user.getId()));
     }
 
-    private FileBatchDownloadDto newBatchDto(Long... ids) {
+    private FileBatchDownloadDto newBatchDto(String... ids) {
         FileBatchDownloadDto dto = new FileBatchDownloadDto();
         dto.setIds(List.of(ids));
         return dto;
     }
 
-    private FileNodeVo createFolder(Long userId, String name, Long parentId) {
+    private FileNodeVo createFolder(String userId, String name, String parentId) {
         FileCreateFolderDto dto = new FileCreateFolderDto();
         dto.setParentId(parentId);
         dto.setName(name);
         return fileOperationService.createFolder(dto, userId);
     }
 
-    private void moveFileToFolder(Long userId, FileNodeVo file, FileNodeVo folder) {
+    private void moveFileToFolder(String userId, FileNodeVo file, FileNodeVo folder) {
         FileExecuteOperationDto dto = new FileExecuteOperationDto();
         dto.setType("move");
         dto.setTargetParentId(folder.getId());

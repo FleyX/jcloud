@@ -28,7 +28,7 @@ public interface RoleService {
      * @param dto 角色更新 DTO
      * @return 角色视图
      */
-    RoleVo updateRole(Long id, RoleUpdateDto dto);
+    RoleVo updateRole(String id, RoleUpdateDto dto);
 
     /**
      * 根据 ID 查询角色。
@@ -36,7 +36,7 @@ public interface RoleService {
      * @param id 角色 ID
      * @return 角色视图
      */
-    RoleVo getById(Long id);
+    RoleVo getById(String id);
 
     /**
      * 分页查询角色。
@@ -58,7 +58,7 @@ public interface RoleService {
      *
      * @param id 角色 ID
      */
-    void removeById(Long id);
+    void removeById(String id);
 
     /**
      * 修改角色状态。
@@ -66,5 +66,5 @@ public interface RoleService {
      * @param id     角色 ID
      * @param status 状态：1 启用，0 禁用
      */
-    void updateStatus(Long id, Integer status);
+    void updateStatus(String id, Integer status);
 }

@@ -94,7 +94,7 @@ public class StorageSpaceServiceImpl implements StorageSpaceService {
     }
 
     @Override
-    public StorageSpaceVo getById(Long id) {
+    public StorageSpaceVo getById(String id) {
         StorageSpace po = storageSpaceMapper.selectById(id);
         if (po == null) {
             throw new BusinessException(ResultCode.NOT_FOUND, "存储空间不存在");
@@ -105,7 +105,7 @@ public class StorageSpaceServiceImpl implements StorageSpaceService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void removeById(Long id) {
+    public void removeById(String id) {
         StorageSpace po = storageSpaceMapper.selectById(id);
         if (po == null) {
             throw new BusinessException(ResultCode.NOT_FOUND, "存储空间不存在");
@@ -130,7 +130,7 @@ public class StorageSpaceServiceImpl implements StorageSpaceService {
     }
 
     @Override
-    public StorageSpaceVo refreshDiskSpace(Long id) {
+    public StorageSpaceVo refreshDiskSpace(String id) {
         StorageSpace po = storageSpaceMapper.selectById(id);
         if (po == null) {
             throw new BusinessException(ResultCode.NOT_FOUND, "存储空间不存在");
@@ -152,9 +152,9 @@ public class StorageSpaceServiceImpl implements StorageSpaceService {
         }
     }
 
-    private void rejectIfSystemSpaceConfigured(Long id) {
+    private void rejectIfSystemSpaceConfigured(String id) {
         String configuredId = systemConfigService.getValue(SYSTEM_STORAGE_SPACE_ID_KEY, null);
-        if (configuredId != null && configuredId.equals(String.valueOf(id))) {
+        if (configuredId != null && configuredId.equals(id)) {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "该存储空间已被指定为系统数据目录，无法删除");
         }
     }
@@ -173,7 +173,7 @@ public class StorageSpaceServiceImpl implements StorageSpaceService {
         }
     }
 
-    private void clearOtherPrimary(Long excludeId) {
+    private void clearOtherPrimary(String excludeId) {
         LambdaUpdateWrapper<StorageSpace> wrapper = new LambdaUpdateWrapper<>();
         wrapper.set(StorageSpace::getIsPrimary, 0);
         wrapper.ne(excludeId != null, StorageSpace::getId, excludeId);

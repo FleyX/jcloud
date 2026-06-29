@@ -1,5 +1,6 @@
 package com.fleyx.jcloud.model.dto;
 
+import com.fleyx.jcloud.common.constant.FileNodeConstants;
 import lombok.Data;
 
 /**
@@ -11,7 +12,7 @@ public class FileInstantUploadDto {
     /**
      * 候选文件节点 ID。
      */
-    private Long candidateId;
+    private String candidateId;
 
     /**
      * 完整文件 hash。
@@ -24,9 +25,9 @@ public class FileInstantUploadDto {
     private String fileName;
 
     /**
-     * 目标父节点 ID，默认为根目录 0。
+     * 目标父节点 ID，默认为根目录 {@link FileNodeConstants#ROOT_ID}。
      */
-    private Long parentId;
+    private String parentId;
 
     /**
      * 冲突解决策略：skip / overwrite / keep。

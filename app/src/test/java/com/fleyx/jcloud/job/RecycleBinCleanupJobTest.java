@@ -12,6 +12,7 @@ import com.fleyx.jcloud.service.FileRecycleService;
 import com.fleyx.jcloud.service.FileService;
 import com.fleyx.jcloud.service.StorageSpaceService;
 import com.fleyx.jcloud.service.UserService;
+import com.fleyx.jcloud.common.constant.FileNodeConstants;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -61,13 +62,13 @@ class RecycleBinCleanupJobTest {
     void shouldDeleteExpiredRecycleRecords() {
         UserWithSpace userWithSpace = prepareUserWithStorageSpace();
         UserVo user = userWithSpace.user();
-        FileNodeVo file = fileService.upload(buildFile("old.txt", "Old"), user.getId(), 0L, null);
+        FileNodeVo file = fileService.upload(buildFile("old.txt", "Old"), user.getId(), FileNodeConstants.ROOT_ID, null);
 
         FileDeleteDto deleteDto = new FileDeleteDto();
         deleteDto.setIds(List.of(file.getId()));
         List<com.fleyx.jcloud.model.vo.OperationResultVo> deleteResults =
                 fileRecycleService.deleteToTrash(deleteDto, user.getId());
-        Long recordId = deleteResults.get(0).getNodeId();
+        String recordId = deleteResults.get(0).getNodeId();
 
         RecycleRecord record = recycleRecordMapper.selectById(recordId);
         record.setCreateTime(LocalDateTime.now().minusDays(31));
@@ -82,13 +83,13 @@ class RecycleBinCleanupJobTest {
     void shouldKeepRecentRecycleRecords() {
         UserWithSpace userWithSpace = prepareUserWithStorageSpace();
         UserVo user = userWithSpace.user();
-        FileNodeVo file = fileService.upload(buildFile("recent.txt", "Recent"), user.getId(), 0L, null);
+        FileNodeVo file = fileService.upload(buildFile("recent.txt", "Recent"), user.getId(), FileNodeConstants.ROOT_ID, null);
 
         FileDeleteDto deleteDto = new FileDeleteDto();
         deleteDto.setIds(List.of(file.getId()));
         List<com.fleyx.jcloud.model.vo.OperationResultVo> deleteResults =
                 fileRecycleService.deleteToTrash(deleteDto, user.getId());
-        Long recordId = deleteResults.get(0).getNodeId();
+        String recordId = deleteResults.get(0).getNodeId();
 
         cleanupJob.cleanup();
 

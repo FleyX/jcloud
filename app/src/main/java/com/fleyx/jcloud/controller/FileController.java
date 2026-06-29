@@ -3,6 +3,7 @@ package com.fleyx.jcloud.controller;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.fleyx.jcloud.common.R;
 import com.fleyx.jcloud.common.constant.CommonConstant;
+import com.fleyx.jcloud.common.constant.FileNodeConstants;
 import com.fleyx.jcloud.common.context.UserContext;
 import com.fleyx.jcloud.common.enums.PreviewType;
 import com.fleyx.jcloud.model.bo.BatchDownloadResult;
@@ -78,7 +79,7 @@ public class FileController {
      */
     @PostMapping(value = "/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public R<FileNodeVo> upload(@RequestParam("file") MultipartFile file,
-                                @RequestParam(required = false, defaultValue = "0") Long parentId,
+                                @RequestParam(required = false, defaultValue = FileNodeConstants.ROOT_ID) String parentId,
                                 @RequestParam(required = false) String strategy) {
         return R.ok(fileService.upload(file, UserContext.get().id(), parentId, strategy));
     }
@@ -97,7 +98,7 @@ public class FileController {
     @GetMapping
     public R<IPage<FileNodeVo>> list(FilePageQueryDto dto) {
         if (dto.getParentId() == null) {
-            dto.setParentId(0L);
+            dto.setParentId(FileNodeConstants.ROOT_ID);
         }
         return R.ok(fileService.list(dto, UserContext.get().id()));
     }
@@ -150,7 +151,7 @@ public class FileController {
      * 预览指定文件。
      */
     @GetMapping("/{id}/preview")
-    public ResponseEntity<?> preview(@PathVariable Long id,
+    public ResponseEntity<?> preview(@PathVariable String id,
                                      @RequestParam(defaultValue = "thumbnail") String type) throws IOException {
         PreviewType previewType = PreviewType.fromCode(type);
         if (previewType == null) {
@@ -177,7 +178,7 @@ public class FileController {
      * 下载指定文件。
      */
     @GetMapping("/{id}/download")
-    public ResponseEntity<InputStreamResource> download(@PathVariable Long id) {
+    public ResponseEntity<InputStreamResource> download(@PathVariable String id) {
         FileDownloadResult result = fileService.download(id, UserContext.get().id());
         String contentType = result.getContentType() != null
                 ? result.getContentType()

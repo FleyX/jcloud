@@ -15,7 +15,7 @@ public class StorageSpaceUpdateDto {
      * ID。
      */
     @NotNull(message = "ID 不能为空")
-    private Long id;
+    private String id;
 
     /**
      * 存储空间名称。

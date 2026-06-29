@@ -24,11 +24,11 @@ class JwtUtilTest {
     @Test
     void shouldGenerateAndParseToken() {
         JwtUtil util = buildJwtUtil();
-        String token = util.generateToken(123L, "testUser");
+        String token = util.generateToken("123", "testUser");
         assertNotNull(token);
 
         Claims claims = util.parseToken(token);
-        assertEquals(123L, util.getUserId(claims));
+        assertEquals("123", util.getUserId(claims));
         assertEquals("testUser", util.getUserCode(claims));
     }
 

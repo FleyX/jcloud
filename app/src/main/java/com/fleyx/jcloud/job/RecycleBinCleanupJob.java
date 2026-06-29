@@ -62,7 +62,7 @@ public class RecycleBinCleanupJob {
         log.info("回收站自动清理完成: 成功={}, 失败={}", success, failed);
     }
 
-    private FilePermanentDeleteDto buildDto(Long recordId) {
+    private FilePermanentDeleteDto buildDto(String recordId) {
         FilePermanentDeleteDto dto = new FilePermanentDeleteDto();
         dto.setIds(List.of(recordId));
         return dto;

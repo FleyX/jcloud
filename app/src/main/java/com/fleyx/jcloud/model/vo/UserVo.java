@@ -20,7 +20,7 @@ public class UserVo implements Serializable {
     /**
      * 用户 ID。
      */
-    private Long id;
+    private String id;
 
     /**
      * 用户名。
@@ -55,7 +55,7 @@ public class UserVo implements Serializable {
     /**
      * 用户绑定的存储空间 ID。
      */
-    private Long storageSpaceId;
+    private String storageSpaceId;
 
     /**
      * 用户配额（字节）。

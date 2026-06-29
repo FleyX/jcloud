@@ -38,14 +38,14 @@
     </delete>
 
     <insert id="batchInsert">
-        INSERT INTO t_permission_resource (permission_id, resource_id, create_time)
+        INSERT INTO t_permission_resource (permission_id, resource_id, create_time, update_time)
         VALUES
         <foreach collection="list" item="item" separator=",">
-            (#{item.permissionId}, #{item.resourceId}, #{item.createTime})
+            (#{item.permissionId}, #{item.resourceId}, #{item.createTime}, #{item.updateTime})
         </foreach>
     </insert>
 
-    <select id="selectResourceIdsByPermissionId" resultType="java.lang.Long">
+    <select id="selectResourceIdsByPermissionId" resultType="java.lang.String">
         SELECT resource_id
         FROM t_permission_resource pr
         INNER JOIN t_resource r ON r.id = pr.resource_id

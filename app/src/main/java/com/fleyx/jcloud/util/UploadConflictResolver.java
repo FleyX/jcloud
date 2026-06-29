@@ -32,7 +32,7 @@ public class UploadConflictResolver {
      * @param strategy 冲突解决策略编码
      * @return 冲突解决结果
      */
-    public FileConflictResolver.ConflictResolution resolve(Long userId, Long parentId, String fileName, String strategy) {
+    public FileConflictResolver.ConflictResolution resolve(String userId, String parentId, String fileName, String strategy) {
         FileNode existing = FileConflictHelper.findSameName(fileMapper, userId, parentId, fileName);
         ConflictStrategy conflictStrategy = ConflictStrategy.fromCode(strategy);
         if (existing != null && conflictStrategy == null) {

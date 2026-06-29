@@ -19,6 +19,7 @@ import com.fleyx.jcloud.model.vo.StorageSpaceVo;
 import com.fleyx.jcloud.model.vo.UploadPreCheckVo;
 import com.fleyx.jcloud.model.vo.UserVo;
 import com.fleyx.jcloud.util.FileHashUtil;
+import com.fleyx.jcloud.common.constant.FileNodeConstants;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -76,13 +77,12 @@ class FileServiceTest {
                 "Hello, jcloud!".getBytes()
         );
 
-        FileNodeVo vo = fileService.upload(file, user.getId(), 0L, null);
+        FileNodeVo vo = fileService.upload(file, user.getId(), FileNodeConstants.ROOT_ID, null);
 
         assertNotNull(vo.getId());
         assertEquals("hello.txt", vo.getName());
         assertEquals("file", vo.getType());
         assertEquals(14L, Long.parseLong(vo.getSize()));
-        assertEquals("/hello.txt", vo.getPathName());
         assertTrue(Files.exists(resolvePhysicalPath(userWithSpace, vo.getPhysicalPath())));
     }
 
@@ -96,18 +96,34 @@ class FileServiceTest {
                 "This file exceeds the tiny quota".getBytes()
         );
 
-        assertThrows(BusinessException.class, () -> fileService.upload(file, user.getId(), 0L, null));
+        assertThrows(BusinessException.class, () -> fileService.upload(file, user.getId(), FileNodeConstants.ROOT_ID, null));
+    }
+
+    @Test
+    void shouldUploadFileWhenQuotaIsZero() {
+        UserVo user = prepareUserWithStorageSpace(0L).user();
+        MultipartFile file = new MockMultipartFile(
+                "file",
+                "hello.txt",
+                "text/plain",
+                "quota is unlimited".getBytes()
+        );
+
+        FileNodeVo vo = fileService.upload(file, user.getId(), FileNodeConstants.ROOT_ID, null);
+
+        assertNotNull(vo.getId());
+        assertEquals("hello.txt", vo.getName());
     }
 
     @Test
     void shouldPreCheckUploadConflict() throws Exception {
         UserVo user = prepareUserWithStorageSpace().user();
-        fileService.upload(buildFile("hello.txt", "hello"), user.getId(), 0L, null);
+        fileService.upload(buildFile("hello.txt", "hello"), user.getId(), FileNodeConstants.ROOT_ID, null);
 
         FileUploadPreCheckDto dto = new FileUploadPreCheckDto();
         dto.setFileName("hello.txt");
         dto.setSize(5L);
-        dto.setParentId(0L);
+        dto.setParentId(FileNodeConstants.ROOT_ID);
 
         UploadPreCheckVo result = fileService.preCheckUpload(dto, user.getId());
 
@@ -119,21 +135,37 @@ class FileServiceTest {
     }
 
     @Test
+    void shouldPreCheckUploadConflictWhenParentIdIsZero() throws Exception {
+        UserVo user = prepareUserWithStorageSpace().user();
+        fileService.upload(buildFile("hello.txt", "hello"), user.getId(), FileNodeConstants.ROOT_ID, null);
+
+        FileUploadPreCheckDto dto = new FileUploadPreCheckDto();
+        dto.setFileName("hello.txt");
+        dto.setSize(5L);
+        dto.setParentId("0");
+
+        UploadPreCheckVo result = fileService.preCheckUpload(dto, user.getId());
+
+        assertEquals(1, result.getConflicts().size());
+        assertEquals("hello.txt", result.getConflicts().get(0).getExistingName());
+    }
+
+    @Test
     void shouldRejectUploadWhenNameConflictsWithoutStrategy() throws Exception {
         UserVo user = prepareUserWithStorageSpace().user();
-        fileService.upload(buildFile("hello.txt", "hello"), user.getId(), 0L, null);
+        fileService.upload(buildFile("hello.txt", "hello"), user.getId(), FileNodeConstants.ROOT_ID, null);
 
         MultipartFile file = buildFile("hello.txt", "world");
 
-        assertThrows(BusinessException.class, () -> fileService.upload(file, user.getId(), 0L, null));
+        assertThrows(BusinessException.class, () -> fileService.upload(file, user.getId(), FileNodeConstants.ROOT_ID, null));
     }
 
     @Test
     void shouldSkipUploadWhenNameConflicts() throws Exception {
         UserVo user = prepareUserWithStorageSpace().user();
-        FileNodeVo existing = fileService.upload(buildFile("hello.txt", "hello"), user.getId(), 0L, null);
+        FileNodeVo existing = fileService.upload(buildFile("hello.txt", "hello"), user.getId(), FileNodeConstants.ROOT_ID, null);
 
-        FileNodeVo skipped = fileService.upload(buildFile("hello.txt", "world"), user.getId(), 0L,
+        FileNodeVo skipped = fileService.upload(buildFile("hello.txt", "world"), user.getId(), FileNodeConstants.ROOT_ID,
                 ConflictStrategy.SKIP.getCode());
 
         assertNull(skipped);
@@ -144,9 +176,9 @@ class FileServiceTest {
     @Test
     void shouldOverwriteUploadWhenNameConflicts() throws Exception {
         UserVo user = prepareUserWithStorageSpace().user();
-        fileService.upload(buildFile("hello.txt", "hello"), user.getId(), 0L, null);
+        fileService.upload(buildFile("hello.txt", "hello"), user.getId(), FileNodeConstants.ROOT_ID, null);
 
-        FileNodeVo overwritten = fileService.upload(buildFile("hello.txt", "world"), user.getId(), 0L,
+        FileNodeVo overwritten = fileService.upload(buildFile("hello.txt", "world"), user.getId(), FileNodeConstants.ROOT_ID,
                 ConflictStrategy.OVERWRITE.getCode());
 
         assertNotNull(overwritten);
@@ -157,9 +189,9 @@ class FileServiceTest {
     @Test
     void shouldAutoRenameUploadWhenNameConflicts() throws Exception {
         UserVo user = prepareUserWithStorageSpace().user();
-        fileService.upload(buildFile("hello.txt", "hello"), user.getId(), 0L, null);
+        fileService.upload(buildFile("hello.txt", "hello"), user.getId(), FileNodeConstants.ROOT_ID, null);
 
-        FileNodeVo renamed = fileService.upload(buildFile("hello.txt", "world"), user.getId(), 0L,
+        FileNodeVo renamed = fileService.upload(buildFile("hello.txt", "world"), user.getId(), FileNodeConstants.ROOT_ID,
                 ConflictStrategy.KEEP.getCode());
 
         assertNotNull(renamed);
@@ -169,11 +201,11 @@ class FileServiceTest {
     @Test
     void shouldListRootFiles() throws Exception {
         UserVo user = prepareUserWithStorageSpace().user();
-        fileService.upload(buildFile("a.txt", "A"), user.getId(), 0L, null);
-        fileService.upload(buildFile("b.txt", "B"), user.getId(), 0L, null);
+        fileService.upload(buildFile("a.txt", "A"), user.getId(), FileNodeConstants.ROOT_ID, null);
+        fileService.upload(buildFile("b.txt", "B"), user.getId(), FileNodeConstants.ROOT_ID, null);
 
         FilePageQueryDto query = new FilePageQueryDto();
-        query.setParentId(0L);
+        query.setParentId(FileNodeConstants.ROOT_ID);
         query.setPageNum(1L);
         query.setPageSize(10L);
 
@@ -184,11 +216,27 @@ class FileServiceTest {
     }
 
     @Test
+    void shouldListRootFilesWhenParentIdIsZero() throws Exception {
+        UserVo user = prepareUserWithStorageSpace().user();
+        fileService.upload(buildFile("a.txt", "A"), user.getId(), FileNodeConstants.ROOT_ID, null);
+
+        FilePageQueryDto query = new FilePageQueryDto();
+        query.setParentId("0");
+        query.setPageNum(1L);
+        query.setPageSize(10L);
+
+        IPage<FileNodeVo> page = fileService.list(query, user.getId());
+
+        assertEquals(1L, page.getTotal());
+        assertEquals("a.txt", page.getRecords().get(0).getName());
+    }
+
+    @Test
     void shouldSearchFilesByNameAcrossAllFolders() throws Exception {
         UserVo user = prepareUserWithStorageSpace().user();
-        fileService.upload(buildFile("annual-report.pdf", "report"), user.getId(), 0L, null);
+        fileService.upload(buildFile("annual-report.pdf", "report"), user.getId(), FileNodeConstants.ROOT_ID, null);
         FileNodeVo folder = createFolder(user.getId(), "docs");
-        FileNodeVo fileInRoot = fileService.upload(buildFile("report-summary.txt", "summary"), user.getId(), 0L, null);
+        FileNodeVo fileInRoot = fileService.upload(buildFile("report-summary.txt", "summary"), user.getId(), FileNodeConstants.ROOT_ID, null);
         moveFileToFolder(user.getId(), fileInRoot.getId(), folder.getId());
 
         FilePageQueryDto query = new FilePageQueryDto();
@@ -207,8 +255,8 @@ class FileServiceTest {
     @Test
     void shouldSearchFilesWithExactNameMatch() throws Exception {
         UserVo user = prepareUserWithStorageSpace().user();
-        fileService.upload(buildFile("hello.txt", "hello"), user.getId(), 0L, null);
-        fileService.upload(buildFile("world.txt", "world"), user.getId(), 0L, null);
+        fileService.upload(buildFile("hello.txt", "hello"), user.getId(), FileNodeConstants.ROOT_ID, null);
+        fileService.upload(buildFile("world.txt", "world"), user.getId(), FileNodeConstants.ROOT_ID, null);
 
         FilePageQueryDto query = new FilePageQueryDto();
         query.setName("hello.txt");
@@ -224,7 +272,7 @@ class FileServiceTest {
     @Test
     void shouldSearchFilesWithFuzzyNameMatch() throws Exception {
         UserVo user = prepareUserWithStorageSpace().user();
-        fileService.upload(buildFile("hello-world.txt", "hello"), user.getId(), 0L, null);
+        fileService.upload(buildFile("hello-world.txt", "hello"), user.getId(), FileNodeConstants.ROOT_ID, null);
 
         FilePageQueryDto query = new FilePageQueryDto();
         query.setName("hello-wrld");
@@ -240,7 +288,7 @@ class FileServiceTest {
     @Test
     void shouldReturnEmptyWhenNoFileMatches() throws Exception {
         UserVo user = prepareUserWithStorageSpace().user();
-        fileService.upload(buildFile("hello.txt", "hello"), user.getId(), 0L, null);
+        fileService.upload(buildFile("hello.txt", "hello"), user.getId(), FileNodeConstants.ROOT_ID, null);
 
         FilePageQueryDto query = new FilePageQueryDto();
         query.setName("nonexistent");
@@ -256,8 +304,8 @@ class FileServiceTest {
     @Test
     void shouldHandleSpecialCharactersInSearchKeyword() throws Exception {
         UserVo user = prepareUserWithStorageSpace().user();
-        fileService.upload(buildFile("report_2026.pdf", "report"), user.getId(), 0L, null);
-        fileService.upload(buildFile("report 100%.txt", "percent"), user.getId(), 0L, null);
+        fileService.upload(buildFile("report_2026.pdf", "report"), user.getId(), FileNodeConstants.ROOT_ID, null);
+        fileService.upload(buildFile("report 100%.txt", "percent"), user.getId(), FileNodeConstants.ROOT_ID, null);
 
         FilePageQueryDto query = new FilePageQueryDto();
         query.setName("100%");
@@ -273,9 +321,9 @@ class FileServiceTest {
     @Test
     void shouldSortSearchResultsWithFoldersFirstThenByTimeDesc() throws Exception {
         UserVo user = prepareUserWithStorageSpace().user();
-        FileNodeVo olderFile = fileService.upload(buildFile("report-old.txt", "old"), user.getId(), 0L, null);
+        FileNodeVo olderFile = fileService.upload(buildFile("report-old.txt", "old"), user.getId(), FileNodeConstants.ROOT_ID, null);
         FileNodeVo folder = createFolder(user.getId(), "report-folder");
-        FileNodeVo newerFile = fileService.upload(buildFile("report-new.txt", "new"), user.getId(), 0L, null);
+        FileNodeVo newerFile = fileService.upload(buildFile("report-new.txt", "new"), user.getId(), FileNodeConstants.ROOT_ID, null);
 
         FilePageQueryDto query = new FilePageQueryDto();
         query.setName("report");
@@ -294,7 +342,7 @@ class FileServiceTest {
     @Test
     void shouldDownloadUploadedFile() throws Exception {
         UserVo user = prepareUserWithStorageSpace().user();
-        FileNodeVo uploaded = fileService.upload(buildFile("download.txt", "Download me"), user.getId(), 0L, null);
+        FileNodeVo uploaded = fileService.upload(buildFile("download.txt", "Download me"), user.getId(), FileNodeConstants.ROOT_ID, null);
 
         FileDownloadResult result = fileService.download(uploaded.getId(), user.getId());
 
@@ -310,7 +358,7 @@ class FileServiceTest {
         UserWithSpace userWithSpace = prepareUserWithStorageSpace();
         UserVo user = userWithSpace.user();
         String content = "Hello, instant upload!";
-        FileNodeVo uploaded = fileService.upload(buildFile("hello.txt", content), user.getId(), 0L, null);
+        FileNodeVo uploaded = fileService.upload(buildFile("hello.txt", content), user.getId(), FileNodeConstants.ROOT_ID, null);
         String fullHash = DigestUtil.md5Hex(content.getBytes(StandardCharsets.UTF_8));
 
         FileUploadPreCheckDto preCheckDto = new FileUploadPreCheckDto();
@@ -328,7 +376,7 @@ class FileServiceTest {
         instantDto.setCandidateId(preCheckResult.getCandidates().get(0).getId());
         instantDto.setFullHash(fullHash);
         instantDto.setFileName("hello-copy.txt");
-        instantDto.setParentId(0L);
+        instantDto.setParentId(FileNodeConstants.ROOT_ID);
 
         FileNodeVo instant = fileService.instantUpload(instantDto, user.getId());
 
@@ -349,7 +397,7 @@ class FileServiceTest {
         UserVo userA = prepareUserWithStorageSpace().user();
         UserVo userB = prepareUserWithStorageSpace().user();
         String content = "Cross-user data";
-        fileService.upload(buildFile("hello.txt", content), userA.getId(), 0L, null);
+        fileService.upload(buildFile("hello.txt", content), userA.getId(), FileNodeConstants.ROOT_ID, null);
         String fullHash = DigestUtil.md5Hex(content.getBytes(StandardCharsets.UTF_8));
 
         FileUploadPreCheckDto preCheckDto = new FileUploadPreCheckDto();
@@ -367,28 +415,54 @@ class FileServiceTest {
         String content = "Quota check";
         long quota = content.getBytes(StandardCharsets.UTF_8).length + 1L;
         UserVo user = prepareUserWithStorageSpace(quota).user();
-        FileNodeVo uploaded = fileService.upload(buildFile("hello.txt", content), user.getId(), 0L, null);
+        FileNodeVo uploaded = fileService.upload(buildFile("hello.txt", content), user.getId(), FileNodeConstants.ROOT_ID, null);
 
         FileInstantUploadDto dto = new FileInstantUploadDto();
         dto.setCandidateId(uploaded.getId());
         dto.setFullHash(DigestUtil.md5Hex(content.getBytes(StandardCharsets.UTF_8)));
         dto.setFileName("hello-copy.txt");
-        dto.setParentId(0L);
+        dto.setParentId(FileNodeConstants.ROOT_ID);
 
         assertThrows(BusinessException.class, () -> fileService.instantUpload(dto, user.getId()));
+    }
+
+    @Test
+    void shouldInstantUploadWhenQuotaIsZero() throws Exception {
+        UserWithSpace userWithSpace = prepareUserWithStorageSpace(0L);
+        UserVo user = userWithSpace.user();
+        String content = "Instant unlimited";
+        FileNodeVo uploaded = fileService.upload(buildFile("hello.txt", content), user.getId(), FileNodeConstants.ROOT_ID, null);
+        String fullHash = DigestUtil.md5Hex(content.getBytes(StandardCharsets.UTF_8));
+
+        FileUploadPreCheckDto preCheckDto = new FileUploadPreCheckDto();
+        preCheckDto.setFileName("hello-copy.txt");
+        preCheckDto.setSize((long) content.getBytes(StandardCharsets.UTF_8).length);
+        preCheckDto.setPartialHash(fullHash);
+        UploadPreCheckVo preCheckResult = fileService.preCheckUpload(preCheckDto, user.getId());
+
+        FileInstantUploadDto dto = new FileInstantUploadDto();
+        dto.setCandidateId(preCheckResult.getCandidates().get(0).getId());
+        dto.setFullHash(fullHash);
+        dto.setFileName("hello-copy.txt");
+        dto.setParentId(FileNodeConstants.ROOT_ID);
+
+        FileNodeVo instant = fileService.instantUpload(dto, user.getId());
+
+        assertNotNull(instant.getId());
+        assertEquals("hello-copy.txt", instant.getName());
     }
 
     @Test
     void shouldRejectInstantUploadWhenFullHashMismatch() throws Exception {
         UserWithSpace userWithSpace = prepareUserWithStorageSpace();
         UserVo user = userWithSpace.user();
-        FileNodeVo uploaded = fileService.upload(buildFile("hello.txt", "Hello"), user.getId(), 0L, null);
+        FileNodeVo uploaded = fileService.upload(buildFile("hello.txt", "Hello"), user.getId(), FileNodeConstants.ROOT_ID, null);
 
         FileInstantUploadDto dto = new FileInstantUploadDto();
         dto.setCandidateId(uploaded.getId());
         dto.setFullHash("mismatched-full-hash");
         dto.setFileName("hello-copy.txt");
-        dto.setParentId(0L);
+        dto.setParentId(FileNodeConstants.ROOT_ID);
 
         assertThrows(BusinessException.class, () -> fileService.instantUpload(dto, user.getId()));
     }
@@ -399,7 +473,7 @@ class FileServiceTest {
         UserVo user = userWithSpace.user();
         Path largeFile = createLargeFile(150L * 1024 * 1024 + 1);
 
-        FileNodeVo uploaded = fileService.upload(new PathMultipartFile(largeFile, "large.bin"), user.getId(), 0L, null);
+        FileNodeVo uploaded = fileService.upload(new PathMultipartFile(largeFile, "large.bin"), user.getId(), FileNodeConstants.ROOT_ID, null);
         String sampleHash = FileHashUtil.identityHash(largeFile);
         String fullHash = FileHashUtil.fullHash(largeFile);
 
@@ -419,7 +493,7 @@ class FileServiceTest {
         instantDto.setCandidateId(preCheckResult.getCandidates().get(0).getId());
         instantDto.setFullHash(fullHash);
         instantDto.setFileName("large-copy.bin");
-        instantDto.setParentId(0L);
+        instantDto.setParentId(FileNodeConstants.ROOT_ID);
 
         FileNodeVo instant = fileService.instantUpload(instantDto, user.getId());
 
@@ -449,14 +523,14 @@ class FileServiceTest {
         return new MockMultipartFile("file", name, "text/plain", content.getBytes());
     }
 
-    private FileNodeVo createFolder(Long userId, String name) {
+    private FileNodeVo createFolder(String userId, String name) {
         FileCreateFolderDto dto = new FileCreateFolderDto();
-        dto.setParentId(0L);
+        dto.setParentId(FileNodeConstants.ROOT_ID);
         dto.setName(name);
         return fileOperationService.createFolder(dto, userId);
     }
 
-    private void moveFileToFolder(Long userId, Long fileId, Long folderId) {
+    private void moveFileToFolder(String userId, String fileId, String folderId) {
         FileExecuteOperationDto dto = new FileExecuteOperationDto();
         dto.setType("move");
         dto.setTargetParentId(folderId);

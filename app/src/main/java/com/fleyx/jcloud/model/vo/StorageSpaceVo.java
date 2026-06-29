@@ -19,7 +19,7 @@ public class StorageSpaceVo implements Serializable {
     /**
      * ID。
      */
-    private Long id;
+    private String id;
 
     /**
      * 名称。

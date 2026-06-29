@@ -12,6 +12,7 @@ import com.fleyx.jcloud.model.vo.ChunkedUploadInitVo;
 import com.fleyx.jcloud.model.vo.FileNodeVo;
 import com.fleyx.jcloud.model.vo.StorageSpaceVo;
 import com.fleyx.jcloud.model.vo.UserVo;
+import com.fleyx.jcloud.common.constant.FileNodeConstants;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -64,13 +65,37 @@ class ChunkedUploadServiceTest {
         ChunkedUploadInitDto dto = new ChunkedUploadInitDto();
         dto.setFileName("video.mp4");
         dto.setSize(25L * 1024 * 1024);
-        dto.setParentId(0L);
+        dto.setParentId(FileNodeConstants.ROOT_ID);
 
         ChunkedUploadInitVo vo = chunkedUploadService.init(user.getId(), dto);
 
         assertNotNull(vo.getUploadId());
         assertEquals((int) CHUNK_SIZE, vo.getChunkSize());
         assertEquals(3, vo.getTotalChunks());
+    }
+
+    @Test
+    void shouldCompleteChunkedUploadWhenQuotaIsZero() throws Exception {
+        UserWithSpace userWithSpace = prepareUserWithStorageSpace(0L);
+        UserVo user = userWithSpace.user();
+
+        long fileSize = CHUNK_SIZE;
+        byte[] chunk = new byte[(int) fileSize];
+        fillBytes(chunk, (byte) 13);
+        String hash = DigestUtil.md5Hex(chunk);
+
+        ChunkedUploadInitDto dto = new ChunkedUploadInitDto();
+        dto.setFileName("unlimited.bin");
+        dto.setSize(fileSize);
+        dto.setParentId(FileNodeConstants.ROOT_ID);
+        ChunkedUploadInitVo initVo = chunkedUploadService.init(user.getId(), dto);
+
+        chunkedUploadService.uploadChunk(user.getId(), initVo.getUploadId(), 0, buildChunk(chunk), hash);
+        FileNodeVo vo = chunkedUploadService.complete(user.getId(), initVo.getUploadId(), null);
+
+        assertNotNull(vo);
+        assertEquals("unlimited.bin", vo.getName());
+        assertEquals(fileSize, Long.parseLong(vo.getSize()));
     }
 
     @Test
@@ -87,7 +112,7 @@ class ChunkedUploadServiceTest {
         ChunkedUploadInitDto dto = new ChunkedUploadInitDto();
         dto.setFileName("chunked.bin");
         dto.setSize(fileSize);
-        dto.setParentId(0L);
+        dto.setParentId(FileNodeConstants.ROOT_ID);
         ChunkedUploadInitVo initVo = chunkedUploadService.init(user.getId(), dto);
 
         String hash0 = DigestUtil.md5Hex(chunk0);
@@ -117,7 +142,7 @@ class ChunkedUploadServiceTest {
         ChunkedUploadInitDto dto = new ChunkedUploadInitDto();
         dto.setFileName("chunked.bin");
         dto.setSize(CHUNK_SIZE);
-        dto.setParentId(0L);
+        dto.setParentId(FileNodeConstants.ROOT_ID);
         ChunkedUploadInitVo initVo = chunkedUploadService.init(user.getId(), dto);
 
         byte[] chunk = new byte[(int) CHUNK_SIZE];
@@ -142,7 +167,7 @@ class ChunkedUploadServiceTest {
         ChunkedUploadInitDto dto = new ChunkedUploadInitDto();
         dto.setFileName("chunked.bin");
         dto.setSize(fileSize);
-        dto.setParentId(0L);
+        dto.setParentId(FileNodeConstants.ROOT_ID);
         ChunkedUploadInitVo initVo = chunkedUploadService.init(user.getId(), dto);
 
         chunkedUploadService.uploadChunk(user.getId(), initVo.getUploadId(), 0,
@@ -156,7 +181,6 @@ class ChunkedUploadServiceTest {
         assertEquals("chunked.bin", vo.getName());
         assertEquals("file", vo.getType());
         assertEquals(fileSize, Long.parseLong(vo.getSize()));
-        assertEquals("/chunked.bin", vo.getPathName());
 
         Path targetPath = userWithSpace.spacePath()
                 .resolve(user.getId().toString())
@@ -164,6 +188,37 @@ class ChunkedUploadServiceTest {
                 .resolve("chunked.bin");
         assertTrue(Files.exists(targetPath));
         assertEquals(fileSize, Files.size(targetPath));
+    }
+
+    @Test
+    void shouldCompleteUploadWhenParentIdIsZero() throws Exception {
+        UserWithSpace userWithSpace = prepareUserWithStorageSpace();
+        UserVo user = userWithSpace.user();
+
+        long fileSize = CHUNK_SIZE;
+        byte[] chunk = new byte[(int) fileSize];
+        fillBytes(chunk, (byte) 11);
+
+        ChunkedUploadInitDto dto = new ChunkedUploadInitDto();
+        dto.setFileName("zero-parent.bin");
+        dto.setSize(fileSize);
+        dto.setParentId("0");
+        ChunkedUploadInitVo initVo = chunkedUploadService.init(user.getId(), dto);
+
+        chunkedUploadService.uploadChunk(user.getId(), initVo.getUploadId(), 0,
+                buildChunk(chunk), DigestUtil.md5Hex(chunk));
+
+        FileNodeVo vo = chunkedUploadService.complete(user.getId(), initVo.getUploadId(), null);
+
+        assertNotNull(vo.getId());
+        assertEquals("zero-parent.bin", vo.getName());
+        assertEquals(FileNodeConstants.ROOT_ID, vo.getParentId());
+
+        Path targetPath = userWithSpace.spacePath()
+                .resolve(user.getId().toString())
+                .resolve("files")
+                .resolve("zero-parent.bin");
+        assertTrue(Files.exists(targetPath));
     }
 
     @Test
@@ -180,7 +235,7 @@ class ChunkedUploadServiceTest {
         ChunkedUploadInitDto dto = new ChunkedUploadInitDto();
         dto.setFileName("chunked.bin");
         dto.setSize(fileSize);
-        dto.setParentId(0L);
+        dto.setParentId(FileNodeConstants.ROOT_ID);
         ChunkedUploadInitVo initVo = chunkedUploadService.init(user.getId(), dto);
 
         chunkedUploadService.uploadChunk(user.getId(), initVo.getUploadId(), 0,
@@ -214,7 +269,7 @@ class ChunkedUploadServiceTest {
         ChunkedUploadInitDto dto = new ChunkedUploadInitDto();
         dto.setFileName("reupload.bin");
         dto.setSize(fileSize);
-        dto.setParentId(0L);
+        dto.setParentId(FileNodeConstants.ROOT_ID);
         ChunkedUploadInitVo initVo = chunkedUploadService.init(user.getId(), dto);
 
         chunkedUploadService.uploadChunk(user.getId(), initVo.getUploadId(), 0, buildChunk(chunk), hash);
@@ -234,7 +289,7 @@ class ChunkedUploadServiceTest {
         UserWithSpace userWithSpace = prepareUserWithStorageSpace();
         UserVo user = userWithSpace.user();
 
-        fileService.upload(buildFile("chunked.bin", "existing"), user.getId(), 0L, null);
+        fileService.upload(buildFile("chunked.bin", "existing"), user.getId(), FileNodeConstants.ROOT_ID, null);
 
         long fileSize = 15L * 1024 * 1024;
         byte[] chunk0 = new byte[(int) CHUNK_SIZE];
@@ -245,7 +300,7 @@ class ChunkedUploadServiceTest {
         ChunkedUploadInitDto dto = new ChunkedUploadInitDto();
         dto.setFileName("chunked.bin");
         dto.setSize(fileSize);
-        dto.setParentId(0L);
+        dto.setParentId(FileNodeConstants.ROOT_ID);
         ChunkedUploadInitVo initVo = chunkedUploadService.init(user.getId(), dto);
 
         chunkedUploadService.uploadChunk(user.getId(), initVo.getUploadId(), 0,
@@ -266,7 +321,7 @@ class ChunkedUploadServiceTest {
         UserWithSpace userWithSpace = prepareUserWithStorageSpace();
         UserVo user = userWithSpace.user();
 
-        fileService.upload(buildFile("chunked.bin", "existing"), user.getId(), 0L, null);
+        fileService.upload(buildFile("chunked.bin", "existing"), user.getId(), FileNodeConstants.ROOT_ID, null);
 
         long fileSize = CHUNK_SIZE;
         byte[] chunk = new byte[(int) CHUNK_SIZE];
@@ -275,7 +330,7 @@ class ChunkedUploadServiceTest {
         ChunkedUploadInitDto dto = new ChunkedUploadInitDto();
         dto.setFileName("chunked.bin");
         dto.setSize(fileSize);
-        dto.setParentId(0L);
+        dto.setParentId(FileNodeConstants.ROOT_ID);
         ChunkedUploadInitVo initVo = chunkedUploadService.init(user.getId(), dto);
 
         chunkedUploadService.uploadChunk(user.getId(), initVo.getUploadId(), 0,
@@ -293,7 +348,7 @@ class ChunkedUploadServiceTest {
         UserWithSpace userWithSpace = prepareUserWithStorageSpace();
         UserVo user = userWithSpace.user();
 
-        fileService.upload(buildFile("chunked.bin", "existing"), user.getId(), 0L, null);
+        fileService.upload(buildFile("chunked.bin", "existing"), user.getId(), FileNodeConstants.ROOT_ID, null);
 
         long fileSize = CHUNK_SIZE;
         byte[] chunk = new byte[(int) CHUNK_SIZE];
@@ -302,7 +357,7 @@ class ChunkedUploadServiceTest {
         ChunkedUploadInitDto dto = new ChunkedUploadInitDto();
         dto.setFileName("chunked.bin");
         dto.setSize(fileSize);
-        dto.setParentId(0L);
+        dto.setParentId(FileNodeConstants.ROOT_ID);
         ChunkedUploadInitVo initVo = chunkedUploadService.init(user.getId(), dto);
 
         chunkedUploadService.uploadChunk(user.getId(), initVo.getUploadId(), 0,

@@ -1,10 +1,13 @@
 package com.fleyx.jcloud.util;
 
+import com.fleyx.jcloud.common.constant.FileNodeConstants;
 import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.po.StorageSpace;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
+import java.util.HashMap;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
@@ -52,26 +55,32 @@ class FilePathUtilTest {
     @Test
     void shouldResolvePhysicalPathForFile() {
         FileNode node = new FileNode();
-        node.setUserId(1L);
-        node.setPathName("/docs/report.pdf");
+        node.setUserId("1");
+        node.setName("report.pdf");
+        node.setPath(FileNodeConstants.ROOT_ID + ".docs");
 
         StorageSpace space = new StorageSpace();
         space.setPath("/storage");
 
-        Path path = FilePathUtil.resolvePhysicalPath(node, space);
+        Map<String, String> cache = new HashMap<>();
+        cache.put("docs", "docs");
+        FilePathUtil.ResolveContext ctx = FilePathUtil.contextOf(space, "1", cache);
+        Path path = FilePathUtil.resolvePhysicalPath(node, ctx);
         assertEquals(Path.of("/storage/1/files/docs/report.pdf"), path);
     }
 
     @Test
     void shouldResolvePhysicalPathForFolder() {
         FileNode node = new FileNode();
-        node.setUserId(1L);
-        node.setPathName("/docs");
+        node.setUserId("1");
+        node.setName("docs");
+        node.setPath(FileNodeConstants.ROOT_ID);
 
         StorageSpace space = new StorageSpace();
         space.setPath("/storage");
 
-        Path path = FilePathUtil.resolvePhysicalPath(node, space);
+        FilePathUtil.ResolveContext ctx = FilePathUtil.contextOf(space, "1");
+        Path path = FilePathUtil.resolvePhysicalPath(node, ctx);
         assertEquals(Path.of("/storage/1/files/docs"), path);
     }
 
@@ -80,7 +89,7 @@ class FilePathUtilTest {
         StorageSpace space = new StorageSpace();
         space.setPath("/storage");
 
-        Path path = FilePathUtil.resolvePhysicalPath(space, 2L, "/docs", "report.pdf");
+        Path path = FilePathUtil.resolvePhysicalPath(space, "2", "/docs", "report.pdf");
         assertEquals(Path.of("/storage/2/files/docs/report.pdf"), path);
     }
 }

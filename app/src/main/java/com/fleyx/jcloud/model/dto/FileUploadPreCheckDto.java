@@ -1,5 +1,6 @@
 package com.fleyx.jcloud.model.dto;
 
+import com.fleyx.jcloud.common.constant.FileNodeConstants;
 import lombok.Data;
 
 /**
@@ -19,9 +20,9 @@ public class FileUploadPreCheckDto {
     private Long size;
 
     /**
-     * 目标父节点 ID，默认为根目录 0。
+     * 目标父节点 ID，默认为根目录 {@link FileNodeConstants#ROOT_ID}。
      */
-    private Long parentId;
+    private String parentId;
 
     /**
      * 文件身份 hash（小于 150MB 为完整 hash，大于等于 150MB 为采样 hash）。

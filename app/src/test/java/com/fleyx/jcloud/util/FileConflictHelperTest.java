@@ -2,6 +2,7 @@ package com.fleyx.jcloud.util;
 
 import com.fleyx.jcloud.mapper.FileMapper;
 import com.fleyx.jcloud.model.po.FileNode;
+import com.fleyx.jcloud.common.constant.FileNodeConstants;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -24,8 +25,8 @@ class FileConflictHelperTest {
 
     @Test
     void shouldReturnOriginalNameWhenNotOccupied() {
-        Long userId = 1L;
-        Long parentId = 0L;
+        String userId = "1";
+        String parentId = FileNodeConstants.ROOT_ID;
         String originalName = "report.pdf";
         when(fileMapper.selectList(any())).thenReturn(List.of());
 
@@ -36,8 +37,8 @@ class FileConflictHelperTest {
 
     @Test
     void shouldGenerateKeepNameWithSuffixWhenNameOccupied() {
-        Long userId = 1L;
-        Long parentId = 0L;
+        String userId = "1";
+        String parentId = FileNodeConstants.ROOT_ID;
         FileNode existing = buildNode("report.pdf");
         when(fileMapper.selectList(any())).thenReturn(List.of(existing));
 
@@ -48,8 +49,8 @@ class FileConflictHelperTest {
 
     @Test
     void shouldGenerateKeepNameWithoutExt() {
-        Long userId = 1L;
-        Long parentId = 0L;
+        String userId = "1";
+        String parentId = FileNodeConstants.ROOT_ID;
         FileNode existing = buildNode("README");
         when(fileMapper.selectList(any())).thenReturn(List.of(existing));
 
@@ -60,8 +61,8 @@ class FileConflictHelperTest {
 
     @Test
     void shouldSkipIntermediateGaps() {
-        Long userId = 1L;
-        Long parentId = 0L;
+        String userId = "1";
+        String parentId = FileNodeConstants.ROOT_ID;
         FileNode existing1 = buildNode("report(1).pdf");
         FileNode existing3 = buildNode("report(3).pdf");
         when(fileMapper.selectList(any())).thenReturn(List.of(existing1, existing3));
@@ -73,8 +74,8 @@ class FileConflictHelperTest {
 
     @Test
     void shouldDistinguishBaseName() {
-        Long userId = 1L;
-        Long parentId = 0L;
+        String userId = "1";
+        String parentId = FileNodeConstants.ROOT_ID;
         FileNode other = buildNode("report2(1).pdf");
         when(fileMapper.selectList(any())).thenReturn(List.of(other));
 

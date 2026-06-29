@@ -63,7 +63,7 @@ public class PermissionServiceImpl implements PermissionService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public PermissionVo updatePermission(Long id, PermissionUpdateDto dto) {
+    public PermissionVo updatePermission(String id, PermissionUpdateDto dto) {
         Permission permission = requirePermission(id);
         validateStatus(dto.getStatus());
         validateParentId(id, dto.getParentId());
@@ -77,16 +77,16 @@ public class PermissionServiceImpl implements PermissionService {
     }
 
     @Override
-    public PermissionVo getById(Long id) {
+    public PermissionVo getById(String id) {
         Permission permission = requirePermission(id);
         return enrichPermissionVo(permission);
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void removeById(Long id) {
+    public void removeById(String id) {
         Permission permission = requirePermission(id);
-        Set<Long> descendants = permissionMapper.selectDescendantIds(id);
+        Set<String> descendants = permissionMapper.selectDescendantIds(id);
         if (descendants.size() > 1) {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "请先删除子权限");
         }
@@ -103,7 +103,7 @@ public class PermissionServiceImpl implements PermissionService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void updateStatus(Long id, Integer status) {
+    public void updateStatus(String id, Integer status) {
         requirePermission(id);
         validateStatus(status);
         Permission update = new Permission();
@@ -120,7 +120,7 @@ public class PermissionServiceImpl implements PermissionService {
         if (CollUtil.isEmpty(vos)) {
             return List.of();
         }
-        Map<Long, PermissionTreeVo> map = vos.stream()
+        Map<String, PermissionTreeVo> map = vos.stream()
                 .collect(Collectors.toMap(PermissionTreeVo::getId, v -> v));
         List<PermissionTreeVo> roots = new ArrayList<>();
         for (PermissionTreeVo vo : vos) {
@@ -151,7 +151,7 @@ public class PermissionServiceImpl implements PermissionService {
         );
     }
 
-    private Permission requirePermission(Long id) {
+    private Permission requirePermission(String id) {
         Permission permission = permissionMapper.selectById(id);
         if (permission == null) {
             throw new BusinessException(ResultCode.NOT_FOUND, "权限不存在");
@@ -159,7 +159,7 @@ public class PermissionServiceImpl implements PermissionService {
         return permission;
     }
 
-    private void checkCodeUnique(String code, Long excludeId) {
+    private void checkCodeUnique(String code, String excludeId) {
         if (StrUtil.isBlank(code)) {
             return;
         }
@@ -182,7 +182,7 @@ public class PermissionServiceImpl implements PermissionService {
         }
     }
 
-    private void validateParentId(Long currentId, Long parentId) {
+    private void validateParentId(String currentId, String parentId) {
         if (parentId == null) {
             return;
         }
@@ -197,18 +197,18 @@ public class PermissionServiceImpl implements PermissionService {
             throw new BusinessException(ResultCode.PARAM_ERROR, "父级权限已禁用");
         }
         if (currentId != null) {
-            Set<Long> descendants = permissionMapper.selectDescendantIds(currentId);
+            Set<String> descendants = permissionMapper.selectDescendantIds(currentId);
             if (descendants.contains(parentId)) {
                 throw new BusinessException(ResultCode.PARAM_ERROR, "不能将权限设为其自身或其后代的子级");
             }
         }
     }
 
-    private void validateResourceIds(List<Long> resourceIds) {
+    private void validateResourceIds(List<String> resourceIds) {
         if (CollUtil.isEmpty(resourceIds)) {
             return;
         }
-        List<Long> distinctIds = resourceIds.stream().distinct().toList();
+        List<String> distinctIds = resourceIds.stream().distinct().toList();
         long validCount = resourceMapper.selectCount(
                 new LambdaQueryWrapper<Resource>().in(Resource::getId, distinctIds)
         );
@@ -217,7 +217,7 @@ public class PermissionServiceImpl implements PermissionService {
         }
     }
 
-    private void savePermissionResources(Long permissionId, List<Long> resourceIds) {
+    private void savePermissionResources(String permissionId, List<String> resourceIds) {
         permissionResourceMapper.deleteByPermissionId(permissionId);
         if (CollUtil.isEmpty(resourceIds)) {
             return;
@@ -244,13 +244,13 @@ public class PermissionServiceImpl implements PermissionService {
         return vo;
     }
 
-    private void evictUserCachesByPermissionId(Long permissionId) {
-        List<Long> roleIds = rolePermissionMapper.selectList(
+    private void evictUserCachesByPermissionId(String permissionId) {
+        List<String> roleIds = rolePermissionMapper.selectList(
                 new LambdaQueryWrapper<RolePermission>().eq(RolePermission::getPermissionId, permissionId)
         ).stream().map(RolePermission::getRoleId).distinct().toList();
 
-        for (Long roleId : roleIds) {
-            List<Long> userIds = userRoleMapper.selectUserIdsByRoleId(roleId);
+        for (String roleId : roleIds) {
+            List<String> userIds = userRoleMapper.selectUserIdsByRoleId(roleId);
             if (CollUtil.isNotEmpty(userIds)) {
                 userIds.forEach(userPermissionCache::evict);
             }

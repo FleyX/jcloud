@@ -11,7 +11,7 @@ import lombok.EqualsAndHashCode;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("t_user")
-public class User extends BaseEntity {
+public class User extends SoftDeleteEntity {
 
     private static final long serialVersionUID = 1L;
 
@@ -50,7 +50,7 @@ public class User extends BaseEntity {
      * 默认存储空间 ID。
      */
     @TableField("storage_space_id")
-    private Long storageSpaceId;
+    private String storageSpaceId;
 
     /**
      * 用户配额（字节）。

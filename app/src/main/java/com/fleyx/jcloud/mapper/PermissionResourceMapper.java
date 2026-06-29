@@ -27,14 +27,14 @@ public interface PermissionResourceMapper extends BaseMapper<PermissionResource>
      * @param roleIds 角色 ID 列表
      * @return 资源编码列表
      */
-    List<String> selectResourceCodesByRoleIds(@Param("roleIds") List<Long> roleIds);
+    List<String> selectResourceCodesByRoleIds(@Param("roleIds") List<String> roleIds);
 
     /**
      * 根据权限 ID 删除权限资源关联。
      *
      * @param permissionId 权限 ID
      */
-    void deleteByPermissionId(@Param("permissionId") Long permissionId);
+    void deleteByPermissionId(@Param("permissionId") String permissionId);
 
     /**
      * 批量插入权限资源关联。
@@ -50,7 +50,7 @@ public interface PermissionResourceMapper extends BaseMapper<PermissionResource>
      * @param permissionId 权限 ID
      * @return 资源 ID 列表
      */
-    List<Long> selectResourceIdsByPermissionId(@Param("permissionId") Long permissionId);
+    List<String> selectResourceIdsByPermissionId(@Param("permissionId") String permissionId);
 
     /**
      * 根据权限 ID 列表查询资源编码列表。
@@ -58,5 +58,5 @@ public interface PermissionResourceMapper extends BaseMapper<PermissionResource>
      * @param permissionIds 权限 ID 列表
      * @return 资源编码列表
      */
-    List<String> selectResourceCodesByPermissionIds(@Param("permissionIds") List<Long> permissionIds);
+    List<String> selectResourceCodesByPermissionIds(@Param("permissionIds") List<String> permissionIds);
 }

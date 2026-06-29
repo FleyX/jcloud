@@ -11,7 +11,7 @@ public class OperationItemDto {
     /**
      * 源节点 ID。
      */
-    private Long id;
+    private String id;
 
     /**
      * 源节点名称，预检时用于冲突检测。

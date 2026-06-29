@@ -10,7 +10,7 @@ import lombok.EqualsAndHashCode;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("t_storage_space")
-public class StorageSpace extends BaseEntity {
+public class StorageSpace extends SoftDeleteEntity {
 
     private static final long serialVersionUID = 1L;
 

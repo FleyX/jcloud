@@ -30,7 +30,7 @@
         </foreach>
     </select>
 
-    <select id="selectAncestorIds" resultType="java.lang.Long">
+    <select id="selectAncestorIds" resultType="java.lang.String">
         WITH RECURSIVE ancestors AS (
             SELECT id, parent_id FROM t_permission WHERE id = #{permissionId} AND delete_at = 0
             UNION ALL
@@ -42,7 +42,7 @@
         SELECT id FROM ancestors
     </select>
 
-    <select id="selectDescendantIds" resultType="java.lang.Long">
+    <select id="selectDescendantIds" resultType="java.lang.String">
         WITH RECURSIVE descendants AS (
             SELECT id, parent_id FROM t_permission WHERE id = #{permissionId} AND delete_at = 0
             UNION ALL
@@ -62,7 +62,7 @@
         ORDER BY create_time ASC
     </select>
 
-    <select id="selectIdsByRoleIds" resultType="java.lang.Long">
+    <select id="selectIdsByRoleIds" resultType="java.lang.String">
         SELECT DISTINCT p.id
         FROM t_permission p
         INNER JOIN t_role_permission rp ON rp.permission_id = p.id

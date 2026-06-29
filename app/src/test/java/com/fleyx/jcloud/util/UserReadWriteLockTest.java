@@ -25,7 +25,7 @@ class UserReadWriteLockTest {
 
     @Test
     void writeLockShouldBeReentrant() throws InterruptedException {
-        RLock lock = userReadWriteLock.writeLock(1L);
+        RLock lock = userReadWriteLock.writeLock("1");
         assertTrue(lock.tryLock(1, TimeUnit.SECONDS));
         try {
             assertTrue(lock.tryLock(1, TimeUnit.SECONDS));
@@ -37,7 +37,7 @@ class UserReadWriteLockTest {
 
     @Test
     void writeLocksForSameUserShouldBeMutuallyExclusive() throws InterruptedException {
-        long userId = 2L;
+        String userId = "2";
         CountDownLatch latch = new CountDownLatch(1);
         AtomicInteger counter = new AtomicInteger(0);
 
@@ -66,7 +66,7 @@ class UserReadWriteLockTest {
 
     @Test
     void readLocksForSameUserShouldBeConcurrent() throws InterruptedException {
-        long userId = 3L;
+        String userId = "3";
         CountDownLatch acquired = new CountDownLatch(2);
         CountDownLatch release = new CountDownLatch(1);
         AtomicInteger counter = new AtomicInteger(0);
@@ -97,11 +97,11 @@ class UserReadWriteLockTest {
         CountDownLatch latch = new CountDownLatch(1);
         AtomicInteger counter = new AtomicInteger(0);
 
-        RLock lockA = userReadWriteLock.writeLock(4L);
+        RLock lockA = userReadWriteLock.writeLock("4");
         lockA.lock();
         try {
             Thread t = new Thread(() -> {
-                RLock lockB = userReadWriteLock.writeLock(5L);
+                RLock lockB = userReadWriteLock.writeLock("5");
                 if (lockB.tryLock()) {
                     try {
                         counter.incrementAndGet();

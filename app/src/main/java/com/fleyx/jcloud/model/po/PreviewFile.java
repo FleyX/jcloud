@@ -10,14 +10,14 @@ import lombok.EqualsAndHashCode;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("t_preview_file")
-public class PreviewFile extends BaseEntity {
+public class PreviewFile extends SoftDeleteEntity {
 
     private static final long serialVersionUID = 1L;
 
     /**
      * 源文件节点 ID。
      */
-    private Long fileNodeId;
+    private String fileNodeId;
 
     /**
      * 预览类型：thumbnail / poster / text。
@@ -27,7 +27,7 @@ public class PreviewFile extends BaseEntity {
     /**
      * 所属系统存储空间 ID。
      */
-    private Long storageSpaceId;
+    private String storageSpaceId;
 
     /**
      * 预览文件在系统存储空间中的相对路径。

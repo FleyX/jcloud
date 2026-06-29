@@ -31,7 +31,7 @@ public class FileConflictResolver {
      * @param strategy   冲突解决策略
      * @return 冲突解决结果
      */
-    public ConflictResolution resolveName(Long userId, Long parentId, String sourceName,
+    public ConflictResolution resolveName(String userId, String parentId, String sourceName,
                                           FileNode existing, ConflictStrategy strategy) {
         if (existing == null) {
             return new ConflictResolution(sourceName, null, false);
@@ -62,7 +62,7 @@ public class FileConflictResolver {
      * @param sourceName 源名称
      * @return 可用名称
      */
-    public String keepNameGenerator(Long userId, Long parentId, String sourceName) {
+    public String keepNameGenerator(String userId, String parentId, String sourceName) {
         return FileConflictHelper.generateKeepName(fileMapper, userId, parentId, sourceName);
     }
 

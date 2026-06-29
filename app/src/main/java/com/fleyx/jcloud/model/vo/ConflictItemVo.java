@@ -17,7 +17,7 @@ public class ConflictItemVo implements Serializable {
     /**
      * 源节点 ID。
      */
-    private Long sourceId;
+    private String sourceId;
 
     /**
      * 源节点名称。
@@ -32,7 +32,7 @@ public class ConflictItemVo implements Serializable {
     /**
      * 目标已存在节点 ID。
      */
-    private Long existingId;
+    private String existingId;
 
     /**
      * 目标已存在节点名称。
@@ -47,7 +47,7 @@ public class ConflictItemVo implements Serializable {
     /**
      * 冲突节点 ID（同 sourceId，便于前端统一键值）。
      */
-    private Long nodeId;
+    private String nodeId;
 
     /**
      * 源路径（用于展示）。

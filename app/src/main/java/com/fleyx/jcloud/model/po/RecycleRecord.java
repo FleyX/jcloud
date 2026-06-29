@@ -19,7 +19,7 @@ public class RecycleRecord extends BaseEntity {
     /**
      * 用户 ID。
      */
-    private Long userId;
+    private String userId;
 
     /**
      * 节点名称。
@@ -32,7 +32,7 @@ public class RecycleRecord extends BaseEntity {
     private String type;
 
     /**
-     * 原始路径快照（节点自身完整虚拟路径）。
+     * 原始路径快照（节点自身完整虚拟名称路径）。
      */
     private String originalPathName;
 

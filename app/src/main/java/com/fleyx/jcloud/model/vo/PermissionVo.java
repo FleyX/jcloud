@@ -14,12 +14,12 @@ public class PermissionVo implements Serializable {
     @Serial
     private static final long serialVersionUID = 1L;
 
-    private Long id;
+    private String id;
     private String code;
     private String name;
-    private Long parentId;
+    private String parentId;
     private Integer status;
-    private List<Long> resourceIds;
+    private List<String> resourceIds;
 
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private LocalDateTime createTime;

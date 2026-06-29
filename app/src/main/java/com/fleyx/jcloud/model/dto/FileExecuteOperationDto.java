@@ -18,7 +18,7 @@ public class FileExecuteOperationDto {
     /**
      * 目标父节点 ID。
      */
-    private Long targetParentId;
+    private String targetParentId;
 
     /**
      * 待操作项及冲突策略。

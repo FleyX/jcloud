@@ -1,7 +1,6 @@
 package com.fleyx.jcloud.model.dto;
 
 import jakarta.validation.constraints.Email;
-import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
 
@@ -21,7 +20,7 @@ public class UserUpdateDto implements Serializable {
     /**
      * 用户 ID。
      */
-    private Long id;
+    private String id;
 
     /**
      * 昵称。
@@ -39,7 +38,7 @@ public class UserUpdateDto implements Serializable {
     /**
      * 角色 ID 列表。
      */
-    private List<Long> roleIds;
+    private List<String> roleIds;
 
     /**
      * 状态：1 启用，0 禁用。

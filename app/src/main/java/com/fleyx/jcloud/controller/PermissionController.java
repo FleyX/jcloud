@@ -45,7 +45,7 @@ public class PermissionController {
      * 根据 ID 查询权限。
      */
     @GetMapping("/{id}")
-    public R<PermissionVo> getById(@PathVariable Long id) {
+    public R<PermissionVo> getById(@PathVariable String id) {
         return R.ok(permissionService.getById(id));
     }
 
@@ -61,7 +61,7 @@ public class PermissionController {
      * 更新权限。
      */
     @PutMapping("/{id}")
-    public R<PermissionVo> update(@PathVariable Long id, @Valid @RequestBody PermissionUpdateDto dto) {
+    public R<PermissionVo> update(@PathVariable String id, @Valid @RequestBody PermissionUpdateDto dto) {
         return R.ok(permissionService.updatePermission(id, dto));
     }
 
@@ -69,7 +69,7 @@ public class PermissionController {
      * 删除权限。
      */
     @DeleteMapping("/{id}")
-    public R<Void> remove(@PathVariable Long id) {
+    public R<Void> remove(@PathVariable String id) {
         permissionService.removeById(id);
         return R.ok();
     }
@@ -78,7 +78,7 @@ public class PermissionController {
      * 修改权限状态。
      */
     @PatchMapping("/{id}/status")
-    public R<Void> updateStatus(@PathVariable Long id, @Valid @RequestBody PermissionStatusDto dto) {
+    public R<Void> updateStatus(@PathVariable String id, @Valid @RequestBody PermissionStatusDto dto) {
         permissionService.updateStatus(id, dto.getStatus());
         return R.ok();
     }

@@ -21,7 +21,7 @@ public interface ChunkedUploadService {
      * @param dto    初始化参数
      * @return 上传任务信息
      */
-    ChunkedUploadInitVo init(Long userId, ChunkedUploadInitDto dto);
+    ChunkedUploadInitVo init(String userId, ChunkedUploadInitDto dto);
 
     /**
      * 上传单个分片并校验分片 hash。
@@ -33,7 +33,7 @@ public interface ChunkedUploadService {
      * @param chunkHash 分片 hash
      * @return 分片上传结果
      */
-    ChunkedUploadChunkVo uploadChunk(Long userId, String uploadId, Integer chunkIndex,
+    ChunkedUploadChunkVo uploadChunk(String userId, String uploadId, Integer chunkIndex,
                                      MultipartFile chunk, String chunkHash);
 
     /**
@@ -43,7 +43,7 @@ public interface ChunkedUploadService {
      * @param uploadId 上传任务 ID
      * @return 已上传分片索引列表
      */
-    List<Integer> listUploadedChunks(Long userId, String uploadId);
+    List<Integer> listUploadedChunks(String userId, String uploadId);
 
     /**
      * 完成分片上传，合并分片并创建文件节点。
@@ -53,5 +53,5 @@ public interface ChunkedUploadService {
      * @param dto      完成参数，包含冲突解决策略
      * @return 创建的文件节点视图；跳过返回 {@code null}
      */
-    FileNodeVo complete(Long userId, String uploadId, ChunkedUploadCompleteDto dto);
+    FileNodeVo complete(String userId, String uploadId, ChunkedUploadCompleteDto dto);
 }

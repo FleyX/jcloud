@@ -81,7 +81,7 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
-    public UserVo getById(Long id) {
+    public UserVo getById(String id) {
         User user = userMapper.selectById(id);
         if (user == null) {
             throw new BusinessException(ResultCode.NOT_FOUND, "用户不存在");
@@ -99,7 +99,7 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
-    public boolean removeById(Long id) {
+    public boolean removeById(String id) {
         User user = userMapper.selectById(id);
         if (user == null) {
             throw new BusinessException(ResultCode.NOT_FOUND, "用户不存在");
@@ -176,12 +176,12 @@ public class UserServiceImpl implements UserService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public List<Long> batchDelete(List<Long> userIds) {
+    public List<String> batchDelete(List<String> userIds) {
         if (CollUtil.isEmpty(userIds)) {
             return List.of();
         }
         List<User> users = userMapper.selectBatchIds(userIds);
-        List<Long> deletableIds = users.stream()
+        List<String> deletableIds = users.stream()
                 .filter(u -> !u.isSuperAdmin())
                 .map(User::getId)
                 .toList();
@@ -194,20 +194,20 @@ public class UserServiceImpl implements UserService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public List<Long> batchUpdateStatus(BatchUserStatusDto dto) {
+    public List<String> batchUpdateStatus(BatchUserStatusDto dto) {
         validateStatus(dto.getStatus());
         if (CollUtil.isEmpty(dto.getUserIds())) {
             return List.of();
         }
         List<User> users = userMapper.selectBatchIds(dto.getUserIds());
-        List<Long> updatableIds = users.stream()
+        List<String> updatableIds = users.stream()
                 .filter(u -> !u.isSuperAdmin())
                 .map(User::getId)
                 .toList();
         if (updatableIds.isEmpty()) {
             return List.of();
         }
-        for (Long userId : updatableIds) {
+        for (String userId : updatableIds) {
             User update = new User();
             update.setId(userId);
             update.setStatus(dto.getStatus());
@@ -217,13 +217,13 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
-    public UserProfileVo getUserProfile(Long userId) {
+    public UserProfileVo getUserProfile(String userId) {
         User user = requireUser(userId);
         return userConvert.poToProfileVo(user);
     }
 
     @Override
-    public UserProfileVo updateUserProfile(Long userId, UserProfileUpdateDto dto) {
+    public UserProfileVo updateUserProfile(String userId, UserProfileUpdateDto dto) {
         User user = requireUser(userId);
         User update = new User();
         update.setId(user.getId());
@@ -239,7 +239,7 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
-    public void changePassword(Long userId, ChangePasswordDto dto) {
+    public void changePassword(String userId, ChangePasswordDto dto) {
         if (!dto.getNewPassword().equals(dto.getConfirmPassword())) {
             throw new BusinessException(ResultCode.PARAM_ERROR, "两次输入的新密码不一致");
         }
@@ -283,7 +283,7 @@ public class UserServiceImpl implements UserService {
         }
     }
 
-    private void updateUserRoles(Long userId, List<Long> roleIds) {
+    private void updateUserRoles(String userId, List<String> roleIds) {
         LambdaQueryWrapper<UserRole> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(UserRole::getUserId, userId);
         userRoleMapper.delete(wrapper);
@@ -324,7 +324,7 @@ public class UserServiceImpl implements UserService {
         }
         boolean isSuperAdmin = user != null && user.isSuperAdmin();
         vo.setIsAdmin(isSuperAdmin);
-        List<Long> roleIds = userRoleMapper.selectRoleIdsByUserId(vo.getId());
+        List<String> roleIds = userRoleMapper.selectRoleIdsByUserId(vo.getId());
         List<RoleVo> roles = new ArrayList<>();
         if (!roleIds.isEmpty()) {
             roles.addAll(roleConvert.poListToVoList(roleMapper.selectBatchIds(roleIds)));
@@ -341,27 +341,27 @@ public class UserServiceImpl implements UserService {
             return List.of();
         }
         List<UserVo> vos = users.stream().map(userConvert::poToVo).toList();
-        List<Long> userIds = users.stream().map(User::getId).toList();
-        Map<Long, Boolean> superAdminMap = users.stream()
+        List<String> userIds = users.stream().map(User::getId).toList();
+        Map<String, Boolean> superAdminMap = users.stream()
                 .collect(Collectors.toMap(User::getId, User::isSuperAdmin));
 
         List<UserRole> userRoles = userRoleMapper.selectByUserIds(userIds);
-        Map<Long, List<Long>> userRoleIdsMap = userRoles.stream()
+        Map<String, List<String>> userRoleIdsMap = userRoles.stream()
                 .collect(Collectors.groupingBy(UserRole::getUserId,
                         Collectors.mapping(UserRole::getRoleId, Collectors.toList())));
-        Set<Long> allRoleIds = userRoles.stream()
+        Set<String> allRoleIds = userRoles.stream()
                 .map(UserRole::getRoleId)
                 .collect(Collectors.toSet());
-        Map<Long, Role> roleMap = allRoleIds.isEmpty() ? Map.of()
+        Map<String, Role> roleMap = allRoleIds.isEmpty() ? Map.of()
                 : roleMapper.selectBatchIds(new ArrayList<>(allRoleIds)).stream()
                 .collect(Collectors.toMap(Role::getId, r -> r));
 
         for (int i = 0; i < vos.size(); i++) {
             UserVo vo = vos.get(i);
-            Long uid = vo.getId();
+            String uid = vo.getId();
             boolean isSuperAdmin = superAdminMap.getOrDefault(uid, false);
             vo.setIsAdmin(isSuperAdmin);
-            List<Long> roleIds = userRoleIdsMap.getOrDefault(uid, List.of());
+            List<String> roleIds = userRoleIdsMap.getOrDefault(uid, List.of());
             List<RoleVo> roles = roleIds.stream()
                     .map(roleMap::get)
                     .filter(Objects::nonNull)
@@ -383,7 +383,7 @@ public class UserServiceImpl implements UserService {
         return vo;
     }
 
-    private User requireUser(Long id) {
+    private User requireUser(String id) {
         User user = userMapper.selectById(id);
         if (user == null) {
             throw new BusinessException(ResultCode.NOT_FOUND, "用户不存在");
@@ -407,7 +407,7 @@ public class UserServiceImpl implements UserService {
         return "admin".equals(user.getUsername());
     }
 
-    private void validateRoleIds(List<Long> roleIds) {
+    private void validateRoleIds(List<String> roleIds) {
         if (roleIds == null || roleIds.isEmpty()) {
             return;
         }
@@ -417,7 +417,7 @@ public class UserServiceImpl implements UserService {
         }
     }
 
-    private UserRole buildUserRole(Long userId, Long roleId) {
+    private UserRole buildUserRole(String userId, String roleId) {
         UserRole relation = new UserRole();
         relation.setUserId(userId);
         relation.setRoleId(roleId);
@@ -447,7 +447,7 @@ public class UserServiceImpl implements UserService {
         userMapper.updateById(user);
     }
 
-    private StorageSpace requireEnabledStorageSpace(Long storageSpaceId) {
+    private StorageSpace requireEnabledStorageSpace(String storageSpaceId) {
         if (storageSpaceId == null) {
             throw new BusinessException(ResultCode.PARAM_ERROR, "存储空间不能为空");
         }

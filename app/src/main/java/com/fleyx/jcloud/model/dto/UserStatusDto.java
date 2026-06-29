@@ -15,7 +15,7 @@ public class UserStatusDto implements Serializable {
     @Serial
     private static final long serialVersionUID = 1L;
 
-    private Long userId;
+    private String userId;
 
     @NotNull(message = "状态不能为空")
     private Integer status;

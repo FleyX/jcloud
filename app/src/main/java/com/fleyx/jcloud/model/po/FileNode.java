@@ -4,6 +4,8 @@ import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
+import java.io.Serial;
+
 /**
  * 文件节点实体。
  */
@@ -12,17 +14,18 @@ import lombok.EqualsAndHashCode;
 @TableName("t_file_node")
 public class FileNode extends BaseEntity {
 
+    @Serial
     private static final long serialVersionUID = 1L;
 
     /**
      * 用户 ID。
      */
-    private Long userId;
+    private String userId;
 
     /**
-     * 父节点 ID，根目录为 0。
+     * 父节点 ID，根目录为虚拟根节点占位 ID。
      */
-    private Long parentId;
+    private String parentId;
 
     /**
      * 节点名称。
@@ -47,17 +50,12 @@ public class FileNode extends BaseEntity {
     /**
      * 存储空间 ID。
      */
-    private Long storageSpaceId;
+    private String storageSpaceId;
 
     /**
-     * 物化路径（祖先 ID 快照）。
+     * 从虚拟根到父节点的 id 路径，使用 '.' 分割，不含自身 id。
      */
     private String path;
-
-    /**
-     * 虚拟路径快照。
-     */
-    private String pathName;
 
     /**
      * MIME 类型。

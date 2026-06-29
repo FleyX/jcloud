@@ -35,7 +35,8 @@ public class FileConflictOverwriteHandler {
      */
     public void deleteExistingForOverwrite(FileNode existing, User user) {
         StorageSpace space = storageSpaceMapper.selectById(existing.getStorageSpaceId());
-        Path physicalPath = FilePathUtil.resolvePhysicalPath(existing, space);
+        FilePathUtil.ResolveContext ctx = FilePathUtil.contextOf(space, user.getId());
+        Path physicalPath = FilePathUtil.resolvePhysicalPath(existing, ctx);
         fileMapper.deleteById(existing);
         long usedSpace = user.getUsedSpace() == null ? 0L : user.getUsedSpace();
         user.setUsedSpace(Math.max(0L, usedSpace - existing.getSize()));

@@ -1,7 +1,6 @@
 package com.fleyx.jcloud.model.dto;
 
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
 
@@ -23,9 +22,9 @@ public class PermissionSaveDto implements Serializable {
     @Size(max = 64, message = "权限名称长度不能超过 64")
     private String name;
 
-    private Long parentId;
+    private String parentId;
 
     private Integer status;
 
-    private List<Long> resourceIds;
+    private List<String> resourceIds;
 }

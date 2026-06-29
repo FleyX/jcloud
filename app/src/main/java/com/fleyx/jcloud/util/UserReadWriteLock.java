@@ -27,7 +27,7 @@ public class UserReadWriteLock {
      * @param userId 用户 ID
      * @return 读锁
      */
-    public RLock readLock(Long userId) {
+    public RLock readLock(String userId) {
         return redissonClient.getReadWriteLock(buildKey(userId)).readLock();
     }
 
@@ -37,11 +37,11 @@ public class UserReadWriteLock {
      * @param userId 用户 ID
      * @return 写锁
      */
-    public RLock writeLock(Long userId) {
+    public RLock writeLock(String userId) {
         return redissonClient.getReadWriteLock(buildKey(userId)).writeLock();
     }
 
-    private String buildKey(Long userId) {
+    private String buildKey(String userId) {
         return LOCK_KEY_PREFIX + userId;
     }
 }

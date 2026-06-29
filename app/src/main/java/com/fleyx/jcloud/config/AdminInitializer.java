@@ -18,7 +18,6 @@ import org.springframework.core.annotation.Order;
 import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
 
-import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.List;
 
@@ -90,7 +89,7 @@ public class AdminInitializer implements ApplicationRunner {
         return role;
     }
 
-    private void bindRoleIfAbsent(Long userId, Long roleId) {
+    private void bindRoleIfAbsent(String userId, String roleId) {
         LambdaQueryWrapper<UserRole> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(UserRole::getUserId, userId).eq(UserRole::getRoleId, roleId);
         if (userRoleMapper.selectCount(wrapper) > 0) {
@@ -99,7 +98,6 @@ public class AdminInitializer implements ApplicationRunner {
         UserRole relation = new UserRole();
         relation.setUserId(userId);
         relation.setRoleId(roleId);
-        relation.setCreateTime(LocalDateTime.now());
         userRoleMapper.insert(relation);
     }
 
