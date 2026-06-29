@@ -9,9 +9,9 @@ import org.springframework.context.ApplicationEvent;
 @Getter
 public class UserMigrationSubmittedEvent extends ApplicationEvent {
 
-    private final Long taskId;
+    private final String taskId;
 
-    public UserMigrationSubmittedEvent(Object source, Long taskId) {
+    public UserMigrationSubmittedEvent(Object source, String taskId) {
         super(source);
         this.taskId = taskId;
     }

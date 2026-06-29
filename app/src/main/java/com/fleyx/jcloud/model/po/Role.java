@@ -10,7 +10,7 @@ import lombok.EqualsAndHashCode;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("t_role")
-public class Role extends BaseEntity {
+public class Role extends SoftDeleteEntity {
 
     private static final long serialVersionUID = 1L;
 

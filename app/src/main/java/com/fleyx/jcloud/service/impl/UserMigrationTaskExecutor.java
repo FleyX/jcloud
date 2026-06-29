@@ -60,7 +60,7 @@ public class UserMigrationTaskExecutor {
      *
      * @param taskId 任务 ID
      */
-    public void execute(Long taskId) {
+    public void execute(String taskId) {
         UserMigrationTask task = userMigrationTaskMapper.selectById(taskId);
         if (task == null) {
             log.warn("迁移任务不存在，taskId={}", taskId);
@@ -71,7 +71,7 @@ public class UserMigrationTaskExecutor {
             return;
         }
 
-        Long userId = task.getUserId();
+        String userId = task.getUserId();
         RLock lock = userReadWriteLock.writeLock(userId);
         boolean locked = false;
         try {
@@ -95,7 +95,7 @@ public class UserMigrationTaskExecutor {
     }
 
     private void doMigrate(UserMigrationTask task) {
-        Long userId = task.getUserId();
+        String userId = task.getUserId();
         User user = userMapper.selectById(userId);
         if (user == null) {
             throw new BusinessException("用户不存在");
@@ -139,7 +139,7 @@ public class UserMigrationTaskExecutor {
         log.info("迁移任务完成，taskId={}", task.getId());
     }
 
-    private long computeTotalBytes(Long userId) {
+    private long computeTotalBytes(String userId) {
         LambdaQueryWrapper<FileNode> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(FileNode::getUserId, userId);
         wrapper.eq(FileNode::getType, "file");
@@ -147,8 +147,8 @@ public class UserMigrationTaskExecutor {
         return files.stream().mapToLong(f -> f.getSize() == null ? 0L : f.getSize()).sum();
     }
 
-    private Path resolveUserFilesDir(StorageSpace space, Long userId) {
-        return Path.of(space.getPath(), userId.toString(), "files");
+    private Path resolveUserFilesDir(StorageSpace space, String userId) {
+        return Path.of(space.getPath(), userId, "files");
     }
 
     private void deleteIfExists(Path path) {

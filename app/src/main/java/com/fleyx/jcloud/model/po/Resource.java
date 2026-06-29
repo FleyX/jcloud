@@ -11,7 +11,7 @@ import lombok.EqualsAndHashCode;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("t_resource")
-public class Resource extends BaseEntity {
+public class Resource extends SoftDeleteEntity {
 
     private static final long serialVersionUID = 1L;
 

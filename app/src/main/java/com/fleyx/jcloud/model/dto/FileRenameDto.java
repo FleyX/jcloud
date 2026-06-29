@@ -11,7 +11,7 @@ public class FileRenameDto {
     /**
      * 节点 ID。
      */
-    private Long id;
+    private String id;
 
     /**
      * 新名称。

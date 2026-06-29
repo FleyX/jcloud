@@ -142,7 +142,7 @@ class UserServiceTest {
 
     @Test
     void getByNonExistentIdShouldThrowBusinessException() {
-        assertThrows(BusinessException.class, () -> userService.getById(-1L));
+        assertThrows(BusinessException.class, () -> userService.getById("-1"));
     }
 
     @Test
@@ -174,7 +174,7 @@ class UserServiceTest {
 
     @Test
     void removeByNonExistentIdShouldThrowBusinessException() {
-        assertThrows(BusinessException.class, () -> userService.removeById(-1L));
+        assertThrows(BusinessException.class, () -> userService.removeById("-1"));
     }
 
     @Test
@@ -249,7 +249,7 @@ class UserServiceTest {
         User admin = userMapper.selectOne(new LambdaQueryWrapper<User>().eq(User::getUsername, "admin"));
         assertNotNull(admin);
         int originalStatus = admin.getStatus();
-        List<Long> originalRoleIds = userRoleMapper.selectRoleIdsByUserId(admin.getId());
+        List<String> originalRoleIds = userRoleMapper.selectRoleIdsByUserId(admin.getId());
 
         UserUpdateDto updateDto = new UserUpdateDto();
         updateDto.setId(admin.getId());
@@ -260,7 +260,7 @@ class UserServiceTest {
 
         User refreshed = userMapper.selectById(admin.getId());
         assertEquals(originalStatus, refreshed.getStatus());
-        List<Long> currentRoleIds = userRoleMapper.selectRoleIdsByUserId(admin.getId());
+        List<String> currentRoleIds = userRoleMapper.selectRoleIdsByUserId(admin.getId());
         assertEquals(originalRoleIds, currentRoleIds);
     }
 
@@ -295,7 +295,7 @@ class UserServiceTest {
         UserVo saved1 = userService.saveUser(dto1);
         UserVo saved2 = userService.saveUser(dto2);
 
-        List<Long> deleted = userService.batchDelete(List.of(saved1.getId(), saved2.getId()));
+        List<String> deleted = userService.batchDelete(List.of(saved1.getId(), saved2.getId()));
         assertEquals(2, deleted.size());
         assertThrows(BusinessException.class, () -> userService.getById(saved1.getId()));
     }
@@ -311,7 +311,7 @@ class UserServiceTest {
         dto.setUserIds(List.of(saved1.getId(), saved2.getId()));
         dto.setStatus(0);
 
-        List<Long> updated = userService.batchUpdateStatus(dto);
+        List<String> updated = userService.batchUpdateStatus(dto);
         assertEquals(2, updated.size());
         assertEquals(0, userService.getById(saved1.getId()).getStatus());
         assertEquals(0, userService.getById(saved2.getId()).getStatus());

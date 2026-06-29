@@ -22,6 +22,7 @@ import com.fleyx.jcloud.model.vo.FileNodeVo;
 import com.fleyx.jcloud.model.vo.OperationResultVo;
 import com.fleyx.jcloud.model.vo.StorageSpaceVo;
 import com.fleyx.jcloud.model.vo.UserVo;
+import com.fleyx.jcloud.common.constant.FileNodeConstants;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -78,7 +79,7 @@ class FileRecycleServiceTest {
     void shouldMoveSingleFileToTrash() throws Exception {
         UserWithSpace userWithSpace = prepareUserWithStorageSpace();
         UserVo user = userWithSpace.user();
-        FileNodeVo file = fileService.upload(buildFile("hello.txt", "Hello"), user.getId(), 0L, null);
+        FileNodeVo file = fileService.upload(buildFile("hello.txt", "Hello"), user.getId(), FileNodeConstants.ROOT_ID, null);
         Path originalPath = resolvePhysicalPath(userWithSpace, "hello.txt");
         assertTrue(Files.exists(originalPath));
 
@@ -118,8 +119,8 @@ class FileRecycleServiceTest {
     void shouldMoveFolderAndDescendantsToTrash() throws Exception {
         UserWithSpace userWithSpace = prepareUserWithStorageSpace();
         UserVo user = userWithSpace.user();
-        FileNodeVo docs = createFolder(user.getId(), "docs", 0L);
-        FileNodeVo report = fileService.upload(buildFile("report.txt", "Report"), user.getId(), 0L, null);
+        FileNodeVo docs = createFolder(user.getId(), "docs", FileNodeConstants.ROOT_ID);
+        FileNodeVo report = fileService.upload(buildFile("report.txt", "Report"), user.getId(), FileNodeConstants.ROOT_ID, null);
         moveFileToFolder(user.getId(), report, docs);
 
         Path originalFilePath = resolvePhysicalPath(userWithSpace, "docs/report.txt");
@@ -162,7 +163,7 @@ class FileRecycleServiceTest {
     void shouldMoveEmptyFolderToTrash() throws Exception {
         UserWithSpace userWithSpace = prepareUserWithStorageSpace();
         UserVo user = userWithSpace.user();
-        FileNodeVo docs = createFolder(user.getId(), "docs", 0L);
+        FileNodeVo docs = createFolder(user.getId(), "docs", FileNodeConstants.ROOT_ID);
 
         FileDeleteDto dto = new FileDeleteDto();
         dto.setIds(List.of(docs.getId()));
@@ -200,12 +201,12 @@ class FileRecycleServiceTest {
     void shouldRestoreSingleFileToOriginalLocation() throws Exception {
         UserWithSpace userWithSpace = prepareUserWithStorageSpace();
         UserVo user = userWithSpace.user();
-        FileNodeVo file = fileService.upload(buildFile("hello.txt", "Hello"), user.getId(), 0L, null);
+        FileNodeVo file = fileService.upload(buildFile("hello.txt", "Hello"), user.getId(), FileNodeConstants.ROOT_ID, null);
 
         FileDeleteDto deleteDto = new FileDeleteDto();
         deleteDto.setIds(List.of(file.getId()));
         List<OperationResultVo> deleteResults = fileRecycleService.deleteToTrash(deleteDto, user.getId());
-        Long recordId = deleteResults.get(0).getNodeId();
+        String recordId = deleteResults.get(0).getNodeId();
 
         Path trashPath = resolveTrashPath(userWithSpace, recordId, "hello.txt");
         assertTrue(Files.exists(trashPath));
@@ -226,13 +227,12 @@ class FileRecycleServiceTest {
 
         // 新 FileNode 创建在根目录
         FilePageQueryDto query = new FilePageQueryDto();
-        query.setParentId(0L);
+        query.setParentId(FileNodeConstants.ROOT_ID);
         query.setPageNum(1L);
         query.setPageSize(10L);
         FileNodeVo restored = fileService.list(query, user.getId()).getRecords().get(0);
         assertEquals("hello.txt", restored.getName());
         assertEquals("file", restored.getType());
-        assertEquals("/hello.txt", restored.getPathName());
 
         // 物理文件移回 files
         assertFalse(Files.exists(trashPath));
@@ -243,14 +243,14 @@ class FileRecycleServiceTest {
     void shouldRestoreFolderAndDescendants() throws Exception {
         UserWithSpace userWithSpace = prepareUserWithStorageSpace();
         UserVo user = userWithSpace.user();
-        FileNodeVo docs = createFolder(user.getId(), "docs", 0L);
-        FileNodeVo report = fileService.upload(buildFile("report.txt", "Report"), user.getId(), 0L, null);
+        FileNodeVo docs = createFolder(user.getId(), "docs", FileNodeConstants.ROOT_ID);
+        FileNodeVo report = fileService.upload(buildFile("report.txt", "Report"), user.getId(), FileNodeConstants.ROOT_ID, null);
         moveFileToFolder(user.getId(), report, docs);
 
         FileDeleteDto deleteDto = new FileDeleteDto();
         deleteDto.setIds(List.of(docs.getId()));
         List<OperationResultVo> deleteResults = fileRecycleService.deleteToTrash(deleteDto, user.getId());
-        Long recordId = deleteResults.get(0).getNodeId();
+        String recordId = deleteResults.get(0).getNodeId();
 
         Path trashPath = resolveTrashPath(userWithSpace, recordId, "docs/report.txt");
         assertTrue(Files.exists(trashPath));
@@ -271,7 +271,7 @@ class FileRecycleServiceTest {
 
         // 文件夹与文件均恢复
         FilePageQueryDto query = new FilePageQueryDto();
-        query.setParentId(0L);
+        query.setParentId(FileNodeConstants.ROOT_ID);
         query.setPageNum(1L);
         query.setPageSize(10L);
         FileNodeVo restoredFolder = fileService.list(query, user.getId()).getRecords().get(0);
@@ -295,7 +295,7 @@ class FileRecycleServiceTest {
     @Test
     void shouldListTrashRecords() {
         UserVo user = prepareUserWithStorageSpace().user();
-        FileNodeVo file = fileService.upload(buildFile("hello.txt", "Hello"), user.getId(), 0L, null);
+        FileNodeVo file = fileService.upload(buildFile("hello.txt", "Hello"), user.getId(), FileNodeConstants.ROOT_ID, null);
 
         FileDeleteDto dto = new FileDeleteDto();
         dto.setIds(List.of(file.getId()));
@@ -313,14 +313,14 @@ class FileRecycleServiceTest {
     void shouldPermanentDeleteFileAndFreeSpace() {
         UserWithSpace userWithSpace = prepareUserWithStorageSpace();
         UserVo user = userWithSpace.user();
-        FileNodeVo file = fileService.upload(buildFile("hello.txt", "Hello"), user.getId(), 0L, null);
+        FileNodeVo file = fileService.upload(buildFile("hello.txt", "Hello"), user.getId(), FileNodeConstants.ROOT_ID, null);
         Path originalPath = resolvePhysicalPath(userWithSpace, "hello.txt");
         assertTrue(Files.exists(originalPath));
 
         FileDeleteDto deleteDto = new FileDeleteDto();
         deleteDto.setIds(List.of(file.getId()));
         List<OperationResultVo> deleteResults = fileRecycleService.deleteToTrash(deleteDto, user.getId());
-        Long recordId = deleteResults.get(0).getNodeId();
+        String recordId = deleteResults.get(0).getNodeId();
 
         userWithSpace = refreshUser(userWithSpace);
         assertEquals(5L, userWithSpace.user().getUsedSpace());
@@ -344,13 +344,13 @@ class FileRecycleServiceTest {
     void shouldDetectRestoreConflictWhenTargetFileExists() {
         UserWithSpace userWithSpace = prepareUserWithStorageSpace();
         UserVo user = userWithSpace.user();
-        FileNodeVo file = fileService.upload(buildFile("hello.txt", "Hello"), user.getId(), 0L, null);
+        FileNodeVo file = fileService.upload(buildFile("hello.txt", "Hello"), user.getId(), FileNodeConstants.ROOT_ID, null);
 
         FileDeleteDto deleteDto = new FileDeleteDto();
         deleteDto.setIds(List.of(file.getId()));
         fileRecycleService.deleteToTrash(deleteDto, user.getId());
 
-        fileService.upload(buildFile("hello.txt", "World"), user.getId(), 0L, null);
+        fileService.upload(buildFile("hello.txt", "World"), user.getId(), FileNodeConstants.ROOT_ID, null);
 
         RecycleRecord record = recycleRecordMapper.selectList(
                 new LambdaQueryWrapper<RecycleRecord>().eq(RecycleRecord::getUserId, user.getId())).get(0);
@@ -369,15 +369,15 @@ class FileRecycleServiceTest {
     void shouldMergeRestoreFolderEvenWithOverwriteStrategy() throws Exception {
         UserWithSpace userWithSpace = prepareUserWithStorageSpace();
         UserVo user = userWithSpace.user();
-        FileNodeVo docs = createFolder(user.getId(), "docs", 0L);
-        FileNodeVo report = fileService.upload(buildFile("report.txt", "Report"), user.getId(), 0L, null);
+        FileNodeVo docs = createFolder(user.getId(), "docs", FileNodeConstants.ROOT_ID);
+        FileNodeVo report = fileService.upload(buildFile("report.txt", "Report"), user.getId(), FileNodeConstants.ROOT_ID, null);
         moveFileToFolder(user.getId(), report, docs);
 
         FileDeleteDto deleteDto = new FileDeleteDto();
         deleteDto.setIds(List.of(docs.getId()));
         fileRecycleService.deleteToTrash(deleteDto, user.getId());
 
-        createFolder(user.getId(), "docs", 0L);
+        createFolder(user.getId(), "docs", FileNodeConstants.ROOT_ID);
 
         RecycleRecord record = recycleRecordMapper.selectList(
                 new LambdaQueryWrapper<RecycleRecord>().eq(RecycleRecord::getUserId, user.getId())).get(0);
@@ -399,15 +399,15 @@ class FileRecycleServiceTest {
     void shouldMergeRestoreFolderWhenTargetFolderExists() throws Exception {
         UserWithSpace userWithSpace = prepareUserWithStorageSpace();
         UserVo user = userWithSpace.user();
-        FileNodeVo docs = createFolder(user.getId(), "docs", 0L);
-        FileNodeVo report = fileService.upload(buildFile("report.txt", "Report"), user.getId(), 0L, null);
+        FileNodeVo docs = createFolder(user.getId(), "docs", FileNodeConstants.ROOT_ID);
+        FileNodeVo report = fileService.upload(buildFile("report.txt", "Report"), user.getId(), FileNodeConstants.ROOT_ID, null);
         moveFileToFolder(user.getId(), report, docs);
 
         FileDeleteDto deleteDto = new FileDeleteDto();
         deleteDto.setIds(List.of(docs.getId()));
         fileRecycleService.deleteToTrash(deleteDto, user.getId());
 
-        FileNodeVo existingDocs = createFolder(user.getId(), "docs", 0L);
+        FileNodeVo existingDocs = createFolder(user.getId(), "docs", FileNodeConstants.ROOT_ID);
 
         RecycleRecord record = recycleRecordMapper.selectList(
                 new LambdaQueryWrapper<RecycleRecord>().eq(RecycleRecord::getUserId, user.getId())).get(0);
@@ -429,9 +429,9 @@ class FileRecycleServiceTest {
     void shouldDetectFileConflictsInsideRestoredFolder() throws Exception {
         UserWithSpace userWithSpace = prepareUserWithStorageSpace();
         UserVo user = userWithSpace.user();
-        FileNodeVo folder = createFolder(user.getId(), "1", 0L);
-        FileNodeVo file1 = fileService.upload(buildFile("archive.zip", "A"), user.getId(), 0L, null);
-        FileNodeVo file2 = fileService.upload(buildFile("archive (3).zip", "B"), user.getId(), 0L, null);
+        FileNodeVo folder = createFolder(user.getId(), "1", FileNodeConstants.ROOT_ID);
+        FileNodeVo file1 = fileService.upload(buildFile("archive.zip", "A"), user.getId(), FileNodeConstants.ROOT_ID, null);
+        FileNodeVo file2 = fileService.upload(buildFile("archive (3).zip", "B"), user.getId(), FileNodeConstants.ROOT_ID, null);
         moveFileToFolder(user.getId(), file1, folder);
         moveFileToFolder(user.getId(), file2, folder);
 
@@ -439,7 +439,7 @@ class FileRecycleServiceTest {
         deleteDto.setIds(List.of(folder.getId()));
         fileRecycleService.deleteToTrash(deleteDto, user.getId());
 
-        FileNodeVo existingFolder = createFolder(user.getId(), "1", 0L);
+        FileNodeVo existingFolder = createFolder(user.getId(), "1", FileNodeConstants.ROOT_ID);
         fileService.upload(buildFile("archive.zip", "ExistingA"), user.getId(), existingFolder.getId(), null);
         fileService.upload(buildFile("archive (3).zip", "ExistingB"), user.getId(), existingFolder.getId(), null);
 
@@ -459,13 +459,13 @@ class FileRecycleServiceTest {
     void shouldAutoRenameWhenRestoreConflicts() {
         UserWithSpace userWithSpace = prepareUserWithStorageSpace();
         UserVo user = userWithSpace.user();
-        FileNodeVo file = fileService.upload(buildFile("hello.txt", "Hello"), user.getId(), 0L, null);
+        FileNodeVo file = fileService.upload(buildFile("hello.txt", "Hello"), user.getId(), FileNodeConstants.ROOT_ID, null);
 
         FileDeleteDto deleteDto = new FileDeleteDto();
         deleteDto.setIds(List.of(file.getId()));
         fileRecycleService.deleteToTrash(deleteDto, user.getId());
 
-        fileService.upload(buildFile("hello.txt", "World"), user.getId(), 0L, null);
+        fileService.upload(buildFile("hello.txt", "World"), user.getId(), FileNodeConstants.ROOT_ID, null);
 
         RecycleRecord record = recycleRecordMapper.selectList(
                 new LambdaQueryWrapper<RecycleRecord>().eq(RecycleRecord::getUserId, user.getId())).get(0);
@@ -482,7 +482,7 @@ class FileRecycleServiceTest {
         assertEquals("hello(1).txt", results.get(0).getNewName());
 
         FilePageQueryDto query = new FilePageQueryDto();
-        query.setParentId(0L);
+        query.setParentId(FileNodeConstants.ROOT_ID);
         query.setPageNum(1L);
         query.setPageSize(10L);
         List<FileNodeVo> files = fileService.list(query, user.getId()).getRecords();
@@ -493,15 +493,15 @@ class FileRecycleServiceTest {
     void shouldAutoRenameUsingMaxSuffixPlusOne() {
         UserWithSpace userWithSpace = prepareUserWithStorageSpace();
         UserVo user = userWithSpace.user();
-        FileNodeVo file = fileService.upload(buildFile("a.txt", "first"), user.getId(), 0L, null);
+        FileNodeVo file = fileService.upload(buildFile("a.txt", "first"), user.getId(), FileNodeConstants.ROOT_ID, null);
 
         FileDeleteDto deleteDto = new FileDeleteDto();
         deleteDto.setIds(List.of(file.getId()));
         fileRecycleService.deleteToTrash(deleteDto, user.getId());
 
-        fileService.upload(buildFile("a.txt", "second"), user.getId(), 0L, null);
-        fileService.upload(buildFile("a(1).txt", "third"), user.getId(), 0L, null);
-        fileService.upload(buildFile("a(2).txt", "fourth"), user.getId(), 0L, null);
+        fileService.upload(buildFile("a.txt", "second"), user.getId(), FileNodeConstants.ROOT_ID, null);
+        fileService.upload(buildFile("a(1).txt", "third"), user.getId(), FileNodeConstants.ROOT_ID, null);
+        fileService.upload(buildFile("a(2).txt", "fourth"), user.getId(), FileNodeConstants.ROOT_ID, null);
 
         RecycleRecord record = recycleRecordMapper.selectList(
                 new LambdaQueryWrapper<RecycleRecord>().eq(RecycleRecord::getUserId, user.getId())).get(0);
@@ -517,14 +517,14 @@ class FileRecycleServiceTest {
         assertEquals("a(3).txt", results.get(0).getNewName());
     }
 
-    private FileNodeVo createFolder(Long userId, String name, Long parentId) {
+    private FileNodeVo createFolder(String userId, String name, String parentId) {
         FileCreateFolderDto dto = new FileCreateFolderDto();
         dto.setParentId(parentId);
         dto.setName(name);
         return fileOperationService.createFolder(dto, userId);
     }
 
-    private void moveFileToFolder(Long userId, FileNodeVo file, FileNodeVo folder) {
+    private void moveFileToFolder(String userId, FileNodeVo file, FileNodeVo folder) {
         FileExecuteOperationDto dto = new FileExecuteOperationDto();
         dto.setType("move");
         dto.setTargetParentId(folder.getId());
@@ -547,8 +547,8 @@ class FileRecycleServiceTest {
                 .resolve(relativePath);
     }
 
-    private Path resolveTrashPath(UserWithSpace userWithSpace, Long recordId, String relativePath) {
-        String idStr = recordId.toString();
+    private Path resolveTrashPath(UserWithSpace userWithSpace, String recordId, String relativePath) {
+        String idStr = recordId;
         String prefix = idStr.length() >= 10 ? idStr.substring(0, 10) : idStr;
         return userWithSpace.spacePath()
                 .resolve(userWithSpace.user().getId().toString())

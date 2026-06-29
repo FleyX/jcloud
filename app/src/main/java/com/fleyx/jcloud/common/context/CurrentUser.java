@@ -6,5 +6,5 @@ package com.fleyx.jcloud.common.context;
  * @param id       用户 ID
  * @param userCode 用户 code
  */
-public record CurrentUser(Long id, String userCode) {
+public record CurrentUser(String id, String userCode) {
 }

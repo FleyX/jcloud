@@ -19,10 +19,10 @@ public class PermissionUpdateDto implements Serializable {
     @Size(max = 64, message = "权限名称长度不能超过 64")
     private String name;
 
-    private Long parentId;
+    private String parentId;
 
     @NotNull(message = "状态不能为空")
     private Integer status;
 
-    private List<Long> resourceIds;
+    private List<String> resourceIds;
 }

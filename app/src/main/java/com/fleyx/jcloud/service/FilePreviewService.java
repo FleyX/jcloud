@@ -16,5 +16,5 @@ public interface FilePreviewService {
      * @param type       预览类型
      * @return 预览结果
      */
-    PreviewResult preview(Long fileNodeId, Long userId, PreviewType type);
+    PreviewResult preview(String fileNodeId, String userId, PreviewType type);
 }

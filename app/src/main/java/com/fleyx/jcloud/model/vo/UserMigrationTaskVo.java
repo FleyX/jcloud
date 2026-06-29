@@ -11,22 +11,22 @@ public class UserMigrationTaskVo {
     /**
      * 任务 ID。
      */
-    private Long id;
+    private String id;
 
     /**
      * 用户 ID。
      */
-    private Long userId;
+    private String userId;
 
     /**
      * 源存储空间 ID。
      */
-    private Long sourceSpaceId;
+    private String sourceSpaceId;
 
     /**
      * 目标存储空间 ID。
      */
-    private Long targetSpaceId;
+    private String targetSpaceId;
 
     /**
      * 新配额（字节）。

@@ -14,13 +14,13 @@ public class UserMigrationSubmitDto {
      * 用户 ID。
      */
     @NotNull(message = "用户 ID 不能为空")
-    private Long userId;
+    private String userId;
 
     /**
      * 目标存储空间 ID。
      */
     @NotNull(message = "目标存储空间 ID 不能为空")
-    private Long targetSpaceId;
+    private String targetSpaceId;
 
     /**
      * 新配额（字节）。

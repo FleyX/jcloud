@@ -32,5 +32,5 @@ public interface AuthService {
      * @param userId 用户 ID
      * @return 用户及权限信息
      */
-    LoginVo getCurrentUser(Long userId);
+    LoginVo getCurrentUser(String userId);
 }

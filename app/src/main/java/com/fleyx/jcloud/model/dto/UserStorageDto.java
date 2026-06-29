@@ -14,13 +14,13 @@ public class UserStorageDto {
      * 用户 ID。
      */
     @NotNull(message = "用户 ID 不能为空")
-    private Long userId;
+    private String userId;
 
     /**
      * 默认存储空间 ID。
      */
     @NotNull(message = "存储空间 ID 不能为空")
-    private Long storageSpaceId;
+    private String storageSpaceId;
 
     /**
      * 用户配额（字节），0 表示不限制。

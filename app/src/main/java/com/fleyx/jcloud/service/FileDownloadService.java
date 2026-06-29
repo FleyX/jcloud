@@ -17,7 +17,7 @@ public interface FileDownloadService {
      * @param userId 用户 ID
      * @return 下载结果（流式或任务）
      */
-    BatchDownloadResult downloadBatch(FileBatchDownloadDto dto, Long userId);
+    BatchDownloadResult downloadBatch(FileBatchDownloadDto dto, String userId);
 
     /**
      * 查询任务状态。
@@ -26,7 +26,7 @@ public interface FileDownloadService {
      * @param userId 用户 ID
      * @return 任务对象
      */
-    FileZipTask getTask(String taskId, Long userId);
+    FileZipTask getTask(String taskId, String userId);
 
     /**
      * 下载已完成的预生成 ZIP。
@@ -35,5 +35,5 @@ public interface FileDownloadService {
      * @param userId 用户 ID
      * @return 文件下载结果
      */
-    FileDownloadResult downloadTaskResult(String taskId, Long userId);
+    FileDownloadResult downloadTaskResult(String taskId, String userId);
 }

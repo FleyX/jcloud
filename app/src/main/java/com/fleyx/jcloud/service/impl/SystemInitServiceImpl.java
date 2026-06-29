@@ -67,7 +67,7 @@ public class SystemInitServiceImpl implements SystemInitService {
         validateIndex(items, primaryIndex, "主存储空间索引不合法");
         validateIndex(items, systemDataIndex, "系统数据存放空间索引不合法");
 
-        List<Long> spaceIds = new ArrayList<>(items.size());
+        List<String> spaceIds = new ArrayList<>(items.size());
         for (SystemInitDto.InitSpaceItem item : items) {
             StorageSpace space = buildSpace(item);
             DiskSpaceUtil.refreshSpace(space);
@@ -75,8 +75,8 @@ public class SystemInitServiceImpl implements SystemInitService {
             spaceIds.add(space.getId());
         }
 
-        Long primarySpaceId = spaceIds.get(primaryIndex);
-        Long systemDataSpaceId = spaceIds.get(systemDataIndex);
+        String primarySpaceId = spaceIds.get(primaryIndex);
+        String systemDataSpaceId = spaceIds.get(systemDataIndex);
         markPrimary(primarySpaceId);
 
         systemConfigService.setValue(SYSTEM_STORAGE_SPACE_ID_KEY, String.valueOf(systemDataSpaceId));
@@ -107,7 +107,7 @@ public class SystemInitServiceImpl implements SystemInitService {
         return space;
     }
 
-    private void markPrimary(Long primarySpaceId) {
+    private void markPrimary(String primarySpaceId) {
         LambdaUpdateWrapper<StorageSpace> clearWrapper = new LambdaUpdateWrapper<>();
         clearWrapper.set(StorageSpace::getIsPrimary, 0);
         clearWrapper.eq(StorageSpace::getIsPrimary, 1);
@@ -119,7 +119,7 @@ public class SystemInitServiceImpl implements SystemInitService {
         storageSpaceMapper.updateById(update);
     }
 
-    private void bindAllUsersToPrimarySpace(Long primarySpaceId) {
+    private void bindAllUsersToPrimarySpace(String primarySpaceId) {
         User update = new User();
         update.setStorageSpaceId(primarySpaceId);
         update.setQuota(0L);

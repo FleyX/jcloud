@@ -32,12 +32,12 @@ public class JwtUtil {
      * @param userCode 用户 code（当前使用 username）
      * @return JWT Token
      */
-    public String generateToken(Long userId, String userCode) {
+    public String generateToken(String userId, String userCode) {
         Date now = new Date();
         Date expiration = DateUtil.offsetHour(now, (int) jwtProperties.getExpireHours());
         return Jwts.builder()
                 .issuer(jwtProperties.getIssuer())
-                .subject(String.valueOf(userId))
+                .subject(userId)
                 .claim(CLAIM_USER_ID, userId)
                 .claim(CLAIM_USER_CODE, userCode)
                 .issuedAt(now)
@@ -67,8 +67,8 @@ public class JwtUtil {
      * @param claims 载荷
      * @return 用户 ID
      */
-    public Long getUserId(Claims claims) {
-        return claims.get(CLAIM_USER_ID, Long.class);
+    public String getUserId(Claims claims) {
+        return claims.get(CLAIM_USER_ID, String.class);
     }
 
     /**

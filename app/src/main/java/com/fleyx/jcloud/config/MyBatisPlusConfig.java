@@ -2,8 +2,10 @@ package com.fleyx.jcloud.config;
 
 import com.baomidou.mybatisplus.annotation.DbType;
 import com.baomidou.mybatisplus.core.handlers.MetaObjectHandler;
+import com.baomidou.mybatisplus.core.incrementer.IdentifierGenerator;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
 import com.baomidou.mybatisplus.extension.plugins.inner.PaginationInnerInterceptor;
+import com.fleyx.jcloud.common.util.id.Base36IdGenerator;
 import org.apache.ibatis.reflection.MetaObject;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -15,6 +17,14 @@ import java.time.LocalDateTime;
  */
 @Configuration
 public class MyBatisPlusConfig {
+
+    /**
+     * 注册定长 base36 ID 生成器。
+     */
+    @Bean
+    public IdentifierGenerator identifierGenerator() {
+        return new Base36IdGenerator();
+    }
 
     /**
      * 注册分页插件。

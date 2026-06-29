@@ -25,7 +25,7 @@ public interface FileService {
      * @param strategy 冲突解决策略，可选
      * @return 文件节点视图；跳过返回 {@code null}
      */
-    FileNodeVo upload(MultipartFile file, Long userId, Long parentId, String strategy);
+    FileNodeVo upload(MultipartFile file, String userId, String parentId, String strategy);
 
     /**
      * 分页查询用户的文件列表。
@@ -34,7 +34,7 @@ public interface FileService {
      * @param userId 用户 ID
      * @return 分页结果
      */
-    IPage<FileNodeVo> list(FilePageQueryDto dto, Long userId);
+    IPage<FileNodeVo> list(FilePageQueryDto dto, String userId);
 
     /**
      * 下载文件。
@@ -43,7 +43,7 @@ public interface FileService {
      * @param userId 用户 ID
      * @return 文件下载结果
      */
-    FileDownloadResult download(Long fileId, Long userId);
+    FileDownloadResult download(String fileId, String userId);
 
     /**
      * 上传前预检：检查目标父目录下是否存在同名节点，并查询可用于秒传的候选文件。
@@ -52,7 +52,7 @@ public interface FileService {
      * @param userId 用户 ID
      * @return 预检结果（冲突列表 + 秒传候选列表）
      */
-    UploadPreCheckVo preCheckUpload(FileUploadPreCheckDto dto, Long userId);
+    UploadPreCheckVo preCheckUpload(FileUploadPreCheckDto dto, String userId);
 
     /**
      * 秒传：复用候选文件的物理数据创建新的文件节点。
@@ -61,5 +61,5 @@ public interface FileService {
      * @param userId 用户 ID
      * @return 新文件节点视图
      */
-    FileNodeVo instantUpload(FileInstantUploadDto dto, Long userId);
+    FileNodeVo instantUpload(FileInstantUploadDto dto, String userId);
 }

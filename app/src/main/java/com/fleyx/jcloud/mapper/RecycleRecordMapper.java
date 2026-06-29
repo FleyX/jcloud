@@ -17,5 +17,5 @@ public interface RecycleRecordMapper extends BaseMapper<RecycleRecord> {
      * @param id 记录 ID
      * @return 影响行数
      */
-    int physicalDeleteById(@Param("id") Long id);
+    int physicalDeleteById(@Param("id") String id);
 }

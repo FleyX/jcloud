@@ -11,19 +11,19 @@ import java.util.Set;
 @Mapper
 public interface PermissionMapper extends BaseMapper<Permission> {
 
-    List<String> selectCodesByUserId(@Param("userId") Long userId);
+    List<String> selectCodesByUserId(@Param("userId") String userId);
 
-    List<String> selectCodesByRoleIds(@Param("roleIds") List<Long> roleIds);
+    List<String> selectCodesByRoleIds(@Param("roleIds") List<String> roleIds);
 
     /**
      * 查询指定权限及其所有祖先权限 ID。
      */
-    Set<Long> selectAncestorIds(@Param("permissionId") Long permissionId);
+    Set<String> selectAncestorIds(@Param("permissionId") String permissionId);
 
     /**
      * 查询指定权限及其所有后代权限 ID。
      */
-    Set<Long> selectDescendantIds(@Param("permissionId") Long permissionId);
+    Set<String> selectDescendantIds(@Param("permissionId") String permissionId);
 
     /**
      * 查询所有有效权限（用于构建树）。
@@ -33,10 +33,10 @@ public interface PermissionMapper extends BaseMapper<Permission> {
     /**
      * 根据角色 ID 列表查询有效权限 ID。
      */
-    List<Long> selectIdsByRoleIds(@Param("roleIds") List<Long> roleIds);
+    List<String> selectIdsByRoleIds(@Param("roleIds") List<String> roleIds);
 
     /**
      * 根据权限 ID 列表查询权限编码。
      */
-    List<String> selectCodesByIds(@Param("ids") List<Long> ids);
+    List<String> selectCodesByIds(@Param("ids") List<String> ids);
 }

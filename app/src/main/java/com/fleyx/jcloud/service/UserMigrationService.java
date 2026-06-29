@@ -22,5 +22,5 @@ public interface UserMigrationService {
      * @param userId 用户 ID
      * @return 迁移任务视图，不存在时返回 null
      */
-    UserMigrationTaskVo getLatestTaskByUserId(Long userId);
+    UserMigrationTaskVo getLatestTaskByUserId(String userId);
 }

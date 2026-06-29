@@ -26,7 +26,7 @@ public class UserReadOnlyChecker {
      * @param userId 用户 ID
      * @throws BusinessException 用户处于只读状态时抛出
      */
-    public void checkWriteAllowed(Long userId) {
+    public void checkWriteAllowed(String userId) {
         User user = userMapper.selectById(userId);
         if (user != null && Integer.valueOf(1).equals(user.getReadOnly())) {
             throw new BusinessException(ResultCode.FORBIDDEN, "用户存储空间迁移中，暂时禁止写操作");

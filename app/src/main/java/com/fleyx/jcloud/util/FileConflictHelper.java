@@ -28,13 +28,12 @@ public final class FileConflictHelper {
      * @param name       待查找名称
      * @return 同名节点，不存在返回 null
      */
-    public static FileNode findSameName(FileMapper fileMapper, Long userId,
-                                        Long parentId, String name) {
+    public static FileNode findSameName(FileMapper fileMapper, String userId,
+                                        String parentId, String name) {
         return fileMapper.selectList(new LambdaQueryWrapper<FileNode>()
                         .eq(FileNode::getUserId, userId)
                         .eq(FileNode::getParentId, parentId)
-                        .eq(FileNode::getName, name)
-                        .eq(FileNode::getDeleteAt, 0L))
+                        .eq(FileNode::getName, name))
                 .stream()
                 .findFirst()
                 .orElse(null);
@@ -53,8 +52,8 @@ public final class FileConflictHelper {
      * @param originalName 原始名称
      * @return 可用名称
      */
-    public static String generateKeepName(FileMapper fileMapper, Long userId,
-                                          Long parentId, String originalName) {
+    public static String generateKeepName(FileMapper fileMapper, String userId,
+                                          String parentId, String originalName) {
         NameParts parts = splitName(originalName);
         if (findSameName(fileMapper, userId, parentId, originalName) == null) {
             return originalName;
@@ -63,8 +62,8 @@ public final class FileConflictHelper {
         return buildKeepName(parts, maxIndex + 1);
     }
 
-    private static int resolveMaxSuffixIndex(FileMapper fileMapper, Long userId,
-                                             Long parentId, NameParts parts) {
+    private static int resolveMaxSuffixIndex(FileMapper fileMapper, String userId,
+                                             String parentId, NameParts parts) {
         String base = parts.base();
         String ext = parts.ext();
         String pattern = ext.isEmpty()
@@ -74,8 +73,7 @@ public final class FileConflictHelper {
 
         List<FileNode> siblings = fileMapper.selectList(new LambdaQueryWrapper<FileNode>()
                 .eq(FileNode::getUserId, userId)
-                .eq(FileNode::getParentId, parentId)
-                .eq(FileNode::getDeleteAt, 0L));
+                .eq(FileNode::getParentId, parentId));
 
         int maxIndex = 0;
         for (FileNode node : siblings) {
@@ -108,8 +106,8 @@ public final class FileConflictHelper {
      * @param excludeId  排除的节点 ID
      * @return 是否存在冲突
      */
-    public static boolean existsSameName(FileMapper fileMapper, Long userId,
-                                         Long parentId, String name, Long excludeId) {
+    public static boolean existsSameName(FileMapper fileMapper, String userId,
+                                         String parentId, String name, String excludeId) {
         Predicate<FileNode> filter = node -> !node.getId().equals(excludeId);
         FileNode conflict = findSameName(fileMapper, userId, parentId, name);
         return conflict != null && filter.test(conflict);

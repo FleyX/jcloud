@@ -58,7 +58,7 @@ public class AdminStorageSpaceController {
      * 根据 ID 查询存储空间。
      */
     @GetMapping("/{id}")
-    public R<StorageSpaceVo> getById(@PathVariable Long id) {
+    public R<StorageSpaceVo> getById(@PathVariable String id) {
         return R.ok(storageSpaceService.getById(id));
     }
 
@@ -66,7 +66,7 @@ public class AdminStorageSpaceController {
      * 更新存储空间。
      */
     @PutMapping("/{id}")
-    public R<StorageSpaceVo> update(@PathVariable Long id, @Valid @RequestBody StorageSpaceUpdateDto dto) {
+    public R<StorageSpaceVo> update(@PathVariable String id, @Valid @RequestBody StorageSpaceUpdateDto dto) {
         dto.setId(id);
         return R.ok(storageSpaceService.update(dto));
     }
@@ -75,7 +75,7 @@ public class AdminStorageSpaceController {
      * 删除存储空间。
      */
     @DeleteMapping("/{id}")
-    public R<Void> remove(@PathVariable Long id) {
+    public R<Void> remove(@PathVariable String id) {
         storageSpaceService.removeById(id);
         return R.ok();
     }
@@ -84,7 +84,7 @@ public class AdminStorageSpaceController {
      * 刷新存储空间磁盘状态。
      */
     @PostMapping("/{id}/refresh")
-    public R<StorageSpaceVo> refreshDiskSpace(@PathVariable Long id) {
+    public R<StorageSpaceVo> refreshDiskSpace(@PathVariable String id) {
         return R.ok(storageSpaceService.refreshDiskSpace(id));
     }
 
@@ -103,7 +103,7 @@ public class AdminStorageSpaceController {
      */
     @PutMapping("/system-config")
     public R<Void> updateSystemConfig(@Valid @RequestBody SystemStorageConfigUpdateDto dto) {
-        StorageSpaceVo space = storageSpaceService.getById(Long.valueOf(dto.getSystemSpaceId()));
+        StorageSpaceVo space = storageSpaceService.getById(dto.getSystemSpaceId());
         if (!StorageSpaceType.USER.getCode().equals(space.getType())) {
             throw new BusinessException(ResultCode.PARAM_ERROR, "只能指定用户存储空间作为系统数据目录");
         }

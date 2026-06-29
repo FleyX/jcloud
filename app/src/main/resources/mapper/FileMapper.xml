@@ -15,24 +15,31 @@
         </foreach>
     </delete>
 
-    <!-- 查询指定路径前缀下的所有文件节点（含自身） -->
-    <select id="selectByPathNamePrefix" resultType="com.fleyx.jcloud.model.po.FileNode">
+    <!-- 查询指定完整 id 路径前缀下的所有文件节点（含自身） -->
+    <select id="selectByIdPathPrefix" resultType="com.fleyx.jcloud.model.po.FileNode">
         SELECT *
         FROM t_file_node
         WHERE user_id = #{userId}
-          AND delete_at = 0
-          AND (path_name = #{prefix} OR path_name LIKE CONCAT(#{prefix}, '/%'))
-        ORDER BY path_name
+          AND (
+              (path = #{path} AND id = #{id})
+              OR path = CONCAT(#{path}, '.', #{id})
+              OR path LIKE CONCAT(#{path}, '.', #{id}, '.%')
+          )
+        ORDER BY path
     </select>
 
-    <!-- 查询指定路径前缀下的所有文件类型节点 -->
-    <select id="selectFilesByPathNamePrefix" resultType="com.fleyx.jcloud.model.po.FileNode">
+    <!-- 查询指定完整 id 路径前缀下的所有文件类型节点 -->
+    <select id="selectFilesByIdPathPrefix" resultType="com.fleyx.jcloud.model.po.FileNode">
         SELECT *
         FROM t_file_node
         WHERE user_id = #{userId}
-          AND delete_at = 0
           AND type = 'file'
-          AND (path_name = #{prefix} OR path_name LIKE CONCAT(#{prefix}, '/%'))
+          AND (
+              (path = #{path} AND id = #{id})
+              OR path = CONCAT(#{path}, '.', #{id})
+              OR path LIKE CONCAT(#{path}, '.', #{id}, '.%')
+          )
+        ORDER BY path
     </select>
 
     <!-- 按名称关键字模糊搜索用户的文件节点（跨文件夹） -->
@@ -40,8 +47,16 @@
         SELECT *
         FROM t_file_node
         WHERE user_id = #{userId}
-          AND delete_at = 0
           AND (name % #{keyword} OR name ILIKE CONCAT('%', #{likePattern}, '%') ESCAPE '\')
+        ORDER BY type DESC, create_time DESC
+    </select>
+
+    <!-- 根据用户 ID 和父节点 ID 查询直接子节点 -->
+    <select id="selectByParentId" resultType="com.fleyx.jcloud.model.po.FileNode">
+        SELECT *
+        FROM t_file_node
+        WHERE user_id = #{userId}
+          AND parent_id = #{parentId}
         ORDER BY type DESC, create_time DESC
     </select>
 

@@ -11,7 +11,7 @@ import lombok.EqualsAndHashCode;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("t_permission")
-public class Permission extends BaseEntity {
+public class Permission extends SoftDeleteEntity {
 
     private static final long serialVersionUID = 1L;
 
@@ -28,7 +28,7 @@ public class Permission extends BaseEntity {
     /**
      * 父级权限 ID，用于菜单层级。
      */
-    private Long parentId;
+    private String parentId;
 
     /**
      * 状态：1 启用，0 禁用。

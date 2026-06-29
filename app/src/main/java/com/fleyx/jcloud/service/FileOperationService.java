@@ -24,7 +24,7 @@ public interface FileOperationService {
      * @param userId 用户 ID
      * @return 重命名后的节点视图
      */
-    FileNodeVo rename(FileRenameDto dto, Long userId);
+    FileNodeVo rename(FileRenameDto dto, String userId);
 
     /**
      * 创建文件夹。
@@ -33,7 +33,7 @@ public interface FileOperationService {
      * @param userId 用户 ID
      * @return 文件夹节点视图
      */
-    FileNodeVo createFolder(FileCreateFolderDto dto, Long userId);
+    FileNodeVo createFolder(FileCreateFolderDto dto, String userId);
 
     /**
      * 预检移动/复制操作的冲突。
@@ -42,7 +42,7 @@ public interface FileOperationService {
      * @param userId 用户 ID
      * @return 冲突列表
      */
-    List<ConflictItemVo> preCheckOperation(FilePreCheckOperationDto dto, Long userId);
+    List<ConflictItemVo> preCheckOperation(FilePreCheckOperationDto dto, String userId);
 
     /**
      * 批量移动文件/文件夹。
@@ -51,7 +51,7 @@ public interface FileOperationService {
      * @param userId 用户 ID
      * @return 操作结果
      */
-    List<OperationResultVo> move(FileExecuteOperationDto dto, Long userId);
+    List<OperationResultVo> move(FileExecuteOperationDto dto, String userId);
 
     /**
      * 批量复制文件/文件夹。
@@ -60,5 +60,5 @@ public interface FileOperationService {
      * @param userId 用户 ID
      * @return 操作结果
      */
-    List<OperationResultVo> copy(FileExecuteOperationDto dto, Long userId);
+    List<OperationResultVo> copy(FileExecuteOperationDto dto, String userId);
 }

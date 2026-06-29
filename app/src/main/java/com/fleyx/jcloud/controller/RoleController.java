@@ -53,7 +53,7 @@ public class RoleController {
      * 根据 ID 查询角色。
      */
     @GetMapping("/{id}")
-    public R<RoleVo> getById(@PathVariable Long id) {
+    public R<RoleVo> getById(@PathVariable String id) {
         return R.ok(roleService.getById(id));
     }
 
@@ -69,7 +69,7 @@ public class RoleController {
      * 更新角色。
      */
     @PutMapping("/{id}")
-    public R<RoleVo> update(@PathVariable Long id, @Valid @RequestBody RoleUpdateDto dto) {
+    public R<RoleVo> update(@PathVariable String id, @Valid @RequestBody RoleUpdateDto dto) {
         return R.ok(roleService.updateRole(id, dto));
     }
 
@@ -77,7 +77,7 @@ public class RoleController {
      * 删除角色。
      */
     @DeleteMapping("/{id}")
-    public R<Void> remove(@PathVariable Long id) {
+    public R<Void> remove(@PathVariable String id) {
         roleService.removeById(id);
         return R.ok();
     }
@@ -86,7 +86,7 @@ public class RoleController {
      * 修改角色状态。
      */
     @PatchMapping("/{id}/status")
-    public R<Void> updateStatus(@PathVariable Long id, @Valid @RequestBody RoleStatusDto dto) {
+    public R<Void> updateStatus(@PathVariable String id, @Valid @RequestBody RoleStatusDto dto) {
         roleService.updateStatus(id, dto.getStatus());
         return R.ok();
     }

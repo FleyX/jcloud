@@ -51,6 +51,6 @@ class UserReadOnlyCheckerTest {
 
     @Test
     void shouldAllowWriteForUnknownUser() {
-        assertDoesNotThrow(() -> userReadOnlyChecker.checkWriteAllowed(-1L));
+        assertDoesNotThrow(() -> userReadOnlyChecker.checkWriteAllowed("-1"));
     }
 }

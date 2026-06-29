@@ -27,5 +27,5 @@ public class RoleSaveDto implements Serializable {
 
     private Integer status;
 
-    private List<Long> permissionIds;
+    private List<String> permissionIds;
 }

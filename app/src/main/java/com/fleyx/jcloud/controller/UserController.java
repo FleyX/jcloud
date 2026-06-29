@@ -53,7 +53,7 @@ public class UserController {
      * 根据 ID 查询用户。
      */
     @GetMapping("/{id}")
-    public R<UserVo> getById(@PathVariable Long id) {
+    public R<UserVo> getById(@PathVariable String id) {
         return R.ok(userService.getById(id));
     }
 
@@ -77,7 +77,7 @@ public class UserController {
      * 修改用户角色。
      */
     @PutMapping("/{id}/roles")
-    public R<Void> updateRoles(@PathVariable Long id, @Valid @RequestBody UserUpdateRolesDto dto) {
+    public R<Void> updateRoles(@PathVariable String id, @Valid @RequestBody UserUpdateRolesDto dto) {
         dto.setUserId(id);
         userService.updateRoles(dto);
         return R.ok();
@@ -87,7 +87,7 @@ public class UserController {
      * 更新用户信息。
      */
     @PutMapping("/{id}")
-    public R<UserVo> update(@PathVariable Long id, @Valid @RequestBody UserUpdateDto dto) {
+    public R<UserVo> update(@PathVariable String id, @Valid @RequestBody UserUpdateDto dto) {
         dto.setId(id);
         return R.ok(userService.updateUser(dto));
     }
@@ -96,7 +96,7 @@ public class UserController {
      * 启用/禁用用户。
      */
     @PutMapping("/{id}/status")
-    public R<Void> updateStatus(@PathVariable Long id, @Valid @RequestBody UserStatusDto dto) {
+    public R<Void> updateStatus(@PathVariable String id, @Valid @RequestBody UserStatusDto dto) {
         dto.setUserId(id);
         userService.updateStatus(dto);
         return R.ok();
@@ -106,7 +106,7 @@ public class UserController {
      * 删除用户。
      */
     @DeleteMapping("/{id}")
-    public R<Boolean> remove(@PathVariable Long id) {
+    public R<Boolean> remove(@PathVariable String id) {
         return R.ok(userService.removeById(id));
     }
 
@@ -114,7 +114,7 @@ public class UserController {
      * 批量删除用户。
      */
     @DeleteMapping("/batch")
-    public R<List<Long>> batchRemove(@RequestBody List<Long> userIds) {
+    public R<List<String>> batchRemove(@RequestBody List<String> userIds) {
         return R.ok(userService.batchDelete(userIds));
     }
 
@@ -122,7 +122,7 @@ public class UserController {
      * 批量启用/禁用用户。
      */
     @PutMapping("/batch/status")
-    public R<List<Long>> batchUpdateStatus(@Valid @RequestBody BatchUserStatusDto dto) {
+    public R<List<String>> batchUpdateStatus(@Valid @RequestBody BatchUserStatusDto dto) {
         return R.ok(userService.batchUpdateStatus(dto));
     }
 
@@ -155,7 +155,7 @@ public class UserController {
      * 为用户设置默认存储空间与配额。
      */
     @PutMapping("/{id}/storage")
-    public R<Void> bindStorageSpace(@PathVariable Long id, @Valid @RequestBody UserStorageDto dto) {
+    public R<Void> bindStorageSpace(@PathVariable String id, @Valid @RequestBody UserStorageDto dto) {
         dto.setUserId(id);
         userService.bindStorageSpace(dto);
         return R.ok();

@@ -17,7 +17,7 @@ public class OperationResultVo implements Serializable {
     /**
      * 源节点 ID。
      */
-    private Long sourceId;
+    private String sourceId;
 
     /**
      * 源节点名称。
@@ -42,5 +42,5 @@ public class OperationResultVo implements Serializable {
     /**
      * 结果节点 ID（成功时有效）。
      */
-    private Long nodeId;
+    private String nodeId;
 }

@@ -10,7 +10,7 @@ import lombok.EqualsAndHashCode;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("t_file_chunk")
-public class FileChunk extends BaseEntity {
+public class FileChunk extends SoftDeleteEntity {
 
     private static final long serialVersionUID = 1L;
 
@@ -22,7 +22,7 @@ public class FileChunk extends BaseEntity {
     /**
      * 用户 ID。
      */
-    private Long userId;
+    private String userId;
 
     /**
      * 分片索引，从 0 开始。

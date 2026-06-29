@@ -28,7 +28,7 @@ public interface PermissionService {
      * @param dto 权限更新 DTO
      * @return 权限视图
      */
-    PermissionVo updatePermission(Long id, PermissionUpdateDto dto);
+    PermissionVo updatePermission(String id, PermissionUpdateDto dto);
 
     /**
      * 根据 ID 查询权限。
@@ -36,14 +36,14 @@ public interface PermissionService {
      * @param id 权限 ID
      * @return 权限视图
      */
-    PermissionVo getById(Long id);
+    PermissionVo getById(String id);
 
     /**
      * 删除权限。
      *
      * @param id 权限 ID
      */
-    void removeById(Long id);
+    void removeById(String id);
 
     /**
      * 修改权限状态。
@@ -51,7 +51,7 @@ public interface PermissionService {
      * @param id     权限 ID
      * @param status 状态：1 启用，0 禁用
      */
-    void updateStatus(Long id, Integer status);
+    void updateStatus(String id, Integer status);
 
     /**
      * 查询权限树。

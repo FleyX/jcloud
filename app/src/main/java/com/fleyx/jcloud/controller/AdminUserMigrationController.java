@@ -28,7 +28,7 @@ public class AdminUserMigrationController {
      * 提交用户存储空间迁移任务。
      */
     @PostMapping("/{id}/migrate")
-    public R<UserMigrationTaskVo> submitMigration(@PathVariable Long id,
+    public R<UserMigrationTaskVo> submitMigration(@PathVariable String id,
                                                   @Valid @RequestBody UserMigrationSubmitDto dto) {
         dto.setUserId(id);
         return R.ok(userMigrationService.submitMigration(dto));
@@ -38,7 +38,7 @@ public class AdminUserMigrationController {
      * 查询用户最新迁移任务。
      */
     @GetMapping("/{id}/migration-task")
-    public R<UserMigrationTaskVo> getLatestTask(@PathVariable Long id) {
+    public R<UserMigrationTaskVo> getLatestTask(@PathVariable String id) {
         return R.ok(userMigrationService.getLatestTaskByUserId(id));
     }
 }

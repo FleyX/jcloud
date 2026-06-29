@@ -1,6 +1,7 @@
 package com.fleyx.jcloud.model.dto;
 
 import com.fleyx.jcloud.common.constant.CommonConstant;
+import com.fleyx.jcloud.common.constant.FileNodeConstants;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import lombok.Data;
@@ -18,9 +19,9 @@ public class FilePageQueryDto implements Serializable {
     private static final long serialVersionUID = 1L;
 
     /**
-     * 父节点 ID，根目录为 0。
+     * 父节点 ID，根目录为 {@link FileNodeConstants#ROOT_ID}。
      */
-    private Long parentId = 0L;
+    private String parentId = FileNodeConstants.ROOT_ID;
 
     /**
      * 名称关键字。

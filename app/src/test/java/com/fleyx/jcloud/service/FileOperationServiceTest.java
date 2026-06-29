@@ -16,6 +16,7 @@ import com.fleyx.jcloud.model.vo.FileNodeVo;
 import com.fleyx.jcloud.model.vo.OperationResultVo;
 import com.fleyx.jcloud.model.vo.StorageSpaceVo;
 import com.fleyx.jcloud.model.vo.UserVo;
+import com.fleyx.jcloud.common.constant.FileNodeConstants;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -65,7 +66,7 @@ class FileOperationServiceTest {
     void shouldRenameFile() throws Exception {
         UserWithSpace userWithSpace = prepareUserWithStorageSpace();
         UserVo user = userWithSpace.user();
-        FileNodeVo file = fileService.upload(buildFile("old.txt", "content"), user.getId(), 0L, null);
+        FileNodeVo file = fileService.upload(buildFile("old.txt", "content"), user.getId(), FileNodeConstants.ROOT_ID, null);
 
         FileRenameDto dto = new FileRenameDto();
         dto.setId(file.getId());
@@ -74,7 +75,6 @@ class FileOperationServiceTest {
         FileNodeVo renamed = fileOperationService.rename(dto, user.getId());
 
         assertEquals("new.txt", renamed.getName());
-        assertEquals("/new.txt", renamed.getPathName());
         Path oldPath = resolvePhysicalPath(userWithSpace, "old.txt");
         Path newPath = resolvePhysicalPath(userWithSpace, "new.txt");
         assertTrue(Files.notExists(oldPath));
@@ -84,8 +84,8 @@ class FileOperationServiceTest {
     @Test
     void shouldRejectRenameWhenNameConflict() throws Exception {
         UserVo user = prepareUserWithStorageSpace().user();
-        fileService.upload(buildFile("a.txt", "A"), user.getId(), 0L, null);
-        FileNodeVo b = fileService.upload(buildFile("b.txt", "B"), user.getId(), 0L, null);
+        fileService.upload(buildFile("a.txt", "A"), user.getId(), FileNodeConstants.ROOT_ID, null);
+        FileNodeVo b = fileService.upload(buildFile("b.txt", "B"), user.getId(), FileNodeConstants.ROOT_ID, null);
 
         FileRenameDto dto = new FileRenameDto();
         dto.setId(b.getId());
@@ -98,7 +98,7 @@ class FileOperationServiceTest {
     void shouldCreateFolder() {
         UserVo user = prepareUserWithStorageSpace().user();
         FileCreateFolderDto dto = new FileCreateFolderDto();
-        dto.setParentId(0L);
+        dto.setParentId(FileNodeConstants.ROOT_ID);
         dto.setName("docs");
 
         FileNodeVo folder = fileOperationService.createFolder(dto, user.getId());
@@ -106,14 +106,28 @@ class FileOperationServiceTest {
         assertNotNull(folder.getId());
         assertEquals("docs", folder.getName());
         assertEquals("folder", folder.getType());
-        assertEquals("/docs", folder.getPathName());
+    }
+
+    @Test
+    void shouldCreateFolderWhenParentIdIsZero() {
+        UserVo user = prepareUserWithStorageSpace().user();
+        FileCreateFolderDto dto = new FileCreateFolderDto();
+        dto.setParentId("0");
+        dto.setName("docs");
+
+        FileNodeVo folder = fileOperationService.createFolder(dto, user.getId());
+
+        assertNotNull(folder.getId());
+        assertEquals("docs", folder.getName());
+        assertEquals("folder", folder.getType());
+        assertEquals(FileNodeConstants.ROOT_ID, folder.getParentId());
     }
 
     @Test
     void shouldRenameFolderAndUpdateDescendantPathNames() throws Exception {
         UserWithSpace userWithSpace = prepareUserWithStorageSpace();
         UserVo user = userWithSpace.user();
-        FileNodeVo docs = fileOperationService.createFolder(buildCreateFolderDto(0L, "docs"), user.getId());
+        FileNodeVo docs = fileOperationService.createFolder(buildCreateFolderDto(FileNodeConstants.ROOT_ID, "docs"), user.getId());
         FileNodeVo report = fileService.upload(buildFile("report.txt", "R"), user.getId(), docs.getId(), null);
 
         FileRenameDto dto = new FileRenameDto();
@@ -123,17 +137,16 @@ class FileOperationServiceTest {
         FileNodeVo renamed = fileOperationService.rename(dto, user.getId());
 
         assertEquals("documents", renamed.getName());
-        assertEquals("/documents", renamed.getPathName());
         FileNode updatedReport = fileMapper.selectById(report.getId());
-        assertEquals("/documents/report.txt", updatedReport.getPathName());
+        assertEquals("report.txt", updatedReport.getName());
         assertTrue(Files.exists(resolvePhysicalPath(userWithSpace, "documents/report.txt")));
     }
 
     @Test
     void shouldNotAffectSiblingFolderWhenRenamingFolder() throws Exception {
         UserVo user = prepareUserWithStorageSpace().user();
-        FileNodeVo docs = fileOperationService.createFolder(buildCreateFolderDto(0L, "docs"), user.getId());
-        FileNodeVo docs2 = fileOperationService.createFolder(buildCreateFolderDto(0L, "docs2"), user.getId());
+        FileNodeVo docs = fileOperationService.createFolder(buildCreateFolderDto(FileNodeConstants.ROOT_ID, "docs"), user.getId());
+        FileNodeVo docs2 = fileOperationService.createFolder(buildCreateFolderDto(FileNodeConstants.ROOT_ID, "docs2"), user.getId());
         FileNodeVo report = fileService.upload(buildFile("report.txt", "R"), user.getId(), docs2.getId(), null);
 
         FileRenameDto dto = new FileRenameDto();
@@ -142,14 +155,14 @@ class FileOperationServiceTest {
         fileOperationService.rename(dto, user.getId());
 
         FileNode unaffected = fileMapper.selectById(report.getId());
-        assertEquals("/docs2/report.txt", unaffected.getPathName());
+        assertEquals("report.txt", unaffected.getName());
     }
 
     @Test
     void shouldRejectCreateFolderWhenNameConflict() {
         UserVo user = prepareUserWithStorageSpace().user();
         FileCreateFolderDto dto = new FileCreateFolderDto();
-        dto.setParentId(0L);
+        dto.setParentId(FileNodeConstants.ROOT_ID);
         dto.setName("docs");
         fileOperationService.createFolder(dto, user.getId());
 
@@ -160,8 +173,8 @@ class FileOperationServiceTest {
     void shouldMoveFileToFolder() throws Exception {
         UserWithSpace userWithSpace = prepareUserWithStorageSpace();
         UserVo user = userWithSpace.user();
-        FileNodeVo folder = createFolder(user.getId(), "docs", 0L);
-        FileNodeVo file = fileService.upload(buildFile("report.txt", "report"), user.getId(), 0L, null);
+        FileNodeVo folder = createFolder(user.getId(), "docs", FileNodeConstants.ROOT_ID);
+        FileNodeVo file = fileService.upload(buildFile("report.txt", "report"), user.getId(), FileNodeConstants.ROOT_ID, null);
 
         FileExecuteOperationDto dto = buildOperationDto("move", folder.getId(), file);
         List<OperationResultVo> results = fileOperationService.move(dto, user.getId());
@@ -177,10 +190,10 @@ class FileOperationServiceTest {
     @Test
     void shouldSkipOnMoveConflict() throws Exception {
         UserVo user = prepareUserWithStorageSpace().user();
-        FileNodeVo folder = createFolder(user.getId(), "docs", 0L);
-        FileNodeVo first = fileService.upload(buildFile("same.txt", "first"), user.getId(), 0L, null);
+        FileNodeVo folder = createFolder(user.getId(), "docs", FileNodeConstants.ROOT_ID);
+        FileNodeVo first = fileService.upload(buildFile("same.txt", "first"), user.getId(), FileNodeConstants.ROOT_ID, null);
         fileOperationService.move(buildOperationDto("move", folder.getId(), first), user.getId());
-        FileNodeVo fileToMove = fileService.upload(buildFile("same.txt", "second"), user.getId(), 0L, null);
+        FileNodeVo fileToMove = fileService.upload(buildFile("same.txt", "second"), user.getId(), FileNodeConstants.ROOT_ID, null);
 
         FileExecuteOperationDto dto = buildOperationDto("move", folder.getId(), fileToMove);
         dto.getItems().get(0).setStrategy(ConflictStrategy.SKIP.getCode());
@@ -192,10 +205,10 @@ class FileOperationServiceTest {
     @Test
     void shouldAutoRenameOnMoveConflict() throws Exception {
         UserVo user = prepareUserWithStorageSpace().user();
-        FileNodeVo folder = createFolder(user.getId(), "docs", 0L);
-        FileNodeVo first = fileService.upload(buildFile("same.txt", "first"), user.getId(), 0L, null);
+        FileNodeVo folder = createFolder(user.getId(), "docs", FileNodeConstants.ROOT_ID);
+        FileNodeVo first = fileService.upload(buildFile("same.txt", "first"), user.getId(), FileNodeConstants.ROOT_ID, null);
         fileOperationService.move(buildOperationDto("move", folder.getId(), first), user.getId());
-        FileNodeVo fileToMove = fileService.upload(buildFile("same.txt", "second"), user.getId(), 0L, null);
+        FileNodeVo fileToMove = fileService.upload(buildFile("same.txt", "second"), user.getId(), FileNodeConstants.ROOT_ID, null);
 
         FileExecuteOperationDto dto = buildOperationDto("move", folder.getId(), fileToMove);
         dto.getItems().get(0).setStrategy(ConflictStrategy.KEEP.getCode());
@@ -208,10 +221,10 @@ class FileOperationServiceTest {
     @Test
     void shouldPreCheckMoveConflict() throws Exception {
         UserVo user = prepareUserWithStorageSpace().user();
-        FileNodeVo folder = createFolder(user.getId(), "docs", 0L);
-        FileNodeVo first = fileService.upload(buildFile("same.txt", "first"), user.getId(), 0L, null);
+        FileNodeVo folder = createFolder(user.getId(), "docs", FileNodeConstants.ROOT_ID);
+        FileNodeVo first = fileService.upload(buildFile("same.txt", "first"), user.getId(), FileNodeConstants.ROOT_ID, null);
         fileOperationService.move(buildOperationDto("move", folder.getId(), first), user.getId());
-        FileNodeVo fileToMove = fileService.upload(buildFile("same.txt", "second"), user.getId(), 0L, null);
+        FileNodeVo fileToMove = fileService.upload(buildFile("same.txt", "second"), user.getId(), FileNodeConstants.ROOT_ID, null);
 
         FilePreCheckOperationDto dto = buildPreCheckDto("move", folder.getId(), fileToMove);
         List<ConflictItemVo> conflicts = fileOperationService.preCheckOperation(dto, user.getId());
@@ -225,8 +238,8 @@ class FileOperationServiceTest {
     void shouldCopyFile() throws Exception {
         UserWithSpace userWithSpace = prepareUserWithStorageSpace();
         UserVo user = userWithSpace.user();
-        FileNodeVo folder = createFolder(user.getId(), "backup", 0L);
-        FileNodeVo file = fileService.upload(buildFile("note.txt", "note"), user.getId(), 0L, null);
+        FileNodeVo folder = createFolder(user.getId(), "backup", FileNodeConstants.ROOT_ID);
+        FileNodeVo file = fileService.upload(buildFile("note.txt", "note"), user.getId(), FileNodeConstants.ROOT_ID, null);
 
         FileExecuteOperationDto dto = buildOperationDto("copy", folder.getId(), file);
         List<OperationResultVo> results = fileOperationService.copy(dto, user.getId());
@@ -240,15 +253,32 @@ class FileOperationServiceTest {
     }
 
     @Test
+    void shouldCopyFileWhenQuotaIsZero() throws Exception {
+        UserWithSpace userWithSpace = prepareUserWithStorageSpace(0L);
+        UserVo user = userWithSpace.user();
+        FileNodeVo folder = createFolder(user.getId(), "backup", FileNodeConstants.ROOT_ID);
+        FileNodeVo file = fileService.upload(buildFile("note.txt", "note"), user.getId(), FileNodeConstants.ROOT_ID, null);
+
+        FileExecuteOperationDto dto = buildOperationDto("copy", folder.getId(), file);
+        List<OperationResultVo> results = fileOperationService.copy(dto, user.getId());
+
+        assertEquals("success", results.get(0).getStatus());
+        Path original = resolvePhysicalPath(userWithSpace, "note.txt");
+        Path copied = resolvePhysicalPath(userWithSpace, "backup/note.txt");
+        assertTrue(Files.exists(original));
+        assertTrue(Files.exists(copied));
+    }
+
+    @Test
     void shouldCopyFolderRecursively() throws Exception {
         UserWithSpace userWithSpace = prepareUserWithStorageSpace();
         UserVo user = userWithSpace.user();
-        FileNodeVo docs = createFolder(user.getId(), "docs", 0L);
-        FileNodeVo report = fileService.upload(buildFile("report.txt", "report"), user.getId(), 0L, null);
+        FileNodeVo docs = createFolder(user.getId(), "docs", FileNodeConstants.ROOT_ID);
+        FileNodeVo report = fileService.upload(buildFile("report.txt", "report"), user.getId(), FileNodeConstants.ROOT_ID, null);
         FileExecuteOperationDto moveDto = buildOperationDto("move", docs.getId(), report);
         fileOperationService.move(moveDto, user.getId());
 
-        FileNodeVo backup = createFolder(user.getId(), "backup", 0L);
+        FileNodeVo backup = createFolder(user.getId(), "backup", FileNodeConstants.ROOT_ID);
         FileExecuteOperationDto copyDto = buildOperationDto("copy", backup.getId(), docs);
         List<OperationResultVo> results = fileOperationService.copy(copyDto, user.getId());
 
@@ -261,7 +291,7 @@ class FileOperationServiceTest {
     void shouldRejectOperationOnOtherUsersFile() {
         UserVo userA = prepareUserWithStorageSpace().user();
         UserVo userB = prepareUserWithStorageSpace().user();
-        FileNodeVo folderA = createFolder(userA.getId(), "docs", 0L);
+        FileNodeVo folderA = createFolder(userA.getId(), "docs", FileNodeConstants.ROOT_ID);
 
         FileCreateFolderDto dto = new FileCreateFolderDto();
         dto.setParentId(folderA.getId());
@@ -270,14 +300,14 @@ class FileOperationServiceTest {
         assertThrows(BusinessException.class, () -> fileOperationService.createFolder(dto, userB.getId()));
     }
 
-    private FileNodeVo createFolder(Long userId, String name, Long parentId) {
+    private FileNodeVo createFolder(String userId, String name, String parentId) {
         FileCreateFolderDto dto = new FileCreateFolderDto();
         dto.setParentId(parentId);
         dto.setName(name);
         return fileOperationService.createFolder(dto, userId);
     }
 
-    private FilePreCheckOperationDto buildPreCheckDto(String type, Long targetParentId, FileNodeVo... files) {
+    private FilePreCheckOperationDto buildPreCheckDto(String type, String targetParentId, FileNodeVo... files) {
         FilePreCheckOperationDto dto = new FilePreCheckOperationDto();
         dto.setType(type);
         dto.setTargetParentId(targetParentId);
@@ -285,7 +315,7 @@ class FileOperationServiceTest {
         return dto;
     }
 
-    private FileExecuteOperationDto buildOperationDto(String type, Long targetParentId, FileNodeVo... files) {
+    private FileExecuteOperationDto buildOperationDto(String type, String targetParentId, FileNodeVo... files) {
         FileExecuteOperationDto dto = new FileExecuteOperationDto();
         dto.setType(type);
         dto.setTargetParentId(targetParentId);
@@ -305,7 +335,7 @@ class FileOperationServiceTest {
                 .toList();
     }
 
-    private FileCreateFolderDto buildCreateFolderDto(Long parentId, String name) {
+    private FileCreateFolderDto buildCreateFolderDto(String parentId, String name) {
         FileCreateFolderDto dto = new FileCreateFolderDto();
         dto.setParentId(parentId);
         dto.setName(name);

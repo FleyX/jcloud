@@ -22,8 +22,11 @@ import org.springframework.transaction.annotation.Transactional;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -44,7 +47,7 @@ public class FilePreviewServiceImpl implements FilePreviewService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public PreviewResult preview(Long fileNodeId, Long userId, PreviewType type) {
+    public PreviewResult preview(String fileNodeId, String userId, PreviewType type) {
         FileNode node = fileMapper.selectById(fileNodeId);
         if (node == null) {
             throw new BusinessException(ResultCode.NOT_FOUND, "文件不存在");
@@ -72,7 +75,7 @@ public class FilePreviewServiceImpl implements FilePreviewService {
 
         StorageSpace space = systemStorageSpaceProvider.getSystemSpace();
         StorageSpace userSpace = getUserSpace(node);
-        Path sourcePath = FilePathUtil.resolvePhysicalPath(node, userSpace);
+        Path sourcePath = FilePathUtil.resolvePhysicalPath(node, buildResolveContext(node, userId, userSpace));
         if (!Files.exists(sourcePath)) {
             throw new BusinessException(ResultCode.NOT_FOUND, "文件已丢失");
         }
@@ -171,5 +174,19 @@ public class FilePreviewServiceImpl implements FilePreviewService {
         } catch (Exception e) {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "预览读取失败");
         }
+    }
+
+    private FilePathUtil.ResolveContext buildResolveContext(FileNode node, String userId, StorageSpace space) {
+        Set<String> ancestorIds = FilePathUtil.extractAncestorIds(List.of(node));
+        Map<String, String> cache = new HashMap<>();
+        if (!ancestorIds.isEmpty()) {
+            List<FileNode> ancestors = fileMapper.selectBatchIds(ancestorIds);
+            for (FileNode ancestor : ancestors) {
+                if (userId.equals(ancestor.getUserId())) {
+                    cache.put(ancestor.getId(), ancestor.getName());
+                }
+            }
+        }
+        return FilePathUtil.contextOf(space, userId, cache);
     }
 }

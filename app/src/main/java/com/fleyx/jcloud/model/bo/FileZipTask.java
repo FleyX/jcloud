@@ -9,7 +9,7 @@ import java.time.Instant;
  * ZIP 批量下载任务业务对象。
  */
 public record FileZipTask(String taskId,
-                          Long userId,
+                          String userId,
                           FileZipTaskStatus status,
                           Path zipPath,
                           long totalBytes,

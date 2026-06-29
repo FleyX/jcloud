@@ -30,7 +30,11 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.zip.ZipEntry;
@@ -74,7 +78,7 @@ public class FileDownloadServiceImpl implements FileDownloadService {
     private long taskTtlMinutes;
 
     @Override
-    public BatchDownloadResult downloadBatch(FileBatchDownloadDto dto, Long userId) {
+    public BatchDownloadResult downloadBatch(FileBatchDownloadDto dto, String userId) {
         if (dto == null || CollectionUtils.isEmpty(dto.getIds())) {
             throw new BusinessException(ResultCode.PARAM_ERROR, "下载节点 ID 不能为空");
         }
@@ -86,7 +90,7 @@ public class FileDownloadServiceImpl implements FileDownloadService {
 
         long totalSize = files.stream().mapToLong(n -> n.getSize() == null ? 0L : n.getSize()).sum();
         if (totalSize <= streamThresholdSize && files.size() <= streamThresholdCount) {
-            return buildSyncZip(files, totalSize);
+            return buildSyncZip(files, userId, totalSize);
         }
 
         String taskId = UUID.randomUUID().toString();
@@ -95,13 +99,13 @@ public class FileDownloadServiceImpl implements FileDownloadService {
         FileZipTask pendingTask = new FileZipTask(taskId, userId, FileZipTaskStatus.PENDING, zipPath, totalSize, null, Instant.now());
         taskStore.put(taskId, pendingTask);
 
-        taskExecutor.execute(() -> buildZipAsync(taskId, files, zipPath));
+        taskExecutor.execute(() -> buildZipAsync(taskId, files, userId, zipPath));
         FileZipTask task = taskStore.get(taskId);
         return new BatchDownloadResult.TaskResult(taskId, task.status());
     }
 
     @Override
-    public FileZipTask getTask(String taskId, Long userId) {
+    public FileZipTask getTask(String taskId, String userId) {
         FileZipTask task = taskStore.get(taskId);
         if (task == null) {
             throw new BusinessException(ResultCode.NOT_FOUND, "任务不存在");
@@ -113,7 +117,7 @@ public class FileDownloadServiceImpl implements FileDownloadService {
     }
 
     @Override
-    public FileDownloadResult downloadTaskResult(String taskId, Long userId) {
+    public FileDownloadResult downloadTaskResult(String taskId, String userId) {
         FileZipTask task = getTask(taskId, userId);
         if (task.status() != FileZipTaskStatus.COMPLETED) {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "任务尚未完成");
@@ -126,17 +130,17 @@ public class FileDownloadServiceImpl implements FileDownloadService {
         }
     }
 
-    private List<FileNode> collectDownloadFiles(List<Long> ids, Long userId) {
+    private List<FileNode> collectDownloadFiles(List<String> ids, String userId) {
         List<FileNode> result = new ArrayList<>();
-        for (Long id : ids) {
+        for (String id : ids) {
             FileNode node = fileMapper.selectById(id);
-            if (node == null || !userId.equals(node.getUserId()) || node.getDeleteAt() != 0L) {
+            if (node == null || !userId.equals(node.getUserId())) {
                 continue;
             }
             if (TYPE_FILE.equals(node.getType())) {
                 result.add(node);
             } else if (TYPE_FOLDER.equals(node.getType())) {
-                List<FileNode> descendants = fileMapper.selectFilesByPathNamePrefix(userId, node.getPathName());
+                List<FileNode> descendants = fileMapper.selectFilesByIdPathPrefix(userId, node.getPath(), node.getId());
                 for (FileNode descendant : descendants) {
                     if (!descendant.getId().equals(node.getId())) {
                         result.add(descendant);
@@ -147,10 +151,10 @@ public class FileDownloadServiceImpl implements FileDownloadService {
         return result;
     }
 
-    private BatchDownloadResult buildSyncZip(List<FileNode> files, long totalSize) {
+    private BatchDownloadResult buildSyncZip(List<FileNode> files, String userId, long totalSize) {
         try {
             Path tempFile = Files.createTempFile("jcloud-batch-", ".zip");
-            writeZip(files, tempFile);
+            writeZip(files, userId, tempFile);
             InputStream inputStream = Files.newInputStream(tempFile);
             return new BatchDownloadResult.StreamResult(ZIP_FILE_NAME, inputStream, Files.size(tempFile));
         } catch (IOException e) {
@@ -158,18 +162,19 @@ public class FileDownloadServiceImpl implements FileDownloadService {
         }
     }
 
-    private void buildZipAsync(String taskId, List<FileNode> files, Path zipPath) {
+    private void buildZipAsync(String taskId, List<FileNode> files, String userId, Path zipPath) {
         updateTaskStatus(taskId, FileZipTaskStatus.RUNNING, null);
         try {
             Files.createDirectories(zipPath.getParent());
-            writeZip(files, zipPath);
+            writeZip(files, userId, zipPath);
             updateTaskStatus(taskId, FileZipTaskStatus.COMPLETED, null);
         } catch (Exception e) {
             updateTaskStatus(taskId, FileZipTaskStatus.FAILED, e.getMessage());
         }
     }
 
-    private void writeZip(List<FileNode> files, Path zipPath) throws IOException {
+    private void writeZip(List<FileNode> files, String userId, Path zipPath) throws IOException {
+        FilePathUtil.ResolveContext ctx = buildResolveContext(files, userId);
         try (OutputStream os = Files.newOutputStream(zipPath);
              ZipOutputStream zos = new ZipOutputStream(os)) {
             for (FileNode file : files) {
@@ -177,11 +182,11 @@ public class FileDownloadServiceImpl implements FileDownloadService {
                 if (space == null) {
                     throw new BusinessException(ResultCode.NOT_FOUND, "存储空间不存在");
                 }
-                Path physicalPath = FilePathUtil.resolvePhysicalPath(file, space);
+                Path physicalPath = FilePathUtil.resolvePhysicalPath(file, FilePathUtil.contextOf(space, userId, ctx.idToNameCache()));
                 if (!Files.exists(physicalPath)) {
                     throw new BusinessException(ResultCode.NOT_FOUND, "文件已丢失: " + file.getName());
                 }
-                String entryName = resolveEntryName(file);
+                String entryName = FilePathUtil.stripLeadingSlash(FilePathUtil.resolveNamePath(file, ctx));
                 ZipEntry entry = new ZipEntry(entryName);
                 entry.setSize(file.getSize() == null ? 0L : file.getSize());
                 zos.putNextEntry(entry);
@@ -192,8 +197,18 @@ public class FileDownloadServiceImpl implements FileDownloadService {
         }
     }
 
-    private String resolveEntryName(FileNode file) {
-        return FilePathUtil.stripLeadingSlash(file.getPathName());
+    private FilePathUtil.ResolveContext buildResolveContext(List<FileNode> files, String userId) {
+        Set<String> ancestorIds = FilePathUtil.extractAncestorIds(files);
+        Map<String, String> cache = new HashMap<>();
+        if (!ancestorIds.isEmpty()) {
+            List<FileNode> ancestors = fileMapper.selectBatchIds(ancestorIds);
+            for (FileNode ancestor : ancestors) {
+                if (userId.equals(ancestor.getUserId())) {
+                    cache.put(ancestor.getId(), ancestor.getName());
+                }
+            }
+        }
+        return FilePathUtil.contextOf(null, userId, cache);
     }
 
     private void updateTaskStatus(String taskId, FileZipTaskStatus status, String message) {
@@ -205,9 +220,9 @@ public class FileDownloadServiceImpl implements FileDownloadService {
                 current.taskId(), current.userId(), status, current.zipPath(), current.totalBytes(), message, current.createdAt()));
     }
 
-    private Path resolveTaskDir(Long userId, String taskId) {
+    private Path resolveTaskDir(String userId, String taskId) {
         StorageSpace systemSpace = systemStorageSpaceProvider.getSystemSpace();
-        return Path.of(systemSpace.getPath(), ZIP_TASKS_SUB_DIRECTORY, userId.toString(), taskId);
+        return Path.of(systemSpace.getPath(), ZIP_TASKS_SUB_DIRECTORY, userId, taskId);
     }
 
     @Scheduled(fixedRate = 300_000)

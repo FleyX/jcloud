@@ -18,7 +18,7 @@ public interface RolePermissionMapper extends BaseMapper<RolePermission> {
      *
      * @param roleId 角色 ID
      */
-    void deleteByRoleId(@Param("roleId") Long roleId);
+    void deleteByRoleId(@Param("roleId") String roleId);
 
     /**
      * 批量插入角色权限关联。
@@ -34,5 +34,5 @@ public interface RolePermissionMapper extends BaseMapper<RolePermission> {
      * @param roleId 角色 ID
      * @return 权限 ID 列表
      */
-    List<Long> selectPermissionIdsByRoleId(@Param("roleId") Long roleId);
+    List<String> selectPermissionIdsByRoleId(@Param("roleId") String roleId);
 }

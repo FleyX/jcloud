@@ -19,17 +19,17 @@ public class FileNodeVo implements Serializable {
     /**
      * ID。
      */
-    private Long id;
+    private String id;
 
     /**
      * 用户 ID。
      */
-    private Long userId;
+    private String userId;
 
     /**
      * 父节点 ID。
      */
-    private Long parentId;
+    private String parentId;
 
     /**
      * 名称。
@@ -54,12 +54,7 @@ public class FileNodeVo implements Serializable {
     /**
      * 存储空间 ID。
      */
-    private Long storageSpaceId;
-
-    /**
-     * 虚拟路径快照。
-     */
-    private String pathName;
+    private String storageSpaceId;
 
     /**
      * MIME 类型。

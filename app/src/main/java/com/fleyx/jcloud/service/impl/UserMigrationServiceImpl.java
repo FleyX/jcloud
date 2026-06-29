@@ -76,7 +76,7 @@ public class UserMigrationServiceImpl implements UserMigrationService {
     }
 
     @Override
-    public UserMigrationTaskVo getLatestTaskByUserId(Long userId) {
+    public UserMigrationTaskVo getLatestTaskByUserId(String userId) {
         LambdaQueryWrapper<UserMigrationTask> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(UserMigrationTask::getUserId, userId);
         wrapper.eq(UserMigrationTask::getDeleteAt, 0L);
@@ -89,7 +89,7 @@ public class UserMigrationServiceImpl implements UserMigrationService {
         return userMigrationTaskConvert.poToVo(task);
     }
 
-    private User requireUser(Long userId) {
+    private User requireUser(String userId) {
         User user = userMapper.selectById(userId);
         if (user == null) {
             throw new BusinessException(ResultCode.NOT_FOUND, "用户不存在");
@@ -97,7 +97,7 @@ public class UserMigrationServiceImpl implements UserMigrationService {
         return user;
     }
 
-    private StorageSpace requireSpace(Long spaceId) {
+    private StorageSpace requireSpace(String spaceId) {
         StorageSpace space = storageSpaceMapper.selectById(spaceId);
         if (space == null) {
             throw new BusinessException(ResultCode.NOT_FOUND, "存储空间不存在");
@@ -118,7 +118,7 @@ public class UserMigrationServiceImpl implements UserMigrationService {
         }
     }
 
-    private void rejectIfMigrationInProgress(Long userId) {
+    private void rejectIfMigrationInProgress(String userId) {
         LambdaQueryWrapper<UserMigrationTask> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(UserMigrationTask::getUserId, userId);
         wrapper.in(UserMigrationTask::getStatus, List.of(STATUS_PENDING, STATUS_RUNNING));

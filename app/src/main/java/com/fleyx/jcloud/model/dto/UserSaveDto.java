@@ -49,7 +49,7 @@ public class UserSaveDto implements Serializable {
      * 默认存储空间 ID。
      */
     @NotNull(message = "默认存储空间不能为空")
-    private Long storageSpaceId;
+    private String storageSpaceId;
 
     /**
      * 用户配额数值。

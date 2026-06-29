@@ -19,8 +19,10 @@ import com.fleyx.jcloud.model.vo.ChunkedUploadChunkVo;
 import com.fleyx.jcloud.model.vo.ChunkedUploadInitVo;
 import com.fleyx.jcloud.model.vo.FileNodeVo;
 import com.fleyx.jcloud.service.ChunkedUploadService;
+import com.fleyx.jcloud.common.constant.FileNodeConstants;
 import com.fleyx.jcloud.util.FileHashUtil;
 import com.fleyx.jcloud.util.FileConflictResolver;
+import com.fleyx.jcloud.util.FileNodeUtil;
 import com.fleyx.jcloud.util.FilePathUtil;
 import com.fleyx.jcloud.util.UploadConflictResolver;
 import com.fleyx.jcloud.util.UserReadOnlyChecker;
@@ -39,9 +41,13 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Properties;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Stream;
 
@@ -70,7 +76,7 @@ public class ChunkedUploadServiceImpl implements ChunkedUploadService {
     private final UploadConflictResolver conflictResolver;
 
     @Override
-    public ChunkedUploadInitVo init(Long userId, ChunkedUploadInitDto dto) {
+    public ChunkedUploadInitVo init(String userId, ChunkedUploadInitDto dto) {
         userReadOnlyChecker.checkWriteAllowed(userId);
         User user = requireUser(userId);
         StorageSpace space = requireSpace(user.getStorageSpaceId());
@@ -85,7 +91,7 @@ public class ChunkedUploadServiceImpl implements ChunkedUploadService {
         long fileSize = dto.getSize();
         long usedSpace = user.getUsedSpace() == null ? 0L : user.getUsedSpace();
         long quota = user.getQuota() == null ? 0L : user.getQuota();
-        if (usedSpace + fileSize > quota) {
+        if (quota > 0 && usedSpace + fileSize > quota) {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "用户配额不足");
         }
 
@@ -107,7 +113,7 @@ public class ChunkedUploadServiceImpl implements ChunkedUploadService {
     }
 
     @Override
-    public ChunkedUploadChunkVo uploadChunk(Long userId, String uploadId, Integer chunkIndex,
+    public ChunkedUploadChunkVo uploadChunk(String userId, String uploadId, Integer chunkIndex,
                                             MultipartFile chunk, String chunkHash) {
         userReadOnlyChecker.checkWriteAllowed(userId);
         UploadContext context = loadUploadContext(userId, uploadId);
@@ -141,7 +147,7 @@ public class ChunkedUploadServiceImpl implements ChunkedUploadService {
     }
 
     @Override
-    public List<Integer> listUploadedChunks(Long userId, String uploadId) {
+    public List<Integer> listUploadedChunks(String userId, String uploadId) {
         loadUploadContext(userId, uploadId);
         LambdaQueryWrapper<FileChunk> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(FileChunk::getUploadId, uploadId);
@@ -154,7 +160,7 @@ public class ChunkedUploadServiceImpl implements ChunkedUploadService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public FileNodeVo complete(Long userId, String uploadId, ChunkedUploadCompleteDto dto) {
+    public FileNodeVo complete(String userId, String uploadId, ChunkedUploadCompleteDto dto) {
         userReadOnlyChecker.checkWriteAllowed(userId);
         RLock lock = userReadWriteLock.writeLock(userId);
         lock.lock();
@@ -165,7 +171,7 @@ public class ChunkedUploadServiceImpl implements ChunkedUploadService {
         }
     }
 
-    private FileNodeVo doComplete(Long userId, String uploadId, String strategy) {
+    private FileNodeVo doComplete(String userId, String uploadId, String strategy) {
         UploadContext context = loadUploadContext(userId, uploadId);
         User user = context.user();
 
@@ -191,7 +197,7 @@ public class ChunkedUploadServiceImpl implements ChunkedUploadService {
 
         long usedSpace = user.getUsedSpace() == null ? 0L : user.getUsedSpace();
         long quota = user.getQuota() == null ? 0L : user.getQuota();
-        if (usedSpace + context.size() > quota) {
+        if (quota > 0 && usedSpace + context.size() > quota) {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "用户配额不足");
         }
 
@@ -216,8 +222,7 @@ public class ChunkedUploadServiceImpl implements ChunkedUploadService {
         node.setSize(context.size());
         node.setHash(hash);
         node.setStorageSpaceId(context.space().getId());
-        node.setPath(filePathName);
-        node.setPathName(filePathName);
+        setNodePath(node, context.parentId());
         node.setMimeType(mimeType);
         node.setStatus(1);
         fileMapper.insert(node);
@@ -247,8 +252,8 @@ public class ChunkedUploadServiceImpl implements ChunkedUploadService {
         }
     }
 
-    private String resolveParentPathName(long parentId, Long userId) {
-        if (parentId == 0L) {
+    private String resolveParentPathName(String parentId, String userId) {
+        if (parentId == null || FileNodeConstants.ROOT_ID.equals(parentId)) {
             return "/";
         }
         FileNode parent = fileMapper.selectById(parentId);
@@ -258,7 +263,30 @@ public class ChunkedUploadServiceImpl implements ChunkedUploadService {
         if (!TYPE_FOLDER.equals(parent.getType())) {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "父节点不是文件夹");
         }
-        return parent.getPathName();
+        return resolveNamePath(parent, userId);
+    }
+
+    private String resolveNamePath(FileNode node, String userId) {
+        if (node == null) {
+            return "/";
+        }
+        Set<String> ancestorIds = FilePathUtil.extractAncestorIds(List.of(node));
+        Map<String, String> cache = queryAncestorNames(userId, ancestorIds);
+        return FilePathUtil.resolveNamePath(node, FilePathUtil.contextOf(null, userId, cache));
+    }
+
+    private Map<String, String> queryAncestorNames(String userId, Set<String> ancestorIds) {
+        Map<String, String> cache = new HashMap<>();
+        if (ancestorIds.isEmpty()) {
+            return cache;
+        }
+        List<FileNode> ancestors = fileMapper.selectBatchIds(ancestorIds);
+        for (FileNode ancestor : ancestors) {
+            if (userId.equals(ancestor.getUserId())) {
+                cache.put(ancestor.getId(), ancestor.getName());
+            }
+        }
+        return cache;
     }
 
     private void mergeChunks(UploadContext context, List<FileChunk> chunks, Path targetPath) {
@@ -275,6 +303,18 @@ public class ChunkedUploadServiceImpl implements ChunkedUploadService {
         }
     }
 
+    private void setNodePath(FileNode node, String parentId) {
+        if (FileNodeConstants.ROOT_ID.equals(parentId)) {
+            node.setPath(FileNodeConstants.ROOT_ID);
+        } else {
+            FileNode parent = fileMapper.selectById(parentId);
+            if (parent == null) {
+                throw new BusinessException(ResultCode.NOT_FOUND, "父文件夹不存在");
+            }
+            node.setPath(FilePathUtil.fullIdPath(parent));
+        }
+    }
+
     private String probeContentType(Path path) {
         try {
             String mimeType = Files.probeContentType(path);
@@ -284,7 +324,7 @@ public class ChunkedUploadServiceImpl implements ChunkedUploadService {
         }
     }
 
-    private void cleanupUpload(Path tempDir, String uploadId, Long userId) {
+    private void cleanupUpload(Path tempDir, String uploadId, String userId) {
         fileChunkMapper.delete(
                 new LambdaQueryWrapper<FileChunk>()
                         .eq(FileChunk::getUploadId, uploadId)
@@ -310,13 +350,13 @@ public class ChunkedUploadServiceImpl implements ChunkedUploadService {
         }
     }
 
-    private String buildPhysicalPath(StorageSpace space, Long userId, String pathName) {
+    private String buildPhysicalPath(StorageSpace space, String userId, String pathName) {
         String base = space.getPath() + "/" + userId + "/files";
-        String relative = "/".equals(pathName) ? "" : pathName;
-        return base + relative;
+        String relative = FilePathUtil.stripLeadingSlash(pathName);
+        return base + (relative.isEmpty() ? "" : "/" + relative);
     }
 
-    private User requireUser(Long userId) {
+    private User requireUser(String userId) {
         User user = userMapper.selectById(userId);
         if (user == null) {
             throw new BusinessException(ResultCode.NOT_FOUND, "用户不存在");
@@ -324,7 +364,7 @@ public class ChunkedUploadServiceImpl implements ChunkedUploadService {
         return user;
     }
 
-    private StorageSpace requireSpace(Long spaceId) {
+    private StorageSpace requireSpace(String spaceId) {
         if (spaceId == null) {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "用户未绑定存储空间");
         }
@@ -339,21 +379,21 @@ public class ChunkedUploadServiceImpl implements ChunkedUploadService {
         return UUID.randomUUID().toString().replace("-", "");
     }
 
-    private Path resolveTempDir(StorageSpace space, Long userId, String uploadId) {
-        return Path.of(space.getPath(), userId.toString(), "tmp", uploadId);
+    private Path resolveTempDir(StorageSpace space, String userId, String uploadId) {
+        return Path.of(space.getPath(), userId, "tmp", uploadId);
     }
 
     private void saveUploadMeta(Path tempDir, ChunkedUploadInitDto dto) throws IOException {
         Properties props = new Properties();
         props.setProperty("fileName", dto.getFileName());
         props.setProperty("size", String.valueOf(dto.getSize()));
-        props.setProperty("parentId", String.valueOf(dto.getParentId() == null ? 0L : dto.getParentId()));
+        props.setProperty("parentId", FileNodeUtil.normalizeParentId(dto.getParentId()));
         try (java.io.OutputStream out = Files.newOutputStream(tempDir.resolve(META_FILE_NAME))) {
             props.store(out, "chunked upload metadata");
         }
     }
 
-    private UploadContext loadUploadContext(Long userId, String uploadId) {
+    private UploadContext loadUploadContext(String userId, String uploadId) {
         User user = requireUser(userId);
         StorageSpace space = requireSpace(user.getStorageSpaceId());
         Path tempDir = resolveTempDir(space, userId, uploadId);
@@ -363,7 +403,7 @@ public class ChunkedUploadServiceImpl implements ChunkedUploadService {
         Properties meta = readUploadMeta(tempDir);
         String fileName = meta.getProperty("fileName");
         long size = Long.parseLong(meta.getProperty("size"));
-        long parentId = Long.parseLong(meta.getProperty("parentId", "0"));
+        String parentId = meta.getProperty("parentId", FileNodeConstants.ROOT_ID);
         int totalChunks = (int) ((size + CHUNK_SIZE - 1) / CHUNK_SIZE);
         return new UploadContext(user, space, tempDir, fileName, size, parentId, totalChunks);
     }
@@ -382,7 +422,7 @@ public class ChunkedUploadServiceImpl implements ChunkedUploadService {
         return props;
     }
 
-    private void saveOrUpdateChunkRecord(String uploadId, Long userId, Integer chunkIndex,
+    private void saveOrUpdateChunkRecord(String uploadId, String userId, Integer chunkIndex,
                                          String chunkHash, long size) {
         LambdaQueryWrapper<FileChunk> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(FileChunk::getUploadId, uploadId)
@@ -412,6 +452,6 @@ public class ChunkedUploadServiceImpl implements ChunkedUploadService {
     }
 
     private record UploadContext(User user, StorageSpace space, Path tempDir,
-                                 String fileName, long size, long parentId, int totalChunks) {
+                                 String fileName, long size, String parentId, int totalChunks) {
     }
 }

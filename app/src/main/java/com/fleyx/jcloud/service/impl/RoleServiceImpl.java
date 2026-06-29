@@ -62,7 +62,7 @@ public class RoleServiceImpl implements RoleService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public RoleVo updateRole(Long id, RoleUpdateDto dto) {
+    public RoleVo updateRole(String id, RoleUpdateDto dto) {
         Role role = requireRole(id);
         validateStatus(dto.getStatus());
         validatePermissionIds(dto.getPermissionIds());
@@ -77,7 +77,7 @@ public class RoleServiceImpl implements RoleService {
     }
 
     @Override
-    public RoleVo getById(Long id) {
+    public RoleVo getById(String id) {
         Role role = requireRole(id);
         return enrichRoleVo(role);
     }
@@ -117,7 +117,7 @@ public class RoleServiceImpl implements RoleService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void removeById(Long id) {
+    public void removeById(String id) {
         Role role = requireRole(id);
         if (PROTECTED_ROLE_CODES.contains(role.getCode())) {
             throw new BusinessException(ResultCode.FORBIDDEN, "系统角色不允许删除");
@@ -135,7 +135,7 @@ public class RoleServiceImpl implements RoleService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void updateStatus(Long id, Integer status) {
+    public void updateStatus(String id, Integer status) {
         Role role = requireRole(id);
         if (PROTECTED_ROLE_CODES.contains(role.getCode())) {
             throw new BusinessException(ResultCode.FORBIDDEN, "系统角色不允许禁用");
@@ -148,7 +148,7 @@ public class RoleServiceImpl implements RoleService {
         evictUserCachesByRoleId(id);
     }
 
-    private Role requireRole(Long id) {
+    private Role requireRole(String id) {
         Role role = roleMapper.selectById(id);
         if (role == null) {
             throw new BusinessException(ResultCode.NOT_FOUND, "角色不存在");
@@ -156,7 +156,7 @@ public class RoleServiceImpl implements RoleService {
         return role;
     }
 
-    private void checkCodeUnique(String code, Long excludeId) {
+    private void checkCodeUnique(String code, String excludeId) {
         if (StrUtil.isBlank(code)) {
             return;
         }
@@ -179,11 +179,11 @@ public class RoleServiceImpl implements RoleService {
         }
     }
 
-    private void validatePermissionIds(List<Long> permissionIds) {
+    private void validatePermissionIds(List<String> permissionIds) {
         if (CollUtil.isEmpty(permissionIds)) {
             return;
         }
-        List<Long> distinctIds = permissionIds.stream().distinct().toList();
+        List<String> distinctIds = permissionIds.stream().distinct().toList();
         long validCount = permissionMapper.selectCount(
                 new LambdaQueryWrapper<Permission>().in(Permission::getId, distinctIds)
         );
@@ -192,7 +192,7 @@ public class RoleServiceImpl implements RoleService {
         }
     }
 
-    private void saveRolePermissions(Long roleId, List<Long> permissionIds) {
+    private void saveRolePermissions(String roleId, List<String> permissionIds) {
         rolePermissionMapper.deleteByRoleId(roleId);
         if (CollUtil.isEmpty(permissionIds)) {
             return;
@@ -219,8 +219,8 @@ public class RoleServiceImpl implements RoleService {
         return vo;
     }
 
-    private void evictUserCachesByRoleId(Long roleId) {
-        List<Long> userIds = userRoleMapper.selectUserIdsByRoleId(roleId);
+    private void evictUserCachesByRoleId(String roleId) {
+        List<String> userIds = userRoleMapper.selectUserIdsByRoleId(roleId);
         if (CollUtil.isNotEmpty(userIds)) {
             userIds.forEach(userPermissionCache::evict);
         }

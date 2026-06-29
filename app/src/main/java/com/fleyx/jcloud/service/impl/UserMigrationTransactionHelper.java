@@ -34,7 +34,7 @@ public class UserMigrationTransactionHelper {
      * 将任务置为运行中，并初始化总字节数。
      */
     @Transactional(rollbackFor = Exception.class)
-    public void markRunning(Long taskId, long totalBytes) {
+    public void markRunning(String taskId, long totalBytes) {
         UserMigrationTask task = userMigrationTaskMapper.selectById(taskId);
         if (task == null) {
             return;
@@ -50,7 +50,7 @@ public class UserMigrationTransactionHelper {
      * 更新已迁移字节数。
      */
     @Transactional(rollbackFor = Exception.class)
-    public void updateProgress(Long taskId, long migratedBytes) {
+    public void updateProgress(String taskId, long migratedBytes) {
         UserMigrationTask task = new UserMigrationTask();
         task.setId(taskId);
         task.setMigratedBytes(migratedBytes);
@@ -62,7 +62,7 @@ public class UserMigrationTransactionHelper {
      * 完成迁移：更新文件节点、用户存储空间与配额，并置任务完成。
      */
     @Transactional(rollbackFor = Exception.class)
-    public void completeTask(UserMigrationTask task, Long userId, Long targetSpaceId, Long newQuota) {
+    public void completeTask(UserMigrationTask task, String userId, String targetSpaceId, Long newQuota) {
         User user = userMapper.selectById(userId);
         if (user != null) {
             user.setStorageSpaceId(targetSpaceId);
@@ -87,7 +87,7 @@ public class UserMigrationTransactionHelper {
      * 迁移失败：置任务失败，恢复用户可写状态。
      */
     @Transactional(rollbackFor = Exception.class)
-    public void failTask(UserMigrationTask task, Long userId, String errorMsg) {
+    public void failTask(UserMigrationTask task, String userId, String errorMsg) {
         User user = userMapper.selectById(userId);
         if (user != null) {
             user.setReadOnly(0);

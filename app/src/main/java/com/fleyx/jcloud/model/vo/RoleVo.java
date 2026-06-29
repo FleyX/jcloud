@@ -14,12 +14,12 @@ public class RoleVo implements Serializable {
     @Serial
     private static final long serialVersionUID = 1L;
 
-    private Long id;
+    private String id;
     private String code;
     private String name;
     private String description;
     private Integer status;
-    private List<Long> permissionIds;
+    private List<String> permissionIds;
 
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private LocalDateTime createTime;

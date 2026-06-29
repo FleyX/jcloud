@@ -137,7 +137,7 @@ public class AuthTokenFilter extends OncePerRequestFilter {
             return;
         }
 
-        Long userId;
+        String userId;
         CurrentUser currentUser;
         try {
             Claims claims = jwtUtil.parseToken(token);
@@ -171,7 +171,7 @@ public class AuthTokenFilter extends OncePerRequestFilter {
         }
     }
 
-    private boolean isAuthorized(Long userId, String resourceKey) {
+    private boolean isAuthorized(String userId, String resourceKey) {
         UserPermissionCache.CacheValue cached = userPermissionCache.get(userId);
         if (cached != null) {
             return checkAuthorization(cached.superAdmin(), cached.resourceCodes(), resourceKey);
@@ -179,7 +179,7 @@ public class AuthTokenFilter extends OncePerRequestFilter {
 
         User user = userMapper.selectById(userId);
         boolean superAdmin = user != null && user.isSuperAdmin();
-        List<Long> roleIds = userRoleMapper.selectRoleIdsByUserId(userId);
+        List<String> roleIds = userRoleMapper.selectRoleIdsByUserId(userId);
         List<String> resourceCodes = permissionResolver.resolveResourceCodes(roleIds);
         userPermissionCache.put(userId, roleIds, resourceCodes, superAdmin);
         return checkAuthorization(superAdmin, resourceCodes, resourceKey);

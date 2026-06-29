@@ -23,7 +23,7 @@ public interface FileRecycleService {
      * @param userId 用户 ID
      * @return 操作结果
      */
-    List<OperationResultVo> deleteToTrash(FileDeleteDto dto, Long userId);
+    List<OperationResultVo> deleteToTrash(FileDeleteDto dto, String userId);
 
     /**
      * 分页查询回收站列表。
@@ -33,7 +33,7 @@ public interface FileRecycleService {
      * @param pageSize 页大小
      * @return 分页结果
      */
-    IPage<RecycleRecordVo> listTrash(Long pageNum, Long pageSize, Long userId);
+    IPage<RecycleRecordVo> listTrash(Long pageNum, Long pageSize, String userId);
 
     /**
      * 恢复前冲突预检。
@@ -42,7 +42,7 @@ public interface FileRecycleService {
      * @param userId 用户 ID
      * @return 冲突列表
      */
-    List<ConflictItemVo> preCheckRestore(FilePreCheckRestoreDto dto, Long userId);
+    List<ConflictItemVo> preCheckRestore(FilePreCheckRestoreDto dto, String userId);
 
     /**
      * 恢复文件/文件夹。
@@ -51,7 +51,7 @@ public interface FileRecycleService {
      * @param userId 用户 ID
      * @return 操作结果
      */
-    List<OperationResultVo> restore(FileExecuteRestoreDto dto, Long userId);
+    List<OperationResultVo> restore(FileExecuteRestoreDto dto, String userId);
 
     /**
      * 永久删除回收站中的文件/文件夹。
@@ -60,5 +60,5 @@ public interface FileRecycleService {
      * @param userId 用户 ID
      * @return 操作结果
      */
-    List<OperationResultVo> permanentDelete(FilePermanentDeleteDto dto, Long userId);
+    List<OperationResultVo> permanentDelete(FilePermanentDeleteDto dto, String userId);
 }

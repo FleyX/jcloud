@@ -34,7 +34,7 @@ public class SystemStorageSpaceProviderImpl implements SystemStorageSpaceProvide
         if (StrUtil.isBlank(spaceId)) {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "系统数据目录未配置，请先配置用户存储空间");
         }
-        StorageSpace space = storageSpaceMapper.selectById(parseSpaceId(spaceId));
+        StorageSpace space = storageSpaceMapper.selectById(spaceId);
         if (space == null) {
             throw new BusinessException(ResultCode.NOT_FOUND, "系统数据目录配置的存储空间不存在");
         }
@@ -42,14 +42,6 @@ public class SystemStorageSpaceProviderImpl implements SystemStorageSpaceProvide
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "系统数据目录必须配置为用户存储空间");
         }
         return buildSystemSpace(space);
-    }
-
-    private Long parseSpaceId(String spaceId) {
-        try {
-            return Long.valueOf(spaceId);
-        } catch (NumberFormatException e) {
-            throw new BusinessException(ResultCode.PARAM_ERROR, "系统数据目录配置的空间 ID 不合法");
-        }
     }
 
     private StorageSpace buildSystemSpace(StorageSpace userSpace) {

@@ -42,14 +42,14 @@ public interface StorageSpaceService {
      * @param id 存储空间 ID
      * @return 存储空间视图
      */
-    StorageSpaceVo getById(Long id);
+    StorageSpaceVo getById(String id);
 
     /**
      * 删除存储空间（仅当未被用户绑定时）。
      *
      * @param id 存储空间 ID
      */
-    void removeById(Long id);
+    void removeById(String id);
 
     /**
      * 获取当前主存储空间。
@@ -64,5 +64,5 @@ public interface StorageSpaceService {
      * @param id 存储空间 ID
      * @return 刷新后的存储空间视图
      */
-    StorageSpaceVo refreshDiskSpace(Long id);
+    StorageSpaceVo refreshDiskSpace(String id);
 }

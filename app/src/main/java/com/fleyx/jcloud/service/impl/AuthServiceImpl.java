@@ -61,12 +61,12 @@ public class AuthServiceImpl implements AuthService {
         return userConvert.poToVo(user);
     }
 
-    private void bindCommonUserRole(Long userId) {
+    private void bindCommonUserRole(String userId) {
         Role role = roleMapper.selectOne(
                 new LambdaQueryWrapper<Role>()
                         .eq(Role::getCode, "common_user")
                         .eq(Role::getStatus, UserStatus.ENABLED.getCode())
-                        .eq(Role::getDeleteAt, 0)
+                        .eq(Role::getDeleteAt, 0L)
         );
         if (role == null) {
             return;
@@ -87,7 +87,7 @@ public class AuthServiceImpl implements AuthService {
     }
 
     @Override
-    public LoginVo getCurrentUser(Long userId) {
+    public LoginVo getCurrentUser(String userId) {
         User user = userMapper.selectById(userId);
         if (user == null) {
             throw new BusinessException(ResultCode.NOT_FOUND, "用户不存在");
@@ -110,7 +110,7 @@ public class AuthServiceImpl implements AuthService {
     private UserVo toUserVo(User user) {
         UserVo vo = userConvert.poToVo(user);
         vo.setIsAdmin(user.isSuperAdmin());
-        List<Long> roleIds = userRoleMapper.selectRoleIdsByUserId(user.getId());
+        List<String> roleIds = userRoleMapper.selectRoleIdsByUserId(user.getId());
         if (!roleIds.isEmpty()) {
             List<Role> roles = roleMapper.selectBatchIds(roleIds);
             vo.setRoles(roleConvert.poListToVoList(roles));

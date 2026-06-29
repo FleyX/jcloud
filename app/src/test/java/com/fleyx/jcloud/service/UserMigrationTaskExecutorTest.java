@@ -10,6 +10,7 @@ import com.fleyx.jcloud.model.vo.StorageSpaceVo;
 import com.fleyx.jcloud.model.vo.UserMigrationTaskVo;
 import com.fleyx.jcloud.model.vo.UserVo;
 import com.fleyx.jcloud.service.impl.UserMigrationTaskExecutor;
+import com.fleyx.jcloud.common.constant.FileNodeConstants;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -76,7 +77,7 @@ class UserMigrationTaskExecutorTest {
 
         MockMultipartFile multipartFile = new MockMultipartFile(
                 "file", "hello.txt", "text/plain", "hello".getBytes(StandardCharsets.UTF_8));
-        FileNodeVo uploaded = fileService.upload(multipartFile, user.getId(), 0L, null);
+        FileNodeVo uploaded = fileService.upload(multipartFile, user.getId(), FileNodeConstants.ROOT_ID, null);
         assertNotNull(uploaded.getId());
 
         UserMigrationSubmitDto submitDto = new UserMigrationSubmitDto();
@@ -138,7 +139,7 @@ class UserMigrationTaskExecutorTest {
 
         MockMultipartFile multipartFile = new MockMultipartFile(
                 "file", "hello.txt", "text/plain", "hello".getBytes(StandardCharsets.UTF_8));
-        FileNodeVo uploaded = fileService.upload(multipartFile, user.getId(), 0L, null);
+        FileNodeVo uploaded = fileService.upload(multipartFile, user.getId(), FileNodeConstants.ROOT_ID, null);
 
         UserMigrationSubmitDto submitDto = new UserMigrationSubmitDto();
         submitDto.setUserId(user.getId());

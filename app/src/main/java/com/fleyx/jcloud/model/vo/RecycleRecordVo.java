@@ -19,7 +19,7 @@ public class RecycleRecordVo implements Serializable {
     /**
      * ID。
      */
-    private Long id;
+    private String id;
 
     /**
      * 节点名称。

@@ -10,24 +10,24 @@ import lombok.EqualsAndHashCode;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("t_user_migration_task")
-public class UserMigrationTask extends BaseEntity {
+public class UserMigrationTask extends SoftDeleteEntity {
 
     private static final long serialVersionUID = 1L;
 
     /**
      * 用户 ID。
      */
-    private Long userId;
+    private String userId;
 
     /**
      * 源存储空间 ID。
      */
-    private Long sourceSpaceId;
+    private String sourceSpaceId;
 
     /**
      * 目标存储空间 ID。
      */
-    private Long targetSpaceId;
+    private String targetSpaceId;
 
     /**
      * 新配额（字节）。
