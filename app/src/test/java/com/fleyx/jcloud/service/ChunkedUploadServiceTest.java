@@ -13,6 +13,8 @@ import com.fleyx.jcloud.model.vo.FileNodeVo;
 import com.fleyx.jcloud.model.vo.StorageSpaceVo;
 import com.fleyx.jcloud.model.vo.UserVo;
 import com.fleyx.jcloud.common.constant.FileNodeConstants;
+import com.fleyx.jcloud.common.context.CurrentUser;
+import com.fleyx.jcloud.common.context.UserContext;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -183,8 +185,8 @@ class ChunkedUploadServiceTest {
         assertEquals(fileSize, Long.parseLong(vo.getSize()));
 
         Path targetPath = userWithSpace.spacePath()
-                .resolve(user.getId().toString())
                 .resolve("files")
+                .resolve(user.getUsername())
                 .resolve("chunked.bin");
         assertTrue(Files.exists(targetPath));
         assertEquals(fileSize, Files.size(targetPath));
@@ -215,8 +217,8 @@ class ChunkedUploadServiceTest {
         assertEquals(FileNodeConstants.ROOT_ID, vo.getParentId());
 
         Path targetPath = userWithSpace.spacePath()
-                .resolve(user.getId().toString())
                 .resolve("files")
+                .resolve(user.getUsername())
                 .resolve("zero-parent.bin");
         assertTrue(Files.exists(targetPath));
     }
@@ -399,12 +401,13 @@ class ChunkedUploadServiceTest {
         StorageSpaceVo space = storageSpaceService.save(spaceDto);
 
         UserSaveDto userDto = new UserSaveDto();
-        userDto.setUsername("chunkUser" + quota + "-" + System.nanoTime());
+        userDto.setUsername("user_" + Long.toUnsignedString(System.nanoTime(), 36));
         userDto.setPassword("123456");
         userDto.setStorageSpaceId(space.getId());
         userDto.setQuota(toQuotaValue(quota));
         userDto.setQuotaUnit(toQuotaUnit(quota));
         UserVo user = userService.saveUser(userDto);
+        UserContext.set(new CurrentUser(user.getId(), user.getUsername()));
 
         return new UserWithSpace(user, spacePath);
     }

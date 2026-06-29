@@ -1,6 +1,7 @@
 package com.fleyx.jcloud.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.fleyx.jcloud.common.constant.StorageConstant;
 import com.fleyx.jcloud.common.event.UserMigrationSubmittedEvent;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.FileMapper;
@@ -106,11 +107,12 @@ public class UserMigrationTaskExecutor {
             throw new BusinessException("源或目标存储空间不存在");
         }
 
+        String username = user.getUsername();
         long totalBytes = computeTotalBytes(userId);
         transactionHelper.markRunning(task.getId(), totalBytes);
 
-        Path sourceDir = resolveUserFilesDir(sourceSpace, userId);
-        Path targetDir = resolveUserFilesDir(targetSpace, userId);
+        Path sourceDir = resolveUserFilesDir(sourceSpace, username);
+        Path targetDir = resolveUserFilesDir(targetSpace, username);
         deleteIfExists(targetDir);
 
         long migratedBytes = 0L;
@@ -147,8 +149,8 @@ public class UserMigrationTaskExecutor {
         return files.stream().mapToLong(f -> f.getSize() == null ? 0L : f.getSize()).sum();
     }
 
-    private Path resolveUserFilesDir(StorageSpace space, String userId) {
-        return Path.of(space.getPath(), userId, "files");
+    private Path resolveUserFilesDir(StorageSpace space, String username) {
+        return Path.of(space.getPath(), StorageConstant.FILES_DIR, username);
     }
 
     private void deleteIfExists(Path path) {
@@ -165,7 +167,9 @@ public class UserMigrationTaskExecutor {
         transactionHelper.failTask(task, task.getUserId(), errorMsg);
         StorageSpace targetSpace = storageSpaceMapper.selectById(task.getTargetSpaceId());
         if (targetSpace != null) {
-            Path targetDir = resolveUserFilesDir(targetSpace, task.getUserId());
+            User user = userMapper.selectById(task.getUserId());
+            String username = user == null ? task.getUserId() : user.getUsername();
+            Path targetDir = resolveUserFilesDir(targetSpace, username);
             deleteIfExists(targetDir);
         }
         log.info("迁移任务已回滚，taskId={}", task.getId());

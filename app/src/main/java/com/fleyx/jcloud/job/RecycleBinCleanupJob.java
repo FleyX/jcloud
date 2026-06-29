@@ -17,14 +17,14 @@ import java.util.List;
 /**
  * 回收站自动清理任务。
  * <p>
- * 每天凌晨 2 点执行，清理超过 30 天的回收站记录。
+ * 每天凌晨 2 点执行，清理超过 7 天的回收站记录。
  */
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class RecycleBinCleanupJob {
 
-    private static final int RETENTION_DAYS = 30;
+    private static final int RETENTION_DAYS = 7;
 
     private final RecycleRecordMapper recycleRecordMapper;
     private final FileRecycleService fileRecycleService;

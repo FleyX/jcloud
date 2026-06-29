@@ -1,6 +1,7 @@
 package com.fleyx.jcloud.util;
 
 import com.fleyx.jcloud.common.constant.FileNodeConstants;
+import com.fleyx.jcloud.common.constant.StorageConstant;
 import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.po.StorageSpace;
 
@@ -14,7 +15,7 @@ import java.util.Set;
 /**
  * 文件物理路径工具。
  * <p>
- * 物理路径公式：storageSpace.path / userId / files / namePath（去掉前导 '/'）
+ * 物理路径公式：storageSpace.path / files / username / namePath（去掉前导 '/'）
  * <p>
  * namePath 约定：对文件和文件夹统一表示节点自身的完整虚拟名称路径，均以 '/' 开头。
  * <ul>
@@ -32,33 +33,33 @@ public final class FilePathUtil {
      * 路径解析上下文，用于批量内缓存 id→name 映射，避免重复查库。
      *
      * @param space         存储空间
-     * @param userId        用户 ID
+     * @param username      用户名，作为物理路径中的用户目录名
      * @param idToNameCache id 到名称的缓存映射
      */
-    public record ResolveContext(StorageSpace space, String userId, Map<String, String> idToNameCache) {
+    public record ResolveContext(StorageSpace space, String username, Map<String, String> idToNameCache) {
     }
 
     /**
      * 创建路径解析上下文。
      *
-     * @param space  存储空间
-     * @param userId 用户 ID
+     * @param space    存储空间
+     * @param username 用户名
      * @return 上下文
      */
-    public static ResolveContext contextOf(StorageSpace space, String userId) {
-        return new ResolveContext(space, userId, new HashMap<>());
+    public static ResolveContext contextOf(StorageSpace space, String username) {
+        return new ResolveContext(space, username, new HashMap<>());
     }
 
     /**
      * 创建路径解析上下文，使用指定的 id→name 缓存。
      *
-     * @param space  存储空间
-     * @param userId 用户 ID
-     * @param cache  id 到名称缓存
+     * @param space    存储空间
+     * @param username 用户名
+     * @param cache    id 到名称缓存
      * @return 上下文
      */
-    public static ResolveContext contextOf(StorageSpace space, String userId, Map<String, String> cache) {
-        return new ResolveContext(space, userId, cache);
+    public static ResolveContext contextOf(StorageSpace space, String username, Map<String, String> cache) {
+        return new ResolveContext(space, username, cache);
     }
 
     /**
@@ -69,7 +70,7 @@ public final class FilePathUtil {
      * @return 物理路径
      */
     public static Path resolvePhysicalPath(FileNode node, ResolveContext ctx) {
-        return resolvePhysicalPath(ctx.space(), ctx.userId(), resolveNamePath(node, ctx));
+        return resolvePhysicalPath(ctx.space(), ctx.username(), resolveNamePath(node, ctx));
     }
 
     /**
@@ -122,12 +123,12 @@ public final class FilePathUtil {
      * 解析指定完整名称路径对应的绝对物理路径。
      *
      * @param space    存储空间
-     * @param userId   用户 ID
+     * @param username 用户名
      * @param pathName 节点自身完整名称路径
      * @return 物理路径
      */
-    public static Path resolvePhysicalPath(StorageSpace space, String userId, String pathName) {
-        Path base = Path.of(space.getPath(), userId, "files");
+    public static Path resolvePhysicalPath(StorageSpace space, String username, String pathName) {
+        Path base = Path.of(space.getPath(), StorageConstant.FILES_DIR, username);
         String relative = stripLeadingSlash(pathName);
         if (relative.isEmpty()) {
             return base;
@@ -139,14 +140,14 @@ public final class FilePathUtil {
      * 根据父路径和名称解析绝对物理路径。
      *
      * @param space          存储空间
-     * @param userId         用户 ID
+     * @param username       用户名
      * @param parentPathName 父目录完整名称路径
      * @param name           节点名称
      * @return 物理路径
      */
-    public static Path resolvePhysicalPath(StorageSpace space, String userId,
+    public static Path resolvePhysicalPath(StorageSpace space, String username,
                                            String parentPathName, String name) {
-        return resolvePhysicalPath(space, userId, buildPathName(parentPathName, name));
+        return resolvePhysicalPath(space, username, buildPathName(parentPathName, name));
     }
 
     /**

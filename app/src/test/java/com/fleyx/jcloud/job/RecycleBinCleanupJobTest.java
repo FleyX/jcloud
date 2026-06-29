@@ -13,6 +13,8 @@ import com.fleyx.jcloud.service.FileService;
 import com.fleyx.jcloud.service.StorageSpaceService;
 import com.fleyx.jcloud.service.UserService;
 import com.fleyx.jcloud.common.constant.FileNodeConstants;
+import com.fleyx.jcloud.common.context.CurrentUser;
+import com.fleyx.jcloud.common.context.UserContext;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -109,12 +111,13 @@ class RecycleBinCleanupJobTest {
         StorageSpaceVo space = storageSpaceService.save(spaceDto);
 
         UserSaveDto userDto = new UserSaveDto();
-        userDto.setUsername("cleanupUser" + System.nanoTime());
+        userDto.setUsername("user_" + Long.toUnsignedString(System.nanoTime(), 36));
         userDto.setPassword("123456");
         userDto.setStorageSpaceId(space.getId());
         userDto.setQuota(10L);
         userDto.setQuotaUnit("GB");
         UserVo user = userService.saveUser(userDto);
+        UserContext.set(new CurrentUser(user.getId(), user.getUsername()));
 
         return new UserWithSpace(user, spacePath);
     }

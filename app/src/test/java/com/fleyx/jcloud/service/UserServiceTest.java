@@ -58,7 +58,7 @@ class UserServiceTest {
 
     private UserSaveDto buildDto(String username) {
         UserSaveDto dto = new UserSaveDto();
-        dto.setUsername(username);
+        dto.setUsername(username.toLowerCase());
         dto.setPassword("123456");
         dto.setEmail(username + "@example.com");
         dto.setNickname("昵称" + username);
@@ -318,14 +318,12 @@ class UserServiceTest {
     }
 
     @Test
-    void shouldAllowReuseUsernameAfterDeletion() {
-        UserSaveDto dto = buildDto("reuseUsername");
+    void shouldNotReuseUsernameWithinRetentionPeriodAfterDeletion() {
+        UserSaveDto dto = buildDto("reuseusername");
         UserVo saved = userService.saveUser(dto);
         userService.removeById(saved.getId());
 
-        UserVo reused = userService.saveUser(dto);
-        assertNotNull(reused);
-        assertEquals(dto.getUsername(), reused.getUsername());
+        assertThrows(BusinessException.class, () -> userService.saveUser(dto));
     }
 
     @Test

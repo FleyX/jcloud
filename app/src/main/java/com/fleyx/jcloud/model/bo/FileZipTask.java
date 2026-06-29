@@ -10,6 +10,7 @@ import java.time.Instant;
  */
 public record FileZipTask(String taskId,
                           String userId,
+                          String username,
                           FileZipTaskStatus status,
                           Path zipPath,
                           long totalBytes,

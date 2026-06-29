@@ -23,6 +23,8 @@ import com.fleyx.jcloud.model.vo.OperationResultVo;
 import com.fleyx.jcloud.model.vo.StorageSpaceVo;
 import com.fleyx.jcloud.model.vo.UserVo;
 import com.fleyx.jcloud.common.constant.FileNodeConstants;
+import com.fleyx.jcloud.common.context.CurrentUser;
+import com.fleyx.jcloud.common.context.UserContext;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -107,9 +109,8 @@ class FileRecycleServiceTest {
         // 物理文件已从 files 移到 trash
         assertFalse(Files.exists(originalPath));
         Path trashPath = userWithSpace.spacePath()
-                .resolve(user.getId().toString())
                 .resolve("trash")
-                .resolve(record.getId().toString().substring(0, 10))
+                .resolve(user.getUsername())
                 .resolve(record.getId().toString())
                 .resolve("hello.txt");
         assertTrue(Files.exists(trashPath));
@@ -151,9 +152,8 @@ class FileRecycleServiceTest {
         // 物理文件已按原结构移到 trash
         assertFalse(Files.exists(originalFilePath));
         Path trashPath = userWithSpace.spacePath()
-                .resolve(user.getId().toString())
                 .resolve("trash")
-                .resolve(record.getId().toString().substring(0, 10))
+                .resolve(user.getUsername())
                 .resolve(record.getId().toString())
                 .resolve("docs/report.txt");
         assertTrue(Files.exists(trashPath));
@@ -188,9 +188,8 @@ class FileRecycleServiceTest {
 
         // 回收站中存在对应的空目录占位
         Path trashFolderPath = userWithSpace.spacePath()
-                .resolve(user.getId().toString())
                 .resolve("trash")
-                .resolve(record.getId().toString().substring(0, 10))
+                .resolve(user.getUsername())
                 .resolve(record.getId().toString())
                 .resolve("docs");
         assertTrue(Files.exists(trashFolderPath));
@@ -542,18 +541,16 @@ class FileRecycleServiceTest {
 
     private Path resolvePhysicalPath(UserWithSpace userWithSpace, String relativePath) {
         return userWithSpace.spacePath()
-                .resolve(userWithSpace.user().getId().toString())
                 .resolve("files")
+                .resolve(userWithSpace.user().getUsername())
                 .resolve(relativePath);
     }
 
     private Path resolveTrashPath(UserWithSpace userWithSpace, String recordId, String relativePath) {
         String idStr = recordId;
-        String prefix = idStr.length() >= 10 ? idStr.substring(0, 10) : idStr;
         return userWithSpace.spacePath()
-                .resolve(userWithSpace.user().getId().toString())
                 .resolve("trash")
-                .resolve(prefix)
+                .resolve(userWithSpace.user().getUsername())
                 .resolve(idStr)
                 .resolve(relativePath);
     }
@@ -576,12 +573,13 @@ class FileRecycleServiceTest {
         StorageSpaceVo space = storageSpaceService.save(spaceDto);
 
         UserSaveDto userDto = new UserSaveDto();
-        userDto.setUsername("recycleUser" + quota + "-" + System.nanoTime());
+        userDto.setUsername("user_" + Long.toUnsignedString(System.nanoTime(), 36));
         userDto.setPassword("123456");
         userDto.setStorageSpaceId(space.getId());
         userDto.setQuota(toQuotaValue(quota));
         userDto.setQuotaUnit(toQuotaUnit(quota));
         UserVo user = userService.saveUser(userDto);
+        UserContext.set(new CurrentUser(user.getId(), user.getUsername()));
 
         return new UserWithSpace(user, spacePath);
     }

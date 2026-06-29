@@ -78,18 +78,19 @@ public class FileOperationExecutor {
 
         StorageSpace space = storageSpaceMapper.selectById(source.getStorageSpaceId());
         User user = userMapper.selectById(userId);
+        String username = user.getUsername();
         applyOverwriteIfNeeded(resolution, user);
 
         String newPathName = FilePathUtil.buildPathName(targetParentPathName, resolution.finalName());
         if (TYPE_FILE.equals(source.getType())) {
-            FilePathUtil.ResolveContext ctx = buildResolveContext(source, userId, space);
+            FilePathUtil.ResolveContext ctx = buildResolveContext(source, username, space);
             Path sourcePath = FilePathUtil.resolvePhysicalPath(source, ctx);
-            Path targetPath = FilePathUtil.resolvePhysicalPath(space, userId, newPathName);
+            Path targetPath = FilePathUtil.resolvePhysicalPath(space, username, newPathName);
             movePhysicalFile(sourcePath, targetPath);
         } else {
             String oldPathName = resolveNamePath(source, userId);
-            Path oldPhysicalPath = FilePathUtil.resolvePhysicalPath(space, userId, oldPathName);
-            Path newPhysicalPath = FilePathUtil.resolvePhysicalPath(space, userId, newPathName);
+            Path oldPhysicalPath = FilePathUtil.resolvePhysicalPath(space, username, oldPathName);
+            Path newPhysicalPath = FilePathUtil.resolvePhysicalPath(space, username, newPathName);
             movePhysicalFile(oldPhysicalPath, newPhysicalPath);
             updateFolderPath(source, targetParentId, resolution.finalName());
         }
@@ -135,8 +136,9 @@ public class FileOperationExecutor {
         applyOverwriteIfNeeded(resolution, user);
         String newPathName = FilePathUtil.buildPathName(targetParentPathName, resolution.finalName());
         StorageSpace space = storageSpaceMapper.selectById(source.getStorageSpaceId());
+        String username = user.getUsername();
         FileNode copied = copyNodeRecursively(source, targetParentId, targetParentPathName,
-                resolution.finalName(), user, space);
+                resolution.finalName(), user, space, username);
         return OperationOutcome.success(copied, copied.getName());
     }
 
@@ -197,7 +199,7 @@ public class FileOperationExecutor {
 
     private FileNode copyNodeRecursively(FileNode source, String parentId,
                                          String parentPathName, String name,
-                                         User user, StorageSpace space) {
+                                         User user, StorageSpace space, String username) {
         String newPathName = FilePathUtil.buildPathName(parentPathName, name);
         FileNode target = new FileNode();
         target.setUserId(source.getUserId());
@@ -213,21 +215,21 @@ public class FileOperationExecutor {
         fileMapper.insert(target);
 
         if (TYPE_FILE.equals(source.getType())) {
-            copyPhysicalFile(source, target, user, space);
+            copyPhysicalFile(source, target, user, space, username);
         } else {
             List<FileNode> children = fileMapper.selectByParentId(user.getId(), source.getId());
             for (FileNode child : children) {
-                copyNodeRecursively(child, target.getId(), newPathName, child.getName(), user, space);
+                copyNodeRecursively(child, target.getId(), newPathName, child.getName(), user, space, username);
             }
         }
         return target;
     }
 
-    private void copyPhysicalFile(FileNode source, FileNode target, User user, StorageSpace space) {
+    private void copyPhysicalFile(FileNode source, FileNode target, User user, StorageSpace space, String username) {
         Set<String> ancestorIds = new HashSet<>(FilePathUtil.extractAncestorIds(List.of(source)));
         ancestorIds.addAll(FilePathUtil.extractAncestorIds(List.of(target)));
         Map<String, String> cache = queryAncestorNames(user.getId(), ancestorIds);
-        FilePathUtil.ResolveContext ctx = FilePathUtil.contextOf(space, user.getId(), cache);
+        FilePathUtil.ResolveContext ctx = FilePathUtil.contextOf(space, username, cache);
         Path sourcePath = FilePathUtil.resolvePhysicalPath(source, ctx);
         Path targetPath = FilePathUtil.resolvePhysicalPath(target, ctx);
         try {
@@ -343,10 +345,11 @@ public class FileOperationExecutor {
         return cache;
     }
 
-    private FilePathUtil.ResolveContext buildResolveContext(FileNode node, String userId, StorageSpace space) {
+    private FilePathUtil.ResolveContext buildResolveContext(FileNode node, String username, StorageSpace space) {
+        String userId = node.getUserId();
         Set<String> ancestorIds = FilePathUtil.extractAncestorIds(List.of(node));
         Map<String, String> cache = queryAncestorNames(userId, ancestorIds);
-        return FilePathUtil.contextOf(space, userId, cache);
+        return FilePathUtil.contextOf(space, username, cache);
     }
 
     /**

@@ -12,6 +12,8 @@ import com.fleyx.jcloud.model.vo.StorageSpaceVo;
 import com.fleyx.jcloud.model.vo.UserVo;
 import com.fleyx.jcloud.service.SystemConfigService;
 import com.fleyx.jcloud.common.constant.FileNodeConstants;
+import com.fleyx.jcloud.common.context.CurrentUser;
+import com.fleyx.jcloud.common.context.UserContext;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -215,12 +217,13 @@ class FilePreviewServiceTest {
         systemConfigService.setValue("system.storage.space.id", String.valueOf(space.getId()));
 
         UserSaveDto userDto = new UserSaveDto();
-        userDto.setUsername("previewUser" + System.nanoTime());
+        userDto.setUsername("user_" + Long.toUnsignedString(System.nanoTime(), 36));
         userDto.setPassword("123456");
         userDto.setStorageSpaceId(space.getId());
         userDto.setQuota(toQuotaValue(quota));
         userDto.setQuotaUnit(toQuotaUnit(quota));
         UserVo user = userService.saveUser(userDto);
+        UserContext.set(new CurrentUser(user.getId(), user.getUsername()));
 
         return new UserWithSpace(user, spacePath);
     }

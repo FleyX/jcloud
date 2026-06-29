@@ -39,7 +39,7 @@ class AuthServiceImplTest {
 
     @Test
     void registerShouldCreateUser() {
-        UserRegisterDto dto = buildRegisterDto("authRegister");
+        UserRegisterDto dto = buildRegisterDto("authregister");
         UserVo vo = authService.register(dto);
         assertNotNull(vo.getId());
         assertEquals(dto.getUsername(), vo.getUsername());
@@ -48,7 +48,7 @@ class AuthServiceImplTest {
 
     @Test
     void loginWithValidCredentialsShouldReturnToken() {
-        UserRegisterDto reg = buildRegisterDto("authLogin");
+        UserRegisterDto reg = buildRegisterDto("authlogin");
         authService.register(reg);
 
         UserLoginDto login = new UserLoginDto();
@@ -65,7 +65,7 @@ class AuthServiceImplTest {
 
     @Test
     void loginWithWrongPasswordShouldThrowUnauthorized() {
-        UserRegisterDto reg = buildRegisterDto("authWrongPwd");
+        UserRegisterDto reg = buildRegisterDto("authwrongpwd");
         authService.register(reg);
 
         UserLoginDto login = new UserLoginDto();
@@ -81,7 +81,7 @@ class AuthServiceImplTest {
         // 由于注册后未分配角色，直接构造禁用状态无法通过登录校验（用户名或密码错误），
         // 因此这里仅验证不存在用户登录时返回 UNAUTHORIZED。
         UserLoginDto login = new UserLoginDto();
-        login.setUsername("not-exist-user");
+        login.setUsername("notexistuser");
         login.setPassword("123456");
         BusinessException ex = assertThrows(BusinessException.class, () -> authService.login(login));
         assertEquals(ResultCode.UNAUTHORIZED.getCode(), ex.getResultCode().getCode());
@@ -89,7 +89,7 @@ class AuthServiceImplTest {
 
     @Test
     void getCurrentUserShouldReturnUserInfo() {
-        UserRegisterDto reg = buildRegisterDto("authCurrent");
+        UserRegisterDto reg = buildRegisterDto("authcurrent");
         UserVo user = authService.register(reg);
 
         LoginVo vo = authService.getCurrentUser(user.getId());

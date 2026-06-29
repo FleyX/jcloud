@@ -20,6 +20,7 @@ import com.fleyx.jcloud.model.vo.ChunkedUploadInitVo;
 import com.fleyx.jcloud.model.vo.FileNodeVo;
 import com.fleyx.jcloud.service.ChunkedUploadService;
 import com.fleyx.jcloud.common.constant.FileNodeConstants;
+import com.fleyx.jcloud.common.constant.StorageConstant;
 import com.fleyx.jcloud.util.FileHashUtil;
 import com.fleyx.jcloud.util.FileConflictResolver;
 import com.fleyx.jcloud.util.FileNodeUtil;
@@ -96,7 +97,7 @@ public class ChunkedUploadServiceImpl implements ChunkedUploadService {
         }
 
         String uploadId = generateUploadId();
-        Path tempDir = resolveTempDir(space, userId, uploadId);
+        Path tempDir = resolveTempDir(space, user.getUsername(), uploadId);
         try {
             Files.createDirectories(tempDir);
             saveUploadMeta(tempDir, dto);
@@ -174,6 +175,7 @@ public class ChunkedUploadServiceImpl implements ChunkedUploadService {
     private FileNodeVo doComplete(String userId, String uploadId, String strategy) {
         UploadContext context = loadUploadContext(userId, uploadId);
         User user = context.user();
+        String username = user.getUsername();
 
         List<FileChunk> chunks = fileChunkMapper.selectList(
                 new LambdaQueryWrapper<FileChunk>()
@@ -202,7 +204,7 @@ public class ChunkedUploadServiceImpl implements ChunkedUploadService {
         }
 
         String filePathName = FilePathUtil.buildPathName(parentPathName, resolution.finalName());
-        Path targetPath = FilePathUtil.resolvePhysicalPath(context.space(), userId, filePathName);
+        Path targetPath = FilePathUtil.resolvePhysicalPath(context.space(), username, filePathName);
 
         mergeChunks(context, chunks, targetPath);
 
@@ -233,7 +235,7 @@ public class ChunkedUploadServiceImpl implements ChunkedUploadService {
         cleanupUpload(context.tempDir(), uploadId, userId);
 
         FileNodeVo vo = fileConvert.poToVo(node);
-        vo.setPhysicalPath(buildPhysicalPath(context.space(), userId, filePathName));
+        vo.setPhysicalPath(buildPhysicalPath(context.space(), username, filePathName));
         return vo;
     }
 
@@ -350,8 +352,8 @@ public class ChunkedUploadServiceImpl implements ChunkedUploadService {
         }
     }
 
-    private String buildPhysicalPath(StorageSpace space, String userId, String pathName) {
-        String base = space.getPath() + "/" + userId + "/files";
+    private String buildPhysicalPath(StorageSpace space, String username, String pathName) {
+        String base = space.getPath() + "/" + StorageConstant.FILES_DIR + "/" + username;
         String relative = FilePathUtil.stripLeadingSlash(pathName);
         return base + (relative.isEmpty() ? "" : "/" + relative);
     }
@@ -379,8 +381,8 @@ public class ChunkedUploadServiceImpl implements ChunkedUploadService {
         return UUID.randomUUID().toString().replace("-", "");
     }
 
-    private Path resolveTempDir(StorageSpace space, String userId, String uploadId) {
-        return Path.of(space.getPath(), userId, "tmp", uploadId);
+    private Path resolveTempDir(StorageSpace space, String username, String uploadId) {
+        return Path.of(space.getPath(), StorageConstant.TMP_DIR, username, uploadId);
     }
 
     private void saveUploadMeta(Path tempDir, ChunkedUploadInitDto dto) throws IOException {
@@ -396,7 +398,7 @@ public class ChunkedUploadServiceImpl implements ChunkedUploadService {
     private UploadContext loadUploadContext(String userId, String uploadId) {
         User user = requireUser(userId);
         StorageSpace space = requireSpace(user.getStorageSpaceId());
-        Path tempDir = resolveTempDir(space, userId, uploadId);
+        Path tempDir = resolveTempDir(space, user.getUsername(), uploadId);
         if (!Files.exists(tempDir)) {
             throw new BusinessException(ResultCode.NOT_FOUND, "上传任务不存在");
         }
