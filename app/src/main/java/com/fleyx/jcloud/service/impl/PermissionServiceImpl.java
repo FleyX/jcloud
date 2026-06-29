@@ -22,6 +22,7 @@ import com.fleyx.jcloud.model.po.RolePermission;
 import com.fleyx.jcloud.model.vo.PermissionTreeVo;
 import com.fleyx.jcloud.model.vo.PermissionVo;
 import com.fleyx.jcloud.service.PermissionService;
+import com.fleyx.jcloud.util.IdUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -226,6 +227,7 @@ public class PermissionServiceImpl implements PermissionService {
                 .distinct()
                 .map(rid -> {
                     PermissionResource pr = new PermissionResource();
+                    pr.setId(IdUtil.nextId());
                     pr.setPermissionId(permissionId);
                     pr.setResourceId(rid);
                     pr.setCreateTime(LocalDateTime.now());

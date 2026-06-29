@@ -306,6 +306,22 @@ class UserServiceTest {
     }
 
     @Test
+    void updateUserRolesShouldBatchInsertWithGeneratedId() {
+        UserSaveDto saveDto = buildDto("roleAssignUser");
+        UserVo saved = userService.saveUser(saveDto);
+
+        UserUpdateRolesDto dto = new UserUpdateRolesDto();
+        dto.setUserId(saved.getId());
+        dto.setRoleIds(List.of("0000000000002"));
+
+        userService.updateRoles(dto);
+
+        List<String> roleIds = userRoleMapper.selectRoleIdsByUserId(saved.getId());
+        assertEquals(1, roleIds.size());
+        assertEquals("0000000000002", roleIds.get(0));
+    }
+
+    @Test
     void batchDeleteShouldSkipAdmin() {
         UserSaveDto dto1 = buildDto("batchDeleteA");
         UserSaveDto dto2 = buildDto("batchDeleteB");

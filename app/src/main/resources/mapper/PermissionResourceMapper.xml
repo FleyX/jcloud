@@ -38,10 +38,10 @@
     </delete>
 
     <insert id="batchInsert">
-        INSERT INTO t_permission_resource (permission_id, resource_id, create_time, update_time)
+        INSERT INTO t_permission_resource (id, permission_id, resource_id, create_time, update_time)
         VALUES
         <foreach collection="list" item="item" separator=",">
-            (#{item.permissionId}, #{item.resourceId}, #{item.createTime}, #{item.updateTime})
+            (#{item.id}, #{item.permissionId}, #{item.resourceId}, #{item.createTime}, #{item.updateTime})
         </foreach>
     </insert>
 

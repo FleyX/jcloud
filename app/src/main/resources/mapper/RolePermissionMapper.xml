@@ -7,10 +7,10 @@
     </delete>
 
     <insert id="batchInsert">
-        INSERT INTO t_role_permission (role_id, permission_id, create_time)
+        INSERT INTO t_role_permission (id, role_id, permission_id, create_time)
         VALUES
         <foreach collection="list" item="item" separator=",">
-            (#{item.roleId}, #{item.permissionId}, #{item.createTime})
+            (#{item.id}, #{item.roleId}, #{item.permissionId}, #{item.createTime})
         </foreach>
     </insert>
 

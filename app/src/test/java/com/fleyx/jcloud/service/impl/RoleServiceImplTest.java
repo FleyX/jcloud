@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.RoleMapper;
+import com.fleyx.jcloud.mapper.RolePermissionMapper;
 import com.fleyx.jcloud.model.dto.RoleSaveDto;
 import com.fleyx.jcloud.model.po.Role;
 import com.fleyx.jcloud.model.vo.RoleVo;
@@ -16,6 +17,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Collections;
+import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -38,6 +40,9 @@ class RoleServiceImplTest {
     private RoleMapper roleMapper;
 
     @Autowired
+    private RolePermissionMapper rolePermissionMapper;
+
+    @Autowired
     private JdbcTemplate jdbcTemplate;
 
     private static String uniqueCode() {
@@ -58,6 +63,23 @@ class RoleServiceImplTest {
         assertNotNull(vo.getId());
         assertEquals(dto.getCode(), vo.getCode());
         assertEquals(dto.getName(), vo.getName());
+    }
+
+    @Test
+    void shouldCreateRoleWithPermissions() {
+        RoleSaveDto dto = new RoleSaveDto();
+        dto.setCode(uniqueCode());
+        dto.setName("带权限角色");
+        dto.setDescription("测试带权限角色");
+        dto.setPermissionIds(List.of("0000000000004"));
+
+        RoleVo vo = roleService.saveRole(dto);
+
+        assertNotNull(vo);
+        assertNotNull(vo.getId());
+        List<String> permissionIds = rolePermissionMapper.selectPermissionIdsByRoleId(vo.getId());
+        assertEquals(1, permissionIds.size());
+        assertEquals("0000000000004", permissionIds.get(0));
     }
 
     @Test
