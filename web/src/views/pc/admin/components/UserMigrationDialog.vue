@@ -33,7 +33,6 @@ const localOpen = computed({
 })
 
 const targetSpaceId = ref('')
-const newQuotaGb = ref('')
 const task = ref<UserMigrationTaskVo | null>(null)
 const submitting = ref(false)
 const loadingTask = ref(false)
@@ -48,20 +47,12 @@ const targetSpaces = computed(() =>
 )
 
 const canSubmit = computed(() => {
-  const gb = Number(newQuotaGb.value)
-  return targetSpaceId.value && !Number.isNaN(gb) && gb > 0 && !isRunning.value
+  return targetSpaceId.value && !isRunning.value
 })
 
 const isRunning = computed(() => {
   const status = task.value?.status
   return status === 'PENDING' || status === 'RUNNING'
-})
-
-const progressPercent = computed(() => {
-  const total = Number(task.value?.totalBytes || '0')
-  const migrated = Number(task.value?.migratedBytes || '0')
-  if (total <= 0) return 0
-  return Math.min(100, Math.round((migrated / total) * 100))
 })
 
 watch(() => props.open, (open) => {
@@ -70,13 +61,14 @@ watch(() => props.open, (open) => {
     loadLatestTask()
   } else {
     stopPolling()
+    if (task.value?.status === 'COMPLETED') {
+      resetForm()
+    }
   }
 })
 
 function resetForm() {
   targetSpaceId.value = ''
-  const quota = Number(props.user?.quota || '0')
-  newQuotaGb.value = quota > 0 ? String(Math.ceil(quota / (1024 * 1024 * 1024))) : ''
   task.value = null
 }
 
@@ -98,11 +90,9 @@ async function handleSubmit() {
   if (!props.user || !canSubmit.value) return
   submitting.value = true
   try {
-    const newQuota = (BigInt(Math.floor(Number(newQuotaGb.value))) * 1024n * 1024n * 1024n).toString()
     const dto: UserMigrationSubmitDto = {
       userId: props.user.id,
       targetSpaceId: targetSpaceId.value,
-      newQuota,
     }
     task.value = await submitUserMigration(props.user.id, dto)
     startPolling()
@@ -134,6 +124,7 @@ async function pollTask() {
     stopPolling()
     if (status === 'COMPLETED') {
       emit('success')
+      emit('update:open', false)
     }
   }
 }
@@ -141,7 +132,7 @@ async function pollTask() {
 function statusLabel(status?: string) {
   switch (status) {
     case 'PENDING': return '等待执行'
-    case 'RUNNING': return '迁移中'
+    case 'RUNNING': return '进行中'
     case 'COMPLETED': return '已完成'
     case 'FAILED': return '失败'
     default: return '无任务'
@@ -157,6 +148,19 @@ function statusClass(status?: string) {
     status === 'FAILED' && 'bg-red-100 text-red-700',
     !status && 'bg-surface-100 text-surface-500',
   )
+}
+
+function formatBytes(bytes: string | number | undefined): string {
+  const size = Number(bytes ?? 0)
+  if (Number.isNaN(size)) return '-'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  let index = 0
+  let value = size
+  while (value >= 1024 && index < units.length - 1) {
+    value /= 1024
+    index++
+  }
+  return `${value.toFixed(2)} ${units[index]}`
 }
 </script>
 
@@ -192,11 +196,11 @@ function statusClass(status?: string) {
             </div>
             <div class="flex justify-between py-1">
               <span class="text-surface-500">当前配额</span>
-              <span class="font-medium text-surface-900">{{ user?.quota || '0' }} 字节</span>
+              <span class="font-medium text-surface-900">{{ formatBytes(user?.quota) }}</span>
             </div>
             <div class="flex justify-between py-1">
               <span class="text-surface-500">已用空间</span>
-              <span class="font-medium text-surface-900">{{ user?.usedSpace || '0' }} 字节</span>
+              <span class="font-medium text-surface-900">{{ formatBytes(user?.usedSpace) }}</span>
             </div>
           </div>
 
@@ -215,40 +219,18 @@ function statusClass(status?: string) {
                 :key="space.id"
                 :value="space.id"
               >
-                {{ space.name }}（容量 {{ space.capacity }} 字节）
+                {{ space.name }}（容量 {{ formatBytes(space.capacity) }}，可用 {{ formatBytes(space.freeSpace) }}）
               </option>
             </select>
-          </div>
-
-          <div>
-            <label class="mb-1 block text-xs font-medium text-surface-700">新配额（GB）</label>
-            <input
-              v-model="newQuotaGb"
-              type="number"
-              min="1"
-              :disabled="isRunning"
-              placeholder="请输入新配额"
-              class="w-full rounded-xl border border-surface-200 bg-surface-50 px-3 py-2 text-sm outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100 disabled:cursor-not-allowed disabled:opacity-60"
-            >
           </div>
 
           <div
             v-if="task"
             class="rounded-xl border border-surface-200 bg-surface-50 p-3"
           >
-            <div class="mb-2 flex items-center justify-between">
-              <span class="text-xs text-surface-500">迁移状态</span>
+            <div class="flex items-center justify-between">
+              <span class="text-xs text-surface-500">最近一次迁移状态</span>
               <span :class="statusClass(task.status)">{{ statusLabel(task.status) }}</span>
-            </div>
-            <div class="h-2 w-full overflow-hidden rounded-full bg-surface-200">
-              <div
-                class="h-full rounded-full bg-primary-600 transition-all duration-300"
-                :style="{ width: `${progressPercent}%` }"
-              />
-            </div>
-            <div class="mt-1 flex justify-between text-xs text-surface-500">
-              <span>{{ task.migratedBytes }} / {{ task.totalBytes }} 字节</span>
-              <span>{{ progressPercent }}%</span>
             </div>
             <div
               v-if="task.errorMsg"

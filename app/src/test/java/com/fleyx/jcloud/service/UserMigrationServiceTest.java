@@ -143,6 +143,22 @@ class UserMigrationServiceTest {
     }
 
     @Test
+    void shouldUseCurrentQuotaWhenNewQuotaNotProvided() throws Exception {
+        UserWithSpaces prepared = prepareUserWithSpaces();
+
+        UserMigrationSubmitDto dto = new UserMigrationSubmitDto();
+        dto.setUserId(prepared.user().getId());
+        dto.setTargetSpaceId(prepared.targetSpace().getId());
+
+        UserMigrationTaskVo task = userMigrationService.submitMigration(dto);
+
+        assertNotNull(task.getId());
+        assertEquals("PENDING", task.getStatus());
+        User user = userMapper.selectById(prepared.user().getId());
+        assertEquals(Integer.valueOf(1), user.getReadOnly());
+    }
+
+    @Test
     void shouldReturnLatestTask() throws Exception {
         UserWithSpaces prepared = prepareUserWithSpaces();
 

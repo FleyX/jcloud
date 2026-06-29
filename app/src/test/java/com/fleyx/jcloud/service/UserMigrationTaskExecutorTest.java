@@ -1,5 +1,6 @@
 package com.fleyx.jcloud.service;
 
+import com.fleyx.jcloud.model.dto.FileDeleteDto;
 import com.fleyx.jcloud.model.dto.StorageSpaceSaveDto;
 import com.fleyx.jcloud.model.dto.UserMigrationSubmitDto;
 import com.fleyx.jcloud.model.dto.UserSaveDto;
@@ -21,6 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -50,13 +52,16 @@ class UserMigrationTaskExecutorTest {
     private FileService fileService;
 
     @Autowired
+    private FileRecycleService fileRecycleService;
+
+    @Autowired
     private com.fleyx.jcloud.mapper.UserMapper userMapper;
 
     @Autowired
     private com.fleyx.jcloud.mapper.FileMapper fileMapper;
 
     @Test
-    void shouldMigrateFilesAndUpdateUserSpace() throws Exception {
+    void shouldMoveUserDirAndUpdateUserSpace() throws Exception {
         String testId = String.valueOf(System.nanoTime());
         Path sourcePath = Files.createTempDirectory("jcloud-source-" + testId);
         Path targetPath = Files.createTempDirectory("jcloud-target-" + testId);
@@ -80,6 +85,10 @@ class UserMigrationTaskExecutorTest {
         FileNodeVo uploaded = fileService.upload(multipartFile, user.getId(), FileNodeConstants.ROOT_ID, null);
         assertNotNull(uploaded.getId());
 
+        FileDeleteDto deleteDto = new FileDeleteDto();
+        deleteDto.setIds(List.of(uploaded.getId()));
+        fileRecycleService.deleteToTrash(deleteDto, user.getId());
+
         UserMigrationSubmitDto submitDto = new UserMigrationSubmitDto();
         submitDto.setUserId(user.getId());
         submitDto.setTargetSpaceId(targetSpace.getId());
@@ -90,24 +99,24 @@ class UserMigrationTaskExecutorTest {
 
         UserMigrationTaskVo completed = userMigrationService.getLatestTaskByUserId(user.getId());
         assertEquals("COMPLETED", completed.getStatus());
-        assertEquals(5L, completed.getTotalBytes());
-        assertEquals(5L, completed.getMigratedBytes());
 
         User migratedUser = userMapper.selectById(user.getId());
         assertEquals(targetSpace.getId(), migratedUser.getStorageSpaceId());
         assertEquals(Long.valueOf(21474836480L), migratedUser.getQuota());
         assertEquals(Integer.valueOf(0), migratedUser.getReadOnly());
 
-        FileNode fileNode = fileMapper.selectById(uploaded.getId());
-        assertEquals(targetSpace.getId(), fileNode.getStorageSpaceId());
+        Path targetTrashFile = targetPath.resolve("trash").resolve(user.getUsername());
+        assertTrue(Files.exists(targetTrashFile), "回收站目录应已移动到目标存储空间");
 
-        Path targetFile = targetPath.resolve("files").resolve(user.getUsername()).resolve("hello.txt");
-        assertTrue(Files.exists(targetFile), "文件应已复制到目标存储空间");
-        assertEquals("hello", Files.readString(targetFile));
+        Path sourceTrashFile = sourcePath.resolve("trash").resolve(user.getUsername());
+        assertTrue(Files.notExists(sourceTrashFile), "迁移成功后源空间回收站应被清理");
+
+        Path sourceFilesDir = sourcePath.resolve("files").resolve(user.getUsername());
+        assertTrue(Files.notExists(sourceFilesDir), "迁移成功后源空间文件目录应被清理");
     }
 
     @Test
-    void shouldRollbackOnCopyFailure() throws Exception {
+    void shouldRollbackOnMoveFailure() throws Exception {
         String testId = String.valueOf(System.nanoTime());
         Path sourcePath = Files.createTempDirectory("jcloud-source-" + testId);
         Path targetPath = Files.createTempDirectory("jcloud-target-" + testId);

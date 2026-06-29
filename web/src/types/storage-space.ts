@@ -78,7 +78,7 @@ export interface UserMigrationTaskVo {
 export interface UserMigrationSubmitDto {
   userId: string
   targetSpaceId: string
-  newQuota: string
+  newQuota?: string
 }
 
 /**

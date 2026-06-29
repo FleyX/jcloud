@@ -51,7 +51,8 @@ public class UserMigrationServiceImpl implements UserMigrationService {
 
         StorageSpace sourceSpace = requireSpace(user.getStorageSpaceId());
         StorageSpace targetSpace = requireSpace(dto.getTargetSpaceId());
-        validateTargetSpaceEnough(sourceSpace, targetSpace, dto.getNewQuota());
+        Long newQuota = dto.getNewQuota() != null ? dto.getNewQuota() : user.getQuota();
+        validateTargetSpaceEnough(sourceSpace, targetSpace, newQuota);
         rejectIfMigrationInProgress(dto.getUserId());
 
         user.setReadOnly(1);
@@ -61,7 +62,7 @@ public class UserMigrationServiceImpl implements UserMigrationService {
         task.setUserId(dto.getUserId());
         task.setSourceSpaceId(sourceSpace.getId());
         task.setTargetSpaceId(targetSpace.getId());
-        task.setNewQuota(dto.getNewQuota());
+        task.setNewQuota(newQuota);
         task.setStatus(STATUS_PENDING);
         task.setTotalBytes(0L);
         task.setMigratedBytes(0L);
