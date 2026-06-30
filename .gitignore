@@ -39,5 +39,6 @@ dist
 .idea
 .vscode
 .DS_Store
-.screen_state.json
-dump.rdb
+
+*.log
+*.pid

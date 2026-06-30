@@ -162,6 +162,12 @@ function formatBytes(bytes: string | number | undefined): string {
   }
   return `${value.toFixed(2)} ${units[index]}`
 }
+
+function formatQuota(bytes: string | number | undefined): string {
+  const size = Number(bytes ?? 0)
+  if (Number.isNaN(size) || size === 0) return '不限制'
+  return formatBytes(size)
+}
 </script>
 
 <template>
@@ -196,7 +202,7 @@ function formatBytes(bytes: string | number | undefined): string {
             </div>
             <div class="flex justify-between py-1">
               <span class="text-surface-500">当前配额</span>
-              <span class="font-medium text-surface-900">{{ formatBytes(user?.quota) }}</span>
+              <span class="font-medium text-surface-900">{{ formatQuota(user?.quota) }}</span>
             </div>
             <div class="flex justify-between py-1">
               <span class="text-surface-500">已用空间</span>
