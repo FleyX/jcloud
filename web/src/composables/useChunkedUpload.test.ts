@@ -39,6 +39,10 @@ beforeEach(() => {
   vi.mocked(identityHash).mockResolvedValue('mock-partial-hash')
   vi.mocked(preCheckUpload).mockResolvedValue({ conflicts: [], candidates: [] })
   vi.mocked(tryInstantUpload).mockResolvedValue(null)
+  vi.mocked(initChunkedUpload).mockReset()
+  vi.mocked(uploadChunk).mockReset()
+  vi.mocked(listUploadedChunks).mockReset()
+  vi.mocked(completeChunkedUpload).mockReset()
 })
 
 describe('useChunkedUpload', () => {
@@ -69,7 +73,7 @@ describe('useChunkedUpload', () => {
     const { upload } = useChunkedUpload()
     const onComplete = vi.fn()
 
-    const result = await upload(file, '0', onComplete)
+    const result = await upload(file, '0', undefined, onComplete)
 
     expect(result).toEqual(node)
     expect(store.uploadQueue).toHaveLength(1)
@@ -81,6 +85,7 @@ describe('useChunkedUpload', () => {
       fileName: file.name,
       size: file.size,
       parentId: '0',
+      relativePath: undefined,
       partialHash: 'mock-partial-hash',
     })
   })
@@ -144,12 +149,12 @@ describe('useChunkedUpload', () => {
     const { upload } = useChunkedUpload()
     const onComplete = vi.fn()
 
-    const result = await upload(file, '0', onComplete)
+    const result = await upload(file, '0', undefined, onComplete)
 
     expect(result).toEqual(instantNode)
     expect(store.uploadQueue[0].status).toBe('success')
     expect(onComplete).toHaveBeenCalledOnce()
-    expect(tryInstantUpload).toHaveBeenCalledWith(file, candidate, '0', undefined)
+    expect(tryInstantUpload).toHaveBeenCalledWith(file, candidate, '0', undefined, undefined)
     expect(initChunkedUpload).not.toHaveBeenCalled()
   })
 
@@ -173,7 +178,7 @@ describe('useChunkedUpload', () => {
     const { upload } = useChunkedUpload()
     const resolveConflict = vi.fn().mockResolvedValue('skip')
 
-    const result = await upload(file, '0', undefined, resolveConflict)
+    const result = await upload(file, '0', undefined, undefined, resolveConflict)
 
     expect(result).toBeUndefined()
     expect(store.uploadQueue).toHaveLength(0)

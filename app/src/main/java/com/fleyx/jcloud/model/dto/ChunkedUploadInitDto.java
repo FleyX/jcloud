@@ -23,4 +23,11 @@ public class ChunkedUploadInitDto {
      * 目标父节点 ID，默认为根目录 {@link FileNodeConstants#ROOT_ID}。
      */
     private String parentId;
+
+    /**
+     * 相对路径（用于文件夹上传），包含文件名，例如 {@code project/src/main.java}。
+     * <p>
+     * 目录部分相对于 {@code parentId} 表示文件夹层级，后端会自动创建缺失的文件夹。
+     */
+    private String relativePath;
 }

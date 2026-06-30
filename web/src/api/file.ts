@@ -5,6 +5,7 @@ import { get, post } from './request'
 import type { PageResult } from '@/types/auth'
 import type { DownloadProgress } from '@/store/transfer'
 import type {
+  ChunkedUploadInitRequest,
   ConflictItemVo,
   ConflictStrategy,
   FileBatchDownloadRequest,
@@ -12,6 +13,7 @@ import type {
   FileDeleteRequest,
   FileExecuteOperationRequest,
   FileExecuteRestoreRequest,
+  FileInstantUploadRequest,
   FileNodeVo,
   FilePageQuery,
   FilePermanentDeleteRequest,
@@ -45,19 +47,25 @@ export async function tryInstantUpload(
   candidate: FileNodeVo,
   parentId: string,
   strategy?: ConflictStrategy,
+  relativePath?: string,
 ): Promise<FileNodeVo | null> {
   const hash = await fullHash(file)
   if (hash !== candidate.hash) {
     return null
   }
 
-  const result = await post<FileNodeVo | null>('/files/instant', {
+  const body: FileInstantUploadRequest = {
     candidateId: candidate.id,
     fullHash: hash,
     fileName: file.name,
     parentId,
     strategy,
-  })
+  }
+  if (relativePath) {
+    body.relativePath = relativePath
+  }
+
+  const result = await post<FileNodeVo | null>('/files/instant', body)
 
   useNotificationStore().success('秒传成功')
   return result
@@ -165,8 +173,17 @@ export interface ChunkedUploadChunkResponse {
 /**
  * 初始化分片上传任务。
  */
-export function initChunkedUpload(fileName: string, size: number, parentId = '0'): Promise<ChunkedUploadInitResponse> {
-  return post<ChunkedUploadInitResponse>('/files/chunked-upload/init', { fileName, size, parentId })
+export function initChunkedUpload(
+  fileName: string,
+  size: number,
+  parentId = '0',
+  relativePath?: string,
+): Promise<ChunkedUploadInitResponse> {
+  const body: ChunkedUploadInitRequest = { fileName, size, parentId }
+  if (relativePath) {
+    body.relativePath = relativePath
+  }
+  return post<ChunkedUploadInitResponse>('/files/chunked-upload/init', body)
 }
 
 /**

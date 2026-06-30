@@ -20,7 +20,7 @@ interface Props {
   fileIconMap: Record<string, Component>
 }
 
-const props = defineProps<Props>()
+defineProps<Props>()
 const emit = defineEmits(['rowClick', 'toggleSelect', 'download', 'rename', 'copy', 'move', 'remove'])
 </script>
 

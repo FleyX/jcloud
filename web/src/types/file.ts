@@ -174,6 +174,8 @@ export interface FilePermanentDeleteRequest {
   ids: string[]
 }
 
+
+
 /**
  * 上传前预检参数
  */
@@ -181,7 +183,30 @@ export interface FileUploadPreCheckRequest {
   fileName: string
   size: number
   parentId?: string
+  relativePath?: string
   partialHash?: string
+}
+
+/**
+ * 秒传参数
+ */
+export interface FileInstantUploadRequest {
+  candidateId: string
+  fullHash: string
+  fileName: string
+  parentId?: string
+  relativePath?: string
+  strategy?: ConflictStrategy
+}
+
+/**
+ * 分片上传初始化参数
+ */
+export interface ChunkedUploadInitRequest {
+  fileName: string
+  size: number
+  parentId?: string
+  relativePath?: string
 }
 
 /**

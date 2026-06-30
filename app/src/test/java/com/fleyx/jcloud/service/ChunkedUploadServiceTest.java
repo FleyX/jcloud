@@ -3,8 +3,10 @@ package com.fleyx.jcloud.service;
 import cn.hutool.crypto.digest.DigestUtil;
 import com.fleyx.jcloud.common.enums.ConflictStrategy;
 import com.fleyx.jcloud.common.exception.BusinessException;
+import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.fleyx.jcloud.model.dto.ChunkedUploadCompleteDto;
 import com.fleyx.jcloud.model.dto.ChunkedUploadInitDto;
+import com.fleyx.jcloud.model.dto.FilePageQueryDto;
 import com.fleyx.jcloud.model.dto.StorageSpaceSaveDto;
 import com.fleyx.jcloud.model.dto.UserSaveDto;
 import com.fleyx.jcloud.model.vo.ChunkedUploadChunkVo;
@@ -74,6 +76,43 @@ class ChunkedUploadServiceTest {
         assertNotNull(vo.getUploadId());
         assertEquals((int) CHUNK_SIZE, vo.getChunkSize());
         assertEquals(3, vo.getTotalChunks());
+    }
+
+    @Test
+    void shouldInitChunkedUploadWithRelativePath() {
+        UserWithSpace userWithSpace = prepareUserWithStorageSpace();
+        UserVo user = userWithSpace.user();
+
+        ChunkedUploadInitDto dto = new ChunkedUploadInitDto();
+        dto.setFileName("main.java");
+        dto.setSize(1024L);
+        dto.setParentId(FileNodeConstants.ROOT_ID);
+        dto.setRelativePath("project/src/main.java");
+
+        ChunkedUploadInitVo vo = chunkedUploadService.init(user.getId(), dto);
+
+        assertNotNull(vo.getUploadId());
+
+        FilePageQueryDto query = new FilePageQueryDto();
+        query.setParentId(FileNodeConstants.ROOT_ID);
+        query.setName("project");
+        IPage<FileNodeVo> page = fileService.list(query, user.getId());
+        assertEquals(1, page.getTotal());
+        assertEquals("folder", page.getRecords().get(0).getType());
+    }
+
+    @Test
+    void shouldRejectInitChunkedUploadWithPathTraversal() {
+        UserWithSpace userWithSpace = prepareUserWithStorageSpace();
+        UserVo user = userWithSpace.user();
+
+        ChunkedUploadInitDto dto = new ChunkedUploadInitDto();
+        dto.setFileName("main.java");
+        dto.setSize(1024L);
+        dto.setParentId(FileNodeConstants.ROOT_ID);
+        dto.setRelativePath("../project/main.java");
+
+        assertThrows(BusinessException.class, () -> chunkedUploadService.init(user.getId(), dto));
     }
 
     @Test

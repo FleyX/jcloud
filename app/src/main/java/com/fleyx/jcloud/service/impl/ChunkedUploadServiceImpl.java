@@ -19,6 +19,7 @@ import com.fleyx.jcloud.model.vo.ChunkedUploadChunkVo;
 import com.fleyx.jcloud.model.vo.ChunkedUploadInitVo;
 import com.fleyx.jcloud.model.vo.FileNodeVo;
 import com.fleyx.jcloud.service.ChunkedUploadService;
+import com.fleyx.jcloud.service.FolderPathService;
 import com.fleyx.jcloud.common.constant.FileNodeConstants;
 import com.fleyx.jcloud.common.constant.StorageConstant;
 import com.fleyx.jcloud.util.FileHashUtil;
@@ -75,6 +76,7 @@ public class ChunkedUploadServiceImpl implements ChunkedUploadService {
     private final FileConvert fileConvert;
     private final UserReadWriteLock userReadWriteLock;
     private final UploadConflictResolver conflictResolver;
+    private final FolderPathService folderPathService;
 
     @Override
     public ChunkedUploadInitVo init(String userId, ChunkedUploadInitDto dto) {
@@ -96,21 +98,34 @@ public class ChunkedUploadServiceImpl implements ChunkedUploadService {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "用户配额不足");
         }
 
-        String uploadId = generateUploadId();
-        Path tempDir = resolveTempDir(space, user.getUsername(), uploadId);
+        RLock lock = userReadWriteLock.writeLock(userId);
+        lock.lock();
         try {
-            Files.createDirectories(tempDir);
-            saveUploadMeta(tempDir, dto);
-        } catch (IOException e) {
-            throw new BusinessException(ResultCode.BUSINESS_ERROR, "创建上传临时目录失败");
-        }
+            String finalParentId = FileNodeUtil.normalizeParentId(dto.getParentId());
+            String finalFileName = dto.getFileName();
+            if (StringUtils.hasText(dto.getRelativePath())) {
+                finalParentId = folderPathService.resolveOrCreateFolderPath(userId, dto.getParentId(), dto.getRelativePath());
+                finalFileName = extractFileNameFromRelativePath(dto.getRelativePath());
+            }
 
-        int totalChunks = (int) ((fileSize + CHUNK_SIZE - 1) / CHUNK_SIZE);
-        ChunkedUploadInitVo vo = new ChunkedUploadInitVo();
-        vo.setUploadId(uploadId);
-        vo.setChunkSize((int) CHUNK_SIZE);
-        vo.setTotalChunks(totalChunks);
-        return vo;
+            String uploadId = generateUploadId();
+            Path tempDir = resolveTempDir(space, user.getUsername(), uploadId);
+            try {
+                Files.createDirectories(tempDir);
+                saveUploadMeta(tempDir, dto, finalParentId, finalFileName);
+            } catch (IOException e) {
+                throw new BusinessException(ResultCode.BUSINESS_ERROR, "创建上传临时目录失败");
+            }
+
+            int totalChunks = (int) ((fileSize + CHUNK_SIZE - 1) / CHUNK_SIZE);
+            ChunkedUploadInitVo vo = new ChunkedUploadInitVo();
+            vo.setUploadId(uploadId);
+            vo.setChunkSize((int) CHUNK_SIZE);
+            vo.setTotalChunks(totalChunks);
+            return vo;
+        } finally {
+            lock.unlock();
+        }
     }
 
     @Override
@@ -385,14 +400,24 @@ public class ChunkedUploadServiceImpl implements ChunkedUploadService {
         return Path.of(space.getPath(), StorageConstant.TMP_DIR, username, uploadId);
     }
 
-    private void saveUploadMeta(Path tempDir, ChunkedUploadInitDto dto) throws IOException {
+    private void saveUploadMeta(Path tempDir, ChunkedUploadInitDto dto,
+                                String finalParentId, String finalFileName) throws IOException {
         Properties props = new Properties();
-        props.setProperty("fileName", dto.getFileName());
+        props.setProperty("fileName", finalFileName);
         props.setProperty("size", String.valueOf(dto.getSize()));
-        props.setProperty("parentId", FileNodeUtil.normalizeParentId(dto.getParentId()));
+        props.setProperty("parentId", finalParentId);
         try (java.io.OutputStream out = Files.newOutputStream(tempDir.resolve(META_FILE_NAME))) {
             props.store(out, "chunked upload metadata");
         }
+    }
+
+    private String extractFileNameFromRelativePath(String relativePath) {
+        if (relativePath == null || relativePath.isBlank()) {
+            return "";
+        }
+        String normalized = relativePath.replace("\\", "/");
+        int lastSlashIndex = normalized.lastIndexOf('/');
+        return lastSlashIndex < 0 ? normalized : normalized.substring(lastSlashIndex + 1);
     }
 
     private UploadContext loadUploadContext(String userId, String uploadId) {
