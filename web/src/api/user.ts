@@ -12,7 +12,7 @@ import type {
   UserUpdateRolesDto,
   UserVo,
 } from '@/types/auth'
-import type { UserMigrationSubmitDto, UserMigrationTaskVo, UserStorageDto } from '@/types/storage-space'
+import type { UserMigrationSubmitDto, UserMigrationTaskVo, UserStorageDto, UserSyncConfigUpdateDto, UserSyncConfigVo, UserSyncTaskVo } from '@/types/storage-space'
 
 export function fetchUserPage(params: UserPageQuery): Promise<PageResult<UserVo>> {
   return get<PageResult<UserVo>>('/users', params as Record<string, unknown>)
@@ -70,4 +70,20 @@ export function submitUserMigration(userId: string, dto: UserMigrationSubmitDto)
 
 export function getUserMigrationTask(userId: string): Promise<UserMigrationTaskVo | null> {
   return get<UserMigrationTaskVo | null>(`/admin/users/${userId}/migration-task`)
+}
+
+export function submitUserSync(userId: string): Promise<UserSyncTaskVo> {
+  return post<UserSyncTaskVo>(`/admin/users/${userId}/sync/immediate`)
+}
+
+export function getUserSyncTask(userId: string): Promise<UserSyncTaskVo | null> {
+  return get<UserSyncTaskVo | null>(`/admin/users/${userId}/sync/task`)
+}
+
+export function getUserSyncConfig(userId: string): Promise<UserSyncConfigVo> {
+  return get<UserSyncConfigVo>(`/admin/users/${userId}/sync/config`)
+}
+
+export function updateUserSyncConfig(userId: string, dto: UserSyncConfigUpdateDto): Promise<UserSyncConfigVo> {
+  return put<UserSyncConfigVo>(`/admin/users/${userId}/sync/config`, dto)
 }

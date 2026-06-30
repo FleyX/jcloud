@@ -17,6 +17,7 @@ import { useNotificationStore } from '@/store/notification'
 import UserCreateDialog from './components/UserCreateDialog.vue'
 import UserEditDialog from './components/UserEditDialog.vue'
 import UserMigrationDialog from './components/UserMigrationDialog.vue'
+import UserSyncDialog from './components/UserSyncDialog.vue'
 import type { BatchUserStatusDto, PageResult, RoleVo, UserSaveDto, UserUpdateDto, UserVo } from '@/types/auth'
 import type { StorageSpaceVo } from '@/types/storage-space'
 import {
@@ -27,6 +28,7 @@ import {
   ChevronRight,
   Plus,
   Truck,
+  RefreshCw,
 } from '@lucide/vue'
 import { SwitchRoot, SwitchThumb } from 'radix-vue'
 
@@ -78,6 +80,8 @@ const editForm = reactive<UserUpdateDto & { storageSpaceId?: string; quota?: str
 const editingUser = ref<UserVo | null>(null)
 const migrationDialogOpen = ref(false)
 const migrationUser = ref<(UserVo & { storageSpaceId?: string }) | null>(null)
+const syncDialogOpen = ref(false)
+const syncUser = ref<UserVo | null>(null)
 const spaces = ref<StorageSpaceVo[]>([])
 
 const primarySpace = computed(() => spaces.value.find((s) => s.isPrimary === 1) || spaces.value[0] || null)
@@ -245,6 +249,11 @@ async function submitEditUser() {
 function openMigrationDialog(user: UserVo) {
   migrationUser.value = user as UserVo & { storageSpaceId?: string }
   migrationDialogOpen.value = true
+}
+
+function openSyncDialog(user: UserVo) {
+  syncUser.value = user
+  syncDialogOpen.value = true
 }
 
 async function handleMigrationSuccess() {
@@ -536,6 +545,13 @@ onMounted(() => {
                     迁移
                   </button>
                   <button
+                    class="flex items-center gap-1 rounded-lg bg-emerald-50 px-2.5 py-1.5 text-xs font-medium text-emerald-600 transition-colors hover:bg-emerald-100"
+                    @click="openSyncDialog(user)"
+                  >
+                    <RefreshCw class="h-3.5 w-3.5" />
+                    同步
+                  </button>
+                  <button
                     v-if="!user.isAdmin"
                     class="flex items-center gap-1 rounded-lg bg-red-50 px-2.5 py-1.5 text-xs font-medium text-red-600 transition-colors hover:bg-red-100"
                     @click="handleDeleteUser(user)"
@@ -597,6 +613,11 @@ onMounted(() => {
       :user="migrationUser"
       :spaces="spaces"
       @success="handleMigrationSuccess"
+    />
+
+    <UserSyncDialog
+      v-model:open="syncDialogOpen"
+      :user="syncUser"
     />
   </div>
 </template>

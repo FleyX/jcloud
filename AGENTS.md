@@ -64,7 +64,7 @@ resources/mapper 存放数据库 XML 文件
 ## 开发要求
 
 1. 单个 Java 文件不要超过 400 行，单个方法不要超过 100 行。
-2. 新增、修改代码时需要有对应的单元测试代码。
+2. 新增、修改代码时需要有对应的单元测试代码,单元测试配置文件为main目录下的application-test.yml
 3. 工具类优先使用 Hutool 中的，文档：https://doc.hutool.cn/module/core/
 4. 依赖包优先使用可用的最新版。
 5. 代码设计遵循高内聚低耦合。
