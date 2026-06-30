@@ -23,6 +23,7 @@ import com.fleyx.jcloud.model.vo.ConflictItemVo;
 import com.fleyx.jcloud.model.vo.FileNodeVo;
 import com.fleyx.jcloud.model.vo.UploadPreCheckVo;
 import com.fleyx.jcloud.service.FileService;
+import com.fleyx.jcloud.service.FolderPathService;
 import com.fleyx.jcloud.util.FileConflictHelper;
 import com.fleyx.jcloud.util.FileHashUtil;
 import com.fleyx.jcloud.util.FileLinkUtil;
@@ -66,6 +67,7 @@ public class FileServiceImpl implements FileService {
     private final UserReadWriteLock userReadWriteLock;
     private final UserReadOnlyChecker userReadOnlyChecker;
     private final UploadConflictResolver conflictResolver;
+    private final FolderPathService folderPathService;
 
     @Override
     public FileNodeVo upload(MultipartFile file, String userId, String parentId, String strategy) {
@@ -154,20 +156,27 @@ public class FileServiceImpl implements FileService {
         String parentId = FileNodeUtil.normalizeParentId(dto.getParentId());
         validateTargetParent(parentId, userId);
 
+        String finalParentId = parentId;
+        String finalFileName = dto.getFileName();
+        if (StringUtils.hasText(dto.getRelativePath())) {
+            finalParentId = folderPathService.resolveOrCreateFolderPath(userId, parentId, dto.getRelativePath());
+            finalFileName = extractFileNameFromRelativePath(dto.getRelativePath());
+        }
+
         UploadPreCheckVo result = new UploadPreCheckVo();
-        result.setConflicts(buildConflictItems(dto, userId, parentId));
-        result.setCandidates(buildInstantCandidates(dto, userId));
+        result.setConflicts(buildConflictItems(finalFileName, dto.getSize(), userId, finalParentId));
+        result.setCandidates(buildInstantCandidates(finalFileName, dto.getPartialHash(), userId));
         return result;
     }
 
-    private List<ConflictItemVo> buildConflictItems(FileUploadPreCheckDto dto, String userId, String parentId) {
-        FileNode existing = FileConflictHelper.findSameName(fileMapper, userId, parentId, dto.getFileName());
+    private List<ConflictItemVo> buildConflictItems(String fileName, Long size, String userId, String parentId) {
+        FileNode existing = FileConflictHelper.findSameName(fileMapper, userId, parentId, fileName);
         if (existing == null) {
             return List.of();
         }
         ConflictItemVo vo = new ConflictItemVo();
         vo.setNodeId(existing.getId());
-        vo.setSourceName(dto.getFileName());
+        vo.setSourceName(fileName);
         vo.setExistingId(existing.getId());
         vo.setExistingName(existing.getName());
         vo.setExistingType(existing.getType());
@@ -176,18 +185,27 @@ public class FileServiceImpl implements FileService {
         return List.of(vo);
     }
 
-    private List<FileNodeVo> buildInstantCandidates(FileUploadPreCheckDto dto, String userId) {
-        if (!StringUtils.hasText(dto.getPartialHash())) {
+    private List<FileNodeVo> buildInstantCandidates(String fileName, String partialHash, String userId) {
+        if (!StringUtils.hasText(partialHash)) {
             return List.of();
         }
         LambdaQueryWrapper<FileNode> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(FileNode::getUserId, userId);
-        wrapper.eq(FileNode::getHash, dto.getPartialHash());
+        wrapper.eq(FileNode::getHash, partialHash);
         wrapper.eq(FileNode::getType, TYPE_FILE);
         wrapper.orderByDesc(FileNode::getCreateTime);
         return fileMapper.selectList(wrapper).stream()
                 .map(fileConvert::poToVo)
                 .toList();
+    }
+
+    private String extractFileNameFromRelativePath(String relativePath) {
+        if (relativePath == null || relativePath.isBlank()) {
+            return "";
+        }
+        String normalized = relativePath.replace("\\", "/");
+        int lastSlashIndex = normalized.lastIndexOf('/');
+        return lastSlashIndex < 0 ? normalized : normalized.substring(lastSlashIndex + 1);
     }
 
     @Override
@@ -342,12 +360,20 @@ public class FileServiceImpl implements FileService {
         StorageSpace space = requireSpace(candidate.getStorageSpaceId());
 
         String parentId = FileNodeUtil.normalizeParentId(dto.getParentId());
-        FileNode parentNode = resolveParentNode(parentId, userId);
+        validateTargetParent(parentId, userId);
+        String finalParentId = parentId;
+        String finalFileName = dto.getFileName();
+        if (StringUtils.hasText(dto.getRelativePath())) {
+            finalParentId = folderPathService.resolveOrCreateFolderPath(userId, parentId, dto.getRelativePath());
+            finalFileName = extractFileNameFromRelativePath(dto.getRelativePath());
+        }
+
+        FileNode parentNode = resolveParentNode(finalParentId, userId);
         String parentPathName = resolveNamePath(parentNode, userId);
-        String fileName = normalizeFileName(dto.getFileName());
+        String fileName = normalizeFileName(finalFileName);
 
         FileConflictResolver.ConflictResolution resolution =
-                conflictResolver.resolve(userId, parentId, fileName, dto.getStrategy());
+                conflictResolver.resolve(userId, finalParentId, fileName, dto.getStrategy());
         if (resolution.skipped()) {
             return null;
         }
@@ -390,7 +416,7 @@ public class FileServiceImpl implements FileService {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "秒传文件复制失败", e);
         }
 
-        FileNode node = buildFileNode(userId, parentId, resolution.finalName(), fileSize,
+        FileNode node = buildFileNode(userId, finalParentId, resolution.finalName(), fileSize,
                 candidate.getHash(), space.getId(), candidate.getMimeType());
         setNodePath(node, parentNode);
         fileMapper.insert(node);

@@ -25,6 +25,13 @@ public class FileUploadPreCheckDto {
     private String parentId;
 
     /**
+     * 相对路径（用于文件夹上传），包含文件名，例如 {@code project/src/main.java}。
+     * <p>
+     * 目录部分相对于 {@code parentId} 表示文件夹层级，后端会自动创建缺失的文件夹。
+     */
+    private String relativePath;
+
+    /**
      * 文件身份 hash（小于 150MB 为完整 hash，大于等于 150MB 为采样 hash）。
      * <p>
      * 用于秒传候选文件查询；为空时只进行命名冲突预检。

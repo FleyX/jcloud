@@ -175,6 +175,7 @@ export function useChunkedUpload() {
   async function upload(
     file: File,
     parentId = '0',
+    relativePath?: string,
     onComplete?: () => void,
     resolveConflict?: ConflictResolver,
   ): Promise<FileNodeVo | undefined> {
@@ -189,6 +190,7 @@ export function useChunkedUpload() {
         fileName: file.name,
         size: file.size,
         parentId,
+        relativePath,
         partialHash: partialHash || undefined,
       })
 
@@ -218,6 +220,7 @@ export function useChunkedUpload() {
           preCheckResult.candidates[0],
           parentId,
           strategy,
+          relativePath,
         )
         if (instantNode) {
           transferStore.completeTask(taskId)
@@ -227,7 +230,7 @@ export function useChunkedUpload() {
         }
       }
 
-      const initRes = await initChunkedUpload(file.name, file.size, parentId)
+      const initRes = await initChunkedUpload(file.name, file.size, parentId, relativePath)
       task.uploadId = initRes.uploadId
       task.parentId = parentId
       task.file = file

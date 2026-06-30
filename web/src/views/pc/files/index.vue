@@ -18,6 +18,7 @@ import { useNotificationStore } from '@/store/notification'
 import { useTransferStore } from '@/store/transfer'
 import { useFileOperations } from './composables/useFileOperations'
 import { useBatchUpload } from '@/composables/useBatchUpload'
+import type { UploadBatchFile } from '@/composables/useBatchUpload'
 import CreateFolderModal from './components/CreateFolderModal.vue'
 import RenameModal from './components/RenameModal.vue'
 import MoveCopyModal from './components/MoveCopyModal.vue'
@@ -205,18 +206,33 @@ async function handleFileChange(event: Event) {
   const target = event.target as HTMLInputElement
   const files = Array.from(target.files ?? [])
   if (files.length === 0) return
+  const batchFiles: UploadBatchFile[] = files.map((file) => ({ file }))
   try {
-    await uploadBatch(files, currentParentId.value, loadFiles, openUploadConflict)
+    await uploadBatch(batchFiles, currentParentId.value, {
+      onComplete: loadFiles,
+      openConflict: openUploadConflict,
+    })
   } finally {
     target.value = ''
   }
 }
 
-function handleMockUpload() {
-  transferStore.addUploadTask({
-    fileId: `mock-${Date.now()}`,
-    fileName: '示例上传文件.zip',
-  })
+async function handleFolderChange(event: Event) {
+  const target = event.target as HTMLInputElement
+  const files = Array.from(target.files ?? [])
+  if (files.length === 0) return
+  const batchFiles: UploadBatchFile[] = files.map((file) => ({
+    file,
+    relativePath: file.webkitRelativePath || file.name,
+  }))
+  try {
+    await uploadBatch(batchFiles, currentParentId.value, {
+      onComplete: loadFiles,
+      defaultConflictStrategy: 'keep',
+    })
+  } finally {
+    target.value = ''
+  }
 }
 
 function toggleSelect(id: string) {
@@ -312,8 +328,8 @@ async function handleBatchDownload() {
       @search="handleSearch"
       @clear-search="clearSearch"
       @create-folder="openCreateFolder"
-      @mock-upload="handleMockUpload"
       @file-change="handleFileChange"
+      @folder-change="handleFolderChange"
     />
 
     <!-- 文件列表表格 -->

@@ -25,6 +25,7 @@ import { useConfirmStore } from '@/store/confirm'
 import { useNotificationStore } from '@/store/notification'
 import { useTransferStore } from '@/store/transfer'
 import { useBatchUpload } from '@/composables/useBatchUpload'
+import type { UploadBatchFile } from '@/composables/useBatchUpload'
 import FilePreviewDrawer from '@/components/files/FilePreviewDrawer.vue'
 import MoveCopyModal from '@/views/pc/files/components/MoveCopyModal.vue'
 import MobileBatchActionBar from './components/MobileBatchActionBar.vue'
@@ -207,8 +208,12 @@ async function handleFileChange(event: Event) {
   const target = event.target as HTMLInputElement
   const files = Array.from(target.files ?? [])
   if (files.length === 0) return
+  const batchFiles: UploadBatchFile[] = files.map((file) => ({ file }))
   try {
-    await uploadBatch(files, currentParentId.value, loadFiles, openUploadConflict)
+    await uploadBatch(batchFiles, currentParentId.value, {
+      onComplete: loadFiles,
+      openConflict: openUploadConflict,
+    })
   } finally {
     target.value = ''
   }

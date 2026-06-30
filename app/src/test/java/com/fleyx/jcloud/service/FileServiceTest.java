@@ -153,6 +153,63 @@ class FileServiceTest {
     }
 
     @Test
+    void shouldPreCheckUploadWithRelativePath() throws Exception {
+        UserVo user = prepareUserWithStorageSpace().user();
+        FileNodeVo projectFolder = createFolder(user.getId(), "project");
+        FileNodeVo srcFolder = createFolder(user.getId(), projectFolder.getId(), "src");
+        fileService.upload(buildFile("main.java", "class Main{}"), user.getId(), srcFolder.getId(), null);
+
+        FileUploadPreCheckDto dto = new FileUploadPreCheckDto();
+        dto.setFileName("main.java");
+        dto.setSize(12L);
+        dto.setParentId(FileNodeConstants.ROOT_ID);
+        dto.setRelativePath("project/src/main.java");
+
+        UploadPreCheckVo result = fileService.preCheckUpload(dto, user.getId());
+
+        assertEquals(1, result.getConflicts().size());
+        assertEquals("main.java", result.getConflicts().get(0).getSourceName());
+        assertEquals("main.java", result.getConflicts().get(0).getExistingName());
+        assertEquals("file", result.getConflicts().get(0).getExistingType());
+    }
+
+    @Test
+    void shouldPreCheckUploadWithRelativePathCreateFolders() {
+        UserVo user = prepareUserWithStorageSpace().user();
+
+        FileUploadPreCheckDto dto = new FileUploadPreCheckDto();
+        dto.setFileName("main.java");
+        dto.setSize(12L);
+        dto.setParentId(FileNodeConstants.ROOT_ID);
+        dto.setRelativePath("project/src/main.java");
+
+        UploadPreCheckVo result = fileService.preCheckUpload(dto, user.getId());
+
+        assertTrue(result.getConflicts().isEmpty());
+        assertTrue(result.getCandidates().isEmpty());
+
+        FilePageQueryDto query = new FilePageQueryDto();
+        query.setParentId(FileNodeConstants.ROOT_ID);
+        query.setName("project");
+        IPage<FileNodeVo> page = fileService.list(query, user.getId());
+        assertEquals(1, page.getTotal());
+        assertEquals("folder", page.getRecords().get(0).getType());
+    }
+
+    @Test
+    void shouldRejectPreCheckUploadWithPathTraversal() {
+        UserVo user = prepareUserWithStorageSpace().user();
+
+        FileUploadPreCheckDto dto = new FileUploadPreCheckDto();
+        dto.setFileName("main.java");
+        dto.setSize(12L);
+        dto.setParentId(FileNodeConstants.ROOT_ID);
+        dto.setRelativePath("../project/main.java");
+
+        assertThrows(BusinessException.class, () -> fileService.preCheckUpload(dto, user.getId()));
+    }
+
+    @Test
     void shouldRejectUploadWhenNameConflictsWithoutStrategy() throws Exception {
         UserVo user = prepareUserWithStorageSpace().user();
         fileService.upload(buildFile("hello.txt", "hello"), user.getId(), FileNodeConstants.ROOT_ID, null);
@@ -624,8 +681,12 @@ class FileServiceTest {
     }
 
     private FileNodeVo createFolder(String userId, String name) {
+        return createFolder(userId, FileNodeConstants.ROOT_ID, name);
+    }
+
+    private FileNodeVo createFolder(String userId, String parentId, String name) {
         FileCreateFolderDto dto = new FileCreateFolderDto();
-        dto.setParentId(FileNodeConstants.ROOT_ID);
+        dto.setParentId(parentId);
         dto.setName(name);
         return fileOperationService.createFolder(dto, userId);
     }

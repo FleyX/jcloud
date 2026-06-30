@@ -5,7 +5,6 @@
 import { ref } from 'vue'
 import {
   ChevronRight,
-  Upload,
   FileUp,
   FolderUp,
   Plus,
@@ -19,7 +18,6 @@ import {
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
 } from 'radix-vue'
 
 interface Props {
@@ -35,14 +33,19 @@ const emit = defineEmits<{
   search: []
   clearSearch: []
   createFolder: []
-  mockUpload: []
   fileChange: [event: Event]
+  folderChange: [event: Event]
 }>()
 
 const fileInput = ref<HTMLInputElement | null>(null)
+const folderInput = ref<HTMLInputElement | null>(null)
 
 function triggerFileSelect() {
   fileInput.value?.click()
+}
+
+function triggerFolderSelect() {
+  folderInput.value?.click()
 }
 </script>
 
@@ -130,17 +133,10 @@ function triggerFileSelect() {
           </DropdownMenuItem>
           <DropdownMenuItem
             class="flex cursor-pointer items-center gap-2.5 rounded-xl px-3 py-2 text-sm text-surface-700 outline-none transition-colors duration-150 hover:bg-primary-50 hover:text-primary-700 focus:bg-primary-50"
-            @click="emit('mockUpload')"
+            @click="triggerFolderSelect"
           >
             <FolderUp class="h-4 w-4 text-primary-500" />
-            上传文件夹（占位）
-          </DropdownMenuItem>
-          <DropdownMenuSeparator class="my-1.5 h-px bg-surface-200" />
-          <DropdownMenuItem
-            class="flex cursor-pointer items-center gap-2.5 rounded-xl px-3 py-2 text-sm text-surface-700 outline-none transition-colors duration-150 hover:bg-primary-50 hover:text-primary-700 focus:bg-primary-50"
-          >
-            <Upload class="h-4 w-4 text-primary-500" />
-            离线下载（占位）
+            上传文件夹
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenuRoot>
@@ -151,6 +147,13 @@ function triggerFileSelect() {
         multiple
         class="hidden"
         @change="emit('fileChange', $event)"
+      >
+      <input
+        ref="folderInput"
+        type="file"
+        webkitdirectory
+        class="hidden"
+        @change="emit('folderChange', $event)"
       >
     </div>
   </div>
