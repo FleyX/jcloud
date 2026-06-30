@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.fleyx.jcloud.mapper.ShareItemMapper">
+
+    <select id="selectByShareId" resultType="com.fleyx.jcloud.model.po.ShareItem">
+        SELECT *
+        FROM t_share_item
+        WHERE share_id = #{shareId}
+        ORDER BY create_time ASC
+    </select>
+
+    <delete id="deleteByShareId">
+        DELETE
+        FROM t_share_item
+        WHERE share_id = #{shareId}
+    </delete>
+
+</mapper>

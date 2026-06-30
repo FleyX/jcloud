@@ -36,4 +36,15 @@ public interface FileDownloadService {
      * @return 文件下载结果
      */
     FileDownloadResult downloadTaskResult(String taskId, String userId);
+
+    /**
+     * 以指定用户身份批量下载。
+     * 适用于公开分享等不依赖当前登录用户的场景。
+     *
+     * @param dto           批量下载请求
+     * @param ownerUserId   文件所有者用户 ID
+     * @param ownerUserCode 文件所有者用户编码（用户名）
+     * @return 下载结果（流式或任务）
+     */
+    BatchDownloadResult downloadBatchByOwner(FileBatchDownloadDto dto, String ownerUserId, String ownerUserCode);
 }

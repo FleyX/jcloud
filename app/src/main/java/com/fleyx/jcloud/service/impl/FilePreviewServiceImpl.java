@@ -49,11 +49,17 @@ public class FilePreviewServiceImpl implements FilePreviewService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public PreviewResult preview(String fileNodeId, String userId, PreviewType type) {
+        return previewByOwner(fileNodeId, userId, UserContext.requireUserCode(), type);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public PreviewResult previewByOwner(String fileNodeId, String ownerUserId, String ownerUserCode, PreviewType type) {
         FileNode node = fileMapper.selectById(fileNodeId);
         if (node == null) {
             throw new BusinessException(ResultCode.NOT_FOUND, "文件不存在");
         }
-        if (!node.getUserId().equals(userId)) {
+        if (!node.getUserId().equals(ownerUserId)) {
             throw new BusinessException(ResultCode.FORBIDDEN, "无权访问该文件");
         }
         if (!"file".equals(node.getType())) {
@@ -76,8 +82,7 @@ public class FilePreviewServiceImpl implements FilePreviewService {
 
         StorageSpace space = systemStorageSpaceProvider.getSystemSpace();
         StorageSpace userSpace = getUserSpace(node);
-        String username = UserContext.requireUserCode();
-        Path sourcePath = FilePathUtil.resolvePhysicalPath(node, buildResolveContext(node, username, userSpace));
+        Path sourcePath = FilePathUtil.resolvePhysicalPath(node, buildResolveContext(node, ownerUserCode, userSpace));
         if (!Files.exists(sourcePath)) {
             throw new BusinessException(ResultCode.NOT_FOUND, "文件已丢失");
         }

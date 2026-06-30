@@ -13,6 +13,7 @@ import {
   Music,
 } from '@lucide/vue'
 import { deleteToTrash, downloadBatchFiles, downloadFile, fetchFilePage } from '@/api/file'
+import { createShare, updateShare } from '@/api/share'
 import { useConfirmStore } from '@/store/confirm'
 import { useNotificationStore } from '@/store/notification'
 import { useTransferStore } from '@/store/transfer'
@@ -20,6 +21,7 @@ import { useFileOperations } from './composables/useFileOperations'
 import { useBatchUpload } from '@/composables/useBatchUpload'
 import type { UploadBatchFile } from '@/composables/useBatchUpload'
 import CreateFolderModal from './components/CreateFolderModal.vue'
+import CreateShareModal from './components/CreateShareModal.vue'
 import RenameModal from './components/RenameModal.vue'
 import MoveCopyModal from './components/MoveCopyModal.vue'
 import BatchActionBar from './components/BatchActionBar.vue'
@@ -31,6 +33,7 @@ import FileConflictModal from '@/components/files/FileConflictModal.vue'
 import { useFileSort } from './composables/useFileSort'
 import type { Component } from 'vue'
 import type { ConflictItemVo, ConflictStrategy, FileNodeVo, OperationResultVo, FileSortField } from '@/types/file'
+import type { ShareCreateRequest, ShareDetailVo, ShareUpdateRequest } from '@/types/share'
 
 const transferStore = useTransferStore()
 const notificationStore = useNotificationStore()
@@ -46,6 +49,8 @@ const moveCopyType = ref<'move' | 'copy'>('move')
 const moveCopyTargets = ref<FileNodeVo[]>([])
 const previewOpen = ref(false)
 const previewTarget = ref<FileNodeVo | null>(null)
+const shareOpen = ref(false)
+const shareEditTarget = ref<ShareDetailVo | undefined>(undefined)
 const currentParentId = ref('0')
 const breadcrumbStack = ref<Array<{ id: string; name: string }>>([{ id: '0', name: '全部文件' }])
 const { sortField, sortOrder, toggleSort } = useFileSort()
@@ -315,6 +320,45 @@ async function handleBatchDownload() {
     notificationStore.error(message)
   }
 }
+
+function openShareModal() {
+  shareEditTarget.value = undefined
+  shareOpen.value = true
+}
+
+async function handleCreateShare(payload: ShareCreateRequest) {
+  try {
+    const share = await createShare(payload)
+    shareOpen.value = false
+    selectedIds.value.clear()
+    notificationStore.success('分享创建成功')
+    // TODO: 跳转到我的分享页或展示链接
+    console.log('share created', share)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : '创建分享失败'
+    notificationStore.error(message)
+  }
+}
+
+async function handleUpdateShare(payload: ShareUpdateRequest) {
+  if (!shareEditTarget.value) return
+  try {
+    await updateShare(shareEditTarget.value.id, payload)
+    shareOpen.value = false
+    notificationStore.success('分享已更新')
+  } catch (err) {
+    const message = err instanceof Error ? err.message : '更新分享失败'
+    notificationStore.error(message)
+  }
+}
+
+function handleShareConfirm(payload: ShareCreateRequest | ShareUpdateRequest) {
+  if (shareEditTarget.value) {
+    handleUpdateShare(payload as ShareUpdateRequest)
+  } else {
+    handleCreateShare(payload as ShareCreateRequest)
+  }
+}
 </script>
 
 <template>
@@ -409,8 +453,17 @@ async function handleBatchDownload() {
       @move="openMoveCopy('move', selectedFiles)"
       @copy="openMoveCopy('copy', selectedFiles)"
       @download="handleBatchDownload"
+      @share="openShareModal"
       @delete="handleBatchDelete"
       @clear="clearSelection"
+    />
+
+    <CreateShareModal
+      :open="shareOpen"
+      :item-ids="Array.from(selectedIds)"
+      :edit-share="shareEditTarget"
+      @close="shareOpen = false"
+      @confirm="handleShareConfirm"
     />
 
     <FilePreviewModal
