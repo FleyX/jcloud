@@ -33,29 +33,38 @@ function getHeaders(): HeadersInit {
   return headers
 }
 
-export async function get<T>(url: string, params?: Record<string, unknown>): Promise<T> {
-  let fullUrl = `${BASE_URL}${url}`
-  if (params) {
-    const query = new URLSearchParams()
-    Object.entries(params).forEach(([key, value]) => {
-      if (value !== undefined && value !== null && value !== '') {
-        query.append(key, String(value))
-      }
-    })
-    const queryString = query.toString()
-    if (queryString) {
-      fullUrl += `?${queryString}`
-    }
+function buildQueryString(params?: Record<string, unknown>): string {
+  if (!params) {
+    return ''
   }
-  const response = await fetch(fullUrl, {
+  const query = new URLSearchParams()
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== '') {
+      query.append(key, String(value))
+    }
+  })
+  return query.toString()
+}
+
+function buildUrl(url: string, params?: Record<string, unknown>): string {
+  let fullUrl = `${BASE_URL}${url}`
+  const queryString = buildQueryString(params)
+  if (queryString) {
+    fullUrl += `?${queryString}`
+  }
+  return fullUrl
+}
+
+export async function get<T>(url: string, params?: Record<string, unknown>): Promise<T> {
+  const response = await fetch(buildUrl(url, params), {
     method: 'GET',
     headers: getHeaders(),
   })
   return handleResponse<T>(response)
 }
 
-export async function post<T>(url: string, body?: unknown): Promise<T> {
-  const response = await fetch(`${BASE_URL}${url}`, {
+export async function post<T>(url: string, body?: unknown, params?: Record<string, unknown>): Promise<T> {
+  const response = await fetch(buildUrl(url, params), {
     method: 'POST',
     headers: getHeaders(),
     body: body ? JSON.stringify(body) : undefined,
@@ -63,8 +72,8 @@ export async function post<T>(url: string, body?: unknown): Promise<T> {
   return handleResponse<T>(response)
 }
 
-export async function put<T>(url: string, body?: unknown): Promise<T> {
-  const response = await fetch(`${BASE_URL}${url}`, {
+export async function put<T>(url: string, body?: unknown, params?: Record<string, unknown>): Promise<T> {
+  const response = await fetch(buildUrl(url, params), {
     method: 'PUT',
     headers: getHeaders(),
     body: body ? JSON.stringify(body) : undefined,
@@ -72,8 +81,8 @@ export async function put<T>(url: string, body?: unknown): Promise<T> {
   return handleResponse<T>(response)
 }
 
-export async function del<T>(url: string, body?: unknown): Promise<T> {
-  const response = await fetch(`${BASE_URL}${url}`, {
+export async function del<T>(url: string, body?: unknown, params?: Record<string, unknown>): Promise<T> {
+  const response = await fetch(buildUrl(url, params), {
     method: 'DELETE',
     headers: getHeaders(),
     body: body ? JSON.stringify(body) : undefined,
@@ -81,8 +90,8 @@ export async function del<T>(url: string, body?: unknown): Promise<T> {
   return handleResponse<T>(response)
 }
 
-export async function patch<T>(url: string, body?: unknown): Promise<T> {
-  const response = await fetch(`${BASE_URL}${url}`, {
+export async function patch<T>(url: string, body?: unknown, params?: Record<string, unknown>): Promise<T> {
+  const response = await fetch(buildUrl(url, params), {
     method: 'PATCH',
     headers: getHeaders(),
     body: body ? JSON.stringify(body) : undefined,

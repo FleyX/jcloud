@@ -21,6 +21,7 @@ import {
 } from '@lucide/vue'
 import { cn } from '@/utils/cn'
 import { deleteToTrash, downloadBatchFiles, downloadFile, fetchFilePage } from '@/api/file'
+import { createShare } from '@/api/share'
 import { useConfirmStore } from '@/store/confirm'
 import { useNotificationStore } from '@/store/notification'
 import { useTransferStore } from '@/store/transfer'
@@ -28,10 +29,12 @@ import { useBatchUpload } from '@/composables/useBatchUpload'
 import type { UploadBatchFile } from '@/composables/useBatchUpload'
 import FilePreviewDrawer from '@/components/files/FilePreviewDrawer.vue'
 import MoveCopyModal from '@/views/pc/files/components/MoveCopyModal.vue'
+import CreateShareModal from '@/views/pc/files/components/CreateShareModal.vue'
 import MobileBatchActionBar from './components/MobileBatchActionBar.vue'
 import FileConflictModal from '@/components/files/FileConflictModal.vue'
 import type { Component } from 'vue'
 import type { ConflictItemVo, ConflictStrategy, FileNodeVo, OperationResultVo, FileSortField, FileSortOrder } from '@/types/file'
+import type { ShareCreateRequest } from '@/types/share'
 
 const confirmStore = useConfirmStore()
 const notificationStore = useNotificationStore()
@@ -55,6 +58,7 @@ const sortField = ref<FileSortField>('createTime')
 const sortOrder = ref<FileSortOrder>('desc')
 const uploadConflictOpen = ref(false)
 const uploadConflicts = ref<ConflictItemVo[]>([])
+const shareOpen = ref(false)
 let uploadConflictResolve: ((strategies: Record<string, ConflictStrategy> | null) => void) | null = null
 
 function openPreview(file: FileNodeVo) {
@@ -320,6 +324,22 @@ async function handleBatchDownload() {
     notificationStore.error(message)
   }
 }
+
+function openShareModal() {
+  shareOpen.value = true
+}
+
+async function handleCreateShare(payload: ShareCreateRequest) {
+  try {
+    await createShare(payload)
+    shareOpen.value = false
+    exitSelectionMode()
+    notificationStore.success('分享创建成功')
+  } catch (err) {
+    const message = err instanceof Error ? err.message : '创建分享失败'
+    notificationStore.error(message)
+  }
+}
 </script>
 
 <template>
@@ -522,9 +542,17 @@ async function handleBatchDownload() {
       @move="openMoveCopy('move', selectedFiles)"
       @copy="openMoveCopy('copy', selectedFiles)"
       @download="handleBatchDownload"
+      @share="openShareModal"
       @delete="handleBatchDelete"
       @clear="exitSelectionMode"
       @select-all="toggleSelectAll"
+    />
+
+    <CreateShareModal
+      :open="shareOpen"
+      :item-ids="Array.from(selectedIds)"
+      @close="shareOpen = false"
+      @confirm="handleCreateShare"
     />
 
     <FilePreviewDrawer

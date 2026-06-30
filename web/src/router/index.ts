@@ -3,7 +3,7 @@ import type { RouteRecordRaw } from 'vue-router'
 import { useUserStore } from '@/store/user'
 import { deviceView } from '@/utils/device'
 
-type RouteName = 'Login' | 'Register' | 'NotFound' | 'Init' | 'Files' | 'Trash' | 'UserManagement' | 'RoleManagement' | 'PermissionManagement' | 'StorageSpaceManagement' | 'Profile'
+type RouteName = 'Login' | 'Register' | 'NotFound' | 'Init' | 'Files' | 'Trash' | 'Share' | 'UserManagement' | 'RoleManagement' | 'PermissionManagement' | 'StorageSpaceManagement' | 'Profile'
 
 /**
  * 公开静态路由
@@ -37,6 +37,12 @@ const publicRoutes: RouteRecordRaw[] = [
     component: () => import('@/views/NotFound.vue'),
     meta: { public: true },
   },
+  {
+    path: '/s/:code',
+    name: 'PublicShare' as RouteName,
+    component: deviceView('share/index'),
+    meta: { public: true },
+  },
 ]
 
 /**
@@ -56,6 +62,12 @@ const dynamicRoutes: RouteRecordRaw[] = [
     name: 'Trash' as RouteName,
     component: deviceView('files/trash'),
     meta: { title: '回收站' },
+  },
+  {
+    path: '/files/share',
+    name: 'Share' as RouteName,
+    component: deviceView('files/share'),
+    meta: { title: '我的分享' },
   },
   {
     path: '/admin/users',

@@ -81,28 +81,32 @@ public class FileDownloadServiceImpl implements FileDownloadService {
 
     @Override
     public BatchDownloadResult downloadBatch(FileBatchDownloadDto dto, String userId) {
+        return downloadBatchByOwner(dto, userId, UserContext.requireUserCode());
+    }
+
+    @Override
+    public BatchDownloadResult downloadBatchByOwner(FileBatchDownloadDto dto, String ownerUserId, String ownerUserCode) {
         if (dto == null || CollectionUtils.isEmpty(dto.getIds())) {
             throw new BusinessException(ResultCode.PARAM_ERROR, "下载节点 ID 不能为空");
         }
 
-        List<FileNode> files = collectDownloadFiles(dto.getIds(), userId);
+        List<FileNode> files = collectDownloadFiles(dto.getIds(), ownerUserId);
         if (files.isEmpty()) {
             throw new BusinessException(ResultCode.NOT_FOUND, "没有可下载的文件");
         }
 
-        String username = UserContext.requireUserCode();
         long totalSize = files.stream().mapToLong(n -> n.getSize() == null ? 0L : n.getSize()).sum();
         if (totalSize <= streamThresholdSize && files.size() <= streamThresholdCount) {
-            return buildSyncZip(files, userId, username, totalSize);
+            return buildSyncZip(files, ownerUserId, ownerUserCode, totalSize);
         }
 
         String taskId = UUID.randomUUID().toString();
-        Path taskDir = resolveTaskDir(username, taskId);
+        Path taskDir = resolveTaskDir(ownerUserCode, taskId);
         Path zipPath = taskDir.resolve(ZIP_FILE_NAME);
-        FileZipTask pendingTask = new FileZipTask(taskId, userId, username, FileZipTaskStatus.PENDING, zipPath, totalSize, null, Instant.now());
+        FileZipTask pendingTask = new FileZipTask(taskId, ownerUserId, ownerUserCode, FileZipTaskStatus.PENDING, zipPath, totalSize, null, Instant.now());
         taskStore.put(taskId, pendingTask);
 
-        taskExecutor.execute(() -> buildZipAsync(taskId, files, userId, username, zipPath));
+        taskExecutor.execute(() -> buildZipAsync(taskId, files, ownerUserId, ownerUserCode, zipPath));
         FileZipTask task = taskStore.get(taskId);
         return new BatchDownloadResult.TaskResult(taskId, task.status());
     }

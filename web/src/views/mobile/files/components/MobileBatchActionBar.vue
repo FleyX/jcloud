@@ -2,7 +2,7 @@
 /**
  * 移动端底部批量操作栏
  */
-import { FolderInput, Copy, Download, Trash2, X, Check } from '@lucide/vue'
+import { FolderInput, Copy, Download, Trash2, X, Check, Share2 } from '@lucide/vue'
 import { cn } from '@/utils/cn'
 import { computed } from 'vue'
 
@@ -16,6 +16,7 @@ const emit = defineEmits<{
   move: []
   copy: []
   download: []
+  share: []
   delete: []
   clear: []
   selectAll: []
@@ -56,7 +57,7 @@ const isAllSelected = computed(() => props.selectedCount > 0 && props.selectedCo
       </button>
     </div>
 
-    <div class="grid grid-cols-4 gap-2 pb-3">
+    <div class="grid grid-cols-5 gap-2 pb-3">
       <button
         class="flex flex-col items-center gap-1 rounded-xl py-2 text-xs font-medium text-surface-600 transition-colors hover:bg-surface-100"
         @click="emit('move')"
@@ -77,6 +78,13 @@ const isAllSelected = computed(() => props.selectedCount > 0 && props.selectedCo
       >
         <Download class="h-5 w-5" />
         下载
+      </button>
+      <button
+        class="flex flex-col items-center gap-1 rounded-xl py-2 text-xs font-medium text-surface-600 transition-colors hover:bg-surface-100"
+        @click="emit('share')"
+      >
+        <Share2 class="h-5 w-5" />
+        分享
       </button>
       <button
         class="flex flex-col items-center gap-1 rounded-xl py-2 text-xs font-medium text-red-600 transition-colors hover:bg-red-50"
