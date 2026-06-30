@@ -10,6 +10,11 @@ import lombok.Data;
 public class ChunkedUploadInitDto {
 
     /**
+     * 前端生成的文件唯一标识，用于批量请求中关联请求项与响应项。
+     */
+    private String clientFileId;
+
+    /**
      * 文件名。
      */
     private String fileName;

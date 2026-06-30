@@ -2,6 +2,7 @@ package com.fleyx.jcloud.service.impl;
 
 import cn.hutool.crypto.digest.DigestUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.fleyx.jcloud.common.enums.BatchUploadErrorCode;
 import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.FileChunkMapper;
@@ -15,6 +16,7 @@ import com.fleyx.jcloud.model.po.FileChunk;
 import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.po.StorageSpace;
 import com.fleyx.jcloud.model.po.User;
+import com.fleyx.jcloud.model.vo.BatchChunkedUploadInitItemVo;
 import com.fleyx.jcloud.model.vo.ChunkedUploadChunkVo;
 import com.fleyx.jcloud.model.vo.ChunkedUploadInitVo;
 import com.fleyx.jcloud.model.vo.FileNodeVo;
@@ -22,6 +24,7 @@ import com.fleyx.jcloud.service.ChunkedUploadService;
 import com.fleyx.jcloud.service.FolderPathService;
 import com.fleyx.jcloud.common.constant.FileNodeConstants;
 import com.fleyx.jcloud.common.constant.StorageConstant;
+import com.fleyx.jcloud.util.BatchUploadHelper;
 import com.fleyx.jcloud.util.FileHashUtil;
 import com.fleyx.jcloud.util.FileConflictResolver;
 import com.fleyx.jcloud.util.FileNodeUtil;
@@ -42,6 +45,7 @@ import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -79,53 +83,86 @@ public class ChunkedUploadServiceImpl implements ChunkedUploadService {
     private final FolderPathService folderPathService;
 
     @Override
-    public ChunkedUploadInitVo init(String userId, ChunkedUploadInitDto dto) {
+    public List<BatchChunkedUploadInitItemVo> init(String userId, List<ChunkedUploadInitDto> items) {
         userReadOnlyChecker.checkWriteAllowed(userId);
         User user = requireUser(userId);
         StorageSpace space = requireSpace(user.getStorageSpaceId());
 
-        if (!StringUtils.hasText(dto.getFileName())) {
-            throw new BusinessException(ResultCode.BUSINESS_ERROR, "文件名不能为空");
-        }
-        if (dto.getSize() == null || dto.getSize() <= 0) {
-            throw new BusinessException(ResultCode.BUSINESS_ERROR, "文件大小必须大于 0");
-        }
-
-        long fileSize = dto.getSize();
-        long usedSpace = user.getUsedSpace() == null ? 0L : user.getUsedSpace();
-        long quota = user.getQuota() == null ? 0L : user.getQuota();
-        if (quota > 0 && usedSpace + fileSize > quota) {
-            throw new BusinessException(ResultCode.BUSINESS_ERROR, "用户配额不足");
-        }
-
         RLock lock = userReadWriteLock.writeLock(userId);
         lock.lock();
         try {
-            String finalParentId = FileNodeUtil.normalizeParentId(dto.getParentId());
-            String finalFileName = dto.getFileName();
-            if (StringUtils.hasText(dto.getRelativePath())) {
-                finalParentId = folderPathService.resolveOrCreateFolderPath(userId, dto.getParentId(), dto.getRelativePath());
-                finalFileName = extractFileNameFromRelativePath(dto.getRelativePath());
-            }
-
-            String uploadId = generateUploadId();
-            Path tempDir = resolveTempDir(space, user.getUsername(), uploadId);
-            try {
-                Files.createDirectories(tempDir);
-                saveUploadMeta(tempDir, dto, finalParentId, finalFileName);
-            } catch (IOException e) {
-                throw new BusinessException(ResultCode.BUSINESS_ERROR, "创建上传临时目录失败");
-            }
-
-            int totalChunks = (int) ((fileSize + CHUNK_SIZE - 1) / CHUNK_SIZE);
-            ChunkedUploadInitVo vo = new ChunkedUploadInitVo();
-            vo.setUploadId(uploadId);
-            vo.setChunkSize((int) CHUNK_SIZE);
-            vo.setTotalChunks(totalChunks);
-            return vo;
+            return doBatchInit(items, userId, user, space);
         } finally {
             lock.unlock();
         }
+    }
+
+    private List<BatchChunkedUploadInitItemVo> doBatchInit(List<ChunkedUploadInitDto> items, String userId,
+                                                           User user, StorageSpace space) {
+        BatchUploadHelper.validateBatchItems(items, 150, "初始化");
+
+        List<BatchChunkedUploadInitItemVo> results = new ArrayList<>(items.size());
+        Set<String> clientFileIds = new HashSet<>();
+        Set<String> processedPaths = new HashSet<>();
+
+        for (ChunkedUploadInitDto item : items) {
+            String clientFileId = item.getClientFileId();
+            BatchChunkedUploadInitItemVo result = new BatchChunkedUploadInitItemVo();
+            result.setClientFileId(clientFileId);
+
+            BatchUploadErrorCode clientIdError = BatchUploadHelper.validateClientFileId(clientFileId, clientFileIds);
+            if (clientIdError != null) {
+                BatchUploadHelper.fillError(result, clientIdError);
+                results.add(result);
+                continue;
+            }
+
+            try {
+                validateInitItem(item);
+                String pathKey = BatchUploadHelper.buildPathKey(item.getParentId(), item.getRelativePath(), item.getFileName());
+                if (!processedPaths.add(pathKey)) {
+                    BatchUploadHelper.fillError(result, BatchUploadErrorCode.DUPLICATE_FILE_IN_BATCH);
+                    results.add(result);
+                    continue;
+                }
+
+                ChunkedUploadInitVo data = doInit(item, userId, user, space);
+                result.setStatus("success");
+                result.setData(data);
+            } catch (BusinessException e) {
+                BatchUploadHelper.fillError(result, mapErrorCode(e), e.getMessage());
+            } catch (Exception e) {
+                BatchUploadHelper.fillError(result, BatchUploadErrorCode.SYSTEM_ERROR, e.getMessage());
+            }
+            results.add(result);
+        }
+        return results;
+    }
+
+    private ChunkedUploadInitVo doInit(ChunkedUploadInitDto dto, String userId, User user, StorageSpace space) {
+        String finalParentId = FileNodeUtil.normalizeParentId(dto.getParentId());
+        String finalFileName = dto.getFileName();
+        if (StringUtils.hasText(dto.getRelativePath())) {
+            finalParentId = folderPathService.resolveOrCreateFolderPath(userId, dto.getParentId(), dto.getRelativePath());
+            finalFileName = extractFileNameFromRelativePath(dto.getRelativePath());
+        }
+
+        String uploadId = generateUploadId();
+        Path tempDir = resolveTempDir(space, user.getUsername(), uploadId);
+        try {
+            Files.createDirectories(tempDir);
+            saveUploadMeta(tempDir, dto, finalParentId, finalFileName);
+        } catch (IOException e) {
+            throw new BusinessException(ResultCode.BUSINESS_ERROR, "创建上传临时目录失败");
+        }
+
+        long fileSize = dto.getSize();
+        int totalChunks = (int) ((fileSize + CHUNK_SIZE - 1) / CHUNK_SIZE);
+        ChunkedUploadInitVo vo = new ChunkedUploadInitVo();
+        vo.setUploadId(uploadId);
+        vo.setChunkSize((int) CHUNK_SIZE);
+        vo.setTotalChunks(totalChunks);
+        return vo;
     }
 
     @Override
@@ -480,5 +517,30 @@ public class ChunkedUploadServiceImpl implements ChunkedUploadService {
 
     private record UploadContext(User user, StorageSpace space, Path tempDir,
                                  String fileName, long size, String parentId, int totalChunks) {
+    }
+
+    private void validateInitItem(ChunkedUploadInitDto dto) {
+        if (!StringUtils.hasText(dto.getFileName())) {
+            throw new BusinessException(ResultCode.BUSINESS_ERROR, "文件名不能为空");
+        }
+        if (dto.getSize() == null || dto.getSize() <= 0) {
+            throw new BusinessException(ResultCode.BUSINESS_ERROR, "文件大小必须大于 0");
+        }
+    }
+
+    private BatchUploadErrorCode mapErrorCode(BusinessException e) {
+        String msg = e.getMessage();
+        if (msg == null) {
+            return BatchUploadErrorCode.BUSINESS_ERROR;
+        }
+        return switch (msg) {
+            case "文件名不能为空", "文件名包含非法字符" -> BatchUploadErrorCode.INVALID_FILE_NAME;
+            case "文件大小必须大于 0" -> BatchUploadErrorCode.INVALID_FILE_SIZE;
+            case "目标父节点不是文件夹", "父目录不存在" -> BatchUploadErrorCode.PARENT_NOT_FOUND;
+            case "相对路径不能以根分隔符开头", "相对路径包含非法的 '..' 段", "文件夹层级超过最大限制" ->
+                    BatchUploadErrorCode.PATH_TRAVERSAL;
+            case "创建上传临时目录失败" -> BatchUploadErrorCode.INIT_FAILED;
+            default -> BatchUploadErrorCode.BUSINESS_ERROR;
+        };
     }
 }

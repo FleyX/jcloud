@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { useTransferStore } from '@/store/transfer'
 import { useChunkedUpload } from './useChunkedUpload'
-import type { FileNodeVo } from '@/types/file'
+import type { ConflictItemVo, FileNodeVo } from '@/types/file'
 
 vi.mock('@/api/file', () => ({
   initChunkedUpload: vi.fn(),
@@ -33,13 +33,36 @@ function createFile(name: string, content: string): File {
   return new File([new TextEncoder().encode(content)], name)
 }
 
+function createPreCheckResponse(items: { clientFileId: string; conflicts?: ConflictItemVo[]; candidates?: FileNodeVo[] }[]) {
+  return items.map((item) => ({
+    clientFileId: item.clientFileId,
+    status: 'success' as const,
+    data: {
+      conflicts: item.conflicts ?? [],
+      candidates: item.candidates ?? [],
+    },
+  }))
+}
+
+function createInitResponse(items: { clientFileId: string }[]) {
+  return items.map((item) => ({
+    clientFileId: item.clientFileId,
+    status: 'success' as const,
+    data: { uploadId: 'u-' + item.clientFileId, chunkSize: 1024, totalChunks: 1 },
+  }))
+}
+
 beforeEach(() => {
   setActivePinia(createPinia())
   vi.clearAllMocks()
   vi.mocked(identityHash).mockResolvedValue('mock-partial-hash')
-  vi.mocked(preCheckUpload).mockResolvedValue({ conflicts: [], candidates: [] })
+  vi.mocked(preCheckUpload).mockImplementation(async (req) =>
+    createPreCheckResponse(req.items.map((item: { clientFileId: string }) => ({ clientFileId: item.clientFileId }))),
+  )
   vi.mocked(tryInstantUpload).mockResolvedValue(null)
-  vi.mocked(initChunkedUpload).mockReset()
+  vi.mocked(initChunkedUpload).mockImplementation(async (req) =>
+    createInitResponse(req.items.map((item: { clientFileId: string }) => ({ clientFileId: item.clientFileId }))),
+  )
   vi.mocked(uploadChunk).mockReset()
   vi.mocked(listUploadedChunks).mockReset()
   vi.mocked(completeChunkedUpload).mockReset()
@@ -60,11 +83,6 @@ describe('useChunkedUpload', () => {
       status: 1,
     }
 
-    vi.mocked(initChunkedUpload).mockResolvedValue({
-      uploadId: 'u1',
-      chunkSize: 1024,
-      totalChunks: 1,
-    })
     vi.mocked(listUploadedChunks).mockResolvedValue([])
     vi.mocked(uploadChunk).mockResolvedValue({ chunkIndex: 0, status: 'success' })
     vi.mocked(completeChunkedUpload).mockResolvedValue(node)
@@ -81,13 +99,15 @@ describe('useChunkedUpload', () => {
     expect(store.uploadQueue[0].progress).toBe(100)
     expect(onComplete).toHaveBeenCalledOnce()
     expect(uploadChunk).toHaveBeenCalledOnce()
-    expect(preCheckUpload).toHaveBeenCalledWith({
-      fileName: file.name,
-      size: file.size,
-      parentId: '0',
-      relativePath: undefined,
-      partialHash: 'mock-partial-hash',
-    })
+    expect(preCheckUpload).toHaveBeenCalledWith(expect.objectContaining({
+      items: [expect.objectContaining({
+        fileName: file.name,
+        size: file.size,
+        parentId: '0',
+        relativePath: undefined,
+        partialHash: 'mock-partial-hash',
+      })],
+    }))
   })
 
   it('should skip already uploaded chunks on resume', async () => {
@@ -104,11 +124,6 @@ describe('useChunkedUpload', () => {
       status: 1,
     }
 
-    vi.mocked(initChunkedUpload).mockResolvedValue({
-      uploadId: 'u1',
-      chunkSize: 1024,
-      totalChunks: 1,
-    })
     vi.mocked(listUploadedChunks).mockResolvedValue([0])
     vi.mocked(uploadChunk).mockResolvedValue({ chunkIndex: 0, status: 'success' })
     vi.mocked(completeChunkedUpload).mockResolvedValue(node)
@@ -139,10 +154,12 @@ describe('useChunkedUpload', () => {
       id: 'n1',
     }
 
-    vi.mocked(preCheckUpload).mockResolvedValue({
-      conflicts: [],
-      candidates: [candidate],
-    })
+    vi.mocked(preCheckUpload).mockImplementation(async (req) =>
+      createPreCheckResponse(req.items.map((item: { clientFileId: string }) => ({
+        clientFileId: item.clientFileId,
+        candidates: [candidate],
+      }))),
+    )
     vi.mocked(tryInstantUpload).mockResolvedValue(instantNode)
 
     const store = useTransferStore()
@@ -169,10 +186,12 @@ describe('useChunkedUpload', () => {
       existingType: 'file' as const,
     }
 
-    vi.mocked(preCheckUpload).mockResolvedValue({
-      conflicts: [conflict],
-      candidates: [],
-    })
+    vi.mocked(preCheckUpload).mockImplementation(async (req) =>
+      createPreCheckResponse(req.items.map((item: { clientFileId: string }) => ({
+        clientFileId: item.clientFileId,
+        conflicts: [conflict],
+      }))),
+    )
 
     const store = useTransferStore()
     const { upload } = useChunkedUpload()

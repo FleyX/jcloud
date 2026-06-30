@@ -2,6 +2,7 @@ package com.fleyx.jcloud.service;
 
 import cn.hutool.crypto.digest.DigestUtil;
 import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.fleyx.jcloud.common.enums.BatchUploadErrorCode;
 import com.fleyx.jcloud.common.enums.ConflictStrategy;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.model.bo.FileDownloadResult;
@@ -13,6 +14,7 @@ import com.fleyx.jcloud.model.dto.FileUploadPreCheckDto;
 import com.fleyx.jcloud.model.dto.OperationItemDto;
 import com.fleyx.jcloud.model.dto.StorageSpaceSaveDto;
 import com.fleyx.jcloud.model.dto.UserSaveDto;
+import com.fleyx.jcloud.model.vo.BatchUploadPreCheckItemVo;
 import com.fleyx.jcloud.model.vo.ConflictItemVo;
 import com.fleyx.jcloud.model.vo.FileNodeVo;
 import com.fleyx.jcloud.model.vo.StorageSpaceVo;
@@ -127,7 +129,7 @@ class FileServiceTest {
         dto.setSize(5L);
         dto.setParentId(FileNodeConstants.ROOT_ID);
 
-        UploadPreCheckVo result = fileService.preCheckUpload(dto, user.getId());
+        UploadPreCheckVo result = preCheckSingle(dto, user.getId());
 
         assertEquals(1, result.getConflicts().size());
         assertEquals("hello.txt", result.getConflicts().get(0).getSourceName());
@@ -146,7 +148,7 @@ class FileServiceTest {
         dto.setSize(5L);
         dto.setParentId("0");
 
-        UploadPreCheckVo result = fileService.preCheckUpload(dto, user.getId());
+        UploadPreCheckVo result = preCheckSingle(dto, user.getId());
 
         assertEquals(1, result.getConflicts().size());
         assertEquals("hello.txt", result.getConflicts().get(0).getExistingName());
@@ -165,7 +167,7 @@ class FileServiceTest {
         dto.setParentId(FileNodeConstants.ROOT_ID);
         dto.setRelativePath("project/src/main.java");
 
-        UploadPreCheckVo result = fileService.preCheckUpload(dto, user.getId());
+        UploadPreCheckVo result = preCheckSingle(dto, user.getId());
 
         assertEquals(1, result.getConflicts().size());
         assertEquals("main.java", result.getConflicts().get(0).getSourceName());
@@ -183,7 +185,7 @@ class FileServiceTest {
         dto.setParentId(FileNodeConstants.ROOT_ID);
         dto.setRelativePath("project/src/main.java");
 
-        UploadPreCheckVo result = fileService.preCheckUpload(dto, user.getId());
+        UploadPreCheckVo result = preCheckSingle(dto, user.getId());
 
         assertTrue(result.getConflicts().isEmpty());
         assertTrue(result.getCandidates().isEmpty());
@@ -201,12 +203,104 @@ class FileServiceTest {
         UserVo user = prepareUserWithStorageSpace().user();
 
         FileUploadPreCheckDto dto = new FileUploadPreCheckDto();
+        dto.setClientFileId("client-1");
         dto.setFileName("main.java");
         dto.setSize(12L);
         dto.setParentId(FileNodeConstants.ROOT_ID);
         dto.setRelativePath("../project/main.java");
 
-        assertThrows(BusinessException.class, () -> fileService.preCheckUpload(dto, user.getId()));
+        List<BatchUploadPreCheckItemVo> result = fileService.preCheckUpload(List.of(dto), user.getId());
+
+        assertEquals(1, result.size());
+        assertEquals("error", result.get(0).getStatus());
+        assertEquals(BatchUploadErrorCode.PATH_TRAVERSAL.name(), result.get(0).getErrorCode());
+    }
+
+    @Test
+    void shouldBatchPreCheckWithMultipleFiles() throws Exception {
+        UserVo user = prepareUserWithStorageSpace().user();
+        fileService.upload(buildFile("hello.txt", "hello"), user.getId(), FileNodeConstants.ROOT_ID, null);
+
+        FileUploadPreCheckDto dto1 = new FileUploadPreCheckDto();
+        dto1.setClientFileId("client-1");
+        dto1.setFileName("hello.txt");
+        dto1.setSize(5L);
+        dto1.setParentId(FileNodeConstants.ROOT_ID);
+
+        FileUploadPreCheckDto dto2 = new FileUploadPreCheckDto();
+        dto2.setClientFileId("client-2");
+        dto2.setFileName("world.txt");
+        dto2.setSize(5L);
+        dto2.setParentId(FileNodeConstants.ROOT_ID);
+
+        List<BatchUploadPreCheckItemVo> result = fileService.preCheckUpload(List.of(dto1, dto2), user.getId());
+
+        assertEquals(2, result.size());
+        assertEquals("success", result.get(0).getStatus());
+        assertEquals(1, result.get(0).getData().getConflicts().size());
+        assertEquals("success", result.get(1).getStatus());
+        assertTrue(result.get(1).getData().getConflicts().isEmpty());
+    }
+
+    @Test
+    void shouldRejectBatchPreCheckWhenDuplicateClientFileId() {
+        UserVo user = prepareUserWithStorageSpace().user();
+
+        FileUploadPreCheckDto dto1 = new FileUploadPreCheckDto();
+        dto1.setClientFileId("same-id");
+        dto1.setFileName("a.txt");
+        dto1.setSize(5L);
+
+        FileUploadPreCheckDto dto2 = new FileUploadPreCheckDto();
+        dto2.setClientFileId("same-id");
+        dto2.setFileName("b.txt");
+        dto2.setSize(5L);
+
+        List<BatchUploadPreCheckItemVo> result = fileService.preCheckUpload(List.of(dto1, dto2), user.getId());
+
+        assertEquals(2, result.size());
+        assertEquals("success", result.get(0).getStatus());
+        assertEquals("error", result.get(1).getStatus());
+        assertEquals(BatchUploadErrorCode.DUPLICATE_CLIENT_FILE_ID.name(), result.get(1).getErrorCode());
+    }
+
+    @Test
+    void shouldRejectBatchPreCheckWhenDuplicateFilePath() {
+        UserVo user = prepareUserWithStorageSpace().user();
+
+        FileUploadPreCheckDto dto1 = new FileUploadPreCheckDto();
+        dto1.setClientFileId("client-1");
+        dto1.setFileName("same.txt");
+        dto1.setSize(5L);
+
+        FileUploadPreCheckDto dto2 = new FileUploadPreCheckDto();
+        dto2.setClientFileId("client-2");
+        dto2.setFileName("same.txt");
+        dto2.setSize(5L);
+
+        List<BatchUploadPreCheckItemVo> result = fileService.preCheckUpload(List.of(dto1, dto2), user.getId());
+
+        assertEquals(2, result.size());
+        assertEquals("success", result.get(0).getStatus());
+        assertEquals("error", result.get(1).getStatus());
+        assertEquals(BatchUploadErrorCode.DUPLICATE_FILE_IN_BATCH.name(), result.get(1).getErrorCode());
+    }
+
+    @Test
+    void shouldRejectBatchPreCheckWhenQuotaExceeded() {
+        UserVo user = prepareUserWithStorageSpace(10L).user();
+
+        FileUploadPreCheckDto dto1 = new FileUploadPreCheckDto();
+        dto1.setClientFileId("client-1");
+        dto1.setFileName("a.txt");
+        dto1.setSize(6L);
+
+        FileUploadPreCheckDto dto2 = new FileUploadPreCheckDto();
+        dto2.setClientFileId("client-2");
+        dto2.setFileName("b.txt");
+        dto2.setSize(6L);
+
+        assertThrows(BusinessException.class, () -> fileService.preCheckUpload(List.of(dto1, dto2), user.getId()));
     }
 
     @Test
@@ -523,7 +617,7 @@ class FileServiceTest {
         preCheckDto.setSize((long) content.getBytes(StandardCharsets.UTF_8).length);
         preCheckDto.setPartialHash(fullHash);
 
-        UploadPreCheckVo preCheckResult = fileService.preCheckUpload(preCheckDto, user.getId());
+        UploadPreCheckVo preCheckResult = preCheckSingle(preCheckDto, user.getId());
 
         assertEquals(1, preCheckResult.getCandidates().size());
         assertEquals(uploaded.getId(), preCheckResult.getCandidates().get(0).getId());
@@ -562,7 +656,7 @@ class FileServiceTest {
         preCheckDto.setSize((long) content.getBytes(StandardCharsets.UTF_8).length);
         preCheckDto.setPartialHash(fullHash);
 
-        UploadPreCheckVo preCheckResult = fileService.preCheckUpload(preCheckDto, userB.getId());
+        UploadPreCheckVo preCheckResult = preCheckSingle(preCheckDto, userB.getId());
 
         assertTrue(preCheckResult.getCandidates().isEmpty());
     }
@@ -595,7 +689,7 @@ class FileServiceTest {
         preCheckDto.setFileName("hello-copy.txt");
         preCheckDto.setSize((long) content.getBytes(StandardCharsets.UTF_8).length);
         preCheckDto.setPartialHash(fullHash);
-        UploadPreCheckVo preCheckResult = fileService.preCheckUpload(preCheckDto, user.getId());
+        UploadPreCheckVo preCheckResult = preCheckSingle(preCheckDto, user.getId());
 
         FileInstantUploadDto dto = new FileInstantUploadDto();
         dto.setCandidateId(preCheckResult.getCandidates().get(0).getId());
@@ -641,7 +735,7 @@ class FileServiceTest {
         preCheckDto.setSize(Files.size(largeFile));
         preCheckDto.setPartialHash(sampleHash);
 
-        UploadPreCheckVo preCheckResult = fileService.preCheckUpload(preCheckDto, user.getId());
+        UploadPreCheckVo preCheckResult = preCheckSingle(preCheckDto, user.getId());
 
         assertEquals(1, preCheckResult.getCandidates().size());
         assertEquals(uploaded.getId(), preCheckResult.getCandidates().get(0).getId());
@@ -696,6 +790,14 @@ class FileServiceTest {
         dto.setParentId(parentId);
         dto.setName(name);
         return dto;
+    }
+
+    private UploadPreCheckVo preCheckSingle(FileUploadPreCheckDto dto, String userId) {
+        dto.setClientFileId("client-" + System.nanoTime());
+        List<BatchUploadPreCheckItemVo> result = fileService.preCheckUpload(List.of(dto), userId);
+        assertEquals(1, result.size());
+        assertEquals("success", result.get(0).getStatus());
+        return result.get(0).getData();
     }
 
     private void moveFileToFolder(String userId, String fileId, String folderId) {

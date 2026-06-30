@@ -11,6 +11,8 @@ import com.fleyx.jcloud.model.bo.FileDownloadResult;
 import com.fleyx.jcloud.model.bo.FileZipTask;
 import com.fleyx.jcloud.model.bo.PreviewResult;
 import com.fleyx.jcloud.model.dto.ChunkedUploadCompleteDto;
+import com.fleyx.jcloud.model.dto.BatchChunkedUploadInitDto;
+import com.fleyx.jcloud.model.dto.BatchUploadPreCheckDto;
 import com.fleyx.jcloud.model.dto.ChunkedUploadInitDto;
 import com.fleyx.jcloud.model.dto.FileBatchDownloadDto;
 import com.fleyx.jcloud.model.dto.FileCreateFolderDto;
@@ -24,6 +26,8 @@ import com.fleyx.jcloud.model.dto.FilePreCheckOperationDto;
 import com.fleyx.jcloud.model.dto.FilePreCheckRestoreDto;
 import com.fleyx.jcloud.model.dto.FileUploadPreCheckDto;
 import com.fleyx.jcloud.model.dto.FileRenameDto;
+import com.fleyx.jcloud.model.vo.BatchChunkedUploadInitItemVo;
+import com.fleyx.jcloud.model.vo.BatchUploadPreCheckItemVo;
 import com.fleyx.jcloud.model.vo.ChunkedUploadChunkVo;
 import com.fleyx.jcloud.model.vo.ChunkedUploadInitVo;
 import com.fleyx.jcloud.model.vo.ConflictItemVo;
@@ -85,11 +89,11 @@ public class FileController {
     }
 
     /**
-     * 上传前预检：检查目标目录是否存在同名冲突，并返回可用于秒传的候选文件。
+     * 批量上传前预检：检查目标目录是否存在同名冲突，并返回可用于秒传的候选文件。
      */
     @PostMapping("/upload/pre-check")
-    public R<UploadPreCheckVo> preCheckUpload(@RequestBody FileUploadPreCheckDto dto) {
-        return R.ok(fileService.preCheckUpload(dto, UserContext.get().id()));
+    public R<List<BatchUploadPreCheckItemVo>> preCheckUpload(@RequestBody BatchUploadPreCheckDto dto) {
+        return R.ok(fileService.preCheckUpload(dto.getItems(), UserContext.get().id()));
     }
 
     /**
@@ -120,11 +124,11 @@ public class FileController {
     }
 
     /**
-     * 初始化分片上传任务。
+     * 批量初始化分片上传任务。
      */
     @PostMapping("/chunked-upload/init")
-    public R<ChunkedUploadInitVo> initChunkedUpload(@RequestBody ChunkedUploadInitDto dto) {
-        return R.ok(chunkedUploadService.init(UserContext.get().id(), dto));
+    public R<List<BatchChunkedUploadInitItemVo>> initChunkedUpload(@RequestBody BatchChunkedUploadInitDto dto) {
+        return R.ok(chunkedUploadService.init(UserContext.get().id(), dto.getItems()));
     }
 
     /**

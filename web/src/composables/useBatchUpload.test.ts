@@ -37,16 +37,28 @@ function createFile(name: string, content: string, relativePath = ''): File {
   return file
 }
 
+function expectClientFileId(dto: { clientFileId: string }) {
+  expect(dto.clientFileId).toMatch(/^client-\d+-[a-z0-9]+$/)
+}
+
 beforeEach(() => {
   setActivePinia(createPinia())
   vi.clearAllMocks()
   vi.mocked(identityHash).mockResolvedValue('mock-partial-hash')
-  vi.mocked(preCheckUpload).mockResolvedValue({ conflicts: [], candidates: [] })
-  vi.mocked(initChunkedUpload).mockResolvedValue({
-    uploadId: 'u1',
-    chunkSize: 1024,
-    totalChunks: 1,
-  })
+  vi.mocked(preCheckUpload).mockImplementation(async (req) =>
+    req.items.map((item) => ({
+      clientFileId: item.clientFileId,
+      status: 'success' as const,
+      data: { conflicts: [], candidates: [] },
+    })),
+  )
+  vi.mocked(initChunkedUpload).mockImplementation(async (req) =>
+    req.items.map((item) => ({
+      clientFileId: item.clientFileId,
+      status: 'success' as const,
+      data: { uploadId: 'u-' + item.clientFileId, chunkSize: 1024, totalChunks: 1 },
+    })),
+  )
   vi.mocked(listUploadedChunks).mockResolvedValue([])
   vi.mocked(uploadChunk).mockResolvedValue({ chunkIndex: 0, status: 'success' })
   vi.mocked(completeChunkedUpload).mockResolvedValue({
@@ -69,14 +81,28 @@ describe('useBatchUpload', () => {
 
     await uploadBatch([{ file }], '0')
 
-    expect(preCheckUpload).toHaveBeenCalledWith({
+    expect(preCheckUpload).toHaveBeenCalledTimes(1)
+    const preCheckReq = vi.mocked(preCheckUpload).mock.calls[0][0]
+    expect(preCheckReq.items).toHaveLength(1)
+    expect(preCheckReq.items[0]).toMatchObject({
       fileName: 'hello.txt',
       size: 5,
       parentId: '0',
       relativePath: undefined,
       partialHash: 'mock-partial-hash',
     })
-    expect(initChunkedUpload).toHaveBeenCalledWith('hello.txt', 5, '0', undefined)
+    expectClientFileId(preCheckReq.items[0])
+
+    expect(initChunkedUpload).toHaveBeenCalledTimes(1)
+    const initReq = vi.mocked(initChunkedUpload).mock.calls[0][0]
+    expect(initReq.items).toHaveLength(1)
+    expect(initReq.items[0]).toMatchObject({
+      fileName: 'hello.txt',
+      size: 5,
+      parentId: '0',
+      relativePath: undefined,
+    })
+    expectClientFileId(initReq.items[0])
   })
 
   it('should pass relativePath to preCheck and init', async () => {
@@ -85,34 +111,43 @@ describe('useBatchUpload', () => {
 
     await uploadBatch([{ file, relativePath: 'project/src/main.java' }], '0')
 
-    expect(preCheckUpload).toHaveBeenCalledWith({
+    const preCheckReq = vi.mocked(preCheckUpload).mock.calls[0][0]
+    expect(preCheckReq.items[0]).toMatchObject({
       fileName: 'main.java',
       size: 12,
       parentId: '0',
       relativePath: 'project/src/main.java',
       partialHash: 'mock-partial-hash',
     })
-    expect(initChunkedUpload).toHaveBeenCalledWith(
-      'main.java',
-      12,
-      '0',
-      'project/src/main.java',
-    )
+
+    const initReq = vi.mocked(initChunkedUpload).mock.calls[0][0]
+    expect(initReq.items[0]).toMatchObject({
+      fileName: 'main.java',
+      size: 12,
+      parentId: '0',
+      relativePath: 'project/src/main.java',
+    })
   })
 
   it('should use defaultConflictStrategy and skip conflict popup', async () => {
     const file = createFile('hello.txt', 'hello')
-    vi.mocked(preCheckUpload).mockResolvedValue({
-      conflicts: [{
-        sourceId: 'c1',
-        sourceName: 'hello.txt',
-        sourceType: 'file',
-        existingId: 'e1',
-        existingName: 'hello.txt',
-        existingType: 'file',
-      }],
-      candidates: [],
-    })
+    vi.mocked(preCheckUpload).mockImplementation(async (req) =>
+      req.items.map((item) => ({
+        clientFileId: item.clientFileId,
+        status: 'success' as const,
+        data: {
+          conflicts: [{
+            sourceId: item.clientFileId,
+            sourceName: 'hello.txt',
+            sourceType: 'file' as const,
+            existingId: 'e1',
+            existingName: 'hello.txt',
+            existingType: 'file' as const,
+          }],
+          candidates: [],
+        },
+      })),
+    )
 
     const { uploadBatch } = useBatchUpload()
     const openConflict = vi.fn()
@@ -128,20 +163,26 @@ describe('useBatchUpload', () => {
 
   it('should popup conflict modal when no default strategy', async () => {
     const file = createFile('hello.txt', 'hello')
-    vi.mocked(preCheckUpload).mockResolvedValue({
-      conflicts: [{
-        sourceId: 'c1',
-        sourceName: 'hello.txt',
-        sourceType: 'file',
-        existingId: 'e1',
-        existingName: 'hello.txt',
-        existingType: 'file',
-      }],
-      candidates: [],
-    })
+    vi.mocked(preCheckUpload).mockImplementation(async (req) =>
+      req.items.map((item) => ({
+        clientFileId: item.clientFileId,
+        status: 'success' as const,
+        data: {
+          conflicts: [{
+            sourceId: item.clientFileId,
+            sourceName: 'hello.txt',
+            sourceType: 'file' as const,
+            existingId: 'e1',
+            existingName: 'hello.txt',
+            existingType: 'file' as const,
+          }],
+          candidates: [],
+        },
+      })),
+    )
 
     const { uploadBatch } = useBatchUpload()
-    const openConflict = vi.fn().mockResolvedValue({ generatedId: 'keep' as ConflictStrategy })
+    const openConflict = vi.fn().mockResolvedValue({ 'client-generated-id': 'keep' as ConflictStrategy })
 
     await uploadBatch([{ file }], '0', { openConflict })
 
@@ -155,17 +196,23 @@ describe('useBatchUpload', () => {
 
   it('should skip upload when conflict strategy is skip', async () => {
     const file = createFile('hello.txt', 'hello')
-    vi.mocked(preCheckUpload).mockResolvedValue({
-      conflicts: [{
-        sourceId: 'c1',
-        sourceName: 'hello.txt',
-        sourceType: 'file',
-        existingId: 'e1',
-        existingName: 'hello.txt',
-        existingType: 'file',
-      }],
-      candidates: [],
-    })
+    vi.mocked(preCheckUpload).mockImplementation(async (req) =>
+      req.items.map((item) => ({
+        clientFileId: item.clientFileId,
+        status: 'success' as const,
+        data: {
+          conflicts: [{
+            sourceId: item.clientFileId,
+            sourceName: 'hello.txt',
+            sourceType: 'file' as const,
+            existingId: 'e1',
+            existingName: 'hello.txt',
+            existingType: 'file' as const,
+          }],
+          candidates: [],
+        },
+      })),
+    )
 
     const { uploadBatch } = useBatchUpload()
 

@@ -180,11 +180,19 @@ export interface FilePermanentDeleteRequest {
  * 上传前预检参数
  */
 export interface FileUploadPreCheckRequest {
+  clientFileId: string
   fileName: string
   size: number
   parentId?: string
   relativePath?: string
   partialHash?: string
+}
+
+/**
+ * 批量上传前预检请求
+ */
+export interface BatchUploadPreCheckRequest {
+  items: FileUploadPreCheckRequest[]
 }
 
 /**
@@ -203,10 +211,18 @@ export interface FileInstantUploadRequest {
  * 分片上传初始化参数
  */
 export interface ChunkedUploadInitRequest {
+  clientFileId: string
   fileName: string
   size: number
   parentId?: string
   relativePath?: string
+}
+
+/**
+ * 批量分片上传初始化请求
+ */
+export interface BatchChunkedUploadInitRequest {
+  items: ChunkedUploadInitRequest[]
 }
 
 /**
@@ -215,6 +231,47 @@ export interface ChunkedUploadInitRequest {
 export interface UploadPreCheckResult {
   conflicts: ConflictItemVo[]
   candidates: FileNodeVo[]
+}
+
+/**
+ * 批量上传前预检响应项状态
+ */
+export type BatchUploadPreCheckItemStatus = 'success' | 'error'
+
+/**
+ * 批量上传前预检响应项
+ */
+export interface BatchUploadPreCheckItem {
+  clientFileId: string
+  status: BatchUploadPreCheckItemStatus
+  errorCode?: string
+  errorMessage?: string
+  data?: UploadPreCheckResult
+}
+
+/**
+ * 批量分片上传初始化响应项状态
+ */
+export type BatchChunkedUploadInitItemStatus = 'success' | 'error'
+
+/**
+ * 分片上传初始化响应。
+ */
+export interface ChunkedUploadInitResponse {
+  uploadId: string
+  chunkSize: number
+  totalChunks: number
+}
+
+/**
+ * 批量分片上传初始化响应项
+ */
+export interface BatchChunkedUploadInitItem {
+  clientFileId: string
+  status: BatchChunkedUploadInitItemStatus
+  errorCode?: string
+  errorMessage?: string
+  data?: ChunkedUploadInitResponse
 }
 
 /**
