@@ -14,9 +14,16 @@ kill_port() {
 }
 
 kill_port "$APP_PORT"
+kill_port "$WEB_PORT"
 
 echo "启动后端（端口 $APP_PORT）..."
 nohup bash -c "cd app && mvn spring-boot:run" > app.log 2>&1 &
 echo $! > app.pid
 
+
+echo "启动前端（端口 $WEB_PORT）..."
+nohup bash -c "cd web && pnpm run dev" > web.log 2>&1 &
+echo $! > web.pid
+
 echo "后端 PID: $(cat app.pid)，日志: app.log"
+echo "前端 PID: $(cat web.pid)，日志: web.log"
