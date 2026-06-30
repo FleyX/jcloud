@@ -5,7 +5,10 @@ import { get, post } from './request'
 import type { PageResult } from '@/types/auth'
 import type { DownloadProgress } from '@/store/transfer'
 import type {
-  ChunkedUploadInitRequest,
+  BatchChunkedUploadInitItem,
+  BatchChunkedUploadInitRequest,
+  BatchUploadPreCheckItem,
+  BatchUploadPreCheckRequest,
   ConflictItemVo,
   ConflictStrategy,
   FileBatchDownloadRequest,
@@ -20,11 +23,9 @@ import type {
   FilePreCheckOperationRequest,
   FilePreCheckRestoreRequest,
   FileRenameRequest,
-  FileUploadPreCheckRequest,
   FileZipTaskVo,
   OperationResultVo,
   RecycleRecordVo,
-  UploadPreCheckResult,
 } from '@/types/file'
 
 export function fetchFilePage(params: FilePageQuery): Promise<PageResult<FileNodeVo>> {
@@ -35,8 +36,8 @@ export function fetchChildFolders(parentId: string): Promise<FileNodeVo[]> {
   return get<FileNodeVo[]>('/files/folders', { parentId })
 }
 
-export function preCheckUpload(dto: FileUploadPreCheckRequest): Promise<UploadPreCheckResult> {
-  return post<UploadPreCheckResult>('/files/upload/pre-check', dto)
+export function preCheckUpload(dto: BatchUploadPreCheckRequest): Promise<BatchUploadPreCheckItem[]> {
+  return post<BatchUploadPreCheckItem[]>('/files/upload/pre-check', dto)
 }
 
 /**
@@ -154,15 +155,6 @@ export function previewFileUrl(id: string, type: 'thumbnail' | 'poster' | 'text'
 }
 
 /**
- * 分片上传初始化响应。
- */
-export interface ChunkedUploadInitResponse {
-  uploadId: string
-  chunkSize: number
-  totalChunks: number
-}
-
-/**
  * 分片上传响应。
  */
 export interface ChunkedUploadChunkResponse {
@@ -171,19 +163,10 @@ export interface ChunkedUploadChunkResponse {
 }
 
 /**
- * 初始化分片上传任务。
+ * 批量初始化分片上传任务。
  */
-export function initChunkedUpload(
-  fileName: string,
-  size: number,
-  parentId = '0',
-  relativePath?: string,
-): Promise<ChunkedUploadInitResponse> {
-  const body: ChunkedUploadInitRequest = { fileName, size, parentId }
-  if (relativePath) {
-    body.relativePath = relativePath
-  }
-  return post<ChunkedUploadInitResponse>('/files/chunked-upload/init', body)
+export function initChunkedUpload(dto: BatchChunkedUploadInitRequest): Promise<BatchChunkedUploadInitItem[]> {
+  return post<BatchChunkedUploadInitItem[]>('/files/chunked-upload/init', dto)
 }
 
 /**

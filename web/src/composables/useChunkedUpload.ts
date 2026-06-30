@@ -11,7 +11,14 @@ import {
 } from '@/api/file'
 import { createChunks } from '@/utils/chunk'
 import { identityHash } from '@/utils/fileHash'
-import type { ConflictItemVo, ConflictStrategy, FileNodeVo } from '@/types/file'
+import type {
+  BatchChunkedUploadInitItem,
+  BatchUploadPreCheckItem,
+  ChunkedUploadInitResponse,
+  ConflictItemVo,
+  ConflictStrategy,
+  FileNodeVo,
+} from '@/types/file'
 
 function formatSpeed(bytesPerSecond: number): string {
   if (bytesPerSecond <= 0) return '0 KB/s'
@@ -179,27 +186,38 @@ export function useChunkedUpload() {
     onComplete?: () => void,
     resolveConflict?: ConflictResolver,
   ): Promise<FileNodeVo | undefined> {
-    const taskId = `up-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-    transferStore.addUploadTask({ fileId: taskId, fileName: file.name, totalBytes: file.size })
-    const task = transferStore.uploadQueue.find((item) => item.fileId === taskId)
+    const clientFileId = `up-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    transferStore.addUploadTask({ fileId: clientFileId, fileName: file.name, totalBytes: file.size })
+    const task = transferStore.uploadQueue.find((item) => item.fileId === clientFileId)
     if (!task) return
 
     try {
       const partialHash = await identityHash(file)
-      const preCheckResult = await preCheckUpload({
-        fileName: file.name,
-        size: file.size,
-        parentId,
-        relativePath,
-        partialHash: partialHash || undefined,
+      const preCheckItems = await preCheckUpload({
+        items: [
+          {
+            clientFileId,
+            fileName: file.name,
+            size: file.size,
+            parentId,
+            relativePath,
+            partialHash: partialHash || undefined,
+          },
+        ],
       })
+
+      const preCheckResult = extractPreCheckData(preCheckItems, clientFileId)
+      if (!preCheckResult) {
+        transferStore.removeTask(clientFileId)
+        return
+      }
 
       let strategy: ConflictStrategy | undefined
       if (preCheckResult.conflicts.length > 0) {
         if (resolveConflict) {
           const chosen = await resolveConflict(preCheckResult.conflicts[0])
           if (chosen === null) {
-            transferStore.removeTask(taskId)
+            transferStore.removeTask(clientFileId)
             return
           }
           strategy = chosen
@@ -209,7 +227,7 @@ export function useChunkedUpload() {
       }
 
       if (strategy === 'skip') {
-        transferStore.removeTask(taskId)
+        transferStore.removeTask(clientFileId)
         notificationStore.success('已跳过上传')
         return
       }
@@ -223,21 +241,38 @@ export function useChunkedUpload() {
           relativePath,
         )
         if (instantNode) {
-          transferStore.completeTask(taskId)
+          transferStore.completeTask(clientFileId)
           notificationStore.success('秒传成功')
           onComplete?.()
           return instantNode
         }
       }
 
-      const initRes = await initChunkedUpload(file.name, file.size, parentId, relativePath)
-      task.uploadId = initRes.uploadId
+      const initItems = await initChunkedUpload({
+        items: [
+          {
+            clientFileId,
+            fileName: file.name,
+            size: file.size,
+            parentId,
+            relativePath,
+          },
+        ],
+      })
+      const initResult = extractInitData(initItems, clientFileId)
+      if (!initResult) {
+        transferStore.failTask(clientFileId)
+        notificationStore.error('初始化分片上传失败')
+        return
+      }
+
+      task.uploadId = initResult.uploadId
       task.parentId = parentId
       task.file = file
-      task.totalChunks = initRes.totalChunks
-      task.chunkSize = initRes.chunkSize
+      task.totalChunks = initResult.totalChunks
+      task.chunkSize = initResult.chunkSize
       task.completedChunks = 0
-      const chunks = await createChunks(file, initRes.chunkSize)
+      const chunks = await createChunks(file, initResult.chunkSize)
       task.chunks = chunks.map((c) => ({
         index: c.index,
         size: c.size,
@@ -245,9 +280,9 @@ export function useChunkedUpload() {
         status: 'waiting' as const,
       }))
 
-      const node = await runUpload(taskId, strategy)
+      const node = await runUpload(clientFileId, strategy)
       if (node) {
-        transferStore.completeTask(taskId)
+        transferStore.completeTask(clientFileId)
         notificationStore.success('上传成功')
         onComplete?.()
       }
@@ -257,13 +292,42 @@ export function useChunkedUpload() {
         return
       }
       const message = err instanceof Error ? err.message : '上传失败'
-      transferStore.failTask(taskId)
+      transferStore.failTask(clientFileId)
       notificationStore.error(message)
       throw err
     }
   }
 
+  function extractPreCheckData(
+    items: BatchUploadPreCheckItem[],
+    clientFileId: string,
+  ): { conflicts: ConflictItemVo[]; candidates: FileNodeVo[] } | null {
+    const item = items.find((i) => i.clientFileId === clientFileId)
+    if (!item || item.status === 'error' || !item.data) {
+      if (item?.errorMessage) {
+        notificationStore.error(item.errorMessage)
+      }
+      return null
+    }
+    return item.data
+  }
+
+  function extractInitData(
+    items: BatchChunkedUploadInitItem[],
+    clientFileId: string,
+  ): ChunkedUploadInitResponse | null {
+    const item = items.find((i) => i.clientFileId === clientFileId)
+    if (!item || item.status === 'error' || !item.data) {
+      if (item?.errorMessage) {
+        notificationStore.error(item.errorMessage)
+      }
+      return null
+    }
+    return item.data
+  }
+
   return {
     upload,
+    runUpload,
   }
 }

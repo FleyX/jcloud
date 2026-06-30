@@ -5,6 +5,7 @@ import com.fleyx.jcloud.model.bo.FileDownloadResult;
 import com.fleyx.jcloud.model.dto.FileInstantUploadDto;
 import com.fleyx.jcloud.model.dto.FilePageQueryDto;
 import com.fleyx.jcloud.model.dto.FileUploadPreCheckDto;
+import com.fleyx.jcloud.model.vo.BatchUploadPreCheckItemVo;
 import com.fleyx.jcloud.model.vo.FileNodeVo;
 import com.fleyx.jcloud.model.vo.UploadPreCheckVo;
 import org.springframework.web.multipart.MultipartFile;
@@ -55,13 +56,13 @@ public interface FileService {
     List<FileNodeVo> listChildFolders(String parentId, String userId);
 
     /**
-     * 上传前预检：检查目标父目录下是否存在同名节点，并查询可用于秒传的候选文件。
+     * 批量上传前预检：检查目标父目录下是否存在同名节点，并查询可用于秒传的候选文件。
      *
-     * @param dto    预检参数
+     * @param items  预检参数列表
      * @param userId 用户 ID
-     * @return 预检结果（冲突列表 + 秒传候选列表）
+     * @return 批量预检结果项列表
      */
-    UploadPreCheckVo preCheckUpload(FileUploadPreCheckDto dto, String userId);
+    List<BatchUploadPreCheckItemVo> preCheckUpload(List<FileUploadPreCheckDto> items, String userId);
 
     /**
      * 秒传：复用候选文件的物理数据创建新的文件节点。

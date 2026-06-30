@@ -2,6 +2,7 @@ package com.fleyx.jcloud.service;
 
 import com.fleyx.jcloud.model.dto.ChunkedUploadCompleteDto;
 import com.fleyx.jcloud.model.dto.ChunkedUploadInitDto;
+import com.fleyx.jcloud.model.vo.BatchChunkedUploadInitItemVo;
 import com.fleyx.jcloud.model.vo.ChunkedUploadChunkVo;
 import com.fleyx.jcloud.model.vo.ChunkedUploadInitVo;
 import com.fleyx.jcloud.model.vo.FileNodeVo;
@@ -15,13 +16,13 @@ import java.util.List;
 public interface ChunkedUploadService {
 
     /**
-     * 初始化分片上传任务。
+     * 批量初始化分片上传任务。
      *
      * @param userId 用户 ID
-     * @param dto    初始化参数
-     * @return 上传任务信息
+     * @param items  初始化参数列表
+     * @return 批量初始化结果项列表
      */
-    ChunkedUploadInitVo init(String userId, ChunkedUploadInitDto dto);
+    List<BatchChunkedUploadInitItemVo> init(String userId, List<ChunkedUploadInitDto> items);
 
     /**
      * 上传单个分片并校验分片 hash。

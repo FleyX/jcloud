@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fleyx.jcloud.common.constant.FileNodeConstants;
 import com.fleyx.jcloud.common.constant.StorageConstant;
+import com.fleyx.jcloud.common.enums.BatchUploadErrorCode;
 import com.fleyx.jcloud.common.enums.ConflictStrategy;
 import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.exception.BusinessException;
@@ -19,6 +20,7 @@ import com.fleyx.jcloud.model.dto.FileUploadPreCheckDto;
 import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.po.StorageSpace;
 import com.fleyx.jcloud.model.po.User;
+import com.fleyx.jcloud.model.vo.BatchUploadPreCheckItemVo;
 import com.fleyx.jcloud.model.vo.ConflictItemVo;
 import com.fleyx.jcloud.model.vo.FileNodeVo;
 import com.fleyx.jcloud.model.vo.UploadPreCheckVo;
@@ -29,6 +31,7 @@ import com.fleyx.jcloud.util.FileHashUtil;
 import com.fleyx.jcloud.util.FileLinkUtil;
 import com.fleyx.jcloud.util.FileNodeUtil;
 import com.fleyx.jcloud.util.FilePathUtil;
+import com.fleyx.jcloud.util.BatchUploadHelper;
 import com.fleyx.jcloud.util.FileConflictResolver;
 import com.fleyx.jcloud.util.UploadConflictResolver;
 import com.fleyx.jcloud.util.UserReadOnlyChecker;
@@ -43,6 +46,7 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -141,15 +145,56 @@ public class FileServiceImpl implements FileService {
     }
 
     @Override
-    public UploadPreCheckVo preCheckUpload(FileUploadPreCheckDto dto, String userId) {
+    public List<BatchUploadPreCheckItemVo> preCheckUpload(List<FileUploadPreCheckDto> items, String userId) {
         userReadOnlyChecker.checkWriteAllowed(userId);
         RLock lock = userReadWriteLock.writeLock(userId);
         lock.lock();
         try {
-            return doPreCheckUpload(dto, userId);
+            return doBatchPreCheckUpload(items, userId);
         } finally {
             lock.unlock();
         }
+    }
+
+    private List<BatchUploadPreCheckItemVo> doBatchPreCheckUpload(List<FileUploadPreCheckDto> items, String userId) {
+        BatchUploadHelper.validateBatchItems(items, 150, "预检");
+        checkBatchQuota(items, userId);
+
+        List<BatchUploadPreCheckItemVo> results = new ArrayList<>(items.size());
+        Set<String> clientFileIds = new HashSet<>();
+        Set<String> processedPaths = new HashSet<>();
+
+        for (FileUploadPreCheckDto item : items) {
+            String clientFileId = item.getClientFileId();
+            BatchUploadPreCheckItemVo result = new BatchUploadPreCheckItemVo();
+            result.setClientFileId(clientFileId);
+
+            BatchUploadErrorCode clientIdError = BatchUploadHelper.validateClientFileId(clientFileId, clientFileIds);
+            if (clientIdError != null) {
+                BatchUploadHelper.fillError(result, clientIdError);
+                results.add(result);
+                continue;
+            }
+
+            try {
+                String pathKey = BatchUploadHelper.buildPathKey(item.getParentId(), item.getRelativePath(), item.getFileName());
+                if (!processedPaths.add(pathKey)) {
+                    BatchUploadHelper.fillError(result, BatchUploadErrorCode.DUPLICATE_FILE_IN_BATCH);
+                    results.add(result);
+                    continue;
+                }
+
+                UploadPreCheckVo data = doPreCheckUpload(item, userId);
+                result.setStatus("success");
+                result.setData(data);
+            } catch (BusinessException e) {
+                BatchUploadHelper.fillError(result, mapErrorCode(e), e.getMessage());
+            } catch (Exception e) {
+                BatchUploadHelper.fillError(result, BatchUploadErrorCode.SYSTEM_ERROR, e.getMessage());
+            }
+            results.add(result);
+        }
+        return results;
     }
 
     protected UploadPreCheckVo doPreCheckUpload(FileUploadPreCheckDto dto, String userId) {
@@ -543,6 +588,36 @@ public class FileServiceImpl implements FileService {
             throw new BusinessException(ResultCode.NOT_FOUND, "存储空间不存在");
         }
         return space;
+    }
+
+    private void checkBatchQuota(List<FileUploadPreCheckDto> items, String userId) {
+        long totalSize = items.stream()
+                .mapToLong(dto -> dto.getSize() == null ? 0L : dto.getSize())
+                .sum();
+        if (totalSize <= 0) {
+            return;
+        }
+        User user = requireUser(userId);
+        long usedSpace = user.getUsedSpace() == null ? 0L : user.getUsedSpace();
+        long quota = user.getQuota() == null ? 0L : user.getQuota();
+        if (quota > 0 && usedSpace + totalSize > quota) {
+            throw new BusinessException(ResultCode.BUSINESS_ERROR, "用户配额不足");
+        }
+    }
+
+    private BatchUploadErrorCode mapErrorCode(BusinessException e) {
+        String msg = e.getMessage();
+        if (msg == null) {
+            return BatchUploadErrorCode.BUSINESS_ERROR;
+        }
+        return switch (msg) {
+            case "文件名包含非法字符" -> BatchUploadErrorCode.INVALID_FILE_NAME;
+            case "目标父节点不是文件夹", "父目录不存在" -> BatchUploadErrorCode.PARENT_NOT_FOUND;
+            case "相对路径不能以根分隔符开头", "相对路径包含非法的 '..' 段", "文件夹层级超过最大限制" ->
+                    BatchUploadErrorCode.PATH_TRAVERSAL;
+            case "用户配额不足" -> BatchUploadErrorCode.INSUFFICIENT_SPACE;
+            default -> BatchUploadErrorCode.BUSINESS_ERROR;
+        };
     }
 
 }
