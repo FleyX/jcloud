@@ -243,7 +243,6 @@ async function submitEditUser() {
 }
 
 function openMigrationDialog(user: UserVo) {
-  if (user.isAdmin) return
   migrationUser.value = user as UserVo & { storageSpaceId?: string }
   migrationDialogOpen.value = true
 }
@@ -530,7 +529,6 @@ onMounted(() => {
                     编辑
                   </button>
                   <button
-                    v-if="!user.isAdmin"
                     class="flex items-center gap-1 rounded-lg bg-primary-50 px-2.5 py-1.5 text-xs font-medium text-primary-600 transition-colors hover:bg-primary-100"
                     @click="openMigrationDialog(user)"
                   >
