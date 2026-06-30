@@ -104,6 +104,45 @@ export interface SystemInitStatusVo {
 }
 
 /**
+ * 用户存储空间同步任务视图
+ */
+export interface UserSyncTaskVo {
+  id: string
+  userId: string
+  type: 'manual' | 'scheduled'
+  status: 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'PARTIAL'
+  startTime?: string
+  endTime?: string
+  totalCount?: number
+  successCount?: number
+  failCount?: number
+  errorMsg?: string
+  createTime?: string
+  updateTime?: string
+}
+
+/**
+ * 用户存储空间同步配置视图
+ */
+export interface UserSyncConfigVo {
+  userId: string
+  cronExpr: string
+  enabled: number
+  nextSyncTime?: string
+  createTime?: string
+  updateTime?: string
+}
+
+/**
+ * 用户存储空间同步配置更新 DTO
+ */
+export interface UserSyncConfigUpdateDto {
+  userId: string
+  cronExpr: string
+  enabled: number
+}
+
+/**
  * 系统初始化单空间项
  */
 export interface InitSpaceItem {

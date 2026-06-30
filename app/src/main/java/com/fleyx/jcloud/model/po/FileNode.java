@@ -66,4 +66,9 @@ public class FileNode extends BaseEntity {
      * 状态：1 启用，0 禁用。
      */
     private Integer status;
+
+    /**
+     * 最后修改时间（毫秒时间戳），用于同步 diff 判断。
+     */
+    private Long lastModified;
 }
