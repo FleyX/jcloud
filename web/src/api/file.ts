@@ -66,10 +66,7 @@ export async function tryInstantUpload(
     body.relativePath = relativePath
   }
 
-  const result = await post<FileNodeVo | null>('/files/instant', body)
-
-  useNotificationStore().success('秒传成功')
-  return result
+  return await post<FileNodeVo | null>('/files/instant', body)
 }
 
 export function downloadFile(id: string): void {

@@ -72,41 +72,24 @@ export function useBatchUpload() {
     if (strategyByClientId === null) return
 
     const uploadContexts = fileContexts.filter((ctx) => strategyByClientId.get(ctx.clientFileId) !== 'skip')
+    const skippedCount = fileContexts.length - uploadContexts.length
 
-    await handleInstantUploads(uploadContexts, parentId, strategyByClientId)
-
-    const chunkedContexts = uploadContexts.filter((ctx) => !ctx.preCheckResult.candidates.length)
-    if (chunkedContexts.length === 0) {
-      onComplete?.()
-      return
-    }
-
-    const initItems = await initChunkedUpload({
-      items: chunkedContexts.map((ctx) => ({
-        clientFileId: ctx.clientFileId,
-        fileName: ctx.item.file.name,
-        size: ctx.item.file.size,
-        parentId,
-        relativePath: ctx.item.relativePath,
-      })),
-    })
-
-    const initResultByClientId = new Map<string, BatchChunkedUploadInitItem>()
-    for (const item of initItems) {
-      initResultByClientId.set(item.clientFileId, item)
-    }
-
-    await Promise.all(
-      chunkedContexts.map(async (ctx) => {
-        const initResult = initResultByClientId.get(ctx.clientFileId)
-        if (!initResult || initResult.status === 'error' || !initResult.data) {
-          notificationStore.error(initResult?.errorMessage || '初始化分片上传失败')
-          transferStore.failTask(ctx.clientFileId)
-          return
-        }
-        await startChunkedUpload(ctx, initResult.data, parentId, strategyByClientId, onComplete)
-      }),
+    const { successCount: instantSuccessCount, remainingContexts } = await handleInstantUploads(
+      uploadContexts,
+      parentId,
+      strategyByClientId,
     )
+
+    const chunkedSuccessCount = await runChunkedUploads(remainingContexts, parentId, strategyByClientId)
+    const totalSuccessCount = instantSuccessCount + chunkedSuccessCount
+
+    if (totalSuccessCount > 0) {
+      const message = skippedCount > 0
+        ? `上传完成，成功 ${totalSuccessCount} 个文件，跳过 ${skippedCount} 个`
+        : `上传完成，成功 ${totalSuccessCount} 个文件`
+      notificationStore.success(message)
+    }
+    onComplete?.()
   }
 
   async function buildFileContexts(
@@ -207,11 +190,18 @@ export function useBatchUpload() {
     uploadContexts: BatchFileContext[],
     parentId: string,
     strategyByClientId: Map<string, ConflictStrategy>,
-  ): Promise<void> {
+  ): Promise<{ successCount: number; remainingContexts: BatchFileContext[] }> {
+    let successCount = 0
+    const remainingContexts: BatchFileContext[] = []
+
     await Promise.all(
-      uploadContexts
-        .filter((ctx) => ctx.preCheckResult.candidates.length > 0)
-        .map(async (ctx) => {
+      uploadContexts.map(async (ctx) => {
+        if (ctx.preCheckResult.candidates.length === 0) {
+          remainingContexts.push(ctx)
+          return
+        }
+
+        try {
           const candidate = ctx.preCheckResult.candidates[0]
           const strategy = strategyByClientId.get(ctx.clientFileId)
           const instantNode = await tryInstantUpload(
@@ -223,9 +213,19 @@ export function useBatchUpload() {
           )
           if (instantNode) {
             transferStore.completeTask(ctx.clientFileId)
+            successCount++
+          } else {
+            remainingContexts.push(ctx)
           }
-        }),
+        } catch (err) {
+          const message = err instanceof Error ? err.message : '秒传失败'
+          transferStore.failTask(ctx.clientFileId)
+          notificationStore.error(message)
+        }
+      }),
     )
+
+    return { successCount, remainingContexts }
   }
 
   async function startChunkedUpload(
@@ -233,7 +233,6 @@ export function useBatchUpload() {
     initData: ChunkedUploadInitResponse,
     parentId: string,
     strategyByClientId: Map<string, ConflictStrategy>,
-    onComplete?: () => void,
   ): Promise<FileNodeVo | undefined> {
     transferStore.addUploadTask({
       fileId: ctx.clientFileId,
@@ -263,8 +262,6 @@ export function useBatchUpload() {
       const node = await runUpload(ctx.clientFileId, strategy)
       if (node) {
         transferStore.completeTask(ctx.clientFileId)
-        notificationStore.success('上传成功')
-        onComplete?.()
       }
       return node ?? undefined
     } catch (err) {
@@ -274,8 +271,47 @@ export function useBatchUpload() {
       const message = err instanceof Error ? err.message : '上传失败'
       transferStore.failTask(ctx.clientFileId)
       notificationStore.error(message)
-      throw err
+      return undefined
     }
+  }
+
+  async function runChunkedUploads(
+    chunkedContexts: BatchFileContext[],
+    parentId: string,
+    strategyByClientId: Map<string, ConflictStrategy>,
+  ): Promise<number> {
+    if (chunkedContexts.length === 0) {
+      return 0
+    }
+
+    const initItems = await initChunkedUpload({
+      items: chunkedContexts.map((ctx) => ({
+        clientFileId: ctx.clientFileId,
+        fileName: ctx.item.file.name,
+        size: ctx.item.file.size,
+        parentId,
+        relativePath: ctx.item.relativePath,
+      })),
+    })
+
+    const initResultByClientId = new Map<string, BatchChunkedUploadInitItem>()
+    for (const item of initItems) {
+      initResultByClientId.set(item.clientFileId, item)
+    }
+
+    const nodes = await Promise.all(
+      chunkedContexts.map(async (ctx) => {
+        const initResult = initResultByClientId.get(ctx.clientFileId)
+        if (!initResult || initResult.status === 'error' || !initResult.data) {
+          notificationStore.error(initResult?.errorMessage || '初始化分片上传失败')
+          transferStore.failTask(ctx.clientFileId)
+          return undefined
+        }
+        return startChunkedUpload(ctx, initResult.data, parentId, strategyByClientId)
+      }),
+    )
+
+    return nodes.filter((node) => node !== undefined && node !== null).length
   }
 
   return {
