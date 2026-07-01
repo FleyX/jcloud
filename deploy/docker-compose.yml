@@ -13,8 +13,9 @@ services:
       - REDIS_PORT=${REDIS_PORT:-6379}
       - REDIS_DB=${REDIS_DB:-0}
       - JCLOUD_JWT_SECRET=${JCLOUD_JWT_SECRET:-change-me-in-production-jcloud-secret-key-2026}
+      - spring.profiles.active=prod
     volumes:
-      - ${JCLOUD_DATA_PATH:-./data}/jcloud/files:/data/jcloud/files
+      - ${JCLOUD_DATA_PATH:-./data}/jcloud:/data/jcloud
     depends_on:
       postgres:
         condition: service_healthy
