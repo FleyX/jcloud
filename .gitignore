@@ -42,3 +42,4 @@ dist
 
 *.log
 *.pid
+.env

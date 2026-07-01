@@ -1,0 +1,57 @@
+services:
+  jcloud:
+    image: ${JCLOUD_IMAGE:-fleyx/jcloud:latest}
+    container_name: jcloud
+    ports:
+      - "${JCLOUD_PORT:-80}:${JCLOUD_PORT:-80}"
+    environment:
+      - JCLOUD_PORT=${JCLOUD_PORT:-80}
+      - SPRING_DATASOURCE_URL=${SPRING_DATASOURCE_URL:-jdbc:postgresql://postgres:5432/jcloud}
+      - SPRING_DATASOURCE_USERNAME=${SPRING_DATASOURCE_USERNAME:-postgres}
+      - SPRING_DATASOURCE_PASSWORD=${SPRING_DATASOURCE_PASSWORD:-postgres}
+      - REDIS_HOST=${REDIS_HOST:-redis}
+      - REDIS_PORT=${REDIS_PORT:-6379}
+      - REDIS_DB=${REDIS_DB:-0}
+      - JCLOUD_JWT_SECRET=${JCLOUD_JWT_SECRET:-change-me-in-production-jcloud-secret-key-2026}
+    volumes:
+      - ${JCLOUD_DATA_PATH:-./data}/jcloud/files:/data/jcloud/files
+    depends_on:
+      postgres:
+        condition: service_healthy
+        required: false
+      redis:
+        condition: service_healthy
+        required: false
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:17-alpine
+    container_name: jcloud-postgres
+    environment:
+      POSTGRES_USER: ${SPRING_DATASOURCE_USERNAME:-postgres}
+      POSTGRES_PASSWORD: ${SPRING_DATASOURCE_PASSWORD:-postgres}
+      POSTGRES_DB: jcloud
+    volumes:
+      - ${JCLOUD_DATA_PATH:-./data}/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    profiles:
+      - db
+
+  redis:
+    image: redis:7-alpine
+    container_name: jcloud-redis
+    volumes:
+      - ${JCLOUD_DATA_PATH:-./data}/redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    profiles:
+      - cache
