@@ -12,13 +12,6 @@ jcloud:
     secret: ${JCLOUD_JWT_SECRET:change-me-in-production-jcloud-secret-key-2026}
     expire-hours: 24
     issuer: jcloud
-  cors:
-    allowed-origins:
-      - http://localhost:5173
-  # 系统数据目录已改为由管理员在存储空间管理中指定某个用户存储空间，系统数据存放于 <selected-space>/system。
-  # 该配置仅作为历史回退保留，新的 zip 临时目录等系统路径均从配置的系统数据目录派生。
-  storage:
-    system-path: /data/jcloud/system
   download:
     zip-stream-threshold-size: 104857600
     zip-stream-threshold-count: 100
