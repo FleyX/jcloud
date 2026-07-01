@@ -2,6 +2,8 @@
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](LICENSE)
 
+**[部署文档](./deploy.md)**
+
 ## 简介
 
 jcloud 是一个面向个人的高性能网盘系统，支持文件上传、下载、浏览、组织、分享等核心能力。项目采用前后端分离设计，后端基于 Spring Boot 虚拟线程支撑高并发 I/O，前端基于 Vite + Vue 3 构建，同时适配 PC 与移动端访问。
