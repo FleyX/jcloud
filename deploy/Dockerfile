@@ -11,9 +11,10 @@ RUN mvn clean package -DskipTests
 # 阶段 2：构建前端
 # 产物为静态文件，同样可在任意平台运行
 FROM --platform=$BUILDPLATFORM node:22-alpine AS frontend-builder
+ENV CI=true
 RUN npm install -g pnpm
 WORKDIR /build
-COPY web/package.json web/pnpm-lock.yaml ./
+COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 COPY web/ ./
 RUN pnpm build
