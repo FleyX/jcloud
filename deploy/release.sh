@@ -1,18 +1,40 @@
 #!/usr/bin/env bash
 #
-# 发布 jcloud 镜像到 DockerHub。
-# 自动从 GitHub 获取最新 tag 作为镜像版本标签，并同时推送 latest。
+# 构建 jcloud 镜像。
+# 自动从 GitHub 获取最新 tag 作为镜像版本标签，并同时打 latest 标签。
 #
 # 用法：
-#   ./deploy/release.sh
+#   ./deploy/release.sh        # 构建当前平台镜像到本地，不推送
+#   ./deploy/release.sh --push # 构建多架构镜像并推送到 DockerHub
 #
 # 环境变量：
 #   DOCKERHUB_REPO    DockerHub 仓库名，默认 fleyx/jcloud
 #   GITHUB_REPO       GitHub 仓库名（owner/repo），默认从 git remote 推断
-#   DOCKERHUB_USER    DockerHub 用户名（可选，用于 docker login 提示）
 #
 
 set -euo pipefail
+
+# 解析参数
+PUSH=false
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --push)
+            PUSH=true
+            shift
+            ;;
+        -h|--help)
+            echo "用法："
+            echo "  ./deploy/release.sh        # 构建当前平台镜像到本地，不推送"
+            echo "  ./deploy/release.sh --push # 构建多架构镜像并推送到 DockerHub"
+            exit 0
+            ;;
+        *)
+            echo "错误：未知参数 $1"
+            echo "使用 -h 或 --help 查看帮助"
+            exit 1
+            ;;
+    esac
+done
 
 # 默认配置
 DOCKERHUB_REPO="${DOCKERHUB_REPO:-fleyx/jcloud}"
@@ -80,14 +102,29 @@ else
     docker buildx use jcloud-builder
 fi
 
-echo "开始构建并推送多架构镜像..."
-docker buildx build \
-    --platform linux/amd64,linux/arm64 \
-    -f deploy/Dockerfile \
-    -t "${DOCKERHUB_REPO}:${VERSION_TAG}" \
-    -t "${DOCKERHUB_REPO}:latest" \
-    --push .
+if [ "${PUSH}" = true ]; then
+    echo "开始构建并推送多架构镜像..."
+    docker buildx build \
+        --platform linux/amd64,linux/arm64 \
+        -f deploy/Dockerfile \
+        -t "${DOCKERHUB_REPO}:${VERSION_TAG}" \
+        -t "${DOCKERHUB_REPO}:latest" \
+        --push .
 
-echo "发布完成："
-echo "  ${DOCKERHUB_REPO}:${VERSION_TAG}"
-echo "  ${DOCKERHUB_REPO}:latest"
+    echo "发布完成："
+    echo "  ${DOCKERHUB_REPO}:${VERSION_TAG}"
+    echo "  ${DOCKERHUB_REPO}:latest"
+else
+    echo "开始构建当前平台镜像到本地（不推送）..."
+    docker buildx build \
+        -f deploy/Dockerfile \
+        -t "${DOCKERHUB_REPO}:${VERSION_TAG}" \
+        -t "${DOCKERHUB_REPO}:latest" \
+        --load .
+
+    echo "构建完成（未推送）："
+    echo "  ${DOCKERHUB_REPO}:${VERSION_TAG}"
+    echo "  ${DOCKERHUB_REPO}:latest"
+    echo ""
+    echo "如需推送到 DockerHub，请执行：./deploy/release.sh --push"
+fi
