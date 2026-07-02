@@ -48,9 +48,19 @@ public class FileNode extends BaseEntity {
     private String hash;
 
     /**
-     * 存储空间 ID。
+     * 存储空间 ID，source_type=local 时有效。
      */
     private String storageSpaceId;
+
+    /**
+     * 来源类型：local / remote。
+     */
+    private String sourceType;
+
+    /**
+     * 远程挂载 ID，source_type=remote 时有效。
+     */
+    private String remoteMountId;
 
     /**
      * 从虚拟根到父节点的 id 路径，使用 '.' 分割，不含自身 id。

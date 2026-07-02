@@ -18,6 +18,7 @@ import {
   ChevronRight,
   ArrowUp,
   ArrowDown,
+  Globe,
 } from '@lucide/vue'
 import { cn } from '@/utils/cn'
 import { deleteToTrash, downloadBatchFiles, downloadFile, fetchFilePage } from '@/api/file'
@@ -326,7 +327,25 @@ async function handleBatchDownload() {
 }
 
 function openShareModal() {
+  const targets = selectedFiles.value
+  if (targets.length === 0) return
+  if (hasMixedSource(targets)) {
+    notificationStore.error('分享不能同时包含本地与远程文件')
+    return
+  }
   shareOpen.value = true
+}
+
+function hasMixedSource(nodes: FileNodeVo[]): boolean {
+  if (nodes.length < 2) return false
+  const firstSource = nodes[0].sourceType || 'local'
+  const firstMountId = nodes[0].remoteMountId
+  return nodes.some((node) => {
+    const source = node.sourceType || 'local'
+    if (source !== firstSource) return true
+    if (source === 'remote' && node.remoteMountId !== firstMountId) return true
+    return false
+  })
 }
 
 async function handleCreateShare(payload: ShareCreateRequest) {
@@ -500,8 +519,15 @@ async function handleCreateShare(payload: ShareCreateRequest) {
           </div>
 
           <div class="min-w-0 flex-1">
-            <p class="truncate text-sm font-medium text-surface-900">
+            <p class="flex items-center gap-1 truncate text-sm font-medium text-surface-900">
               {{ file.name }}
+              <span
+                v-if="file.sourceType === 'remote'"
+                class="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-sky-50 px-1.5 py-0.5 text-[10px] font-medium text-sky-600"
+              >
+                <Globe class="h-3 w-3" />
+                远程
+              </span>
             </p>
             <p class="mt-0.5 text-xs text-surface-500">
               {{ file.displaySize }} · {{ file.displayDate }}

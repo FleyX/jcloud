@@ -170,6 +170,7 @@ public class FolderPathServiceImpl implements FolderPathService {
         folder.setType(TYPE_FOLDER);
         folder.setSize(0L);
         folder.setStorageSpaceId(storageSpaceId);
+        folder.setSourceType(FileNodeConstants.SOURCE_LOCAL);
         folder.setStatus(1);
         FileNode parent = FileNodeConstants.ROOT_ID.equals(parentId) ? null : fileMapper.selectById(parentId);
         setNodePath(folder, parent);

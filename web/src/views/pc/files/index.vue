@@ -322,8 +322,26 @@ async function handleBatchDownload() {
 }
 
 function openShareModal() {
+  const targets = selectedFiles.value
+  if (targets.length === 0) return
+  if (hasMixedSource(targets)) {
+    notificationStore.error('分享不能同时包含本地与远程文件')
+    return
+  }
   shareEditTarget.value = undefined
   shareOpen.value = true
+}
+
+function hasMixedSource(nodes: FileNodeVo[]): boolean {
+  if (nodes.length < 2) return false
+  const firstSource = nodes[0].sourceType || 'local'
+  const firstMountId = nodes[0].remoteMountId
+  return nodes.some((node) => {
+    const source = node.sourceType || 'local'
+    if (source !== firstSource) return true
+    if (source === 'remote' && node.remoteMountId !== firstMountId) return true
+    return false
+  })
 }
 
 async function handleCreateShare(payload: ShareCreateRequest) {

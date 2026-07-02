@@ -7,19 +7,23 @@ import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.FileMapper;
 import com.fleyx.jcloud.mapper.PreviewFileMapper;
 import com.fleyx.jcloud.mapper.StorageSpaceMapper;
+import com.fleyx.jcloud.model.bo.FileDownloadResult;
 import com.fleyx.jcloud.model.bo.PreviewResult;
 import com.fleyx.jcloud.model.po.FileNode;
+import com.fleyx.jcloud.common.constant.FileNodeConstants;
 import com.fleyx.jcloud.model.po.PreviewFile;
 import com.fleyx.jcloud.model.po.StorageSpace;
 import com.fleyx.jcloud.common.context.UserContext;
 import com.fleyx.jcloud.service.FilePreviewGenerator;
 import com.fleyx.jcloud.service.FilePreviewService;
+import com.fleyx.jcloud.service.RemoteFileService;
 import com.fleyx.jcloud.service.SystemStorageSpaceProvider;
 import com.fleyx.jcloud.util.FilePathUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -42,6 +46,7 @@ public class FilePreviewServiceImpl implements FilePreviewService {
     private final PreviewFileMapper previewFileMapper;
     private final StorageSpaceMapper storageSpaceMapper;
     private final SystemStorageSpaceProvider systemStorageSpaceProvider;
+    private final RemoteFileService remoteFileService;
     private final List<FilePreviewGenerator> generators;
 
     private volatile Map<PreviewType, FilePreviewGenerator> generatorMap;
@@ -81,11 +86,7 @@ public class FilePreviewServiceImpl implements FilePreviewService {
         }
 
         StorageSpace space = systemStorageSpaceProvider.getSystemSpace();
-        StorageSpace userSpace = getUserSpace(node);
-        Path sourcePath = FilePathUtil.resolvePhysicalPath(node, buildResolveContext(node, ownerUserCode, userSpace));
-        if (!Files.exists(sourcePath)) {
-            throw new BusinessException(ResultCode.NOT_FOUND, "文件已丢失");
-        }
+        Path sourcePath = resolvePreviewSourcePath(node, ownerUserId, ownerUserCode);
 
         String relativePath = buildRelativePath(node, type);
         Path targetPath = buildAbsolutePath(space, relativePath);
@@ -98,6 +99,31 @@ public class FilePreviewServiceImpl implements FilePreviewService {
 
         PreviewFile previewFile = savePreviewRecord(node, type, space, relativePath);
         return buildResult(previewFile, targetPath);
+    }
+
+    private Path resolvePreviewSourcePath(FileNode node, String ownerUserId, String ownerUserCode) {
+        if (FileNodeConstants.SOURCE_REMOTE.equals(node.getSourceType())) {
+            return downloadRemoteToTemp(node, ownerUserId);
+        }
+        StorageSpace userSpace = getUserSpace(node);
+        Path sourcePath = FilePathUtil.resolvePhysicalPath(node, buildResolveContext(node, ownerUserCode, userSpace));
+        if (!Files.exists(sourcePath)) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "文件已丢失");
+        }
+        return sourcePath;
+    }
+
+    private Path downloadRemoteToTemp(FileNode node, String ownerUserId) {
+        FileDownloadResult result = remoteFileService.download(node, ownerUserId);
+        try {
+            Path tempFile = Files.createTempFile("jcloud-remote-preview-", "-" + node.getName());
+            try (InputStream is = result.getInputStream()) {
+                Files.copy(is, tempFile, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            }
+            return tempFile;
+        } catch (IOException e) {
+            throw new BusinessException(ResultCode.BUSINESS_ERROR, "下载远程文件预览失败", e);
+        }
     }
 
     private Map<PreviewType, FilePreviewGenerator> getGeneratorMap() {

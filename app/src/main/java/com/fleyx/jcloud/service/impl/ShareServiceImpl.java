@@ -22,6 +22,7 @@ import com.fleyx.jcloud.model.po.ShareItem;
 import com.fleyx.jcloud.model.vo.FileNodeVo;
 import com.fleyx.jcloud.model.vo.ShareDetailVo;
 import com.fleyx.jcloud.model.vo.ShareVo;
+import com.fleyx.jcloud.service.RemoteFileOperationService;
 import com.fleyx.jcloud.service.ShareService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -47,6 +48,7 @@ public class ShareServiceImpl implements ShareService {
     private final FileMapper fileMapper;
     private final ShareConvert shareConvert;
     private final FileConvert fileConvert;
+    private final RemoteFileOperationService remoteFileOperationService;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -126,6 +128,7 @@ public class ShareServiceImpl implements ShareService {
                 throw new BusinessException(ResultCode.FORBIDDEN, "无权分享该文件或文件夹");
             }
         }
+        remoteFileOperationService.validateSameSource(nodes);
         return nodes;
     }
 

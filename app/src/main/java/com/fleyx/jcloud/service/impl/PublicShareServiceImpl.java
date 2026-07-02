@@ -21,6 +21,7 @@ import com.fleyx.jcloud.model.po.Share;
 import com.fleyx.jcloud.model.po.ShareItem;
 import com.fleyx.jcloud.model.po.User;
 import com.fleyx.jcloud.model.vo.FileNodeVo;
+import com.fleyx.jcloud.common.constant.FileNodeConstants;
 import com.fleyx.jcloud.model.vo.PublicShareVo;
 import com.fleyx.jcloud.service.FileDownloadService;
 import com.fleyx.jcloud.service.FilePreviewService;
@@ -129,8 +130,24 @@ public class PublicShareServiceImpl implements PublicShareService {
         if (CollectionUtils.isEmpty(dto.getIds()) || !allAccessible(dto.getIds(), items)) {
             throw new BusinessException(ResultCode.FORBIDDEN, "包含无权下载的文件");
         }
+        if (containsRemoteFile(dto.getIds())) {
+            throw new BusinessException(ResultCode.BUSINESS_ERROR, "远程分享不支持打包下载");
+        }
         User owner = requireUser(share.getUserId());
         return fileDownloadService.downloadBatchByOwner(dto, share.getUserId(), owner.getUsername());
+    }
+
+    private boolean containsRemoteFile(List<String> fileNodeIds) {
+        if (CollectionUtils.isEmpty(fileNodeIds)) {
+            return false;
+        }
+        List<FileNode> nodes = fileMapper.selectBatchIds(fileNodeIds);
+        for (FileNode node : nodes) {
+            if (FileNodeConstants.SOURCE_REMOTE.equals(node.getSourceType())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.fleyx.jcloud.mapper.RemoteMountMapper">
+
+    <!-- 查询已到期的启用定时同步挂载点 -->
+    <select id="selectEnabledDue" resultType="com.fleyx.jcloud.model.po.RemoteMount">
+        SELECT *
+        FROM t_remote_mount
+        WHERE enabled = 1
+          AND delete_at = 0
+          AND (
+            next_sync_time IS NULL
+            OR next_sync_time &lt;= #{now}
+          )
+        ORDER BY next_sync_time
+    </select>
+
+</mapper>

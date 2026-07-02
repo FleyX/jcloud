@@ -7,6 +7,7 @@ import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.FileChunkMapper;
 import com.fleyx.jcloud.mapper.FileMapper;
+import com.fleyx.jcloud.mapper.RemoteMountMapper;
 import com.fleyx.jcloud.mapper.StorageSpaceMapper;
 import com.fleyx.jcloud.mapper.UserMapper;
 import com.fleyx.jcloud.model.convert.FileConvert;
@@ -14,14 +15,18 @@ import com.fleyx.jcloud.model.dto.ChunkedUploadCompleteDto;
 import com.fleyx.jcloud.model.dto.ChunkedUploadInitDto;
 import com.fleyx.jcloud.model.po.FileChunk;
 import com.fleyx.jcloud.model.po.FileNode;
+import com.fleyx.jcloud.model.po.RemoteMount;
 import com.fleyx.jcloud.model.po.StorageSpace;
 import com.fleyx.jcloud.model.po.User;
+import com.fleyx.jcloud.service.RemoteProtocolAdapter;
 import com.fleyx.jcloud.model.vo.BatchChunkedUploadInitItemVo;
 import com.fleyx.jcloud.model.vo.ChunkedUploadChunkVo;
 import com.fleyx.jcloud.model.vo.ChunkedUploadInitVo;
 import com.fleyx.jcloud.model.vo.FileNodeVo;
 import com.fleyx.jcloud.service.ChunkedUploadService;
 import com.fleyx.jcloud.service.FolderPathService;
+import com.fleyx.jcloud.service.RemoteFileOperationService;
+import com.fleyx.jcloud.service.impl.RemoteProtocolAdapterFactory;
 import com.fleyx.jcloud.common.constant.FileNodeConstants;
 import com.fleyx.jcloud.common.constant.StorageConstant;
 import com.fleyx.jcloud.util.BatchUploadHelper;
@@ -29,6 +34,7 @@ import com.fleyx.jcloud.util.FileHashUtil;
 import com.fleyx.jcloud.util.FileConflictResolver;
 import com.fleyx.jcloud.util.FileNodeUtil;
 import com.fleyx.jcloud.util.FilePathUtil;
+import com.fleyx.jcloud.util.RemoteMountLock;
 import com.fleyx.jcloud.util.UploadConflictResolver;
 import com.fleyx.jcloud.util.UserReadOnlyChecker;
 import com.fleyx.jcloud.util.UserReadWriteLock;
@@ -81,6 +87,10 @@ public class ChunkedUploadServiceImpl implements ChunkedUploadService {
     private final UserReadWriteLock userReadWriteLock;
     private final UploadConflictResolver conflictResolver;
     private final FolderPathService folderPathService;
+    private final RemoteMountMapper remoteMountMapper;
+    private final RemoteProtocolAdapterFactory adapterFactory;
+    private final RemoteMountLock remoteMountLock;
+    private final RemoteFileOperationService remoteFileOperationService;
 
     @Override
     public List<BatchChunkedUploadInitItemVo> init(String userId, List<ChunkedUploadInitDto> items) {
@@ -142,7 +152,13 @@ public class ChunkedUploadServiceImpl implements ChunkedUploadService {
     private ChunkedUploadInitVo doInit(ChunkedUploadInitDto dto, String userId, User user, StorageSpace space) {
         String finalParentId = FileNodeUtil.normalizeParentId(dto.getParentId());
         String finalFileName = dto.getFileName();
-        if (StringUtils.hasText(dto.getRelativePath())) {
+        FileNode parentNode = fileMapper.selectById(finalParentId);
+        boolean remoteParent = parentNode != null && FileNodeConstants.SOURCE_REMOTE.equals(parentNode.getSourceType());
+        if (remoteParent) {
+            if (StringUtils.hasText(dto.getRelativePath())) {
+                throw new BusinessException(ResultCode.BUSINESS_ERROR, "远程目录暂不支持文件夹上传");
+            }
+        } else if (StringUtils.hasText(dto.getRelativePath())) {
             finalParentId = folderPathService.resolveOrCreateFolderPath(userId, dto.getParentId(), dto.getRelativePath());
             finalFileName = extractFileNameFromRelativePath(dto.getRelativePath());
         }
@@ -237,6 +253,11 @@ public class ChunkedUploadServiceImpl implements ChunkedUploadService {
 
         validateChunksComplete(chunks, context);
 
+        FileNode parentNode = fileMapper.selectById(context.parentId());
+        if (parentNode != null && FileNodeConstants.SOURCE_REMOTE.equals(parentNode.getSourceType())) {
+            return doRemoteComplete(context, uploadId, chunks, parentNode, userId, strategy);
+        }
+
         String parentPathName = resolveParentPathName(context.parentId(), userId);
         FileConflictResolver.ConflictResolution resolution =
                 conflictResolver.resolve(userId, context.parentId(), context.fileName(), strategy);
@@ -276,6 +297,7 @@ public class ChunkedUploadServiceImpl implements ChunkedUploadService {
         node.setSize(context.size());
         node.setHash(hash);
         node.setStorageSpaceId(context.space().getId());
+        node.setSourceType(FileNodeConstants.SOURCE_LOCAL);
         setNodePath(node, context.parentId());
         node.setMimeType(mimeType);
         node.setStatus(1);
@@ -289,6 +311,62 @@ public class ChunkedUploadServiceImpl implements ChunkedUploadService {
         FileNodeVo vo = fileConvert.poToVo(node);
         vo.setPhysicalPath(buildPhysicalPath(context.space(), username, filePathName));
         return vo;
+    }
+
+    private FileNodeVo doRemoteComplete(UploadContext context, String uploadId, List<FileChunk> chunks,
+                                        FileNode parentNode, String userId, String strategy) {
+        RemoteMount mount = remoteMountMapper.selectById(parentNode.getRemoteMountId());
+        if (mount == null || !userId.equals(mount.getUserId()) || mount.getDeleteAt() != 0L) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "远程挂载不存在");
+        }
+
+        FileConflictResolver.ConflictResolution resolution =
+                conflictResolver.resolve(userId, context.parentId(), context.fileName(), strategy);
+        if (resolution.skipped()) {
+            cleanupUpload(context.tempDir(), uploadId, userId);
+            return null;
+        }
+
+        Path tempFile = context.tempDir().resolve(context.fileName());
+        mergeChunks(context, chunks, tempFile);
+
+        RLock lock = remoteMountLock.getLock(mount.getId());
+        lock.lock();
+        try {
+            if (resolution.existingToReplace() != null) {
+                fileMapper.deleteById(resolution.existingToReplace().getId());
+            }
+
+            String parentRemotePath = remoteFileOperationService.deriveRemotePath(parentNode, mount);
+            String newRemotePath = FilePathUtil.buildPathName(parentRemotePath, resolution.finalName());
+            String mimeType = probeContentType(tempFile);
+
+            RemoteProtocolAdapter adapter = adapterFactory.create(mount);
+            try (InputStream is = Files.newInputStream(tempFile)) {
+                adapter.upload(newRemotePath, is, context.size(), mimeType);
+            }
+
+            FileNode node = new FileNode();
+            node.setUserId(userId);
+            node.setParentId(context.parentId());
+            node.setName(resolution.finalName());
+            node.setType("file");
+            node.setSize(context.size());
+            node.setHash(null);
+            node.setSourceType(FileNodeConstants.SOURCE_REMOTE);
+            node.setRemoteMountId(mount.getId());
+            setNodePath(node, context.parentId());
+            node.setMimeType(mimeType);
+            node.setStatus(1);
+            fileMapper.insert(node);
+
+            cleanupUpload(context.tempDir(), uploadId, userId);
+            return fileConvert.poToVo(node);
+        } catch (IOException e) {
+            throw new BusinessException(ResultCode.BUSINESS_ERROR, "读取合并文件失败", e);
+        } finally {
+            lock.unlock();
+        }
     }
 
     private void validateChunksComplete(List<FileChunk> chunks, UploadContext context) {

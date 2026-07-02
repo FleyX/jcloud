@@ -26,6 +26,7 @@ import com.fleyx.jcloud.model.vo.FileNodeVo;
 import com.fleyx.jcloud.model.vo.UploadPreCheckVo;
 import com.fleyx.jcloud.service.FileService;
 import com.fleyx.jcloud.service.FolderPathService;
+import com.fleyx.jcloud.service.RemoteFileService;
 import com.fleyx.jcloud.util.FileConflictHelper;
 import com.fleyx.jcloud.util.FileHashUtil;
 import com.fleyx.jcloud.util.FileLinkUtil;
@@ -72,6 +73,7 @@ public class FileServiceImpl implements FileService {
     private final UserReadOnlyChecker userReadOnlyChecker;
     private final UploadConflictResolver conflictResolver;
     private final FolderPathService folderPathService;
+    private final RemoteFileService remoteFileService;
 
     @Override
     public FileNodeVo upload(MultipartFile file, String userId, String parentId, String strategy) {
@@ -92,7 +94,6 @@ public class FileServiceImpl implements FileService {
         String fileName = normalizeFileName(file.getOriginalFilename());
         String resolvedParentId = FileNodeUtil.normalizeParentId(parentId);
         FileNode parentNode = resolveParentNode(resolvedParentId, userId);
-        String parentPathName = resolveNamePath(parentNode, userId);
 
         FileConflictResolver.ConflictResolution resolution =
                 conflictResolver.resolve(userId, resolvedParentId, fileName, strategy);
@@ -100,6 +101,11 @@ public class FileServiceImpl implements FileService {
             return null;
         }
 
+        if (parentNode != null && FileNodeConstants.SOURCE_REMOTE.equals(parentNode.getSourceType())) {
+            return remoteFileService.upload(file, parentNode, userId, resolution.finalName());
+        }
+
+        String parentPathName = resolveNamePath(parentNode, userId);
         User user = requireUser(userId);
         StorageSpace space = requireSpace(user.getStorageSpaceId());
         long fileSize = file.getSize();
@@ -199,6 +205,15 @@ public class FileServiceImpl implements FileService {
 
     protected UploadPreCheckVo doPreCheckUpload(FileUploadPreCheckDto dto, String userId) {
         String parentId = FileNodeUtil.normalizeParentId(dto.getParentId());
+        FileNode parentNode = resolveParentNode(parentId, userId);
+
+        if (parentNode != null && FileNodeConstants.SOURCE_REMOTE.equals(parentNode.getSourceType())) {
+            if (StringUtils.hasText(dto.getRelativePath())) {
+                throw new BusinessException(ResultCode.BUSINESS_ERROR, "远程目录暂不支持文件夹上传");
+            }
+            return remoteFileService.preCheckUpload(dto, parentNode, userId);
+        }
+
         validateTargetParent(parentId, userId);
 
         String finalParentId = parentId;
@@ -238,6 +253,9 @@ public class FileServiceImpl implements FileService {
         wrapper.eq(FileNode::getUserId, userId);
         wrapper.eq(FileNode::getHash, partialHash);
         wrapper.eq(FileNode::getType, TYPE_FILE);
+        wrapper.and(w -> w.eq(FileNode::getSourceType, FileNodeConstants.SOURCE_LOCAL)
+                .or()
+                .isNull(FileNode::getSourceType));
         wrapper.orderByDesc(FileNode::getCreateTime);
         return fileMapper.selectList(wrapper).stream()
                 .map(fileConvert::poToVo)
@@ -345,6 +363,10 @@ public class FileServiceImpl implements FileService {
             throw new BusinessException(ResultCode.FORBIDDEN, "无权访问该文件");
         }
 
+        if (FileNodeConstants.SOURCE_REMOTE.equals(node.getSourceType())) {
+            return remoteFileService.download(node, userId);
+        }
+
         StorageSpace space = storageSpaceMapper.selectById(node.getStorageSpaceId());
         if (space == null) {
             throw new BusinessException(ResultCode.NOT_FOUND, "存储空间不存在");
@@ -405,6 +427,10 @@ public class FileServiceImpl implements FileService {
         StorageSpace space = requireSpace(candidate.getStorageSpaceId());
 
         String parentId = FileNodeUtil.normalizeParentId(dto.getParentId());
+        FileNode parentNode = resolveParentNode(parentId, userId);
+        if (parentNode != null && FileNodeConstants.SOURCE_REMOTE.equals(parentNode.getSourceType())) {
+            throw new BusinessException(ResultCode.BUSINESS_ERROR, "远程目录不支持秒传");
+        }
         validateTargetParent(parentId, userId);
         String finalParentId = parentId;
         String finalFileName = dto.getFileName();
@@ -413,7 +439,7 @@ public class FileServiceImpl implements FileService {
             finalFileName = extractFileNameFromRelativePath(dto.getRelativePath());
         }
 
-        FileNode parentNode = resolveParentNode(finalParentId, userId);
+        parentNode = resolveParentNode(finalParentId, userId);
         String parentPathName = resolveNamePath(parentNode, userId);
         String fileName = normalizeFileName(finalFileName);
 
@@ -558,6 +584,7 @@ public class FileServiceImpl implements FileService {
         node.setSize(size);
         node.setHash(hash);
         node.setStorageSpaceId(storageSpaceId);
+        node.setSourceType(FileNodeConstants.SOURCE_LOCAL);
         node.setMimeType(mimeType);
         node.setStatus(1);
         return node;
@@ -592,6 +619,7 @@ public class FileServiceImpl implements FileService {
 
     private void checkBatchQuota(List<FileUploadPreCheckDto> items, String userId) {
         long totalSize = items.stream()
+                .filter(dto -> !isRemoteParent(FileNodeUtil.normalizeParentId(dto.getParentId()), userId))
                 .mapToLong(dto -> dto.getSize() == null ? 0L : dto.getSize())
                 .sum();
         if (totalSize <= 0) {
@@ -603,6 +631,15 @@ public class FileServiceImpl implements FileService {
         if (quota > 0 && usedSpace + totalSize > quota) {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "用户配额不足");
         }
+    }
+
+    private boolean isRemoteParent(String parentId, String userId) {
+        if (FileNodeConstants.ROOT_ID.equals(parentId)) {
+            return false;
+        }
+        FileNode parent = fileMapper.selectById(parentId);
+        return parent != null && userId.equals(parent.getUserId())
+                && FileNodeConstants.SOURCE_REMOTE.equals(parent.getSourceType());
     }
 
     private BatchUploadErrorCode mapErrorCode(BusinessException e) {

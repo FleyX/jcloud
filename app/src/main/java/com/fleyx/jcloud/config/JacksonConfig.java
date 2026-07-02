@@ -34,6 +34,15 @@ public class JacksonConfig {
     }
 
     /**
+     * 提供 FasterXML ObjectMapper 实例，供远程挂载配置等内部 JSON 序列化使用。
+     * Spring Boot 4 默认使用 Jackson 3（tools.jackson），两者隔离互不影响。
+     */
+    @Bean
+    public com.fasterxml.jackson.databind.ObjectMapper objectMapper() {
+        return new com.fasterxml.jackson.databind.ObjectMapper();
+    }
+
+    /**
      * 将 Long / long 类型序列化为字符串，避免前端 JavaScript 数字精度丢失。
      */
     @Bean

@@ -57,6 +57,7 @@ export const useMenuStore = defineStore('menu', () => {
           { key: 'all', label: '全部文件', route: '/files' },
           { key: 'share', label: '我的分享', route: '/files/share' },
           { key: 'trash', label: '回收站', route: '/files/trash' },
+          { key: 'remote-mounts', label: '远程挂载', route: '/files/remote-mounts' },
         ]
       case 'notes':
         return [

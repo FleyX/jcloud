@@ -1,6 +1,7 @@
 package com.fleyx.jcloud.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.fleyx.jcloud.common.constant.FileNodeConstants;
 import com.fleyx.jcloud.common.constant.StorageConstant;
 import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.event.UserMigrationSubmittedEvent;
@@ -143,6 +144,9 @@ public class UserMigrationTaskExecutor {
         LambdaQueryWrapper<FileNode> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(FileNode::getUserId, userId);
         wrapper.eq(FileNode::getType, "file");
+        wrapper.and(w -> w.eq(FileNode::getSourceType, FileNodeConstants.SOURCE_LOCAL)
+                .or()
+                .isNull(FileNode::getSourceType));
         List<FileNode> files = fileMapper.selectList(wrapper);
         return files.stream().mapToLong(f -> f.getSize() == null ? 0L : f.getSize()).sum();
     }
