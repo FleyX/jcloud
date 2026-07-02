@@ -4,18 +4,30 @@
 # 使用 BUILDPLATFORM 加速跨平台构建（产物为平台无关的字节码）
 FROM --platform=$BUILDPLATFORM maven:3.9-eclipse-temurin-25-alpine AS backend-builder
 WORKDIR /build
+
+# 先复制 pom.xml 并下载依赖，充分利用缓存层
 COPY app/pom.xml ./pom.xml
+RUN --mount=type=cache,target=/root/.m2 \
+    mvn dependency:go-offline -q
+
+# 再复制源码构建；依赖未变化时不会重新下载
 COPY app/src ./src
-RUN mvn clean package -DskipTests
+RUN --mount=type=cache,target=/root/.m2 \
+    mvn clean package -DskipTests
 
 # 阶段 2：构建前端
 # 产物为静态文件，同样可在任意平台运行
 FROM --platform=$BUILDPLATFORM node:22-alpine AS frontend-builder
 ENV CI=true
-RUN npm install -g pnpm
+RUN corepack enable && corepack prepare pnpm@latest --activate
 WORKDIR /build
+
+# 先复制依赖描述文件并安装，充分利用缓存层
 COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./
-RUN pnpm install --frozen-lockfile
+RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
+    pnpm install --frozen-lockfile
+
+# 再复制源码构建；依赖未变化时不会重新安装
 COPY web/ ./
 RUN pnpm build
 
