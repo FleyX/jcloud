@@ -8,6 +8,7 @@
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { useDeviceStore } from '@/store/device'
+import { useRemoteMountHealthCheck } from '@/composables/useRemoteMountHealthCheck'
 import PcAppShell from '@/components/pc/layout/PcAppShell.vue'
 import MobileAppShell from '@/components/mobile/layout/MobileAppShell.vue'
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
@@ -15,6 +16,8 @@ import Toast from '@/components/ui/Toast.vue'
 
 const route = useRoute()
 const deviceStore = useDeviceStore()
+
+useRemoteMountHealthCheck()
 
 const isPublicRoute = computed(() => !!route.meta.public)
 </script>

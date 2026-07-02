@@ -18,6 +18,7 @@ import {
   Shield,
   FileText,
   CheckSquare,
+  Globe,
 } from '@lucide/vue'
 import { cn } from '@/utils/cn'
 import type { Component } from 'vue'
@@ -31,6 +32,7 @@ const iconMap: Record<string, Component> = {
   all: FolderOpen,
   share: Share2,
   trash: Trash2,
+  'remote-mounts': Globe,
   recent: FileText,
   tags: FileText,
   today: CheckSquare,

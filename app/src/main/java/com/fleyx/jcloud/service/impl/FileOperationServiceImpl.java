@@ -22,7 +22,10 @@ import com.fleyx.jcloud.model.vo.FileNodeVo;
 import com.fleyx.jcloud.model.vo.OperationResultVo;
 import com.fleyx.jcloud.common.context.UserContext;
 import com.fleyx.jcloud.service.FileOperationService;
+import com.fleyx.jcloud.service.RemoteFileOperationService;
+import com.fleyx.jcloud.service.RemoteFileService;
 import com.fleyx.jcloud.util.FileConflictHelper;
+import com.fleyx.jcloud.util.FileConflictResolver;
 import com.fleyx.jcloud.util.FileNodeUtil;
 import com.fleyx.jcloud.util.FilePathUtil;
 import com.fleyx.jcloud.util.UserReadOnlyChecker;
@@ -40,6 +43,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -59,6 +63,9 @@ public class FileOperationServiceImpl implements FileOperationService {
     private final FileOperationExecutor executor;
     private final UserReadWriteLock userReadWriteLock;
     private final UserReadOnlyChecker userReadOnlyChecker;
+    private final RemoteFileOperationService remoteFileOperationService;
+    private final RemoteFileService remoteFileService;
+    private final FileConflictResolver conflictResolver;
 
     @Override
     public FileNodeVo rename(FileRenameDto dto, String userId) {
@@ -76,6 +83,11 @@ public class FileOperationServiceImpl implements FileOperationService {
     protected FileNodeVo doRename(FileRenameDto dto, String userId) {
         FileNode node = getOwnedNode(dto.getId(), userId);
         String newName = normalizeName(dto.getNewName());
+
+        if (FileNodeConstants.SOURCE_REMOTE.equals(node.getSourceType())) {
+            return remoteFileOperationService.rename(node, newName, userId);
+        }
+
         validateNameConflict(fileMapper, userId, node.getParentId(), newName, node.getId());
 
         StorageSpace space = storageSpaceMapper.selectById(node.getStorageSpaceId());
@@ -110,9 +122,14 @@ public class FileOperationServiceImpl implements FileOperationService {
     protected FileNodeVo doCreateFolder(FileCreateFolderDto dto, String userId) {
         String parentId = FileNodeUtil.normalizeParentId(dto.getParentId());
         String name = normalizeName(dto.getName());
-        validateNameConflict(fileMapper, userId, parentId, name, null);
 
         FileNode parentNode = resolveParentNode(parentId, userId);
+        if (parentNode != null && FileNodeConstants.SOURCE_REMOTE.equals(parentNode.getSourceType())) {
+            return remoteFileService.createFolder(parentNode, name, userId);
+        }
+
+        validateNameConflict(fileMapper, userId, parentId, name, null);
+
         FileNode folder = buildFolderNode(userId, parentId, name);
         setNodePath(folder, parentNode);
         fileMapper.insert(folder);
@@ -133,7 +150,12 @@ public class FileOperationServiceImpl implements FileOperationService {
 
     protected List<ConflictItemVo> doPreCheck(FilePreCheckOperationDto dto, String userId) {
         String targetParentId = FileNodeUtil.normalizeParentId(dto.getTargetParentId());
-        validateTargetParent(targetParentId, userId);
+        FileNode targetParent = resolveTargetParentNode(targetParentId, userId);
+        List<FileNode> sources = dto.getItems().stream()
+                .map(item -> getOwnedNode(item.getId(), userId))
+                .toList();
+        validateSourceConsistency(sources, targetParent);
+
         String targetParentPathName = resolveParentPathName(targetParentId, userId);
         List<ConflictItemVo> conflicts = new ArrayList<>();
         for (OperationItemDto item : dto.getItems()) {
@@ -180,15 +202,25 @@ public class FileOperationServiceImpl implements FileOperationService {
     @Transactional(rollbackFor = Exception.class)
     protected List<OperationResultVo> doMove(FileExecuteOperationDto dto, String userId) {
         String targetParentId = FileNodeUtil.normalizeParentId(dto.getTargetParentId());
-        validateTargetParent(targetParentId, userId);
+        FileNode targetParent = resolveTargetParentNode(targetParentId, userId);
+        List<FileNode> sources = dto.getItems().stream()
+                .map(item -> getOwnedNode(item.getId(), userId))
+                .toList();
+        validateSourceConsistency(sources, targetParent);
+
         String targetParentPathName = resolveParentPathName(targetParentId, userId);
         ConflictStrategy globalStrategy = ConflictStrategy.fromCode(dto.getGlobalStrategy());
         List<OperationResultVo> results = new ArrayList<>();
         for (OperationItemDto item : dto.getItems()) {
-            fillDefaultStrategy(item, globalStrategy);
-            FileOperationExecutor.OperationOutcome outcome = executor.moveItem(
-                    item, userId, targetParentId, targetParentPathName);
-            results.add(toResultVo(outcome));
+            FileNode source = getOwnedNode(item.getId(), userId);
+            if (FileNodeConstants.SOURCE_REMOTE.equals(source.getSourceType())) {
+                results.add(doRemoteMove(item, source, targetParent, userId, globalStrategy));
+            } else {
+                fillDefaultStrategy(item, globalStrategy);
+                FileOperationExecutor.OperationOutcome outcome = executor.moveItem(
+                        item, userId, targetParentId, targetParentPathName);
+                results.add(toResultVo(outcome));
+            }
         }
         return results;
     }
@@ -208,18 +240,70 @@ public class FileOperationServiceImpl implements FileOperationService {
     @Transactional(rollbackFor = Exception.class)
     protected List<OperationResultVo> doCopy(FileExecuteOperationDto dto, String userId) {
         String targetParentId = FileNodeUtil.normalizeParentId(dto.getTargetParentId());
-        validateTargetParent(targetParentId, userId);
+        FileNode targetParent = resolveTargetParentNode(targetParentId, userId);
+        List<FileNode> sources = dto.getItems().stream()
+                .map(item -> getOwnedNode(item.getId(), userId))
+                .toList();
+        validateSourceConsistency(sources, targetParent);
+
         String targetParentPathName = resolveParentPathName(targetParentId, userId);
         User user = userMapper.selectById(userId);
         ConflictStrategy globalStrategy = ConflictStrategy.fromCode(dto.getGlobalStrategy());
         List<OperationResultVo> results = new ArrayList<>();
         for (OperationItemDto item : dto.getItems()) {
-            fillDefaultStrategy(item, globalStrategy);
-            FileOperationExecutor.OperationOutcome outcome = executor.copyItem(
-                    item, userId, targetParentId, targetParentPathName, user);
-            results.add(toResultVo(outcome));
+            FileNode source = getOwnedNode(item.getId(), userId);
+            if (FileNodeConstants.SOURCE_REMOTE.equals(source.getSourceType())) {
+                results.add(doRemoteCopy(item, source, targetParent, userId, globalStrategy));
+            } else {
+                fillDefaultStrategy(item, globalStrategy);
+                FileOperationExecutor.OperationOutcome outcome = executor.copyItem(
+                        item, userId, targetParentId, targetParentPathName, user);
+                results.add(toResultVo(outcome));
+            }
         }
         return results;
+    }
+
+    private OperationResultVo doRemoteMove(OperationItemDto item, FileNode source,
+                                           FileNode targetParent, String userId,
+                                           ConflictStrategy globalStrategy) {
+        String targetName = StringUtils.hasText(item.getNewName()) ? item.getNewName().trim() : source.getName();
+        ConflictStrategy strategy = resolveItemStrategy(item, globalStrategy);
+        FileNode existing = FileConflictHelper.findSameName(fileMapper, userId, targetParent.getId(), targetName);
+        FileConflictResolver.ConflictResolution resolution =
+                conflictResolver.resolveName(userId, targetParent.getId(), targetName, existing, strategy);
+        if (resolution.skipped()) {
+            OperationResultVo vo = new OperationResultVo();
+            vo.setSourceId(source.getId());
+            vo.setSourceName(source.getName());
+            vo.setStatus("skipped");
+            return vo;
+        }
+        if (resolution.existingToReplace() != null) {
+            remoteFileOperationService.delete(resolution.existingToReplace(), userId);
+        }
+        FileNodeVo moved = remoteFileOperationService.move(source, targetParent, resolution.finalName(), userId);
+        OperationResultVo vo = new OperationResultVo();
+        vo.setSourceId(source.getId());
+        vo.setSourceName(source.getName());
+        vo.setStatus("success");
+        vo.setNewName(resolution.finalName().equals(source.getName()) ? null : resolution.finalName());
+        vo.setNodeId(moved.getId());
+        return vo;
+    }
+
+    private OperationResultVo doRemoteCopy(OperationItemDto item, FileNode source,
+                                           FileNode targetParent, String userId,
+                                           ConflictStrategy globalStrategy) {
+        throw new BusinessException(ResultCode.BUSINESS_ERROR, "远程文件暂不支持复制");
+    }
+
+    private ConflictStrategy resolveItemStrategy(OperationItemDto item, ConflictStrategy globalStrategy) {
+        ConflictStrategy strategy = ConflictStrategy.fromCode(item.getStrategy());
+        if (strategy == null && globalStrategy != null) {
+            strategy = globalStrategy;
+        }
+        return strategy;
     }
 
     private void fillDefaultStrategy(OperationItemDto item, ConflictStrategy globalStrategy) {
@@ -287,6 +371,36 @@ public class FileOperationServiceImpl implements FileOperationService {
         FileNode parent = getOwnedNode(targetParentId, userId);
         if (!TYPE_FOLDER.equals(parent.getType())) {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "目标父节点不是文件夹");
+        }
+    }
+
+    private FileNode resolveTargetParentNode(String targetParentId, String userId) {
+        if (FileNodeConstants.ROOT_ID.equals(targetParentId)) {
+            return null;
+        }
+        FileNode parent = getOwnedNode(targetParentId, userId);
+        if (!TYPE_FOLDER.equals(parent.getType())) {
+            throw new BusinessException(ResultCode.BUSINESS_ERROR, "目标父节点不是文件夹");
+        }
+        return parent;
+    }
+
+    private void validateSourceConsistency(List<FileNode> sources, FileNode targetParent) {
+        String targetSource = targetParent == null || targetParent.getSourceType() == null
+                ? FileNodeConstants.SOURCE_LOCAL
+                : targetParent.getSourceType();
+        String targetMountId = targetParent == null ? null : targetParent.getRemoteMountId();
+        for (FileNode source : sources) {
+            String sourceSource = source.getSourceType() == null
+                    ? FileNodeConstants.SOURCE_LOCAL
+                    : source.getSourceType();
+            if (!targetSource.equals(sourceSource)) {
+                throw new BusinessException(ResultCode.BUSINESS_ERROR, "不能跨本地与远程目录操作");
+            }
+            if (FileNodeConstants.SOURCE_REMOTE.equals(sourceSource)
+                    && !Objects.equals(targetMountId, source.getRemoteMountId())) {
+                throw new BusinessException(ResultCode.BUSINESS_ERROR, "不能跨本地与远程目录操作");
+            }
         }
     }
 
@@ -370,6 +484,7 @@ public class FileOperationServiceImpl implements FileOperationService {
         folder.setType(TYPE_FOLDER);
         folder.setSize(0L);
         folder.setStorageSpaceId(resolveStorageSpaceId(userId));
+        folder.setSourceType(FileNodeConstants.SOURCE_LOCAL);
         folder.setStatus(1);
         return folder;
     }

@@ -3,7 +3,7 @@ import type { RouteRecordRaw } from 'vue-router'
 import { useUserStore } from '@/store/user'
 import { deviceView } from '@/utils/device'
 
-type RouteName = 'Login' | 'Register' | 'NotFound' | 'Init' | 'Files' | 'Trash' | 'Share' | 'UserManagement' | 'RoleManagement' | 'PermissionManagement' | 'StorageSpaceManagement' | 'Profile'
+type RouteName = 'Login' | 'Register' | 'NotFound' | 'Init' | 'Files' | 'Trash' | 'Share' | 'RemoteMount' | 'UserManagement' | 'RoleManagement' | 'PermissionManagement' | 'StorageSpaceManagement' | 'Profile'
 
 /**
  * 公开静态路由
@@ -68,6 +68,12 @@ const dynamicRoutes: RouteRecordRaw[] = [
     name: 'Share' as RouteName,
     component: deviceView('files/share'),
     meta: { title: '我的分享' },
+  },
+  {
+    path: '/files/remote-mounts',
+    name: 'RemoteMount' as RouteName,
+    component: deviceView('files/remote-mounts'),
+    meta: { title: '远程挂载' },
   },
   {
     path: '/admin/users',

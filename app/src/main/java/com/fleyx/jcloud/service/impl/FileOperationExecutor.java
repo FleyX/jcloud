@@ -59,6 +59,9 @@ public class FileOperationExecutor {
     public OperationOutcome moveItem(OperationItemDto item, String userId,
                                      String targetParentId, String targetParentPathName) {
         FileNode source = getOwnedNode(item.getId(), userId);
+        if (FileNodeConstants.SOURCE_REMOTE.equals(source.getSourceType())) {
+            throw new BusinessException(ResultCode.BUSINESS_ERROR, "远程文件操作应由上层服务处理");
+        }
         String targetName = resolveTargetName(item, source);
         ConflictStrategy strategy = resolveStrategy(item);
 
@@ -116,6 +119,9 @@ public class FileOperationExecutor {
                                      String targetParentId, String targetParentPathName,
                                      User user) {
         FileNode source = getOwnedNode(item.getId(), userId);
+        if (FileNodeConstants.SOURCE_REMOTE.equals(source.getSourceType())) {
+            throw new BusinessException(ResultCode.BUSINESS_ERROR, "远程文件操作应由上层服务处理");
+        }
         String targetName = resolveTargetName(item, source);
         ConflictStrategy strategy = resolveStrategy(item);
 

@@ -24,4 +24,14 @@ public final class FileNodeConstants {
      * id 路径最大深度（业务软限制），约 5 层祖先。
      */
     public static final int MAX_PATH_DEPTH = 5;
+
+    /**
+     * 本地文件节点来源类型。
+     */
+    public static final String SOURCE_LOCAL = "local";
+
+    /**
+     * 远程文件节点来源类型。
+     */
+    public static final String SOURCE_REMOTE = "remote";
 }

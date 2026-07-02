@@ -11,9 +11,11 @@ import com.fleyx.jcloud.model.bo.FileZipTask;
 import com.fleyx.jcloud.model.dto.FileBatchDownloadDto;
 import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.po.StorageSpace;
+import com.fleyx.jcloud.common.constant.FileNodeConstants;
 import com.fleyx.jcloud.common.constant.StorageConstant;
 import com.fleyx.jcloud.common.context.UserContext;
 import com.fleyx.jcloud.service.FileDownloadService;
+import com.fleyx.jcloud.service.RemoteFileService;
 import com.fleyx.jcloud.service.SystemStorageSpaceProvider;
 import com.fleyx.jcloud.util.FilePathUtil;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -56,14 +58,17 @@ public class FileDownloadServiceImpl implements FileDownloadService {
     private final StorageSpaceMapper storageSpaceMapper;
     private final TaskExecutor taskExecutor;
     private final SystemStorageSpaceProvider systemStorageSpaceProvider;
+    private final RemoteFileService remoteFileService;
 
     public FileDownloadServiceImpl(FileMapper fileMapper, StorageSpaceMapper storageSpaceMapper,
                                    @Qualifier("applicationTaskExecutor") TaskExecutor taskExecutor,
-                                   SystemStorageSpaceProvider systemStorageSpaceProvider) {
+                                   SystemStorageSpaceProvider systemStorageSpaceProvider,
+                                   RemoteFileService remoteFileService) {
         this.fileMapper = fileMapper;
         this.storageSpaceMapper = storageSpaceMapper;
         this.taskExecutor = taskExecutor;
         this.systemStorageSpaceProvider = systemStorageSpaceProvider;
+        this.remoteFileService = remoteFileService;
     }
 
     private final ConcurrentHashMap<String, FileZipTask> taskStore = new ConcurrentHashMap<>();
@@ -94,6 +99,7 @@ public class FileDownloadServiceImpl implements FileDownloadService {
         if (files.isEmpty()) {
             throw new BusinessException(ResultCode.NOT_FOUND, "没有可下载的文件");
         }
+        rejectMixedSourceBatch(files);
 
         long totalSize = files.stream().mapToLong(n -> n.getSize() == null ? 0L : n.getSize()).sum();
         if (totalSize <= streamThresholdSize && files.size() <= streamThresholdCount) {
@@ -185,22 +191,48 @@ public class FileDownloadServiceImpl implements FileDownloadService {
         try (OutputStream os = Files.newOutputStream(zipPath);
              ZipOutputStream zos = new ZipOutputStream(os)) {
             for (FileNode file : files) {
-                StorageSpace space = storageSpaceMapper.selectById(file.getStorageSpaceId());
-                if (space == null) {
-                    throw new BusinessException(ResultCode.NOT_FOUND, "存储空间不存在");
-                }
-                Path physicalPath = FilePathUtil.resolvePhysicalPath(file, FilePathUtil.contextOf(space, username, ctx.idToNameCache()));
-                if (!Files.exists(physicalPath)) {
-                    throw new BusinessException(ResultCode.NOT_FOUND, "文件已丢失: " + file.getName());
-                }
                 String entryName = FilePathUtil.stripLeadingSlash(FilePathUtil.resolveNamePath(file, ctx));
                 ZipEntry entry = new ZipEntry(entryName);
                 entry.setSize(file.getSize() == null ? 0L : file.getSize());
                 zos.putNextEntry(entry);
-                Files.copy(physicalPath, zos);
+                if (FileNodeConstants.SOURCE_REMOTE.equals(file.getSourceType())) {
+                    writeRemoteFileToZip(file, userId, zos);
+                } else {
+                    StorageSpace space = storageSpaceMapper.selectById(file.getStorageSpaceId());
+                    if (space == null) {
+                        throw new BusinessException(ResultCode.NOT_FOUND, "存储空间不存在");
+                    }
+                    Path physicalPath = FilePathUtil.resolvePhysicalPath(file, FilePathUtil.contextOf(space, username, ctx.idToNameCache()));
+                    if (!Files.exists(physicalPath)) {
+                        throw new BusinessException(ResultCode.NOT_FOUND, "文件已丢失: " + file.getName());
+                    }
+                    Files.copy(physicalPath, zos);
+                }
                 zos.closeEntry();
             }
             zos.finish();
+        }
+    }
+
+    private void writeRemoteFileToZip(FileNode file, String userId, ZipOutputStream zos) throws IOException {
+        FileDownloadResult result = remoteFileService.download(file, userId);
+        try (InputStream is = result.getInputStream()) {
+            is.transferTo(zos);
+        }
+    }
+
+    private void rejectMixedSourceBatch(List<FileNode> files) {
+        boolean hasLocal = false;
+        boolean hasRemote = false;
+        for (FileNode file : files) {
+            if (FileNodeConstants.SOURCE_REMOTE.equals(file.getSourceType())) {
+                hasRemote = true;
+            } else {
+                hasLocal = true;
+            }
+            if (hasLocal && hasRemote) {
+                throw new BusinessException(ResultCode.BUSINESS_ERROR, "不能跨本地与远程目录操作");
+            }
         }
     }
 

@@ -72,6 +72,16 @@ public class FileNodeVo implements Serializable {
     private String physicalPath;
 
     /**
+     * 来源类型：local / remote。
+     */
+    private String sourceType;
+
+    /**
+     * 远程挂载 ID，source_type=remote 时有效。
+     */
+    private String remoteMountId;
+
+    /**
      * 创建时间。
      */
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")

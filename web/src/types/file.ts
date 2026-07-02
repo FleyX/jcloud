@@ -14,6 +14,8 @@ export interface FileNodeVo {
   hash?: string
   status: number
   physicalPath?: string
+  sourceType?: 'local' | 'remote'
+  remoteMountId?: string
   createTime?: string
   updateTime?: string
 }

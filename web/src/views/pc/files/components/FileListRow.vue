@@ -2,7 +2,7 @@
 /**
  * 文件列表行
  */
-import { Check, Download } from '@lucide/vue'
+import { Check, Download, Globe } from '@lucide/vue'
 import { cn } from '@/utils/cn'
 import FileRowActions from './FileRowActions.vue'
 import type { Component } from 'vue'
@@ -75,6 +75,13 @@ const emit = defineEmits(['rowClick', 'toggleSelect', 'download', 'rename', 'cop
       </div>
       <span class="line-clamp-1 font-medium text-surface-800">
         {{ file.name }}
+      </span>
+      <span
+        v-if="file.sourceType === 'remote'"
+        class="ml-2 inline-flex shrink-0 items-center gap-0.5 rounded-full bg-sky-50 px-1.5 py-0.5 text-[10px] font-medium text-sky-600"
+      >
+        <Globe class="h-3 w-3" />
+        远程
       </span>
     </div>
 

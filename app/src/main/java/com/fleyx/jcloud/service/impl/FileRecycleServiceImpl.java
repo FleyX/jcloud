@@ -28,6 +28,7 @@ import com.fleyx.jcloud.model.vo.ConflictItemVo;
 import com.fleyx.jcloud.model.vo.OperationResultVo;
 import com.fleyx.jcloud.model.vo.RecycleRecordVo;
 import com.fleyx.jcloud.service.FileRecycleService;
+import com.fleyx.jcloud.service.RemoteFileOperationService;
 import com.fleyx.jcloud.util.FileConflictOverwriteHandler;
 import com.fleyx.jcloud.util.FileConflictResolver;
 import com.fleyx.jcloud.util.FileHashUtil;
@@ -75,6 +76,7 @@ public class FileRecycleServiceImpl implements FileRecycleService {
     private final UserReadOnlyChecker userReadOnlyChecker;
     private final FileConflictResolver conflictResolver;
     private final FileConflictOverwriteHandler overwriteHandler;
+    private final RemoteFileOperationService remoteFileOperationService;
 
     @Override
     public List<OperationResultVo> deleteToTrash(FileDeleteDto dto, String userId) {
@@ -102,6 +104,10 @@ public class FileRecycleServiceImpl implements FileRecycleService {
 
     private OperationResultVo deleteOneToTrash(String id, String userId) {
         FileNode node = getOwnedNode(id, userId);
+        if (FileNodeConstants.SOURCE_REMOTE.equals(node.getSourceType())) {
+            remoteFileOperationService.delete(node, userId);
+            return successResult(node.getId(), node.getName());
+        }
         User user = requireUser(userId);
         StorageSpace space = requireSpace(user);
         String username = user.getUsername();
@@ -784,6 +790,7 @@ public class FileRecycleServiceImpl implements FileRecycleService {
         folder.setType(TYPE_FOLDER);
         folder.setSize(0L);
         folder.setStorageSpaceId(storageSpaceId);
+        folder.setSourceType(FileNodeConstants.SOURCE_LOCAL);
         folder.setStatus(1);
         return folder;
     }
@@ -798,6 +805,7 @@ public class FileRecycleServiceImpl implements FileRecycleService {
         node.setSize(size);
         node.setHash(hash);
         node.setStorageSpaceId(storageSpaceId);
+        node.setSourceType(FileNodeConstants.SOURCE_LOCAL);
         node.setMimeType(mimeType);
         node.setStatus(1);
         return node;
