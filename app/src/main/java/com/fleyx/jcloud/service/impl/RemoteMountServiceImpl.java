@@ -28,7 +28,6 @@ import com.fleyx.jcloud.service.RemoteMountSyncService;
 import com.fleyx.jcloud.service.RemoteProtocolAdapter;
 import com.fleyx.jcloud.util.IdUtil;
 import com.fleyx.jcloud.util.RemoteConfigCrypto;
-import com.fleyx.jcloud.util.RemotePathUtil;
 import com.fleyx.jcloud.util.UserReadWriteLock;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -167,8 +166,7 @@ public class RemoteMountServiceImpl implements RemoteMountService {
     public void testConnection(String id, String userId) {
         RemoteMount mount = requireOwnedMount(id, userId);
         RemoteProtocolAdapter adapter = adapterFactory.create(mount);
-        WebDavConfig config = readConfig(mount.getConfig());
-        adapter.exists(RemotePathUtil.buildRemotePath(config.getRootPath(), "/"));
+        adapter.exists("/");
     }
 
     @Override
@@ -177,9 +175,8 @@ public class RemoteMountServiceImpl implements RemoteMountService {
         config.setUrl(dto.getUrl());
         config.setUsername(dto.getUsername());
         config.setPassword(dto.getPassword());
-        config.setRootPath(dto.getRootPath());
         RemoteProtocolAdapter adapter = new WebDavProtocolAdapter(config);
-        adapter.exists(RemotePathUtil.buildRemotePath(config.getRootPath(), "/"));
+        adapter.exists("/");
     }
 
     @Override
@@ -228,14 +225,14 @@ public class RemoteMountServiceImpl implements RemoteMountService {
     }
 
     private String buildConfigJson(RemoteMountSaveDto dto, String existingConfig) {
-        return doBuildConfigJson(dto.getUrl(), dto.getUsername(), dto.getPassword(), dto.getRootPath(), existingConfig);
+        return doBuildConfigJson(dto.getUrl(), dto.getUsername(), dto.getPassword(), existingConfig);
     }
 
     private String buildConfigJson(RemoteMountUpdateDto dto, String existingConfig) {
-        return doBuildConfigJson(dto.getUrl(), dto.getUsername(), dto.getPassword(), dto.getRootPath(), existingConfig);
+        return doBuildConfigJson(dto.getUrl(), dto.getUsername(), dto.getPassword(), existingConfig);
     }
 
-    private String doBuildConfigJson(String url, String username, String password, String rootPath, String existingConfig) {
+    private String doBuildConfigJson(String url, String username, String password, String existingConfig) {
         try {
             WebDavConfig config = new WebDavConfig();
             if (existingConfig != null) {
@@ -245,9 +242,6 @@ public class RemoteMountServiceImpl implements RemoteMountService {
             config.setUsername(username);
             if (password != null) {
                 config.setPassword(remoteConfigCrypto.encrypt(password));
-            }
-            if (rootPath != null) {
-                config.setRootPath(rootPath);
             }
             return objectMapper.writeValueAsString(config);
         } catch (Exception e) {
@@ -269,7 +263,6 @@ public class RemoteMountServiceImpl implements RemoteMountService {
             vo.setUrl(config.getUrl());
             vo.setUsername(config.getUsername());
             vo.setPassword(remoteConfigCrypto.decrypt(config.getPassword()));
-            vo.setRootPath(config.getRootPath());
         } catch (Exception e) {
             log.warn("解析挂载配置到详情视图失败", e);
         }

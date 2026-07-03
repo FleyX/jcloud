@@ -1,14 +1,17 @@
 package com.fleyx.jcloud.service;
 
 import com.fleyx.jcloud.common.exception.BusinessException;
+import com.fleyx.jcloud.mapper.RemoteMountMapper;
 import com.fleyx.jcloud.model.dto.RemoteMountSaveDto;
 import com.fleyx.jcloud.model.dto.RemoteMountUpdateDto;
 import com.fleyx.jcloud.model.dto.StorageSpaceSaveDto;
 import com.fleyx.jcloud.model.dto.UserSaveDto;
+import com.fleyx.jcloud.model.po.RemoteMount;
 import com.fleyx.jcloud.model.vo.RemoteMountDetailVo;
 import com.fleyx.jcloud.model.vo.RemoteMountVo;
 import com.fleyx.jcloud.model.vo.StorageSpaceVo;
 import com.fleyx.jcloud.model.vo.UserVo;
+import com.fleyx.jcloud.util.IdUtil;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -38,6 +41,9 @@ class RemoteMountServiceTest {
 
     @Autowired
     private StorageSpaceService storageSpaceService;
+
+    @Autowired
+    private RemoteMountMapper remoteMountMapper;
 
     @Test
     void shouldCreateRemoteMount() throws Exception {
@@ -81,6 +87,24 @@ class RemoteMountServiceTest {
         assertEquals("new-name", detail.getName());
     }
 
+    @Test
+    void shouldParseLegacyConfigWithUnknownRootPathField() throws Exception {
+        UserVo user = prepareUser();
+        RemoteMount mount = new RemoteMount();
+        mount.setId(IdUtil.nextId());
+        mount.setUserId(user.getId());
+        mount.setName("legacy-mount");
+        mount.setType("webdav");
+        mount.setEnabled(0);
+        mount.setConfig("{\"url\":\"http://legacy.example.com/dav\",\"username\":\"legacy-user\",\"rootPath\":\"/old\",\"password\":null}");
+        remoteMountMapper.insert(mount);
+
+        RemoteMountDetailVo detail = remoteMountService.detail(mount.getId(), user.getId());
+
+        assertEquals("http://legacy.example.com/dav", detail.getUrl());
+        assertEquals("legacy-user", detail.getUsername());
+    }
+
     private UserVo prepareUser() throws Exception {
         Path spacePath = Files.createTempDirectory("mount-space-");
         StorageSpaceSaveDto spaceDto = new StorageSpaceSaveDto();
@@ -104,7 +128,6 @@ class RemoteMountServiceTest {
         dto.setUrl("http://example.com/dav");
         dto.setUsername("user");
         dto.setPassword("pass");
-        dto.setRootPath("/remote");
         dto.setCronExpr("0 0 2 * * *");
         dto.setEnabled(1);
         return dto;

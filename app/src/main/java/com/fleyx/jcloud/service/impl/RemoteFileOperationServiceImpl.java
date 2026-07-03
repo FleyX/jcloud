@@ -1,12 +1,10 @@
 package com.fleyx.jcloud.service.impl;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fleyx.jcloud.common.constant.FileNodeConstants;
 import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.FileMapper;
 import com.fleyx.jcloud.mapper.RemoteMountMapper;
-import com.fleyx.jcloud.model.bo.WebDavConfig;
 import com.fleyx.jcloud.model.convert.FileConvert;
 import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.po.RemoteMount;
@@ -48,7 +46,6 @@ public class RemoteFileOperationServiceImpl implements RemoteFileOperationServic
     private final RemoteProtocolAdapterFactory adapterFactory;
     private final RemoteMountLock remoteMountLock;
     private final RemoteMountService remoteMountService;
-    private final ObjectMapper objectMapper;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -244,9 +241,7 @@ public class RemoteFileOperationServiceImpl implements RemoteFileOperationServic
         Map<String, String> cache = queryAncestorNames(node.getUserId(), ancestorIds);
         FilePathUtil.ResolveContext ctx = FilePathUtil.contextOf(null, node.getUserId(), cache);
         String fullNamePath = FilePathUtil.resolveNamePath(node, ctx);
-        String relativeNamePath = RemotePathUtil.relativeNamePath(mount.getName(), fullNamePath);
-        WebDavConfig config = readConfig(mount.getConfig());
-        return RemotePathUtil.buildRemotePath(config.getRootPath(), relativeNamePath);
+        return RemotePathUtil.relativeNamePath(mount.getName(), fullNamePath);
     }
 
     private boolean isMountPoint(FileNode node) {
@@ -274,14 +269,6 @@ public class RemoteFileOperationServiceImpl implements RemoteFileOperationServic
             }
         }
         return cache;
-    }
-
-    private WebDavConfig readConfig(String configJson) {
-        try {
-            return objectMapper.readValue(configJson, WebDavConfig.class);
-        } catch (Exception e) {
-            throw new BusinessException(ResultCode.BUSINESS_ERROR, "解析远程挂载配置失败");
-        }
     }
 
     private void validateNotMoveToSelfSubtree(FileNode source, String targetParentId, String userId) {

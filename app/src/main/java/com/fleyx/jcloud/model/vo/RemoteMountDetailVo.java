@@ -18,5 +18,4 @@ public class RemoteMountDetailVo extends RemoteMountVo {
     private String url;
     private String username;
     private String password;
-    private String rootPath;
 }

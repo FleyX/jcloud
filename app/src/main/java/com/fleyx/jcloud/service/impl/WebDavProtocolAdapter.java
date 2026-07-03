@@ -45,12 +45,14 @@ public class WebDavProtocolAdapter implements RemoteProtocolAdapter {
     private static final int STATUS_NOT_FOUND = 404;
 
     private final String baseUrl;
+    private final String serverBasePath;
     private final String authorizationHeader;
     private final HttpClient httpClient;
     private final DocumentBuilder documentBuilder;
 
     public WebDavProtocolAdapter(WebDavConfig config) {
         this.baseUrl = normalizeBaseUrl(config.getUrl());
+        this.serverBasePath = extractServerBasePath(this.baseUrl);
         this.authorizationHeader = buildAuthorization(config.getUsername(), config.getPassword());
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(java.time.Duration.ofSeconds(30))
@@ -189,6 +191,16 @@ public class WebDavProtocolAdapter implements RemoteProtocolAdapter {
         return baseUrl + encodedPath;
     }
 
+    private String extractServerBasePath(String url) {
+        try {
+            String path = URI.create(url).getPath();
+            return path == null ? "" : path;
+        } catch (Exception e) {
+            log.warn("解析 WebDAV URL 路径失败: {}", url);
+            return "";
+        }
+    }
+
     private String buildAuthorization(String username, String password) {
         String credentials = (username == null ? "" : username) + ":" + (password == null ? "" : password);
         return "Basic " + Base64.getEncoder().encodeToString(credentials.getBytes(StandardCharsets.UTF_8));
@@ -212,13 +224,13 @@ public class WebDavProtocolAdapter implements RemoteProtocolAdapter {
             if (href == null) {
                 continue;
             }
-            String path = decodePath(href);
-            if (isSamePath(path, normalizedParent)) {
+            String remotePath = toRemotePath(href);
+            if (isSamePath(remotePath, normalizedParent)) {
                 continue;
             }
             RemoteFileEntry entry = new RemoteFileEntry();
-            entry.setRemotePath(path);
-            entry.setName(extractName(path));
+            entry.setRemotePath(remotePath);
+            entry.setName(extractName(remotePath));
             Element propStat = getPropStat(response);
             if (propStat != null) {
                 fillProperties(entry, propStat);
@@ -226,6 +238,28 @@ public class WebDavProtocolAdapter implements RemoteProtocolAdapter {
             entries.add(entry);
         }
         return entries;
+    }
+
+    private String toRemotePath(String href) {
+        String path = normalizeRemotePath(decodePath(href));
+        return normalizeRemotePath(stripServerBasePath(path));
+    }
+
+    private String stripServerBasePath(String path) {
+        if (serverBasePath == null || serverBasePath.isEmpty() || "/".equals(serverBasePath)) {
+            return path;
+        }
+        String normalizedBase = normalizeRemotePath(serverBasePath);
+        String normalizedPath = normalizeRemotePath(path);
+        if (normalizedPath.equals(normalizedBase)) {
+            return "/";
+        }
+        if (normalizedPath.length() > normalizedBase.length()
+                && normalizedPath.startsWith(normalizedBase)
+                && normalizedPath.charAt(normalizedBase.length()) == '/') {
+            return normalizedPath.substring(normalizedBase.length());
+        }
+        return path;
     }
 
     private String getHref(Element response) {
@@ -342,14 +376,18 @@ public class WebDavProtocolAdapter implements RemoteProtocolAdapter {
         String path = href;
         try {
             java.net.URI uri = new URI(href);
-            path = uri.getPath();
-            if (path == null) {
-                path = href;
+            String uriPath = uri.getPath();
+            if (uriPath != null) {
+                path = uriPath;
             }
         } catch (Exception e) {
             log.debug("解码 WebDAV href 失败: {}", href);
         }
-        return java.net.URLDecoder.decode(path, StandardCharsets.UTF_8);
+        String decoded = java.net.URLDecoder.decode(path, StandardCharsets.UTF_8);
+        if (!decoded.startsWith("/")) {
+            decoded = "/" + decoded;
+        }
+        return decoded;
     }
 
     private void close(InputStream inputStream) {
