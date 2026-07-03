@@ -12,6 +12,8 @@ jcloud:
     secret: ${JCLOUD_JWT_SECRET:change-me-in-production-jcloud-secret-key-2026}
     expire-hours: 24
     issuer: jcloud
+  upload:
+    chunk-size: 67108864
   download:
     zip-stream-threshold-size: 104857600
     zip-stream-threshold-count: 100
@@ -49,8 +51,8 @@ spring:
       timeout: 10s
   servlet:
     multipart:
-      max-file-size: 100MB
-      max-request-size: 200MB
+      max-file-size: 128MB
+      max-request-size: 256MB
   flyway:
     enabled: true
     locations: classpath:db/migration
