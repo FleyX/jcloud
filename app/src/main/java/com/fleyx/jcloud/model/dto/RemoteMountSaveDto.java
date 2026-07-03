@@ -1,7 +1,6 @@
 package com.fleyx.jcloud.model.dto;
 
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
@@ -42,6 +41,5 @@ public class RemoteMountSaveDto implements Serializable {
     @Size(max = 128, message = "cron 表达式长度不能超过 128")
     private String cronExpr;
 
-    @NotNull(message = "启用状态不能为空")
-    private Integer enabled;
+    private Integer enabled = 0;
 }

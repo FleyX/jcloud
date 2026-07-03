@@ -42,10 +42,7 @@ const submitting = ref(false)
 const savingConfig = ref(false)
 let pollTimer: ReturnType<typeof setInterval> | null = null
 
-const isRunning = computed(() => {
-  const status = task.value?.status
-  return status === 'PENDING' || status === 'RUNNING'
-})
+const isRunning = computed(() => task.value?.status === 'RUNNING')
 
 watch(() => props.open, (open) => {
   if (open) {
@@ -140,6 +137,12 @@ function statusLabel(status?: string): string {
   }
 }
 
+function submitButtonText(status?: string): string {
+  if (submitting.value) return '提交中...'
+  if (status === 'RUNNING') return '同步中...'
+  return '立即同步'
+}
+
 function statusClass(status?: string): string {
   return cn(
     'rounded-full px-2 py-0.5 text-xs font-medium',
@@ -216,7 +219,7 @@ function statusClass(status?: string): string {
               class="w-full rounded-xl bg-primary-600 px-4 py-2 text-sm font-medium text-white shadow-soft transition-colors hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-70"
               @click="handleImmediateSync"
             >
-              {{ submitting ? '提交中...' : isRunning ? '同步中...' : '立即同步' }}
+              {{ submitButtonText(task?.status) }}
             </button>
           </div>
 
@@ -241,8 +244,8 @@ function statusClass(status?: string): string {
               <span class="text-sm text-surface-700">启用定时同步</span>
               <SwitchRoot
                 :checked="enabled"
-                @update:checked="(v: boolean) => enabled = v"
                 class="relative h-6 w-11 cursor-pointer rounded-full bg-surface-200 outline-none transition-colors data-[state=checked]:bg-primary-600"
+                @update:checked="(v: boolean) => enabled = v"
               >
                 <SwitchThumb
                   class="block h-5 w-5 translate-x-0.5 rounded-full bg-white shadow-sm transition-transform data-[state=checked]:translate-x-[22px]"
