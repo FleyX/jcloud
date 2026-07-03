@@ -97,7 +97,7 @@ JCloud 当前仅实现了用户、角色、权限等基础管理能力，缺少�
 
 ### 上传与秒传
 
-- 分片大小固定为 10MB；每个分片独立计算 hash 用于完整性校验。
+- 分片大小默认 64MB，可通过 `jcloud.upload.chunk-size` 配置（范围 1MB~512MB）；每个分片独立计算 hash 用于完整性校验。
 - 断点续传通过预上传检查已存在分片实现，客户端只上传缺失分片。
 - 秒传为同一用户内去重。
 - 文件身份 hash 策略：小于 150MB 计算完整 hash；大于等于 150MB 取前 50MB、中间 50MB（从 `floor(size/2)` 开始）、后 50MB 拼接后计算 hash，用于快速候选查找。
@@ -161,7 +161,7 @@ JCloud 当前仅实现了用户、角色、权限等基础管理能力，缺少�
 ### 依赖与配置
 
 - 后端需要新增 Redisson 依赖以支持分布式读写锁。
-- 当前 multipart 配置为 `max-file-size=10MB`、`max-request-size=100MB`，需要调整为支持分片上传模式（分片本身 10MB，但一次请求可携带多个分片或元数据）。
+- multipart 配置调整为 `max-file-size=128MB`、`max-request-size=256MB`，以适配默认 64MB 分片及元数据开销；分片大小可通过 `jcloud.upload.chunk-size` 在 1MB~512MB 范围内配置。
 - 前端可复用并扩展现有 `transferStore` 来管理上传任务队列、分片进度、暂停/恢复/错误重试。
 
 ## Testing Decisions

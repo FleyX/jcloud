@@ -82,7 +82,7 @@ JCloud 是一个前后端分离的个人网盘。本文档记录项目核心领�
 上传操作同时检查用户配额与存储空间容量，任一达到上限即拒绝上传，并提示用户联系管理员。远程文件节点不参与本地空间不足判断。
 
 **分片上传（Chunked Upload）**：
-文件按固定 10MB 大小切分为多个分片上传，每个分片独立校验 hash，支持断点续传。
+文件按默认 64MB 大小（可通过 `jcloud.upload.chunk-size` 配置，范围 1MB~512MB）切分为多个分片上传，每个分片独立校验 hash，支持断点续传。
 
 **内容标识符（Content Identifier）**：
 `t_file_node.hash` 字段存储的文件级标识。`source_type = 'local'` 时为文件身份 Hash，用于秒传去重；`source_type = 'remote'` 时为远端存储返回的 etag，用于增量同步 diff。
