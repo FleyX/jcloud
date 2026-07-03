@@ -30,14 +30,13 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
 public class RoleServiceImpl implements RoleService {
 
-    private static final Set<String> PROTECTED_ROLE_CODES = Set.of("super_admin", "system_admin");
+    private static final String PROTECTED_ROLE_CODE = "super_admin";
 
     private final RoleMapper roleMapper;
     private final RoleConvert roleConvert;
@@ -65,6 +64,7 @@ public class RoleServiceImpl implements RoleService {
     @Transactional(rollbackFor = Exception.class)
     public RoleVo updateRole(String id, RoleUpdateDto dto) {
         Role role = requireRole(id);
+        rejectIfProtectedRole(role, "系统内置超级管理员角色不允许修改");
         validateStatus(dto.getStatus());
         validatePermissionIds(dto.getPermissionIds());
         roleConvert.updatePoFromDto(dto, role);
@@ -120,9 +120,7 @@ public class RoleServiceImpl implements RoleService {
     @Transactional(rollbackFor = Exception.class)
     public void removeById(String id) {
         Role role = requireRole(id);
-        if (PROTECTED_ROLE_CODES.contains(role.getCode())) {
-            throw new BusinessException(ResultCode.FORBIDDEN, "系统角色不允许删除");
-        }
+        rejectIfProtectedRole(role, "系统内置超级管理员角色不允许删除");
         Long userCount = userRoleMapper.selectCount(
                 new LambdaQueryWrapper<UserRole>().eq(UserRole::getRoleId, id)
         );
@@ -138,9 +136,7 @@ public class RoleServiceImpl implements RoleService {
     @Transactional(rollbackFor = Exception.class)
     public void updateStatus(String id, Integer status) {
         Role role = requireRole(id);
-        if (PROTECTED_ROLE_CODES.contains(role.getCode())) {
-            throw new BusinessException(ResultCode.FORBIDDEN, "系统角色不允许禁用");
-        }
+        rejectIfProtectedRole(role, "系统内置超级管理员角色不允许禁用");
         validateStatus(status);
         Role update = new Role();
         update.setId(id);
@@ -155,6 +151,12 @@ public class RoleServiceImpl implements RoleService {
             throw new BusinessException(ResultCode.NOT_FOUND, "角色不存在");
         }
         return role;
+    }
+
+    private void rejectIfProtectedRole(Role role, String message) {
+        if (PROTECTED_ROLE_CODE.equals(role.getCode())) {
+            throw new BusinessException(ResultCode.FORBIDDEN, message);
+        }
     }
 
     private void checkCodeUnique(String code, String excludeId) {
