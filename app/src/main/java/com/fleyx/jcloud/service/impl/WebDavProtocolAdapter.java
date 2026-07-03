@@ -6,6 +6,7 @@ import com.fleyx.jcloud.common.exception.SystemException;
 import com.fleyx.jcloud.model.bo.RemoteFileEntry;
 import com.fleyx.jcloud.model.bo.WebDavConfig;
 import com.fleyx.jcloud.service.RemoteProtocolAdapter;
+import com.fleyx.jcloud.util.RemotePathUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.w3c.dom.Document;
@@ -18,7 +19,6 @@ import javax.xml.parsers.DocumentBuilderFactory;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.net.URI;
-import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -185,24 +185,8 @@ public class WebDavProtocolAdapter implements RemoteProtocolAdapter {
     }
 
     private String buildFullUrl(String remotePath) {
-        String encodedPath = encodePath(remotePath);
+        String encodedPath = RemotePathUtil.encodePath(remotePath);
         return baseUrl + encodedPath;
-    }
-
-    private String encodePath(String path) {
-        if (path == null || path.isBlank() || "/".equals(path)) {
-            return "/";
-        }
-        String normalized = path.replace('\\', '/');
-        String[] segments = normalized.split("/");
-        StringBuilder builder = new StringBuilder();
-        for (String segment : segments) {
-            if (segment.isEmpty()) {
-                continue;
-            }
-            builder.append("/").append(URLEncoder.encode(segment, StandardCharsets.UTF_8));
-        }
-        return builder.isEmpty() ? "/" : builder.toString();
     }
 
     private String buildAuthorization(String username, String password) {
