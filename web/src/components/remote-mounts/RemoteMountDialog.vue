@@ -270,8 +270,8 @@ async function handleSubmit() {
             <span class="text-sm font-medium text-surface-700">启用定时同步</span>
             <SwitchRoot
               :checked="form.enabled === 1"
-              @update:checked="(v: boolean) => form.enabled = v ? 1 : 0"
               class="relative h-6 w-11 cursor-pointer rounded-full bg-surface-200 outline-none transition-colors data-[state=checked]:bg-primary-600"
+              @update:checked="(v: boolean) => form.enabled = v ? 1 : 0"
             >
               <SwitchThumb
                 class="block h-5 w-5 translate-x-0.5 rounded-full bg-white shadow-sm transition-transform data-[state=checked]:translate-x-[22px]"

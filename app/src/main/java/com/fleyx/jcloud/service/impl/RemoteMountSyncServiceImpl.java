@@ -45,6 +45,7 @@ public class RemoteMountSyncServiceImpl implements RemoteMountSyncService {
     public RemoteSyncTaskVo submitImmediate(String remoteMountId, String userId) {
         requireOwnedMount(remoteMountId, userId);
         rejectIfSyncRunning(remoteMountId);
+        removePendingTask(remoteMountId);
 
         RemoteSyncTask task = createTask(remoteMountId, RemoteSyncTaskType.MANUAL.getValue());
         remoteSyncTaskMapper.insert(task);
@@ -144,11 +145,21 @@ public class RemoteMountSyncServiceImpl implements RemoteMountSyncService {
     private void rejectIfSyncRunning(String remoteMountId) {
         LambdaQueryWrapper<RemoteSyncTask> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(RemoteSyncTask::getRemoteMountId, remoteMountId);
-        wrapper.in(RemoteSyncTask::getStatus,
-                List.of(RemoteSyncTaskStatus.PENDING.getValue(), RemoteSyncTaskStatus.RUNNING.getValue()));
+        wrapper.eq(RemoteSyncTask::getStatus, RemoteSyncTaskStatus.RUNNING.getValue());
         wrapper.eq(RemoteSyncTask::getDeleteAt, 0L);
         if (remoteSyncTaskMapper.selectCount(wrapper) > 0) {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "存在进行中的同步任务");
+        }
+    }
+
+    private void removePendingTask(String remoteMountId) {
+        LambdaQueryWrapper<RemoteSyncTask> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(RemoteSyncTask::getRemoteMountId, remoteMountId);
+        wrapper.eq(RemoteSyncTask::getStatus, RemoteSyncTaskStatus.PENDING.getValue());
+        wrapper.eq(RemoteSyncTask::getDeleteAt, 0L);
+        List<RemoteSyncTask> pendingTasks = remoteSyncTaskMapper.selectList(wrapper);
+        for (RemoteSyncTask task : pendingTasks) {
+            remoteSyncTaskMapper.deleteById(task.getId());
         }
     }
 
