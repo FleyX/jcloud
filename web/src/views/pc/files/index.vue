@@ -120,6 +120,7 @@ const {
 const folders = computed(() => files.value.filter((file) => file.type === 'folder'))
 const selectedFiles = computed(() => files.value.filter((file) => selectedIds.value.has(file.id)))
 const isAllSelected = computed(() => files.value.length > 0 && selectedIds.value.size === files.value.length)
+const hasMixedSelection = computed(() => hasMixedSource(selectedFiles.value))
 
 type FileType = 'image' | 'video' | 'audio' | 'doc' | 'folder'
 
@@ -468,6 +469,7 @@ function handleShareConfirm(payload: ShareCreateRequest | ShareUpdateRequest) {
 
     <BatchActionBar
       :selected-count="selectedIds.size"
+      :has-mixed-source="hasMixedSelection"
       @move="openMoveCopy('move', selectedFiles)"
       @copy="openMoveCopy('copy', selectedFiles)"
       @download="handleBatchDownload"

@@ -13,6 +13,7 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.scheduling.support.CronExpression;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -74,6 +75,11 @@ public class RemoteMountScheduler {
     }
 
     private void updateNextSyncTime(RemoteMount mount, LocalDateTime now) {
+        if (!StringUtils.hasText(mount.getCronExpr())) {
+            mount.setNextSyncTime(null);
+            remoteMountMapper.updateById(mount);
+            return;
+        }
         try {
             CronExpression expression = CronExpression.parse(mount.getCronExpr());
             LocalDateTime next = expression.next(now);

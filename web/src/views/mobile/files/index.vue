@@ -128,6 +128,7 @@ const isSearching = computed(() => keyword.value.trim().length > 0)
 const folders = computed(() => files.value.filter((file) => file.type === 'folder'))
 const selectedFiles = computed(() => files.value.filter((file) => selectedIds.value.has(file.id)))
 const isAllSelected = computed(() => files.value.length > 0 && selectedIds.value.size === files.value.length)
+const hasMixedSelection = computed(() => hasMixedSource(selectedFiles.value))
 
 const filteredFiles = computed(() =>
   files.value.map((file) => ({
@@ -520,14 +521,12 @@ async function handleCreateShare(payload: ShareCreateRequest) {
 
           <div class="min-w-0 flex-1">
             <p class="flex items-center gap-1 truncate text-sm font-medium text-surface-900">
-              {{ file.name }}
-              <span
+              <Globe
                 v-if="file.sourceType === 'remote'"
-                class="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-sky-50 px-1.5 py-0.5 text-[10px] font-medium text-sky-600"
-              >
-                <Globe class="h-3 w-3" />
-                远程
-              </span>
+                class="h-4 w-4 shrink-0 text-sky-600"
+                title="远程"
+              />
+              {{ file.name }}
             </p>
             <p class="mt-0.5 text-xs text-surface-500">
               {{ file.displaySize }} · {{ file.displayDate }}
@@ -565,6 +564,7 @@ async function handleCreateShare(payload: ShareCreateRequest) {
       v-if="selectionMode"
       :selected-count="selectedIds.size"
       :total-count="files.length"
+      :has-mixed-source="hasMixedSelection"
       @move="openMoveCopy('move', selectedFiles)"
       @copy="openMoveCopy('copy', selectedFiles)"
       @download="handleBatchDownload"
