@@ -252,7 +252,10 @@ onMounted(() => {
               <span :class="role.status === 1 ? 'text-emerald-600' : 'text-red-600'">{{ role.status === 1 ? '启用' : '禁用' }}</span>
             </td>
             <td class="px-5 py-3">
-              <div class="flex items-center gap-2">
+              <div
+                v-if="role.code !== 'super_admin'"
+                class="flex items-center gap-2"
+              >
                 <button
                   class="rounded-lg bg-surface-100 px-2.5 py-1.5 text-xs"
                   @click="openEditDialog(role)"

@@ -312,13 +312,13 @@ class UserServiceTest {
 
         UserUpdateRolesDto dto = new UserUpdateRolesDto();
         dto.setUserId(saved.getId());
-        dto.setRoleIds(List.of("0000000000002"));
+        dto.setRoleIds(List.of("0000000000003"));
 
         userService.updateRoles(dto);
 
         List<String> roleIds = userRoleMapper.selectRoleIdsByUserId(saved.getId());
         assertEquals(1, roleIds.size());
-        assertEquals("0000000000002", roleIds.get(0));
+        assertEquals("0000000000003", roleIds.get(0));
     }
 
     @Test

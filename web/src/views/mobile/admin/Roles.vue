@@ -212,7 +212,10 @@ onMounted(() => {
                 </p>
               </div>
             </div>
-            <div class="flex items-center gap-1">
+            <div
+              v-if="role.code !== 'super_admin'"
+              class="flex items-center gap-1"
+            >
               <button
                 class="rounded-lg p-2 text-surface-500 hover:bg-surface-100"
                 @click="openEditDialog(role)"
@@ -244,6 +247,7 @@ onMounted(() => {
               {{ role.status === 1 ? '启用' : '禁用' }}
             </span>
             <button
+              v-if="role.code !== 'super_admin'"
               :disabled="statusLoading"
               class="text-xs font-medium text-surface-600 hover:text-primary-600 disabled:opacity-50"
               @click="handleToggleStatus(role)"

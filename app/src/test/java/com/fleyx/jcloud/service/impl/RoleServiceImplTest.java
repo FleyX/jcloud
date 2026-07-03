@@ -6,6 +6,7 @@ import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.RoleMapper;
 import com.fleyx.jcloud.mapper.RolePermissionMapper;
 import com.fleyx.jcloud.model.dto.RoleSaveDto;
+import com.fleyx.jcloud.model.dto.RoleUpdateDto;
 import com.fleyx.jcloud.model.po.Role;
 import com.fleyx.jcloud.model.vo.RoleVo;
 import com.fleyx.jcloud.service.RoleService;
@@ -101,12 +102,55 @@ class RoleServiceImplTest {
     }
 
     @Test
-    void shouldNotDeleteProtectedRole() {
+    void shouldNotDeleteSuperAdminRole() {
         Role role = roleMapper.selectOne(new QueryWrapper<Role>().eq("code", "super_admin"));
         assertNotNull(role, "应存在 super_admin 系统角色");
 
         BusinessException exception = assertThrows(BusinessException.class, () -> roleService.removeById(role.getId()));
         assertEquals(ResultCode.FORBIDDEN, exception.getResultCode());
+    }
+
+    @Test
+    void shouldNotUpdateSuperAdminRole() {
+        Role role = roleMapper.selectOne(new QueryWrapper<Role>().eq("code", "super_admin"));
+        assertNotNull(role, "应存在 super_admin 系统角色");
+
+        RoleUpdateDto dto = new RoleUpdateDto();
+        dto.setName("修改名称");
+        dto.setPermissionIds(Collections.emptyList());
+
+        BusinessException exception = assertThrows(BusinessException.class, () -> roleService.updateRole(role.getId(), dto));
+        assertEquals(ResultCode.FORBIDDEN, exception.getResultCode());
+    }
+
+    @Test
+    void shouldNotUpdateSuperAdminRoleStatus() {
+        Role role = roleMapper.selectOne(new QueryWrapper<Role>().eq("code", "super_admin"));
+        assertNotNull(role, "应存在 super_admin 系统角色");
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> roleService.updateStatus(role.getId(), 0));
+        assertEquals(ResultCode.FORBIDDEN, exception.getResultCode());
+    }
+
+    @Test
+    void shouldDeleteSystemAdminRole() {
+        Role role = roleMapper.selectOne(new QueryWrapper<Role>().eq("code", "system_admin"));
+        if (role == null) {
+            role = new Role();
+            role.setCode("system_admin");
+            role.setName("系统管理员");
+            role.setDescription("测试系统管理员角色");
+            role.setStatus(1);
+            roleMapper.insert(role);
+        }
+
+        roleService.removeById(role.getId());
+
+        Long deleteAt = jdbcTemplate.queryForObject(
+                "SELECT delete_at FROM t_role WHERE id = ?", Long.class, role.getId());
+        assertNotNull(deleteAt);
+        assertTrue(deleteAt > 0, "删除后 system_admin 的 delete_at 应写入毫秒时间戳");
     }
 
     @Test
