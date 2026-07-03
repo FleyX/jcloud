@@ -109,8 +109,8 @@ public class WebDavProtocolAdapter implements RemoteProtocolAdapter {
 
     @Override
     public void upload(String remotePath, InputStream inputStream, long size, String mimeType) {
-        HttpRequest.Builder builder = newRequest(remotePath)
-                .PUT(HttpRequest.BodyPublishers.ofInputStream(() -> inputStream));
+        HttpRequest.BodyPublisher bodyPublisher = buildUploadBodyPublisher(inputStream, size);
+        HttpRequest.Builder builder = newRequest(remotePath).PUT(bodyPublisher);
         if (mimeType != null && !mimeType.isBlank()) {
             builder.header("Content-Type", mimeType);
         }
@@ -119,6 +119,14 @@ public class WebDavProtocolAdapter implements RemoteProtocolAdapter {
         if (response.statusCode() >= 300) {
             throw new SystemException(ResultCode.SYSTEM_ERROR, "WebDAV 上传失败: " + response.statusCode());
         }
+    }
+
+    private HttpRequest.BodyPublisher buildUploadBodyPublisher(InputStream inputStream, long size) {
+        HttpRequest.BodyPublisher streamPublisher = HttpRequest.BodyPublishers.ofInputStream(() -> inputStream);
+        if (size >= 0) {
+            return HttpRequest.BodyPublishers.fromPublisher(streamPublisher, size);
+        }
+        return streamPublisher;
     }
 
     @Override
