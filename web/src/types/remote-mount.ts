@@ -29,7 +29,6 @@ export interface RemoteMountDetailVo extends RemoteMountVo {
   url: string
   username?: string
   password?: string
-  rootPath?: string
 }
 
 /**
@@ -41,7 +40,6 @@ export interface RemoteMountSaveDto {
   url: string
   username?: string
   password?: string
-  rootPath?: string
   cronExpr?: string
   enabled: number
 }
@@ -56,7 +54,6 @@ export interface RemoteMountUpdateDto {
   url: string
   username?: string
   password?: string
-  rootPath?: string
   cronExpr?: string
   enabled: number
 }

@@ -22,9 +22,4 @@ public class WebDavConfig {
      * 密码。
      */
     private String password;
-
-    /**
-     * 远端根路径，可选。
-     */
-    private String rootPath;
 }

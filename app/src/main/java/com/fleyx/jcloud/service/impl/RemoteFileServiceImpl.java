@@ -1,13 +1,11 @@
 package com.fleyx.jcloud.service.impl;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fleyx.jcloud.common.constant.FileNodeConstants;
 import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.FileMapper;
 import com.fleyx.jcloud.mapper.RemoteMountMapper;
 import com.fleyx.jcloud.model.bo.FileDownloadResult;
-import com.fleyx.jcloud.model.bo.WebDavConfig;
 import com.fleyx.jcloud.model.convert.FileConvert;
 import com.fleyx.jcloud.model.dto.FileInstantUploadDto;
 import com.fleyx.jcloud.model.dto.FileUploadPreCheckDto;
@@ -51,7 +49,6 @@ public class RemoteFileServiceImpl implements RemoteFileService {
     private final FileConvert fileConvert;
     private final RemoteProtocolAdapterFactory adapterFactory;
     private final RemoteMountLock remoteMountLock;
-    private final ObjectMapper objectMapper;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -219,9 +216,7 @@ public class RemoteFileServiceImpl implements RemoteFileService {
         Map<String, String> cache = queryAncestorNames(node.getUserId(), ancestorIds);
         FilePathUtil.ResolveContext ctx = FilePathUtil.contextOf(null, node.getUserId(), cache);
         String fullNamePath = FilePathUtil.resolveNamePath(node, ctx);
-        String relativeNamePath = RemotePathUtil.relativeNamePath(mount.getName(), fullNamePath);
-        WebDavConfig config = readConfig(mount.getConfig());
-        return RemotePathUtil.buildRemotePath(config.getRootPath(), relativeNamePath);
+        return RemotePathUtil.relativeNamePath(mount.getName(), fullNamePath);
     }
 
     private Map<String, String> queryAncestorNames(String userId, Set<String> ancestorIds) {
@@ -236,14 +231,6 @@ public class RemoteFileServiceImpl implements RemoteFileService {
             }
         }
         return cache;
-    }
-
-    private WebDavConfig readConfig(String configJson) {
-        try {
-            return objectMapper.readValue(configJson, WebDavConfig.class);
-        } catch (Exception e) {
-            throw new BusinessException(ResultCode.BUSINESS_ERROR, "解析远程挂载配置失败");
-        }
     }
 
     private String buildChildPath(FileNode parentNode) {

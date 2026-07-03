@@ -39,9 +39,6 @@ public class RemoteMountUpdateDto implements Serializable {
     @Size(max = 256, message = "密码长度不能超过 256")
     private String password;
 
-    @Size(max = 512, message = "根路径长度不能超过 512")
-    private String rootPath;
-
     @Size(max = 128, message = "cron 表达式长度不能超过 128")
     private String cronExpr;
 

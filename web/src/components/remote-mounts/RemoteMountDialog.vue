@@ -43,7 +43,6 @@ const form = ref<RemoteMountSaveDto & { id?: string }>({
   url: '',
   username: '',
   password: '',
-  rootPath: '',
   cronExpr: '',
   enabled: 0,
 })
@@ -75,7 +74,6 @@ function resetForm() {
     url: '',
     username: '',
     password: '',
-    rootPath: '',
     cronExpr: '',
     enabled: 0,
   }
@@ -93,7 +91,6 @@ async function loadDetail(id: string) {
       url: detail.url,
       username: detail.username || '',
       password: '',
-      rootPath: detail.rootPath || '',
       cronExpr: detail.cronExpr || '',
       enabled: detail.enabled,
     }
@@ -136,7 +133,6 @@ function buildSaveDto(): RemoteMountSaveDto {
     url: form.value.url.trim(),
     username: form.value.username?.trim() || undefined,
     password: form.value.password || undefined,
-    rootPath: form.value.rootPath?.trim() || undefined,
     cronExpr: form.value.cronExpr?.trim() || undefined,
     enabled: form.value.enabled,
   }
@@ -254,16 +250,6 @@ async function handleSubmit() {
                 class="w-full rounded-xl border border-surface-200 bg-surface-50 px-3 py-2 text-sm outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100"
               >
             </div>
-          </div>
-
-          <div>
-            <label class="mb-1 block text-xs font-medium text-surface-700">根路径</label>
-            <input
-              v-model="form.rootPath"
-              type="text"
-              placeholder="/（默认为根目录）"
-              class="w-full rounded-xl border border-surface-200 bg-surface-50 px-3 py-2 text-sm outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100"
-            >
           </div>
 
           <div class="flex items-center justify-between rounded-xl border border-surface-200 bg-surface-50 px-4 py-3">

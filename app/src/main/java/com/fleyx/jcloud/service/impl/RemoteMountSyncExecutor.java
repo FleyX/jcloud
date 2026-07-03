@@ -11,17 +11,13 @@ import com.fleyx.jcloud.mapper.PreviewFileMapper;
 import com.fleyx.jcloud.mapper.RemoteMountMapper;
 import com.fleyx.jcloud.mapper.RemoteSyncTaskMapper;
 import com.fleyx.jcloud.model.bo.RemoteFileEntry;
-import com.fleyx.jcloud.model.bo.WebDavConfig;
 import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.po.PreviewFile;
 import com.fleyx.jcloud.model.po.RemoteMount;
 import com.fleyx.jcloud.model.po.RemoteSyncTask;
 import com.fleyx.jcloud.service.RemoteProtocolAdapter;
 import com.fleyx.jcloud.util.IdUtil;
-import com.fleyx.jcloud.util.RemoteConfigCrypto;
 import com.fleyx.jcloud.util.RemoteMountLock;
-import com.fleyx.jcloud.util.RemotePathUtil;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RLock;
@@ -58,9 +54,7 @@ public class RemoteMountSyncExecutor {
     private final FileMapper fileMapper;
     private final PreviewFileMapper previewFileMapper;
     private final RemoteProtocolAdapterFactory adapterFactory;
-    private final RemoteConfigCrypto remoteConfigCrypto;
     private final RemoteMountLock remoteMountLock;
-    private final ObjectMapper objectMapper;
 
     @Async
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
@@ -109,11 +103,9 @@ public class RemoteMountSyncExecutor {
             failTask(task, "挂载点文件节点不存在");
             return;
         }
-        WebDavConfig config = readConfig(mount.getConfig());
-        String remoteRootPath = RemotePathUtil.buildRemotePath(config.getRootPath(), "/");
         RemoteSyncContext context = new RemoteSyncContext(task.getId(), mount.getUserId(), mount.getId());
 
-        syncFolder(mountNode, remoteRootPath, adapter, context);
+        syncFolder(mountNode, "/", adapter, context);
         completeTask(task, context);
         updateMountStatus(mount, context);
     }
@@ -305,16 +297,6 @@ public class RemoteMountSyncExecutor {
         wrapper.eq(FileNode::getParentId, FileNodeConstants.ROOT_ID);
         wrapper.eq(FileNode::getSourceType, SOURCE_REMOTE);
         return fileMapper.selectOne(wrapper);
-    }
-
-    private WebDavConfig readConfig(String configJson) {
-        try {
-            WebDavConfig config = objectMapper.readValue(configJson, WebDavConfig.class);
-            config.setPassword(remoteConfigCrypto.decrypt(config.getPassword()));
-            return config;
-        } catch (Exception e) {
-            throw new BusinessException(ResultCode.BUSINESS_ERROR, "解析远程挂载配置失败");
-        }
     }
 
     private void markRunning(RemoteSyncTask task) {
