@@ -155,6 +155,7 @@ public class FileOperationServiceImpl implements FileOperationService {
                 .map(item -> getOwnedNode(item.getId(), userId))
                 .toList();
         validateSourceConsistency(sources, targetParent);
+        validateTargetNotSelfOrDescendant(sources, targetParent, targetParentId);
 
         String targetParentPathName = resolveParentPathName(targetParentId, userId);
         List<ConflictItemVo> conflicts = new ArrayList<>();
@@ -207,6 +208,7 @@ public class FileOperationServiceImpl implements FileOperationService {
                 .map(item -> getOwnedNode(item.getId(), userId))
                 .toList();
         validateSourceConsistency(sources, targetParent);
+        validateTargetNotSelfOrDescendant(sources, targetParent, targetParentId);
 
         String targetParentPathName = resolveParentPathName(targetParentId, userId);
         ConflictStrategy globalStrategy = ConflictStrategy.fromCode(dto.getGlobalStrategy());
@@ -245,6 +247,7 @@ public class FileOperationServiceImpl implements FileOperationService {
                 .map(item -> getOwnedNode(item.getId(), userId))
                 .toList();
         validateSourceConsistency(sources, targetParent);
+        validateTargetNotSelfOrDescendant(sources, targetParent, targetParentId);
 
         String targetParentPathName = resolveParentPathName(targetParentId, userId);
         User user = userMapper.selectById(userId);
@@ -402,6 +405,33 @@ public class FileOperationServiceImpl implements FileOperationService {
                 throw new BusinessException(ResultCode.BUSINESS_ERROR, "不能跨本地与远程目录操作");
             }
         }
+    }
+
+    /**
+     * 校验移动/复制目标不能是源节点自身或其子目录。
+     */
+    private void validateTargetNotSelfOrDescendant(List<FileNode> sources, FileNode targetParent,
+                                                   String targetParentId) {
+        for (FileNode source : sources) {
+            if (source.getId().equals(targetParentId)) {
+                throw new BusinessException(ResultCode.BUSINESS_ERROR, "不能移动到自身或其子目录");
+            }
+            if (targetParent != null && pathContainsId(targetParent.getPath(), source.getId())) {
+                throw new BusinessException(ResultCode.BUSINESS_ERROR, "不能移动到自身或其子目录");
+            }
+        }
+    }
+
+    private boolean pathContainsId(String path, String id) {
+        if (!StringUtils.hasText(path) || !StringUtils.hasText(id)) {
+            return false;
+        }
+        for (String part : path.split("\\.")) {
+            if (id.equals(part)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private FileNode getOwnedNode(String nodeId, String userId) {

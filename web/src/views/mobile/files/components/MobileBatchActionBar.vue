@@ -9,6 +9,7 @@ import { computed } from 'vue'
 interface Props {
   selectedCount: number
   totalCount: number
+  hasMixedSource?: boolean
 }
 
 const props = defineProps<Props>()
@@ -23,6 +24,7 @@ const emit = defineEmits<{
 }>()
 
 const isAllSelected = computed(() => props.selectedCount > 0 && props.selectedCount === props.totalCount)
+const allowBatchOperations = computed(() => !props.hasMixedSource)
 </script>
 
 <template>
@@ -57,35 +59,42 @@ const isAllSelected = computed(() => props.selectedCount > 0 && props.selectedCo
       </button>
     </div>
 
-    <div class="grid grid-cols-5 gap-2 pb-3">
-      <button
-        class="flex flex-col items-center gap-1 rounded-xl py-2 text-xs font-medium text-surface-600 transition-colors hover:bg-surface-100"
-        @click="emit('move')"
-      >
-        <FolderInput class="h-5 w-5" />
-        移动
-      </button>
-      <button
-        class="flex flex-col items-center gap-1 rounded-xl py-2 text-xs font-medium text-surface-600 transition-colors hover:bg-surface-100"
-        @click="emit('copy')"
-      >
-        <Copy class="h-5 w-5" />
-        复制
-      </button>
-      <button
-        class="flex flex-col items-center gap-1 rounded-xl py-2 text-xs font-medium text-surface-600 transition-colors hover:bg-surface-100"
-        @click="emit('download')"
-      >
-        <Download class="h-5 w-5" />
-        下载
-      </button>
-      <button
-        class="flex flex-col items-center gap-1 rounded-xl py-2 text-xs font-medium text-surface-600 transition-colors hover:bg-surface-100"
-        @click="emit('share')"
-      >
-        <Share2 class="h-5 w-5" />
-        分享
-      </button>
+    <div
+      :class="cn(
+        'grid gap-2 pb-3',
+        allowBatchOperations ? 'grid-cols-5' : 'grid-cols-1'
+      )"
+    >
+      <template v-if="allowBatchOperations">
+        <button
+          class="flex flex-col items-center gap-1 rounded-xl py-2 text-xs font-medium text-surface-600 transition-colors hover:bg-surface-100"
+          @click="emit('move')"
+        >
+          <FolderInput class="h-5 w-5" />
+          移动
+        </button>
+        <button
+          class="flex flex-col items-center gap-1 rounded-xl py-2 text-xs font-medium text-surface-600 transition-colors hover:bg-surface-100"
+          @click="emit('copy')"
+        >
+          <Copy class="h-5 w-5" />
+          复制
+        </button>
+        <button
+          class="flex flex-col items-center gap-1 rounded-xl py-2 text-xs font-medium text-surface-600 transition-colors hover:bg-surface-100"
+          @click="emit('download')"
+        >
+          <Download class="h-5 w-5" />
+          下载
+        </button>
+        <button
+          class="flex flex-col items-center gap-1 rounded-xl py-2 text-xs font-medium text-surface-600 transition-colors hover:bg-surface-100"
+          @click="emit('share')"
+        >
+          <Share2 class="h-5 w-5" />
+          分享
+        </button>
+      </template>
       <button
         class="flex flex-col items-center gap-1 rounded-xl py-2 text-xs font-medium text-red-600 transition-colors hover:bg-red-50"
         @click="emit('delete')"

@@ -8,6 +8,8 @@
         FROM t_remote_mount
         WHERE enabled = 1
           AND delete_at = 0
+          AND cron_expr IS NOT NULL
+          AND cron_expr != ''
           AND (
             next_sync_time IS NULL
             OR next_sync_time &lt;= #{now}

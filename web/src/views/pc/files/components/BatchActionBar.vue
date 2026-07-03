@@ -4,12 +4,14 @@
  */
 import { FolderInput, Copy, Trash2, Download, Share2, X } from '@lucide/vue'
 import { cn } from '@/utils/cn'
+import { computed } from 'vue'
 
 interface Props {
   selectedCount: number
+  hasMixedSource?: boolean
 }
 
-defineProps<Props>()
+const props = defineProps<Props>()
 const emit = defineEmits<{
   move: []
   copy: []
@@ -18,6 +20,8 @@ const emit = defineEmits<{
   delete: []
   clear: []
 }>()
+
+const allowBatchOperations = computed(() => !props.hasMixedSource)
 </script>
 
 <template>
@@ -32,34 +36,36 @@ const emit = defineEmits<{
     <span class="mr-2 text-sm font-medium text-surface-700">
       已选择 {{ selectedCount }} 项
     </span>
-    <button
-      class="flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-sm font-medium text-surface-600 transition-colors hover:bg-surface-100"
-      @click="emit('move')"
-    >
-      <FolderInput class="h-4 w-4" />
-      移动
-    </button>
-    <button
-      class="flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-sm font-medium text-surface-600 transition-colors hover:bg-surface-100"
-      @click="emit('copy')"
-    >
-      <Copy class="h-4 w-4" />
-      复制
-    </button>
-    <button
-      class="flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-sm font-medium text-surface-600 transition-colors hover:bg-surface-100"
-      @click="emit('download')"
-    >
-      <Download class="h-4 w-4" />
-      下载
-    </button>
-    <button
-      class="flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-sm font-medium text-surface-600 transition-colors hover:bg-surface-100"
-      @click="emit('share')"
-    >
-      <Share2 class="h-4 w-4" />
-      分享
-    </button>
+    <template v-if="allowBatchOperations">
+      <button
+        class="flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-sm font-medium text-surface-600 transition-colors hover:bg-surface-100"
+        @click="emit('move')"
+      >
+        <FolderInput class="h-4 w-4" />
+        移动
+      </button>
+      <button
+        class="flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-sm font-medium text-surface-600 transition-colors hover:bg-surface-100"
+        @click="emit('copy')"
+      >
+        <Copy class="h-4 w-4" />
+        复制
+      </button>
+      <button
+        class="flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-sm font-medium text-surface-600 transition-colors hover:bg-surface-100"
+        @click="emit('download')"
+      >
+        <Download class="h-4 w-4" />
+        下载
+      </button>
+      <button
+        class="flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-sm font-medium text-surface-600 transition-colors hover:bg-surface-100"
+        @click="emit('share')"
+      >
+        <Share2 class="h-4 w-4" />
+        分享
+      </button>
+    </template>
     <button
       class="flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-sm font-medium text-red-600 transition-colors hover:bg-red-50"
       @click="emit('delete')"
