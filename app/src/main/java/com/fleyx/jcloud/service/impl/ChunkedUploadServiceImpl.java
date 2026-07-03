@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fleyx.jcloud.common.enums.BatchUploadErrorCode;
 import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.exception.BusinessException;
+import com.fleyx.jcloud.config.UploadProperties;
 import com.fleyx.jcloud.mapper.FileChunkMapper;
 import com.fleyx.jcloud.mapper.FileMapper;
 import com.fleyx.jcloud.mapper.RemoteMountMapper;
@@ -70,11 +71,6 @@ import java.util.stream.Stream;
 @RequiredArgsConstructor
 public class ChunkedUploadServiceImpl implements ChunkedUploadService {
 
-    /**
-     * 固定分片大小：10MB。
-     */
-    public static final long CHUNK_SIZE = 10L * 1024 * 1024;
-
     private static final String META_FILE_NAME = ".upload";
     private static final String TYPE_FOLDER = "folder";
 
@@ -91,6 +87,7 @@ public class ChunkedUploadServiceImpl implements ChunkedUploadService {
     private final RemoteProtocolAdapterFactory adapterFactory;
     private final RemoteMountLock remoteMountLock;
     private final RemoteFileOperationService remoteFileOperationService;
+    private final UploadProperties uploadProperties;
 
     @Override
     public List<BatchChunkedUploadInitItemVo> init(String userId, List<ChunkedUploadInitDto> items) {
@@ -172,11 +169,12 @@ public class ChunkedUploadServiceImpl implements ChunkedUploadService {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "创建上传临时目录失败");
         }
 
+        long chunkSize = uploadProperties.getChunkSize();
         long fileSize = dto.getSize();
-        int totalChunks = (int) ((fileSize + CHUNK_SIZE - 1) / CHUNK_SIZE);
+        int totalChunks = (int) ((fileSize + chunkSize - 1) / chunkSize);
         ChunkedUploadInitVo vo = new ChunkedUploadInitVo();
         vo.setUploadId(uploadId);
-        vo.setChunkSize((int) CHUNK_SIZE);
+        vo.setChunkSize((int) chunkSize);
         vo.setTotalChunks(totalChunks);
         return vo;
     }
@@ -546,7 +544,8 @@ public class ChunkedUploadServiceImpl implements ChunkedUploadService {
         String fileName = meta.getProperty("fileName");
         long size = Long.parseLong(meta.getProperty("size"));
         String parentId = meta.getProperty("parentId", FileNodeConstants.ROOT_ID);
-        int totalChunks = (int) ((size + CHUNK_SIZE - 1) / CHUNK_SIZE);
+        long chunkSize = uploadProperties.getChunkSize();
+        int totalChunks = (int) ((size + chunkSize - 1) / chunkSize);
         return new UploadContext(user, space, tempDir, fileName, size, parentId, totalChunks);
     }
 

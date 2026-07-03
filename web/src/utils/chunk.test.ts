@@ -11,12 +11,13 @@ function createFile(name: string, size: number): File {
 
 describe('chunk utils', () => {
   it('should split file into expected chunks', async () => {
-    const file = createFile('test.bin', CHUNK_SIZE + 1)
-    const chunks = await createChunks(file)
+    const chunkSize = 1024
+    const file = createFile('test.bin', chunkSize + 1)
+    const chunks = await createChunks(file, chunkSize)
 
     expect(chunks).toHaveLength(2)
     expect(chunks[0].index).toBe(0)
-    expect(chunks[0].size).toBe(CHUNK_SIZE)
+    expect(chunks[0].size).toBe(chunkSize)
     expect(chunks[1].index).toBe(1)
     expect(chunks[1].size).toBe(1)
   })

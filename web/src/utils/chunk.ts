@@ -2,16 +2,17 @@
  * 文件分片工具
  *
  * 与后端 ChunkedUploadService 约定一致：
- * - 默认分片大小 10MB
+ * - 默认分片大小 64MB
  * - 每个分片使用完整 MD5 作为 chunkHash
  */
 
 import { md5 } from 'js-md5'
 
 /**
- * 默认分片大小：10MB。
+ * 默认分片大小：64MB。
+ * 实际以上传初始化接口返回的 chunkSize 为准，此处仅作为兜底默认值。
  */
-export const CHUNK_SIZE = 10 * 1024 * 1024
+export const CHUNK_SIZE = 64 * 1024 * 1024
 
 /**
  * 分片信息。
@@ -27,7 +28,7 @@ export interface ChunkInfo {
  * 将文件切分为指定大小的分片，并计算每个分片的 MD5。
  *
  * @param file 待切分文件
- * @param chunkSize 分片大小，默认 10MB
+ * @param chunkSize 分片大小，默认 64MB
  * @returns 分片信息列表
  */
 export async function createChunks(file: File, chunkSize = CHUNK_SIZE): Promise<ChunkInfo[]> {
