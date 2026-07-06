@@ -227,6 +227,23 @@ JCloud 中负责文件与文件夹的创建、读取、更新、删除的基础�
 **挂载点状态检查（Mount Health Check）**：
 系统每天首次被用户访问时触发的远程挂载点可用性检查。发现连接异常或凭据失效的挂载点时，前端向用户展示提示，由用户手动处理；不自动禁用挂载点。
 
+## WebDAV 访问领域
+
+**WebDAV 访问（WebDAV Access）**：
+登录用户通过 WebDAV 协议访问自己虚拟文件树的能力。JCloud 作为 WebDAV 服务端运行，用户在个人中心开启后，可通过 `/dav/{userCode}` 路径使用第三方 WebDAV 客户端挂载自己的整个文件树。
+
+**WebDAV 服务端点（WebDAV Server Endpoint）**：
+JCloud 对外暴露的 WebDAV 服务入口，统一前缀为 `/dav/{userCode}`，复用现有 Spring Boot 8080 端口。`{userCode}` 为用户编码（User Code），路径下直接映射该用户的虚拟文件树根目录。
+
+**WebDAV 访问开关（WebDAV Access Toggle）**：
+位于用户个人中心的布尔选项，默认关闭。用户手动开启后，即可使用主密码通过 WebDAV 协议访问自己的文件；关闭后服务端立即拒绝该用户的 WebDAV 认证。
+
+**WebDAV 访问密码（WebDAV Access Password）**：
+用户使用 WebDAV 协议登录时提供的密码。本期决策为与用户主密码相同，不在服务端单独存储或管理。
+
+**WebDAV 写操作（WebDAV Write Operation）**：
+通过 WebDAV 协议发起的上传、删除、移动、复制、创建文件夹等状态变更操作。写操作受用户级读写锁保护，遵循现有跨来源写操作拒绝、同名覆盖、物理删除等规则。
+
 ## 分享领域
 
 **分享（Share）**：

@@ -33,4 +33,9 @@ public class UserProfileVo implements Serializable {
      * 昵称。
      */
     private String nickname;
+
+    /**
+     * 是否启用 WebDAV 访问。
+     */
+    private Boolean webdavEnabled;
 }

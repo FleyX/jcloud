@@ -257,6 +257,18 @@ public class UserServiceImpl implements UserService {
         userMapper.updateById(update);
     }
 
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public UserProfileVo toggleWebDav(String userId, boolean enabled) {
+        User user = requireUser(userId);
+        User update = new User();
+        update.setId(user.getId());
+        update.setWebdavEnabled(enabled);
+        userMapper.updateById(update);
+        User updated = userMapper.selectById(user.getId());
+        return userConvert.poToProfileVo(updated);
+    }
+
     private User buildUserUpdate(User user, UserUpdateDto dto, boolean isBuiltInAdmin) {
         User update = new User();
         update.setId(user.getId());

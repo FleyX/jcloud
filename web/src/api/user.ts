@@ -11,6 +11,7 @@ import type {
   UserUpdateDto,
   UserUpdateRolesDto,
   UserVo,
+  UserWebDavToggleDto,
 } from '@/types/auth'
 import type { UserMigrationSubmitDto, UserMigrationTaskVo, UserStorageDto, UserSyncConfigUpdateDto, UserSyncConfigVo, UserSyncTaskVo } from '@/types/storage-space'
 
@@ -58,6 +59,10 @@ export function updateCurrentUserProfile(dto: UserProfileUpdateDto): Promise<Use
 
 export function changePassword(dto: ChangePasswordDto): Promise<void> {
   return put<void>('/users/me/password', dto)
+}
+
+export function toggleWebDav(dto: UserWebDavToggleDto): Promise<UserProfileVo> {
+  return put<UserProfileVo>('/users/me/webdav', dto)
 }
 
 export function bindUserStorageSpace(userId: string, dto: UserStorageDto): Promise<void> {

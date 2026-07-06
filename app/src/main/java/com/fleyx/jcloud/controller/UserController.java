@@ -11,6 +11,7 @@ import com.fleyx.jcloud.model.dto.UserProfileUpdateDto;
 import com.fleyx.jcloud.model.dto.UserSaveDto;
 import com.fleyx.jcloud.model.dto.UserStatusDto;
 import com.fleyx.jcloud.model.dto.UserStorageDto;
+import com.fleyx.jcloud.model.dto.UserWebDavToggleDto;
 import com.fleyx.jcloud.model.dto.UserUpdateDto;
 import com.fleyx.jcloud.model.dto.UserUpdateRolesDto;
 import com.fleyx.jcloud.model.vo.UserProfileVo;
@@ -149,6 +150,14 @@ public class UserController {
     public R<Void> changeCurrentPassword(@Valid @RequestBody ChangePasswordDto dto) {
         userService.changePassword(UserContext.get().id(), dto);
         return R.ok();
+    }
+
+    /**
+     * 切换当前登录用户 WebDAV 访问开关。
+     */
+    @PutMapping("/me/webdav")
+    public R<UserProfileVo> toggleWebDav(@Valid @RequestBody UserWebDavToggleDto dto) {
+        return R.ok(userService.toggleWebDav(UserContext.get().id(), dto.getEnabled()));
     }
 
     /**

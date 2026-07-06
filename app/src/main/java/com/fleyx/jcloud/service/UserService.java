@@ -124,6 +124,15 @@ public interface UserService {
     void changePassword(String userId, ChangePasswordDto dto);
 
     /**
+     * 切换当前登录用户 WebDAV 访问开关。
+     *
+     * @param userId  当前用户 ID
+     * @param enabled 是否启用
+     * @return 更新后的个人信息视图
+     */
+    UserProfileVo toggleWebDav(String userId, boolean enabled);
+
+    /**
      * 为用户绑定默认存储空间与配额。
      *
      * @param dto 用户存储空间绑定 DTO
