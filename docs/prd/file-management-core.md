@@ -155,7 +155,7 @@ JCloud 当前仅实现了用户、角色、权限等基础管理能力，缺少�
 
 ### 权限与资源
 
-- 新增文件模块相关权限资源（如 `files:menu`、`file:upload`、`file:delete` 等）并注册到 `t_resource` 和 `t_permission_resource`。
+- 新增文件模块相关权限资源（如 `file:menu`、`file:upload`、`file:delete` 等）并注册到 `t_resource` 和 `t_permission_resource`。
 - 文件接口统一前缀建议为 `/jcloud/api/files/**`。
 
 ### 依赖与配置

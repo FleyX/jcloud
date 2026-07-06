@@ -97,7 +97,7 @@
 ### 测试策略
 
 - 新增前端单元测试，使用 Vitest 对 `menuStore` 的路由解析逻辑进行测试。测试用例覆盖：
-  - `/files`、`/files/transfer`、`/files/share`、`/files/trash` 均解析到 `files` 模块。
+  - `/files`、`/files/share`、`/files/trash`、`/files/remote-mounts` 均解析到 `files` 模块。
   - `/admin/users`、`/admin/roles`、`/admin/permissions` 均解析到 `system` 模块。
   - `/profile` 不属于任何一级模块。
   - 在模拟不同权限用户时，`getSecondaryMenusByPrimary('system')` 返回的菜单项正确过滤。
