@@ -16,14 +16,16 @@ kill_port() {
 kill_port "$APP_PORT"
 kill_port "$WEB_PORT"
 
-echo "启动后端（端口 $APP_PORT）..."
+rm -f app.log web.log
+
 nohup bash -c "cd app && mvn spring-boot:run" > app.log 2>&1 &
-echo $! > app.pid
+APP_PID=$!
+echo $APP_PID > app.pid
+echo "启动后端，端口: $APP_PORT, PID: $APP_PID"
 
-
-echo "启动前端（端口 $WEB_PORT）..."
 nohup bash -c "cd web && pnpm run dev" > web.log 2>&1 &
-echo $! > web.pid
+WEB_PID=$!
+echo $WEB_PID > web.pid
+echo "启动前端，端口: $WEB_PORT, PID: $WEB_PID"
 
-echo "后端 PID: $(cat app.pid)，日志: app.log"
-echo "前端 PID: $(cat web.pid)，日志: web.log"
+echo "服务已启动: 后端 PID $APP_PID (端口 $APP_PORT), 前端 PID $WEB_PID (端口 $WEB_PORT)"
