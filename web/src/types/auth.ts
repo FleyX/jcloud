@@ -8,6 +8,7 @@ export interface UserVo {
   email?: string
   status: number
   isAdmin: boolean
+  webdavEnabled?: boolean
   roles: RoleVo[]
   storageSpaceId?: string
   storageSpaceName?: string
@@ -26,6 +27,7 @@ export interface UserProfileVo {
   username: string
   nickname?: string
   email?: string
+  webdavEnabled?: boolean
 }
 
 /**
@@ -43,6 +45,13 @@ export interface ChangePasswordDto {
   currentPassword: string
   newPassword: string
   confirmPassword: string
+}
+
+/**
+ * 用户 WebDAV 访问开关 DTO
+ */
+export interface UserWebDavToggleDto {
+  enabled: boolean
 }
 
 /**

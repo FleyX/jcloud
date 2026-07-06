@@ -5,6 +5,7 @@ import com.fleyx.jcloud.common.cache.UserPermissionCache;
 import com.fleyx.jcloud.common.permission.PermissionResolver;
 import com.fleyx.jcloud.filter.AuthTokenFilter;
 import com.fleyx.jcloud.filter.TraceIdFilter;
+import com.fleyx.jcloud.filter.WebDavAuthFilter;
 import com.fleyx.jcloud.mapper.ResourceMapper;
 import com.fleyx.jcloud.mapper.UserMapper;
 import com.fleyx.jcloud.mapper.UserRoleMapper;
@@ -53,6 +54,19 @@ public class FilterConfig {
         registration.addUrlPatterns("/jcloud/api/*");
         registration.setName("authTokenFilter");
         registration.setOrder(2);
+        return registration;
+    }
+
+    /**
+     * 注册 WebDAV 认证过滤器。
+     */
+    @Bean
+    public FilterRegistrationBean<WebDavAuthFilter> webDavAuthFilterRegistration() {
+        FilterRegistrationBean<WebDavAuthFilter> registration = new FilterRegistrationBean<>();
+        registration.setFilter(new WebDavAuthFilter(userMapper));
+        registration.addUrlPatterns("/dav/*");
+        registration.setName("webDavAuthFilter");
+        registration.setOrder(3);
         return registration;
     }
 }

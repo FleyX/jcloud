@@ -7,6 +7,11 @@
         reverse_proxy localhost:{$JCLOUD_APP_PORT:8080}
     }
 
+    # WebDAV 请求透传给后端
+    handle /dav/* {
+        reverse_proxy localhost:{$JCLOUD_APP_PORT:8080}
+    }
+
     # 其余请求交给前端 SPA
     handle {
         try_files {path} {path}/ /index.html

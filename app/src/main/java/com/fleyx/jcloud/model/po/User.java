@@ -76,6 +76,12 @@ public class User extends SoftDeleteEntity {
     private Integer readOnly;
 
     /**
+     * 是否启用 WebDAV 访问。
+     */
+    @TableField("webdav_enabled")
+    private Boolean webdavEnabled;
+
+    /**
      * 判断当前用户是否为内置超级管理员。
      */
     public boolean isSuperAdmin() {
