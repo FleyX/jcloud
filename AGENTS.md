@@ -10,6 +10,7 @@
 - 任务完成后执行start.sh启动前后端。
 - 数据库操作可直接使用 `psql` 命令。
 - 开发环境管理员账户admin/admin
+- mysql,redis等环境查看application-dev.yml,application-test.yml获取
 ## 快速启动
 
 ```bash
