@@ -53,6 +53,9 @@ export const useMenuStore = defineStore('menu', () => {
   function getSecondaryMenusByPrimary(primary: PrimaryModule): SecondaryMenuItem[] {
     switch (primary) {
       case 'files':
+        if (!userStore.isAdmin && !userStore.hasPermission('file:menu')) {
+          return []
+        }
         return [
           { key: 'all', label: '全部文件', route: '/files' },
           { key: 'share', label: '我的分享', route: '/files/share' },
@@ -60,11 +63,17 @@ export const useMenuStore = defineStore('menu', () => {
           { key: 'remote-mounts', label: '远程挂载', route: '/files/remote-mounts' },
         ]
       case 'notes':
+        if (!userStore.isAdmin && !userStore.hasPermission('note:menu')) {
+          return []
+        }
         return [
           { key: 'recent', label: '最近笔记', route: '/notes' },
           { key: 'tags', label: '标签', route: '/notes/tags' },
         ]
       case 'todos':
+        if (!userStore.isAdmin && !userStore.hasPermission('todo:menu')) {
+          return []
+        }
         return [
           { key: 'today', label: '今日待办', route: '/todos' },
           { key: 'archive', label: '归档', route: '/todos/archive' },

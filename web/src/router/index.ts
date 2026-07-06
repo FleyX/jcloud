@@ -3,7 +3,7 @@ import type { RouteRecordRaw } from 'vue-router'
 import { useUserStore } from '@/store/user'
 import { deviceView } from '@/utils/device'
 
-type RouteName = 'Login' | 'Register' | 'NotFound' | 'Init' | 'Files' | 'Trash' | 'Share' | 'RemoteMount' | 'UserManagement' | 'RoleManagement' | 'PermissionManagement' | 'StorageSpaceManagement' | 'Profile'
+type RouteName = 'Login' | 'Register' | 'NotFound' | 'Forbidden' | 'Init' | 'Files' | 'Trash' | 'Share' | 'RemoteMount' | 'UserManagement' | 'RoleManagement' | 'PermissionManagement' | 'StorageSpaceManagement' | 'Profile'
 
 /**
  * 公开静态路由
@@ -38,6 +38,12 @@ const publicRoutes: RouteRecordRaw[] = [
     meta: { public: true },
   },
   {
+    path: '/403',
+    name: 'Forbidden' as RouteName,
+    component: () => import('@/views/Forbidden.vue'),
+    meta: { public: true },
+  },
+  {
     path: '/s/:code',
     name: 'PublicShare' as RouteName,
     component: deviceView('share/index'),
@@ -55,25 +61,25 @@ const dynamicRoutes: RouteRecordRaw[] = [
     path: '/files',
     name: 'Files' as RouteName,
     component: deviceView('files/index'),
-    meta: { title: '全部文件' },
+    meta: { permission: 'file:menu', title: '全部文件' },
   },
   {
     path: '/files/trash',
     name: 'Trash' as RouteName,
     component: deviceView('files/trash'),
-    meta: { title: '回收站' },
+    meta: { permission: 'file:menu', title: '回收站' },
   },
   {
     path: '/files/share',
     name: 'Share' as RouteName,
     component: deviceView('files/share'),
-    meta: { title: '我的分享' },
+    meta: { permission: 'file:menu', title: '我的分享' },
   },
   {
     path: '/files/remote-mounts',
     name: 'RemoteMount' as RouteName,
     component: deviceView('files/remote-mounts'),
-    meta: { title: '远程挂载' },
+    meta: { permission: 'file:menu', title: '远程挂载' },
   },
   {
     path: '/admin/users',
@@ -134,6 +140,21 @@ function addDynamicRoutes(userStore: ReturnType<typeof useUserStore>) {
 
 const publicPaths = publicRoutes.map((route) => route.path)
 
+/**
+ * 判断目标路径是否对应某个需要权限才能访问的受保护动态路由。
+ * 用于在路由未匹配时区分“无权限”与“页面不存在”。
+ */
+function isProtectedRoutePath(path: string): boolean {
+  return dynamicRoutes.some((route) => {
+    const required = route.meta?.permission as string | undefined
+    if (!required) {
+      return false
+    }
+    const routePath = route.path
+    return path === routePath || path.startsWith(`${routePath}/`)
+  })
+}
+
 function needsInitRedirect(userStore: ReturnType<typeof useUserStore>): boolean {
   return userStore.isAdmin && !userStore.initialized
 }
@@ -191,9 +212,11 @@ router.beforeEach(async (to, _from, next) => {
     return next('/init')
   }
 
-  // 动态路由注入后仍匹配不到，则视为 404
+  // 动态路由注入后仍匹配不到：
+  // - 若目标路径属于某个需要权限的受保护路由，说明当前用户无权限，跳转 403
+  // - 否则为真正的 404
   if (to.matched.length === 0) {
-    return next('/404')
+    return next(isProtectedRoutePath(to.path) ? '/403' : '/404')
   }
 
   next()
