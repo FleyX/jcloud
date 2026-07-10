@@ -4,20 +4,21 @@
  */
 import { Check, Download, Globe } from '@lucide/vue'
 import { cn } from '@/utils/cn'
+import { formatDate } from '@/utils/fileDisplay'
 import FileRowActions from './FileRowActions.vue'
 import type { Component } from 'vue'
 import type { FileNodeVo } from '@/types/file'
+import type { FileDisplayType } from '@/utils/fileDisplay'
 
 type DisplayFile = FileNodeVo & {
-  iconType: string
+  iconType: FileDisplayType
   displaySize: string
-  displayDate: string
   selected: boolean
 }
 
 interface Props {
   file: DisplayFile
-  fileIconMap: Record<string, Component>
+  fileIconMap: Record<FileDisplayType, Component>
 }
 
 defineProps<Props>()
@@ -87,7 +88,7 @@ const emit = defineEmits(['rowClick', 'toggleSelect', 'download', 'rename', 'cop
     <span class="text-surface-500">{{ file.displaySize }}</span>
 
     <!-- 上传时间 -->
-    <span class="text-surface-500">{{ file.displayDate }}</span>
+    <span class="text-surface-500">{{ formatDate(file.createTime) }}</span>
 
     <!-- 操作按钮 -->
     <div class="flex justify-end gap-1">

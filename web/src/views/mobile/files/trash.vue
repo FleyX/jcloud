@@ -3,14 +3,7 @@
  * 移动端回收站页面
  */
 import { computed, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
 import {
-  ArrowLeft,
-  FileText,
-  Image as ImageIcon,
-  Film,
-  Music,
-  FolderUp,
   RotateCcw,
   Trash2,
 } from '@lucide/vue'
@@ -21,13 +14,12 @@ import {
   preCheckRestore,
   restoreFiles,
 } from '@/api/file'
+import { fileIconMap, formatSize, formatDate, getTypeStyle, inferFileType } from '@/utils/fileDisplay'
 import FileConflictModal from '@/components/files/FileConflictModal.vue'
 import { useConfirmStore } from '@/store/confirm'
 import { useNotificationStore } from '@/store/notification'
-import type { Component } from 'vue'
 import type { ConflictItemVo, ConflictStrategy, OperationResultVo, RecycleRecordVo } from '@/types/file'
 
-const router = useRouter()
 const confirmStore = useConfirmStore()
 const notificationStore = useNotificationStore()
 
@@ -40,47 +32,10 @@ const pendingRestoreRecords = ref<RecycleRecordVo[]>([])
 
 const selectedRecords = computed(() => records.value.filter((r) => selectedIds.value.has(r.id)))
 
-type FileType = 'image' | 'video' | 'audio' | 'doc' | 'folder'
-
-const fileIconMap: Record<FileType, Component> = {
-  doc: FileText,
-  image: ImageIcon,
-  video: Film,
-  audio: Music,
-  folder: FolderUp,
-}
-
-function inferType(record: RecycleRecordVo): FileType {
-  if (record.type === 'folder') return 'folder'
-  const ext = record.name.split('.').pop()?.toLowerCase() || ''
-  if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp'].includes(ext)) return 'image'
-  if (['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(ext)) return 'video'
-  if (['mp3', 'wav', 'flac', 'aac', 'ogg'].includes(ext)) return 'audio'
-  return 'doc'
-}
-
-function formatSize(bytes?: string | number): string {
-  const num = Number(bytes)
-  if (!num) return '-'
-  const units = ['B', 'KB', 'MB', 'GB', 'TB']
-  let i = 0
-  let size = num
-  while (size >= 1024 && i < units.length - 1) {
-    size /= 1024
-    i++
-  }
-  return `${size.toFixed(2)} ${units[i]}`
-}
-
-function formatDate(time?: string): string {
-  if (!time) return '-'
-  return time.split(' ')[0]
-}
-
 const displayRecords = computed(() =>
   records.value.map((record) => ({
     ...record,
-    type: inferType(record),
+    type: inferFileType({ type: record.type, name: record.name }),
     displaySize: formatSize(record.totalSize),
     displayDate: formatDate(record.createTime),
     selected: selectedIds.value.has(record.id),
@@ -105,21 +60,6 @@ function toggleSelect(id: string) {
     selectedIds.value.delete(id)
   } else {
     selectedIds.value.add(id)
-  }
-}
-
-function getTypeStyle(type: FileType) {
-  switch (type) {
-    case 'image':
-      return 'bg-purple-100 text-purple-600'
-    case 'video':
-      return 'bg-rose-100 text-rose-600'
-    case 'audio':
-      return 'bg-amber-100 text-amber-600'
-    case 'folder':
-      return 'bg-emerald-100 text-emerald-600'
-    default:
-      return 'bg-blue-100 text-blue-600'
   }
 }
 
@@ -198,17 +138,9 @@ function showResult(action: string, results: OperationResultVo[]) {
     <!-- 顶部工具栏 -->
     <div class="sticky top-0 z-10 border-b border-surface-200 bg-white/90 px-4 py-3 backdrop-blur-md">
       <div class="flex items-center justify-between">
-        <div class="flex items-center gap-3">
-          <button
-            class="rounded-lg p-2 text-surface-600 hover:bg-surface-100"
-            @click="router.push('/files')"
-          >
-            <ArrowLeft class="h-5 w-5" />
-          </button>
-          <h1 class="text-base font-semibold text-surface-900">
-            回收站
-          </h1>
-        </div>
+        <h1 class="text-base font-semibold text-surface-900">
+          回收站
+        </h1>
 
         <div class="flex items-center gap-2">
           <button
