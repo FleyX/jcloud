@@ -1,112 +1,27 @@
 <script setup lang="ts">
 /**
  * PC 文件列表页
- * - 真实接口：上传、列表查询、下载、新建文件夹、重命名、移动、复制
- * - 根目录固定 parentId = 0
+ * - 视图层仅保留 PC 专用模板与事件桥接
+ * - 列表状态与业务逻辑由 useFileList 提供
  */
-import { computed, onMounted, ref } from 'vue'
-import {
-  FileText,
-  FolderUp,
-  Image as ImageIcon,
-  Film,
-  Music,
-} from '@lucide/vue'
-import { deleteToTrash, downloadBatchFiles, downloadFile, fetchFilePage } from '@/api/file'
-import { createShare, updateShare } from '@/api/share'
-import { useConfirmStore } from '@/store/confirm'
-import { useNotificationStore } from '@/store/notification'
-import { useTransferStore } from '@/store/transfer'
-import { useFileOperations } from './composables/useFileOperations'
-import { useBatchUpload } from '@/composables/useBatchUpload'
-import type { UploadBatchFile } from '@/composables/useBatchUpload'
-import CreateFolderModal from './components/CreateFolderModal.vue'
-import CreateShareModal from './components/CreateShareModal.vue'
-import RenameModal from './components/RenameModal.vue'
-import MoveCopyModal from './components/MoveCopyModal.vue'
+import { onMounted, reactive } from 'vue'
+import { downloadFile } from '@/api/file'
+import { fileIconMap } from '@/utils/fileDisplay'
+import { useFileList } from '@/views/files/composables/useFileList'
+import { useFileOperations } from '@/views/files/composables/useFileOperations'
+import CreateFolderModal from '@/views/files/components/CreateFolderModal.vue'
+import CreateShareModal from '@/views/files/components/CreateShareModal.vue'
+import RenameModal from '@/views/files/components/RenameModal.vue'
+import MoveCopyModal from '@/views/files/components/MoveCopyModal.vue'
 import BatchActionBar from './components/BatchActionBar.vue'
 import FileListHeader from './components/FileListHeader.vue'
 import FileListRow from './components/FileListRow.vue'
 import FileListToolbar from './components/FileListToolbar.vue'
 import FilePreviewModal from '@/components/files/FilePreviewModal.vue'
 import FileConflictModal from '@/components/files/FileConflictModal.vue'
-import { useFileSort } from './composables/useFileSort'
-import type { Component } from 'vue'
-import type { ConflictItemVo, ConflictStrategy, FileNodeVo, OperationResultVo, FileSortField } from '@/types/file'
-import type { ShareCreateRequest, ShareDetailVo, ShareUpdateRequest } from '@/types/share'
+import type { FileNodeVo } from '@/types/file'
 
-const transferStore = useTransferStore()
-const notificationStore = useNotificationStore()
-const confirmStore = useConfirmStore()
-const { uploadBatch } = useBatchUpload()
-
-const files = ref<FileNodeVo[]>([])
-const keyword = ref('')
-const loading = ref(false)
-const selectedIds = ref<Set<string>>(new Set())
-const moveCopyOpen = ref(false)
-const moveCopyType = ref<'move' | 'copy'>('move')
-const moveCopyTargets = ref<FileNodeVo[]>([])
-const previewOpen = ref(false)
-const previewTarget = ref<FileNodeVo | null>(null)
-const shareOpen = ref(false)
-const shareEditTarget = ref<ShareDetailVo | undefined>(undefined)
-const currentParentId = ref('0')
-const breadcrumbStack = ref<Array<{ id: string; name: string }>>([{ id: '0', name: '全部文件' }])
-const { sortField, sortOrder, toggleSort } = useFileSort()
-const uploadConflictOpen = ref(false)
-const uploadConflicts = ref<ConflictItemVo[]>([])
-let uploadConflictResolve: ((strategies: Record<string, ConflictStrategy> | null) => void) | null = null
-
-function openPreview(file: FileNodeVo) {
-  if (file.type !== 'file') return
-  previewTarget.value = file
-  previewOpen.value = true
-}
-
-function openUploadConflict(conflicts: ConflictItemVo[]): Promise<Record<string, ConflictStrategy> | null> {
-  return new Promise((resolve) => {
-    uploadConflicts.value = conflicts
-    uploadConflictResolve = resolve
-    uploadConflictOpen.value = true
-  })
-}
-
-function handleUploadConflictConfirm(strategies: Record<string, ConflictStrategy>) {
-  uploadConflictOpen.value = false
-  uploadConflictResolve?.(strategies)
-  uploadConflictResolve = null
-}
-
-function handleUploadConflictCancel() {
-  uploadConflictOpen.value = false
-  uploadConflictResolve?.(null)
-  uploadConflictResolve = null
-}
-
-function enterFolder(file: FileNodeVo) {
-  if (file.type !== 'folder') return
-  currentParentId.value = file.id
-  breadcrumbStack.value.push({ id: file.id, name: file.name })
-  keyword.value = ''
-  loadFiles()
-}
-
-function handleRowClick(file: FileNodeVo) {
-  if (file.type === 'folder') {
-    enterFolder(file)
-  } else {
-    openPreview(file)
-  }
-}
-
-function navigateToBreadcrumb(index: number) {
-  breadcrumbStack.value = breadcrumbStack.value.slice(0, index + 1)
-  currentParentId.value = breadcrumbStack.value[index].id
-  keyword.value = ''
-  loadFiles()
-}
-
+const list = reactive(useFileList())
 const {
   createFolderOpen,
   renameOpen,
@@ -115,109 +30,21 @@ const {
   handleCreateFolder,
   openRename,
   handleRename,
-} = useFileOperations(loadFiles)
+} = useFileOperations(list.loadFiles)
 
-const folders = computed(() => files.value.filter((file) => file.type === 'folder'))
-const selectedFiles = computed(() => files.value.filter((file) => selectedIds.value.has(file.id)))
-const isAllSelected = computed(() => files.value.length > 0 && selectedIds.value.size === files.value.length)
-const hasMixedSelection = computed(() => hasMixedSource(selectedFiles.value))
-
-type FileType = 'image' | 'video' | 'audio' | 'doc' | 'folder'
-
-const fileIconMap: Record<FileType, Component> = {
-  doc: FileText,
-  image: ImageIcon,
-  video: Film,
-  audio: Music,
-  folder: FolderUp,
-}
-
-function inferType(file: FileNodeVo): FileType {
-  if (file.type === 'folder') return 'folder'
-  const mime = file.mimeType || ''
-  if (mime.startsWith('image/')) return 'image'
-  if (mime.startsWith('video/')) return 'video'
-  if (mime.startsWith('audio/')) return 'audio'
-  const ext = file.name.split('.').pop()?.toLowerCase() || ''
-  if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp'].includes(ext)) return 'image'
-  if (['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(ext)) return 'video'
-  if (['mp3', 'wav', 'flac', 'aac', 'ogg'].includes(ext)) return 'audio'
-  return 'doc'
-}
-
-function formatSize(bytes?: string | number): string {
-  const num = Number(bytes)
-  if (!num) return '-'
-  const units = ['B', 'KB', 'MB', 'GB', 'TB']
-  let i = 0
-  let size = num
-  while (size >= 1024 && i < units.length - 1) {
-    size /= 1024
-    i++
+function handleRowClick(file: FileNodeVo) {
+  if (file.type === 'folder') {
+    list.enterFolder(file)
+  } else {
+    list.openPreview(file)
   }
-  return `${size.toFixed(2)} ${units[i]}`
-}
-
-function formatDate(time?: string): string {
-  if (!time) return '-'
-  return time
-}
-
-const isSearching = computed(() => keyword.value.trim().length > 0)
-
-const displayFiles = computed(() =>
-  files.value.map((file) => ({
-    ...file,
-    iconType: inferType(file),
-    displaySize: formatSize(file.size),
-    displayDate: formatDate(file.createTime),
-    selected: selectedIds.value.has(file.id),
-  })),
-)
-
-async function loadFiles() {
-  loading.value = true
-  try {
-    const res = await fetchFilePage({
-      parentId: currentParentId.value,
-      name: keyword.value,
-      sortField: sortField.value,
-      sortOrder: sortOrder.value,
-      pageNum: 1,
-      pageSize: 100,
-    })
-    files.value = res.records
-    selectedIds.value.clear()
-  } finally {
-    loading.value = false
-  }
-}
-
-function onSort(field: FileSortField) {
-  toggleSort(field, loadFiles)
-}
-
-onMounted(loadFiles)
-
-function handleSearch() {
-  loadFiles()
-}
-
-function clearSearch() {
-  keyword.value = ''
-  loadFiles()
 }
 
 async function handleFileChange(event: Event) {
   const target = event.target as HTMLInputElement
   const files = Array.from(target.files ?? [])
-  if (files.length === 0) return
-  const batchFiles: UploadBatchFile[] = files.map((file) => ({ file }))
   try {
-    await uploadBatch(batchFiles, currentParentId.value, {
-      onComplete: loadFiles,
-      openConflict: openUploadConflict,
-    })
+    await list.uploadFiles(files)
   } finally {
     target.value = ''
   }
@@ -226,229 +53,80 @@ async function handleFileChange(event: Event) {
 async function handleFolderChange(event: Event) {
   const target = event.target as HTMLInputElement
   const files = Array.from(target.files ?? [])
-  if (files.length === 0) return
-  const batchFiles: UploadBatchFile[] = files.map((file) => ({
-    file,
-    relativePath: file.webkitRelativePath || file.name,
-  }))
   try {
-    await uploadBatch(batchFiles, currentParentId.value, {
-      onComplete: loadFiles,
-      defaultConflictStrategy: 'keep',
-    })
+    await list.uploadFolder(files)
   } finally {
     target.value = ''
   }
 }
 
-function toggleSelect(id: string) {
-  if (selectedIds.value.has(id)) {
-    selectedIds.value.delete(id)
-  } else {
-    selectedIds.value.add(id)
-  }
-}
-
-function toggleSelectAll() {
-  if (isAllSelected.value) {
-    selectedIds.value.clear()
-  } else {
-    selectedIds.value = new Set(files.value.map((file) => file.id))
-  }
-}
-
-function clearSelection() {
-  selectedIds.value.clear()
-}
-
-function openMoveCopy(type: 'move' | 'copy', targets: FileNodeVo[]) {
-  moveCopyType.value = type
-  moveCopyTargets.value = targets
-  moveCopyOpen.value = true
-}
-
-async function handleMoveCopyResult(results: OperationResultVo[]) {
-  const successCount = results.filter((r) => r.status === 'success').length
-  if (successCount > 0) {
-    await loadFiles()
-  }
-}
-
-async function handleDelete(file: FileNodeVo) {
-  const confirmed = await confirmStore.open({
-    title: '删除文件',
-    message: `确定将 "${file.name}" 移动到回收站吗？`,
-    confirmText: '删除',
-    type: 'danger',
-  })
-  if (!confirmed) return
-  await deleteToTrash({ ids: [file.id] })
-  notificationStore.success('已移动到回收站')
-  await loadFiles()
-}
-
-async function handleBatchDelete() {
-  const targets = selectedFiles.value
-  if (targets.length === 0) return
-  const confirmed = await confirmStore.open({
-    title: '批量删除',
-    message: `确定将选中的 ${targets.length} 项移动到回收站吗？`,
-    confirmText: '删除',
-    type: 'danger',
-  })
-  if (!confirmed) return
-  await deleteToTrash({ ids: targets.map((f) => f.id) })
-  notificationStore.success('已移动到回收站')
-  await loadFiles()
-}
-
-async function handleBatchDownload() {
-  const targets = selectedFiles.value
-  if (targets.length === 0) return
-  const taskId = `dl-${Date.now()}`
-  transferStore.addDownloadTask({ taskId, fileName: 'archive.zip' })
-  try {
-    await downloadBatchFiles(
-      targets.map((f) => f.id),
-      'archive.zip',
-      (progress) => transferStore.updateDownloadProgress(taskId, progress),
-    )
-    transferStore.completeDownloadTask(taskId)
-    notificationStore.success('下载完成')
-  } catch (err) {
-    const message = err instanceof Error ? err.message : '下载失败'
-    transferStore.failDownloadTask(taskId, message)
-    notificationStore.error(message)
-  }
-}
-
-function openShareModal() {
-  const targets = selectedFiles.value
-  if (targets.length === 0) return
-  if (hasMixedSource(targets)) {
-    notificationStore.error('分享不能同时包含本地与远程文件')
-    return
-  }
-  shareEditTarget.value = undefined
-  shareOpen.value = true
-}
-
-function hasMixedSource(nodes: FileNodeVo[]): boolean {
-  if (nodes.length < 2) return false
-  const firstSource = nodes[0].sourceType || 'local'
-  const firstMountId = nodes[0].remoteMountId
-  return nodes.some((node) => {
-    const source = node.sourceType || 'local'
-    if (source !== firstSource) return true
-    if (source === 'remote' && node.remoteMountId !== firstMountId) return true
-    return false
-  })
-}
-
-async function handleCreateShare(payload: ShareCreateRequest) {
-  try {
-    const share = await createShare(payload)
-    shareOpen.value = false
-    selectedIds.value.clear()
-    notificationStore.success('分享创建成功')
-    // TODO: 跳转到我的分享页或展示链接
-    console.log('share created', share)
-  } catch (err) {
-    const message = err instanceof Error ? err.message : '创建分享失败'
-    notificationStore.error(message)
-  }
-}
-
-async function handleUpdateShare(payload: ShareUpdateRequest) {
-  if (!shareEditTarget.value) return
-  try {
-    await updateShare(shareEditTarget.value.id, payload)
-    shareOpen.value = false
-    notificationStore.success('分享已更新')
-  } catch (err) {
-    const message = err instanceof Error ? err.message : '更新分享失败'
-    notificationStore.error(message)
-  }
-}
-
-function handleShareConfirm(payload: ShareCreateRequest | ShareUpdateRequest) {
-  if (shareEditTarget.value) {
-    handleUpdateShare(payload as ShareUpdateRequest)
-  } else {
-    handleCreateShare(payload as ShareCreateRequest)
-  }
-}
+onMounted(list.loadFiles)
 </script>
 
 <template>
   <div class="mx-auto h-full max-w-7xl">
-    <!-- 顶部工具栏 -->
     <FileListToolbar
-      v-model:keyword="keyword"
-      :breadcrumb-stack="breadcrumbStack"
-      :is-searching="isSearching"
-      @navigate-to-breadcrumb="navigateToBreadcrumb"
-      @search="handleSearch"
-      @clear-search="clearSearch"
+      v-model:keyword="list.keyword"
+      :breadcrumb-stack="list.breadcrumbStack"
+      :is-searching="list.isSearching"
+      @navigate-to-breadcrumb="list.navigateToBreadcrumb"
+      @search="list.handleSearch"
+      @clear-search="list.clearSearch"
       @create-folder="openCreateFolder"
       @file-change="handleFileChange"
       @folder-change="handleFolderChange"
     />
 
-    <!-- 文件列表表格 -->
     <div
       class="overflow-hidden rounded-3xl border border-surface-200 bg-white shadow-soft"
     >
-      <!-- 表头 -->
       <FileListHeader
-        :is-all-selected="isAllSelected"
-        :sort-field="sortField"
-        :sort-order="sortOrder"
-        @toggle-select-all="toggleSelectAll"
-        @sort="onSort"
+        :is-all-selected="list.isAllSelected"
+        :sort-field="list.sortField"
+        :sort-order="list.sortOrder"
+        @toggle-select-all="list.toggleSelectAll"
+        @sort="list.toggleSort"
       />
 
-      <!-- 加载中 -->
       <div
-        v-if="loading"
+        v-if="list.loading"
         class="px-5 py-12 text-center text-sm text-surface-500"
       >
         加载中...
       </div>
 
-      <!-- 文件行 -->
       <div
         v-else
         class="divide-y divide-surface-100"
       >
         <FileListRow
-          v-for="file in displayFiles"
+          v-for="file in list.displayFiles"
           :key="file.id"
           :file="file"
           :file-icon-map="fileIconMap"
           @row-click="handleRowClick"
-          @toggle-select="toggleSelect"
+          @toggle-select="list.toggleSelect"
           @download="downloadFile"
           @rename="openRename"
-          @copy="(f) => openMoveCopy('copy', [f])"
-          @move="(f) => openMoveCopy('move', [f])"
-          @remove="handleDelete"
+          @copy="(f: FileNodeVo) => list.openMoveCopy('copy', [f])"
+          @move="(f: FileNodeVo) => list.openMoveCopy('move', [f])"
+          @remove="list.handleDelete"
         />
 
         <p
-          v-if="displayFiles.length === 0"
+          v-if="list.displayFiles.length === 0"
           class="px-5 py-12 text-center text-sm text-surface-500"
         >
-          {{ isSearching ? '未找到相关文件' : '暂无文件，点击右上角上传' }}
+          {{ list.isSearching ? '未找到相关文件' : '暂无文件，点击右上角上传' }}
         </p>
       </div>
     </div>
 
     <CreateFolderModal
       :open="createFolderOpen"
-      :parent-id="currentParentId"
+      :parent-id="list.currentParentId"
       @close="createFolderOpen = false"
-      @confirm="(name: string) => handleCreateFolder(name, currentParentId)"
+      @confirm="(name: string) => handleCreateFolder(name, list.currentParentId)"
     />
 
     <RenameModal
@@ -459,45 +137,45 @@ function handleShareConfirm(payload: ShareCreateRequest | ShareUpdateRequest) {
     />
 
     <MoveCopyModal
-      :open="moveCopyOpen"
-      :type="moveCopyType"
-      :files="moveCopyTargets"
-      :folders="folders"
-      @close="moveCopyOpen = false"
-      @confirm="handleMoveCopyResult"
+      :open="list.moveCopyOpen"
+      :type="list.moveCopyType"
+      :files="list.moveCopyTargets"
+      :folders="list.folders"
+      @close="list.moveCopyOpen = false"
+      @confirm="list.handleMoveCopyResult"
     />
 
     <BatchActionBar
-      :selected-count="selectedIds.size"
-      :has-mixed-source="hasMixedSelection"
-      @move="openMoveCopy('move', selectedFiles)"
-      @copy="openMoveCopy('copy', selectedFiles)"
-      @download="handleBatchDownload"
-      @share="openShareModal"
-      @delete="handleBatchDelete"
-      @clear="clearSelection"
+      :selected-count="list.selectedIds.size"
+      :has-mixed-source="list.hasMixedSelection"
+      @move="list.openMoveCopy('move', list.selectedFiles)"
+      @copy="list.openMoveCopy('copy', list.selectedFiles)"
+      @download="list.handleBatchDownload"
+      @share="list.openShareModal"
+      @delete="list.handleBatchDelete"
+      @clear="list.clearSelection"
     />
 
     <CreateShareModal
-      :open="shareOpen"
-      :item-ids="Array.from(selectedIds)"
-      :edit-share="shareEditTarget"
-      @close="shareOpen = false"
-      @confirm="handleShareConfirm"
+      :open="list.shareOpen"
+      :item-ids="Array.from(list.selectedIds)"
+      :edit-share="list.shareEditTarget"
+      @close="list.shareOpen = false"
+      @confirm="list.handleShareConfirm"
     />
 
     <FilePreviewModal
-      v-model:open="previewOpen"
-      :file="previewTarget"
+      v-model:open="list.previewOpen"
+      :file="list.previewTarget"
     />
 
     <FileConflictModal
-      v-model:open="uploadConflictOpen"
+      v-model:open="list.uploadConflictOpen"
       title="上传冲突"
       confirm-text="确认上传"
-      :conflicts="uploadConflicts"
-      @confirm="handleUploadConflictConfirm"
-      @cancel="handleUploadConflictCancel"
+      :conflicts="list.uploadConflicts"
+      @confirm="list.handleUploadConflictConfirm"
+      @cancel="list.handleUploadConflictCancel"
     />
   </div>
 </template>

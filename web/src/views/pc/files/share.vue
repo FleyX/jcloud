@@ -20,7 +20,7 @@ import { cn } from '@/utils/cn'
 import { deleteShare, fetchShareDetail, fetchSharePage, updateShare } from '@/api/share'
 import { useConfirmStore } from '@/store/confirm'
 import { useNotificationStore } from '@/store/notification'
-import CreateShareModal from './components/CreateShareModal.vue'
+import CreateShareModal from '@/views/files/components/CreateShareModal.vue'
 import type { ShareCreateRequest, ShareDetailVo, ShareUpdateRequest, ShareVo } from '@/types/share'
 
 const confirmStore = useConfirmStore()
@@ -131,9 +131,8 @@ async function handleUpdateShare(payload: ShareUpdateRequest) {
     notificationStore.success('分享已更新')
     closeEditModal()
     await loadShares()
-  } catch (err) {
-    const message = err instanceof Error ? err.message : '更新分享失败'
-    notificationStore.error(message)
+  } catch {
+    // 请求层已统一提示
   }
 }
 

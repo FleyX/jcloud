@@ -125,7 +125,9 @@ async function copyUrl() {
         <div class="mb-6 rounded-xl border border-surface-200 bg-surface-50 p-4">
           <div class="mb-3 flex items-center gap-2">
             <HardDrive class="h-4 w-4 text-primary-600" />
-            <h3 class="text-sm font-semibold text-surface-900">WebDAV 访问</h3>
+            <h3 class="text-sm font-semibold text-surface-900">
+              WebDAV 访问
+            </h3>
           </div>
           <p class="mb-3 text-xs leading-relaxed text-surface-500">
             开启后可通过 WebDAV 客户端访问整个文件树。用户名即为账号用户名，密码为登录密码。
@@ -152,7 +154,10 @@ async function copyUrl() {
               />
             </button>
           </div>
-          <div v-if="webdavEnabled" class="space-y-2">
+          <div
+            v-if="webdavEnabled"
+            class="space-y-2"
+          >
             <label class="text-xs font-medium text-surface-700">访问地址</label>
             <div class="flex items-center gap-2">
               <input

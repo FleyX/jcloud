@@ -46,12 +46,13 @@ const drawerMenus = computed(() => {
 
 const activeSecondaryKey = computed(() => {
   const currentPath = route.path
-  const match = drawerMenus.value.find((menu) => {
+  const matches = drawerMenus.value.filter((menu) => {
     const menuRoute = menu.route
     if (!menuRoute) return false
     return currentPath === menuRoute || currentPath.startsWith(`${menuRoute}/`)
   })
-  return match?.key ?? ''
+  const bestMatch = matches.sort((a, b) => (b.route?.length ?? 0) - (a.route?.length ?? 0))[0]
+  return bestMatch?.key ?? ''
 })
 
 const drawerOpen = ref(false)
@@ -62,6 +63,8 @@ function handleLogoClick() {
 }
 
 function handleBack() {
+  // 个人中心没有底部 TabBar，返回时回到历史上一页。
+  // MobileAppShell 已移除会触发空白页的页面切换动画，此处恢复浏览器回退行为。
   router.back()
 }
 

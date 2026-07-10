@@ -101,6 +101,9 @@ describe('menuStore syncWithRoute', () => {
   })
 
   it('syncs /files/trash to files primary and trash secondary', () => {
+    const userStore = useUserStore()
+    userStore.permissions = ['file:menu']
+
     const menuStore = useMenuStore()
     menuStore.syncWithRoute('/files/trash')
 

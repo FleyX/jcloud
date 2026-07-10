@@ -3,6 +3,7 @@ import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createRouter, createWebHistory } from 'vue-router'
 import MobileHeader from './MobileHeader.vue'
+import MobileDrawer from './MobileDrawer.vue'
 import { useUserStore } from '@/store/user'
 import type { UserVo } from '@/types/auth'
 
@@ -28,6 +29,8 @@ async function mountHeader(routePath: string) {
     history: createWebHistory(),
     routes: [
       { path: '/files', component: { template: '<div>files</div>' } },
+      { path: '/files/trash', component: { template: '<div>trash</div>' } },
+      { path: '/files/share', component: { template: '<div>share</div>' } },
       { path: '/admin/users', component: { template: '<div>users</div>' } },
       { path: '/admin/roles', component: { template: '<div>roles</div>' } },
       { path: '/profile', component: { template: '<div>profile</div>' } },
@@ -99,5 +102,30 @@ describe('MobileHeader', () => {
     expect(wrapper.text()).toContain('个人中心')
     expect(wrapper.text()).toContain('返回')
     expect(wrapper.find('button.rounded-full').exists()).toBe(false)
+  })
+
+  it('navigates back via router.back when back is clicked on profile', async () => {
+    const { wrapper, router } = await mountHeader('/profile')
+    const backSpy = vi.spyOn(router, 'back')
+
+    const backButton = wrapper.findAll('button').find((b) => b.text().includes('返回'))
+    expect(backButton).toBeDefined()
+    await backButton!.trigger('click')
+
+    expect(backSpy).toHaveBeenCalled()
+  })
+
+  it('highlights the deepest matching secondary menu key', async () => {
+    const { wrapper } = await mountHeader('/files/trash')
+
+    const drawer = wrapper.findComponent(MobileDrawer)
+    expect(drawer.props('activeKey')).toBe('trash')
+  })
+
+  it('highlights the root secondary menu key on the root route', async () => {
+    const { wrapper } = await mountHeader('/files')
+
+    const drawer = wrapper.findComponent(MobileDrawer)
+    expect(drawer.props('activeKey')).toBe('all')
   })
 })
