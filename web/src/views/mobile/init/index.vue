@@ -105,7 +105,7 @@ async function handleSubmit() {
 </script>
 
 <template>
-  <div class="flex min-h-screen w-screen flex-col bg-gradient-to-br from-surface-50 to-primary-50 p-4">
+  <div class="flex h-screen w-screen flex-col bg-gradient-to-br from-surface-50 to-primary-50 p-4">
     <div class="w-full flex-1 rounded-3xl bg-white p-5 shadow-soft">
       <div class="mb-6 flex flex-col items-center gap-3">
         <div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary-600 text-white shadow-soft">

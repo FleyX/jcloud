@@ -19,14 +19,14 @@ const deviceStore = useDeviceStore()
 
 useRemoteMountHealthCheck()
 
-const isPublicRoute = computed(() => !!route.meta.public)
+const isStandaloneRoute = computed(() => !!route.meta.public || !!route.meta.init)
 </script>
 
 <template>
   <Toast />
   <ConfirmDialog />
 
-  <template v-if="isPublicRoute">
+  <template v-if="isStandaloneRoute">
     <router-view />
   </template>
 
