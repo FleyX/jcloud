@@ -34,4 +34,19 @@ public final class FileNodeConstants {
      * 远程文件节点来源类型。
      */
     public static final String SOURCE_REMOTE = "remote";
+
+    /**
+     * 文件操作结果状态：成功。
+     */
+    public static final String STATUS_SUCCESS = "success";
+
+    /**
+     * 文件操作结果状态：跳过。
+     */
+    public static final String STATUS_SKIPPED = "skipped";
+
+    /**
+     * 文件操作结果状态：失败。
+     */
+    public static final String STATUS_FAILED = "failed";
 }

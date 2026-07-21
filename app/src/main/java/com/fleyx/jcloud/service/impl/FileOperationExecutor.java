@@ -12,6 +12,8 @@ import com.fleyx.jcloud.model.dto.OperationItemDto;
 import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.po.StorageSpace;
 import com.fleyx.jcloud.model.po.User;
+import com.fleyx.jcloud.service.support.FileNodeSupport;
+import com.fleyx.jcloud.service.support.FilePathSupport;
 import com.fleyx.jcloud.util.FileConflictHelper;
 import com.fleyx.jcloud.util.FileConflictOverwriteHandler;
 import com.fleyx.jcloud.util.FileConflictResolver;
@@ -38,14 +40,14 @@ public class FileOperationExecutor {
 
     private static final String TYPE_FILE = "file";
     private static final String TYPE_FOLDER = "folder";
-    private static final String STATUS_SUCCESS = "success";
-    private static final String STATUS_SKIPPED = "skipped";
 
     private final FileMapper fileMapper;
     private final UserMapper userMapper;
     private final StorageSpaceMapper storageSpaceMapper;
     private final FileConflictResolver conflictResolver;
     private final FileConflictOverwriteHandler overwriteHandler;
+    private final FileNodeSupport fileNodeSupport;
+    private final FilePathSupport filePathSupport;
 
     /**
      * 执行单条移动。
@@ -58,7 +60,7 @@ public class FileOperationExecutor {
      */
     public OperationOutcome moveItem(OperationItemDto item, String userId,
                                      String targetParentId, String targetParentPathName) {
-        FileNode source = getOwnedNode(item.getId(), userId);
+        FileNode source = fileNodeSupport.getOwnedNode(item.getId(), userId);
         if (FileNodeConstants.SOURCE_REMOTE.equals(source.getSourceType())) {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "远程文件操作应由上层服务处理");
         }
@@ -91,7 +93,7 @@ public class FileOperationExecutor {
             Path targetPath = FilePathUtil.resolvePhysicalPath(space, username, newPathName);
             movePhysicalFile(sourcePath, targetPath);
         } else {
-            String oldPathName = resolveNamePath(source, userId);
+            String oldPathName = filePathSupport.resolveNamePath(source, userId);
             Path oldPhysicalPath = FilePathUtil.resolvePhysicalPath(space, username, oldPathName);
             Path newPhysicalPath = FilePathUtil.resolvePhysicalPath(space, username, newPathName);
             movePhysicalFile(oldPhysicalPath, newPhysicalPath);
@@ -100,7 +102,7 @@ public class FileOperationExecutor {
 
         source.setParentId(targetParentId);
         source.setName(resolution.finalName());
-        setNodePath(source, targetParentId, targetParentPathName);
+        fileNodeSupport.setNodePath(source, targetParentId);
         fileMapper.updateById(source);
         return OperationOutcome.success(source, resolution.finalName());
     }
@@ -118,7 +120,7 @@ public class FileOperationExecutor {
     public OperationOutcome copyItem(OperationItemDto item, String userId,
                                      String targetParentId, String targetParentPathName,
                                      User user) {
-        FileNode source = getOwnedNode(item.getId(), userId);
+        FileNode source = fileNodeSupport.getOwnedNode(item.getId(), userId);
         if (FileNodeConstants.SOURCE_REMOTE.equals(source.getSourceType())) {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "远程文件操作应由上层服务处理");
         }
@@ -181,7 +183,7 @@ public class FileOperationExecutor {
 
     private void moveFolderContents(FileNode sourceFolder, FileNode targetFolder, String userId) {
         List<FileNode> children = fileMapper.selectByParentId(userId, sourceFolder.getId());
-        String targetParentPathName = resolveNamePath(targetFolder, userId);
+        String targetParentPathName = filePathSupport.resolveNamePath(targetFolder, userId);
         for (FileNode child : children) {
             OperationItemDto childItem = new OperationItemDto();
             childItem.setId(child.getId());
@@ -193,7 +195,7 @@ public class FileOperationExecutor {
 
     private void copyFolderContents(FileNode sourceFolder, FileNode targetFolder, User user) {
         List<FileNode> children = fileMapper.selectByParentId(user.getId(), sourceFolder.getId());
-        String targetParentPathName = resolveNamePath(targetFolder, user.getId());
+        String targetParentPathName = filePathSupport.resolveNamePath(targetFolder, user.getId());
         for (FileNode child : children) {
             OperationItemDto childItem = new OperationItemDto();
             childItem.setId(child.getId());
@@ -217,7 +219,7 @@ public class FileOperationExecutor {
         target.setStorageSpaceId(source.getStorageSpaceId());
         target.setMimeType(source.getMimeType());
         target.setStatus(1);
-        setNodePath(target, parentId, parentPathName);
+        fileNodeSupport.setNodePath(target, parentId);
         fileMapper.insert(target);
 
         if (TYPE_FILE.equals(source.getType())) {
@@ -234,7 +236,7 @@ public class FileOperationExecutor {
     private void copyPhysicalFile(FileNode source, FileNode target, User user, StorageSpace space, String username) {
         Set<String> ancestorIds = new HashSet<>(FilePathUtil.extractAncestorIds(List.of(source)));
         ancestorIds.addAll(FilePathUtil.extractAncestorIds(List.of(target)));
-        Map<String, String> cache = queryAncestorNames(user.getId(), ancestorIds);
+        Map<String, String> cache = filePathSupport.queryAncestorNames(user.getId(), ancestorIds);
         FilePathUtil.ResolveContext ctx = FilePathUtil.contextOf(space, username, cache);
         Path sourcePath = FilePathUtil.resolvePhysicalPath(source, ctx);
         Path targetPath = FilePathUtil.resolvePhysicalPath(target, ctx);
@@ -288,29 +290,6 @@ public class FileOperationExecutor {
         return FilePathUtil.fullIdPath(newParent) + FileNodeConstants.PATH_SEPARATOR + folder.getId();
     }
 
-    private void setNodePath(FileNode node, String parentId, String parentPathName) {
-        if (FileNodeConstants.ROOT_ID.equals(parentId)) {
-            node.setPath(FileNodeConstants.ROOT_ID);
-        } else {
-            FileNode parent = fileMapper.selectById(parentId);
-            if (parent == null) {
-                throw new BusinessException(ResultCode.NOT_FOUND, "目标父目录不存在");
-            }
-            node.setPath(FilePathUtil.fullIdPath(parent));
-        }
-    }
-
-    private FileNode getOwnedNode(String nodeId, String userId) {
-        if (nodeId == null) {
-            throw new BusinessException(ResultCode.PARAM_ERROR, "节点 ID 不能为空");
-        }
-        FileNode node = fileMapper.selectById(nodeId);
-        if (node == null || !userId.equals(node.getUserId())) {
-            throw new BusinessException(ResultCode.NOT_FOUND, "节点不存在");
-        }
-        return node;
-    }
-
     private String resolveTargetName(OperationItemDto item, FileNode source) {
         return item.getNewName() != null && !item.getNewName().isBlank()
                 ? item.getNewName().trim()
@@ -327,34 +306,10 @@ public class FileOperationExecutor {
         userMapper.updateById(user);
     }
 
-    private String resolveNamePath(FileNode node, String userId) {
-        if (node == null) {
-            return "/";
-        }
-        Set<String> ancestorIds = FilePathUtil.extractAncestorIds(List.of(node));
-        Map<String, String> cache = queryAncestorNames(userId, ancestorIds);
-        FilePathUtil.ResolveContext ctx = FilePathUtil.contextOf(null, userId, cache);
-        return FilePathUtil.resolveNamePath(node, ctx);
-    }
-
-    private Map<String, String> queryAncestorNames(String userId, Set<String> ancestorIds) {
-        Map<String, String> cache = new HashMap<>();
-        if (ancestorIds.isEmpty()) {
-            return cache;
-        }
-        List<FileNode> ancestors = fileMapper.selectBatchIds(ancestorIds);
-        for (FileNode ancestor : ancestors) {
-            if (userId.equals(ancestor.getUserId())) {
-                cache.put(ancestor.getId(), ancestor.getName());
-            }
-        }
-        return cache;
-    }
-
     private FilePathUtil.ResolveContext buildResolveContext(FileNode node, String username, StorageSpace space) {
         String userId = node.getUserId();
         Set<String> ancestorIds = FilePathUtil.extractAncestorIds(List.of(node));
-        Map<String, String> cache = queryAncestorNames(userId, ancestorIds);
+        Map<String, String> cache = filePathSupport.queryAncestorNames(userId, ancestorIds);
         return FilePathUtil.contextOf(space, username, cache);
     }
 
@@ -365,11 +320,11 @@ public class FileOperationExecutor {
                                     String newName, String nodeId) {
 
         static OperationOutcome success(FileNode node, String newName) {
-            return new OperationOutcome(STATUS_SUCCESS, node.getId(), node.getName(), newName, node.getId());
+            return new OperationOutcome(FileNodeConstants.STATUS_SUCCESS, node.getId(), node.getName(), newName, node.getId());
         }
 
         static OperationOutcome skipped(FileNode node) {
-            return new OperationOutcome(STATUS_SKIPPED, node.getId(), node.getName(), null, null);
+            return new OperationOutcome(FileNodeConstants.STATUS_SKIPPED, node.getId(), node.getName(), null, null);
         }
     }
 }
