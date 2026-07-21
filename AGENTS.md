@@ -41,7 +41,8 @@ com.fleyx.jcloud
 ├── controller             // 3. 路由/控制层（仅负责参数校验、路由分发、调用Service）
 │
 ├── service                // 4. 业务逻辑接口层
-│   └── impl               //    - 业务逻辑实现类
+│   ├── impl               //    - 业务逻辑实现类
+│   └── support            //    - 跨实现类共享的支撑组件（FileNodeSupport、FilePathSupport、UserSpaceSupport 及 Trash* 回收站支撑组件）
 │
 ├── mapper                 // 5. 数据访问层（MyBatis-Plus 的 Mapper 接口）
 │

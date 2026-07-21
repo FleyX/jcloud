@@ -24,6 +24,8 @@ import com.fleyx.jcloud.common.context.UserContext;
 import com.fleyx.jcloud.service.FileOperationService;
 import com.fleyx.jcloud.service.RemoteFileOperationService;
 import com.fleyx.jcloud.service.RemoteFileService;
+import com.fleyx.jcloud.service.support.FileNodeSupport;
+import com.fleyx.jcloud.service.support.FilePathSupport;
 import com.fleyx.jcloud.util.FileConflictHelper;
 import com.fleyx.jcloud.util.FileConflictResolver;
 import com.fleyx.jcloud.util.FileNodeUtil;
@@ -32,6 +34,8 @@ import com.fleyx.jcloud.util.UserReadOnlyChecker;
 import com.fleyx.jcloud.util.UserReadWriteLock;
 import lombok.RequiredArgsConstructor;
 import org.redisson.api.RLock;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -39,12 +43,9 @@ import org.springframework.util.StringUtils;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 
 /**
  * 文件组织操作服务实现。
@@ -66,6 +67,12 @@ public class FileOperationServiceImpl implements FileOperationService {
     private final RemoteFileOperationService remoteFileOperationService;
     private final RemoteFileService remoteFileService;
     private final FileConflictResolver conflictResolver;
+    private final FileNodeSupport fileNodeSupport;
+    private final FilePathSupport filePathSupport;
+
+    @Lazy
+    @Autowired
+    private FileOperationServiceImpl self;
 
     @Override
     public FileNodeVo rename(FileRenameDto dto, String userId) {
@@ -73,15 +80,15 @@ public class FileOperationServiceImpl implements FileOperationService {
         RLock lock = userReadWriteLock.writeLock(userId);
         lock.lock();
         try {
-            return doRename(dto, userId);
+            return self.doRename(dto, userId);
         } finally {
             lock.unlock();
         }
     }
 
     @Transactional(rollbackFor = Exception.class)
-    protected FileNodeVo doRename(FileRenameDto dto, String userId) {
-        FileNode node = getOwnedNode(dto.getId(), userId);
+    public FileNodeVo doRename(FileRenameDto dto, String userId) {
+        FileNode node = fileNodeSupport.getOwnedNode(dto.getId(), userId);
         String newName = normalizeName(dto.getNewName());
 
         if (FileNodeConstants.SOURCE_REMOTE.equals(node.getSourceType())) {
@@ -92,7 +99,7 @@ public class FileOperationServiceImpl implements FileOperationService {
 
         StorageSpace space = storageSpaceMapper.selectById(node.getStorageSpaceId());
         String username = UserContext.requireUserCode();
-        String oldPathName = resolveNamePath(node, userId);
+        String oldPathName = filePathSupport.resolveNamePath(node, userId);
         String newPathName = FilePathUtil.buildPathName(FilePathUtil.parentOf(oldPathName), newName);
 
         if (TYPE_FILE.equals(node.getType())) {
@@ -112,14 +119,14 @@ public class FileOperationServiceImpl implements FileOperationService {
         RLock lock = userReadWriteLock.writeLock(userId);
         lock.lock();
         try {
-            return doCreateFolder(dto, userId);
+            return self.doCreateFolder(dto, userId);
         } finally {
             lock.unlock();
         }
     }
 
     @Transactional(rollbackFor = Exception.class)
-    protected FileNodeVo doCreateFolder(FileCreateFolderDto dto, String userId) {
+    public FileNodeVo doCreateFolder(FileCreateFolderDto dto, String userId) {
         String parentId = FileNodeUtil.normalizeParentId(dto.getParentId());
         String name = normalizeName(dto.getName());
 
@@ -130,8 +137,8 @@ public class FileOperationServiceImpl implements FileOperationService {
 
         validateNameConflict(fileMapper, userId, parentId, name, null);
 
-        FileNode folder = buildFolderNode(userId, parentId, name);
-        setNodePath(folder, parentNode);
+        FileNode folder = fileNodeSupport.buildFolderNode(userId, parentId, name);
+        fileNodeSupport.setNodePath(folder, parentId);
         fileMapper.insert(folder);
         return fileConvert.poToVo(folder);
     }
@@ -152,7 +159,7 @@ public class FileOperationServiceImpl implements FileOperationService {
         String targetParentId = FileNodeUtil.normalizeParentId(dto.getTargetParentId());
         FileNode targetParent = resolveTargetParentNode(targetParentId, userId);
         List<FileNode> sources = dto.getItems().stream()
-                .map(item -> getOwnedNode(item.getId(), userId))
+                .map(item -> fileNodeSupport.getOwnedNode(item.getId(), userId))
                 .toList();
         validateSourceConsistency(sources, targetParent);
         validateTargetNotSelfOrDescendant(sources, targetParent, targetParentId);
@@ -160,7 +167,7 @@ public class FileOperationServiceImpl implements FileOperationService {
         String targetParentPathName = resolveParentPathName(targetParentId, userId);
         List<ConflictItemVo> conflicts = new ArrayList<>();
         for (OperationItemDto item : dto.getItems()) {
-            FileNode source = getOwnedNode(item.getId(), userId);
+            FileNode source = fileNodeSupport.getOwnedNode(item.getId(), userId);
             String targetName = StringUtils.hasText(item.getNewName())
                     ? item.getNewName().trim()
                     : source.getName();
@@ -194,18 +201,18 @@ public class FileOperationServiceImpl implements FileOperationService {
         RLock lock = userReadWriteLock.writeLock(userId);
         lock.lock();
         try {
-            return doMove(dto, userId);
+            return self.doMove(dto, userId);
         } finally {
             lock.unlock();
         }
     }
 
     @Transactional(rollbackFor = Exception.class)
-    protected List<OperationResultVo> doMove(FileExecuteOperationDto dto, String userId) {
+    public List<OperationResultVo> doMove(FileExecuteOperationDto dto, String userId) {
         String targetParentId = FileNodeUtil.normalizeParentId(dto.getTargetParentId());
         FileNode targetParent = resolveTargetParentNode(targetParentId, userId);
         List<FileNode> sources = dto.getItems().stream()
-                .map(item -> getOwnedNode(item.getId(), userId))
+                .map(item -> fileNodeSupport.getOwnedNode(item.getId(), userId))
                 .toList();
         validateSourceConsistency(sources, targetParent);
         validateTargetNotSelfOrDescendant(sources, targetParent, targetParentId);
@@ -214,7 +221,7 @@ public class FileOperationServiceImpl implements FileOperationService {
         ConflictStrategy globalStrategy = ConflictStrategy.fromCode(dto.getGlobalStrategy());
         List<OperationResultVo> results = new ArrayList<>();
         for (OperationItemDto item : dto.getItems()) {
-            FileNode source = getOwnedNode(item.getId(), userId);
+            FileNode source = fileNodeSupport.getOwnedNode(item.getId(), userId);
             if (FileNodeConstants.SOURCE_REMOTE.equals(source.getSourceType())) {
                 results.add(doRemoteMove(item, source, targetParent, userId, globalStrategy));
             } else {
@@ -233,18 +240,18 @@ public class FileOperationServiceImpl implements FileOperationService {
         RLock lock = userReadWriteLock.writeLock(userId);
         lock.lock();
         try {
-            return doCopy(dto, userId);
+            return self.doCopy(dto, userId);
         } finally {
             lock.unlock();
         }
     }
 
     @Transactional(rollbackFor = Exception.class)
-    protected List<OperationResultVo> doCopy(FileExecuteOperationDto dto, String userId) {
+    public List<OperationResultVo> doCopy(FileExecuteOperationDto dto, String userId) {
         String targetParentId = FileNodeUtil.normalizeParentId(dto.getTargetParentId());
         FileNode targetParent = resolveTargetParentNode(targetParentId, userId);
         List<FileNode> sources = dto.getItems().stream()
-                .map(item -> getOwnedNode(item.getId(), userId))
+                .map(item -> fileNodeSupport.getOwnedNode(item.getId(), userId))
                 .toList();
         validateSourceConsistency(sources, targetParent);
         validateTargetNotSelfOrDescendant(sources, targetParent, targetParentId);
@@ -254,7 +261,7 @@ public class FileOperationServiceImpl implements FileOperationService {
         ConflictStrategy globalStrategy = ConflictStrategy.fromCode(dto.getGlobalStrategy());
         List<OperationResultVo> results = new ArrayList<>();
         for (OperationItemDto item : dto.getItems()) {
-            FileNode source = getOwnedNode(item.getId(), userId);
+            FileNode source = fileNodeSupport.getOwnedNode(item.getId(), userId);
             if (FileNodeConstants.SOURCE_REMOTE.equals(source.getSourceType())) {
                 results.add(doRemoteCopy(item, source, targetParent, userId, globalStrategy));
             } else {
@@ -279,7 +286,7 @@ public class FileOperationServiceImpl implements FileOperationService {
             OperationResultVo vo = new OperationResultVo();
             vo.setSourceId(source.getId());
             vo.setSourceName(source.getName());
-            vo.setStatus("skipped");
+            vo.setStatus(FileNodeConstants.STATUS_SKIPPED);
             return vo;
         }
         if (resolution.existingToReplace() != null) {
@@ -289,7 +296,7 @@ public class FileOperationServiceImpl implements FileOperationService {
         OperationResultVo vo = new OperationResultVo();
         vo.setSourceId(source.getId());
         vo.setSourceName(source.getName());
-        vo.setStatus("success");
+        vo.setStatus(FileNodeConstants.STATUS_SUCCESS);
         vo.setNewName(resolution.finalName().equals(source.getName()) ? null : resolution.finalName());
         vo.setNodeId(moved.getId());
         return vo;
@@ -349,11 +356,11 @@ public class FileOperationServiceImpl implements FileOperationService {
         if (FileNodeConstants.ROOT_ID.equals(parentId)) {
             return "/";
         }
-        FileNode parent = getOwnedNode(parentId, userId);
+        FileNode parent = fileNodeSupport.getOwnedNode(parentId, userId);
         if (!TYPE_FOLDER.equals(parent.getType())) {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "目标父节点不是文件夹");
         }
-        return resolveNamePath(parent, userId);
+        return filePathSupport.resolveNamePath(parent, userId);
     }
 
     private FileNode resolveParentNode(String parentId, String userId) {
@@ -371,7 +378,7 @@ public class FileOperationServiceImpl implements FileOperationService {
         if (FileNodeConstants.ROOT_ID.equals(targetParentId)) {
             return;
         }
-        FileNode parent = getOwnedNode(targetParentId, userId);
+        FileNode parent = fileNodeSupport.getOwnedNode(targetParentId, userId);
         if (!TYPE_FOLDER.equals(parent.getType())) {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "目标父节点不是文件夹");
         }
@@ -381,7 +388,7 @@ public class FileOperationServiceImpl implements FileOperationService {
         if (FileNodeConstants.ROOT_ID.equals(targetParentId)) {
             return null;
         }
-        FileNode parent = getOwnedNode(targetParentId, userId);
+        FileNode parent = fileNodeSupport.getOwnedNode(targetParentId, userId);
         if (!TYPE_FOLDER.equals(parent.getType())) {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "目标父节点不是文件夹");
         }
@@ -434,17 +441,6 @@ public class FileOperationServiceImpl implements FileOperationService {
         return false;
     }
 
-    private FileNode getOwnedNode(String nodeId, String userId) {
-        if (nodeId == null) {
-            throw new BusinessException(ResultCode.PARAM_ERROR, "节点 ID 不能为空");
-        }
-        FileNode node = fileMapper.selectById(nodeId);
-        if (node == null || !userId.equals(node.getUserId())) {
-            throw new BusinessException(ResultCode.NOT_FOUND, "节点不存在");
-        }
-        return node;
-    }
-
     private static void validateNameConflict(FileMapper fileMapper, String userId,
                                              String parentId, String name, String excludeId) {
         if (!StringUtils.hasText(name)) {
@@ -490,7 +486,7 @@ public class FileOperationServiceImpl implements FileOperationService {
         vo.setExistingType(existing.getType());
         vo.setType(source.getType());
         vo.setSuggestedStrategy(ConflictStrategy.KEEP.getCode());
-        String sourcePath = resolveNamePath(source, source.getUserId());
+        String sourcePath = filePathSupport.resolveNamePath(source, source.getUserId());
         vo.setSourcePath(sourcePath);
         vo.setTargetPath(FilePathUtil.buildPathName(targetParentPathName, existing.getName()));
         return vo;
@@ -504,58 +500,5 @@ public class FileOperationServiceImpl implements FileOperationService {
         vo.setNewName(outcome.newName());
         vo.setNodeId(outcome.nodeId());
         return vo;
-    }
-
-    private FileNode buildFolderNode(String userId, String parentId, String name) {
-        FileNode folder = new FileNode();
-        folder.setUserId(userId);
-        folder.setParentId(parentId);
-        folder.setName(name);
-        folder.setType(TYPE_FOLDER);
-        folder.setSize(0L);
-        folder.setStorageSpaceId(resolveStorageSpaceId(userId));
-        folder.setSourceType(FileNodeConstants.SOURCE_LOCAL);
-        folder.setStatus(1);
-        return folder;
-    }
-
-    private void setNodePath(FileNode node, FileNode parent) {
-        if (parent == null || FileNodeConstants.ROOT_ID.equals(parent.getId())) {
-            node.setPath(FileNodeConstants.ROOT_ID);
-        } else {
-            node.setPath(FilePathUtil.fullIdPath(parent));
-        }
-    }
-
-    private String resolveStorageSpaceId(String userId) {
-        User user = userMapper.selectById(userId);
-        if (user == null || user.getStorageSpaceId() == null) {
-            throw new BusinessException(ResultCode.BUSINESS_ERROR, "用户未绑定存储空间");
-        }
-        return user.getStorageSpaceId();
-    }
-
-    private String resolveNamePath(FileNode node, String userId) {
-        if (node == null) {
-            return "/";
-        }
-        Set<String> ancestorIds = FilePathUtil.extractAncestorIds(List.of(node));
-        Map<String, String> cache = queryAncestorNames(userId, ancestorIds);
-        FilePathUtil.ResolveContext ctx = FilePathUtil.contextOf(null, userId, cache);
-        return FilePathUtil.resolveNamePath(node, ctx);
-    }
-
-    private Map<String, String> queryAncestorNames(String userId, Set<String> ancestorIds) {
-        Map<String, String> cache = new HashMap<>();
-        if (ancestorIds.isEmpty()) {
-            return cache;
-        }
-        List<FileNode> ancestors = fileMapper.selectBatchIds(ancestorIds);
-        for (FileNode ancestor : ancestors) {
-            if (userId.equals(ancestor.getUserId())) {
-                cache.put(ancestor.getId(), ancestor.getName());
-            }
-        }
-        return cache;
     }
 }

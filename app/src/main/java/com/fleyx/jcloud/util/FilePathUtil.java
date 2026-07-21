@@ -237,6 +237,18 @@ public final class FilePathUtil {
     }
 
     /**
+     * 解析回收站记录的物理根目录。
+     *
+     * @param space    存储空间
+     * @param username 用户名
+     * @param recordId 回收站记录 ID
+     * @return 回收站记录物理根目录
+     */
+    public static Path resolveTrashRoot(StorageSpace space, String username, String recordId) {
+        return Path.of(space.getPath(), StorageConstant.TRASH_DIR, username, recordId);
+    }
+
+    /**
      * 从节点集合中提取所有非根祖先 id。
      *
      * @param nodes 文件节点集合
