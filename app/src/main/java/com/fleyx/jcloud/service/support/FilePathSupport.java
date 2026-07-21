@@ -2,6 +2,7 @@ package com.fleyx.jcloud.service.support;
 
 import com.fleyx.jcloud.mapper.FileMapper;
 import com.fleyx.jcloud.model.po.FileNode;
+import com.fleyx.jcloud.model.po.StorageSpace;
 import com.fleyx.jcloud.util.FilePathUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -57,5 +58,20 @@ public class FilePathSupport {
             }
         }
         return cache;
+    }
+
+    /**
+     * 构建节点的物理路径解析上下文（含祖先名称缓存）。
+     *
+     * @param node     节点
+     * @param username 用户名
+     * @param space    存储空间
+     * @return 路径解析上下文
+     */
+    public FilePathUtil.ResolveContext buildResolveContext(FileNode node, String username, StorageSpace space) {
+        String userId = node.getUserId();
+        Set<String> ancestorIds = FilePathUtil.extractAncestorIds(List.of(node));
+        Map<String, String> cache = queryAncestorNames(userId, ancestorIds);
+        return FilePathUtil.contextOf(space, username, cache);
     }
 }
