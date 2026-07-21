@@ -88,7 +88,7 @@ public class FileOperationExecutor {
 
         String newPathName = FilePathUtil.buildPathName(targetParentPathName, resolution.finalName());
         if (TYPE_FILE.equals(source.getType())) {
-            FilePathUtil.ResolveContext ctx = buildResolveContext(source, username, space);
+            FilePathUtil.ResolveContext ctx = filePathSupport.buildResolveContext(source, username, space);
             Path sourcePath = FilePathUtil.resolvePhysicalPath(source, ctx);
             Path targetPath = FilePathUtil.resolvePhysicalPath(space, username, newPathName);
             movePhysicalFile(sourcePath, targetPath);
@@ -304,13 +304,6 @@ public class FileOperationExecutor {
         }
         user.setUsedSpace(used + delta);
         userMapper.updateById(user);
-    }
-
-    private FilePathUtil.ResolveContext buildResolveContext(FileNode node, String username, StorageSpace space) {
-        String userId = node.getUserId();
-        Set<String> ancestorIds = FilePathUtil.extractAncestorIds(List.of(node));
-        Map<String, String> cache = filePathSupport.queryAncestorNames(userId, ancestorIds);
-        return FilePathUtil.contextOf(space, username, cache);
     }
 
     /**
