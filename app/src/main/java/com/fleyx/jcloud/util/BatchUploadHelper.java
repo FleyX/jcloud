@@ -94,4 +94,24 @@ public final class BatchUploadHelper {
         result.setErrorCode(errorCode.name());
         result.setErrorMessage(message);
     }
+
+    /**
+     * 将业务异常消息映射为批量上传错误码。
+     */
+    public static BatchUploadErrorCode mapErrorCode(BusinessException e) {
+        String msg = e.getMessage();
+        if (msg == null) {
+            return BatchUploadErrorCode.BUSINESS_ERROR;
+        }
+        return switch (msg) {
+            case "文件名不能为空", "文件名包含非法字符" -> BatchUploadErrorCode.INVALID_FILE_NAME;
+            case "文件大小必须大于 0" -> BatchUploadErrorCode.INVALID_FILE_SIZE;
+            case "目标父节点不是文件夹", "父目录不存在" -> BatchUploadErrorCode.PARENT_NOT_FOUND;
+            case "相对路径不能以根分隔符开头", "相对路径包含非法的 '..' 段", "文件夹层级超过最大限制" ->
+                    BatchUploadErrorCode.PATH_TRAVERSAL;
+            case "用户配额不足" -> BatchUploadErrorCode.INSUFFICIENT_SPACE;
+            case "创建上传临时目录失败" -> BatchUploadErrorCode.INIT_FAILED;
+            default -> BatchUploadErrorCode.BUSINESS_ERROR;
+        };
+    }
 }
