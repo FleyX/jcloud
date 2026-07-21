@@ -249,6 +249,33 @@ public final class FilePathUtil {
     }
 
     /**
+     * 解析分片上传任务的临时目录。
+     *
+     * @param space    存储空间
+     * @param username 用户名
+     * @param uploadId 上传任务 ID
+     * @return 分片上传临时目录
+     */
+    public static Path resolveUploadTempDir(StorageSpace space, String username, String uploadId) {
+        return Path.of(space.getPath(), StorageConstant.TMP_DIR, username, uploadId);
+    }
+
+    /**
+     * 从相对路径中提取文件名（兼容 Windows 分隔符）。
+     *
+     * @param relativePath 相对路径
+     * @return 文件名，路径为空返回空字符串
+     */
+    public static String extractFileName(String relativePath) {
+        if (relativePath == null || relativePath.isBlank()) {
+            return "";
+        }
+        String normalized = relativePath.replace("\\", "/");
+        int lastSlashIndex = normalized.lastIndexOf('/');
+        return lastSlashIndex < 0 ? normalized : normalized.substring(lastSlashIndex + 1);
+    }
+
+    /**
      * 从节点集合中提取所有非根祖先 id。
      *
      * @param nodes 文件节点集合
