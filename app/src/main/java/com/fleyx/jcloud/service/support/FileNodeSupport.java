@@ -100,6 +100,46 @@ public class FileNodeSupport {
     }
 
     /**
+     * 解析父文件夹节点，根目录返回 {@code null}。
+     *
+     * @param parentId 父节点 ID
+     * @param userId   用户 ID
+     * @return 父文件夹节点，根目录为 {@code null}
+     */
+    public FileNode resolveParentNode(String parentId, String userId) {
+        if (FileNodeConstants.ROOT_ID.equals(parentId)) {
+            return null;
+        }
+        FileNode parent = fileMapper.selectById(parentId);
+        if (parent == null || !parent.getUserId().equals(userId)) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "父目录不存在");
+        }
+        if (!TYPE_FOLDER.equals(parent.getType())) {
+            throw new BusinessException(ResultCode.BUSINESS_ERROR, "目标父节点不是文件夹");
+        }
+        return parent;
+    }
+
+    /**
+     * 校验目标父节点存在且为当前用户的文件夹，根目录直接通过。
+     *
+     * @param parentId 父节点 ID
+     * @param userId   用户 ID
+     */
+    public void validateTargetParent(String parentId, String userId) {
+        if (parentId == null || FileNodeConstants.ROOT_ID.equals(parentId)) {
+            return;
+        }
+        FileNode parent = fileMapper.selectById(parentId);
+        if (parent == null || !parent.getUserId().equals(userId)) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "父目录不存在");
+        }
+        if (!TYPE_FOLDER.equals(parent.getType())) {
+            throw new BusinessException(ResultCode.BUSINESS_ERROR, "目标父节点不是文件夹");
+        }
+    }
+
+    /**
      * 构建文件夹节点，存储空间按用户绑定关系内部解析。
      *
      * @param userId   用户 ID
