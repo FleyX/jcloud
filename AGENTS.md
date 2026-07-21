@@ -42,7 +42,7 @@ com.fleyx.jcloud
 │
 ├── service                // 4. 业务逻辑接口层
 │   ├── impl               //    - 业务逻辑实现类
-│   └── support            //    - 跨实现类共享的支撑组件（FileNodeSupport、FilePathSupport、UserSpaceSupport 及 Trash* 回收站支撑组件）
+│   └── support            //    - 跨实现类共享的支撑组件（File*、User*、Trash*、ChunkedUpload* 等 Support 类）
 │
 ├── mapper                 // 5. 数据访问层（MyBatis-Plus 的 Mapper 接口）
 │
