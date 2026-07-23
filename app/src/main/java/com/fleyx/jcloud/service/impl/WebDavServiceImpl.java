@@ -37,8 +37,6 @@ import java.util.List;
 @RequiredArgsConstructor
 public class WebDavServiceImpl implements WebDavService {
 
-    private static final String TYPE_FILE = "file";
-    private static final String TYPE_FOLDER = "folder";
     private static final String HEADER_DESTINATION = "Destination";
     private static final String HEADER_DEPTH = "Depth";
     private static final String HEADER_OVERWRITE = "Overwrite";
@@ -99,11 +97,11 @@ public class WebDavServiceImpl implements WebDavService {
         }
         List<FileNode> nodes = new ArrayList<>();
         nodes.add(node);
-        if (TYPE_FOLDER.equals(node.getType()) && !"0".equals(request.getHeader(HEADER_DEPTH))) {
+        if (FileNodeConstants.TYPE_FOLDER.equals(node.getType()) && !"0".equals(request.getHeader(HEADER_DEPTH))) {
             nodes.addAll(fileMapper.selectByParentId(userId, node.getId()));
         }
         String requestUrl = request.getRequestURL().toString();
-        if (!requestUrl.endsWith("/") && TYPE_FOLDER.equals(node.getType())) {
+        if (!requestUrl.endsWith("/") && FileNodeConstants.TYPE_FOLDER.equals(node.getType())) {
             requestUrl += "/";
         }
         String xml = WebDavPropFindBuilder.build(requestUrl, nodes, path);
@@ -114,7 +112,7 @@ public class WebDavServiceImpl implements WebDavService {
 
     private void doGet(String userId, String path, HttpServletResponse response) throws IOException {
         FileNode node = pathResolver.resolveNode(userId, path);
-        if (node == null || TYPE_FOLDER.equals(node.getType())) {
+        if (node == null || FileNodeConstants.TYPE_FOLDER.equals(node.getType())) {
             sendError(response, HttpServletResponse.SC_NOT_FOUND, "Not Found");
             return;
         }
@@ -135,7 +133,7 @@ public class WebDavServiceImpl implements WebDavService {
             return;
         }
         response.setStatus(HttpServletResponse.SC_OK);
-        if (!TYPE_FOLDER.equals(node.getType())) {
+        if (!FileNodeConstants.TYPE_FOLDER.equals(node.getType())) {
             response.setContentLengthLong(node.getSize() == null ? 0 : node.getSize());
         }
     }
@@ -309,7 +307,7 @@ public class WebDavServiceImpl implements WebDavService {
         }
         if (FileNodeConstants.SOURCE_REMOTE.equals(sourceSource)
                 && !java.util.Objects.equals(source.getRemoteMountId(), targetParent.getRemoteMountId())) {
-            throw new BusinessException("不能跨本地与远程目录操作");
+            throw new BusinessException("不能跨远程挂载点操作");
         }
     }
 
