@@ -13,6 +13,9 @@ import com.fleyx.jcloud.util.FilePathUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * 文件节点共享支撑组件。
  * <p>
@@ -218,5 +221,21 @@ public class FileNodeSupport {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "用户未绑定存储空间");
         }
         return user.getStorageSpaceId();
+    }
+
+    /**
+     * 物理删除节点及其整个子树。
+     *
+     * @param node 子树根节点
+     */
+    public void deleteSubtree(FileNode node) {
+        List<FileNode> descendants = fileMapper.selectByIdPathPrefix(node.getUserId(), node.getPath(), node.getId());
+        List<String> ids = new ArrayList<>(descendants.size());
+        for (FileNode descendant : descendants) {
+            ids.add(descendant.getId());
+        }
+        if (!ids.isEmpty()) {
+            fileMapper.physicalDeleteByIds(ids);
+        }
     }
 }

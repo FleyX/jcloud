@@ -4,9 +4,9 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.fleyx.jcloud.common.enums.RemoteSyncTaskStatus;
-import com.fleyx.jcloud.common.enums.RemoteSyncTaskType;
 import com.fleyx.jcloud.common.enums.ResultCode;
+import com.fleyx.jcloud.common.enums.SyncTaskStatus;
+import com.fleyx.jcloud.common.enums.SyncTaskType;
 import com.fleyx.jcloud.common.event.RemoteMountSubmittedEvent;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.RemoteMountMapper;
@@ -18,7 +18,8 @@ import com.fleyx.jcloud.model.po.RemoteMount;
 import com.fleyx.jcloud.model.po.RemoteSyncTask;
 import com.fleyx.jcloud.model.vo.RemoteSyncTaskVo;
 import com.fleyx.jcloud.service.RemoteMountSyncService;
-import com.fleyx.jcloud.util.IdUtil;
+import com.fleyx.jcloud.service.support.RemoteMountSupport;
+import com.fleyx.jcloud.service.support.SyncTaskSupport;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.scheduling.support.CronExpression;
@@ -39,15 +40,17 @@ public class RemoteMountSyncServiceImpl implements RemoteMountSyncService {
     private final RemoteSyncTaskMapper remoteSyncTaskMapper;
     private final RemoteSyncTaskConvert remoteSyncTaskConvert;
     private final ApplicationEventPublisher eventPublisher;
+    private final RemoteMountSupport remoteMountSupport;
+    private final SyncTaskSupport syncTaskSupport;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public RemoteSyncTaskVo submitImmediate(String remoteMountId, String userId) {
-        requireOwnedMount(remoteMountId, userId);
+        remoteMountSupport.requireOwnedMount(remoteMountId, userId);
         rejectIfSyncRunning(remoteMountId);
         removePendingTask(remoteMountId);
 
-        RemoteSyncTask task = createTask(remoteMountId, RemoteSyncTaskType.MANUAL.getValue());
+        RemoteSyncTask task = createTask(remoteMountId, SyncTaskType.MANUAL.getValue());
         remoteSyncTaskMapper.insert(task);
         eventPublisher.publishEvent(new RemoteMountSubmittedEvent(this, task.getId()));
         return remoteSyncTaskConvert.poToVo(task);
@@ -55,7 +58,7 @@ public class RemoteMountSyncServiceImpl implements RemoteMountSyncService {
 
     @Override
     public RemoteSyncTaskVo getLatestTask(String remoteMountId, String userId) {
-        requireOwnedMount(remoteMountId, userId);
+        remoteMountSupport.requireOwnedMount(remoteMountId, userId);
         RemoteSyncTask task = remoteSyncTaskMapper.selectLatestByMountId(remoteMountId);
         if (task == null) {
             return null;
@@ -70,7 +73,7 @@ public class RemoteMountSyncServiceImpl implements RemoteMountSyncService {
         wrapper.orderByDesc(RemoteSyncTask::getCreateTime);
 
         if (remoteMountId != null) {
-            requireOwnedMount(remoteMountId, userId);
+            remoteMountSupport.requireOwnedMount(remoteMountId, userId);
             wrapper.eq(RemoteSyncTask::getRemoteMountId, remoteMountId);
         } else {
             List<String> mountIds = listUserMountIds(userId);
@@ -101,8 +104,8 @@ public class RemoteMountSyncServiceImpl implements RemoteMountSyncService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void updateConfig(String remoteMountId, RemoteMountSyncConfigUpdateDto dto, String userId) {
-        RemoteMount mount = requireOwnedMount(remoteMountId, userId);
-        CronExpression expression = parseCron(dto.getCronExpr());
+        RemoteMount mount = remoteMountSupport.requireOwnedMount(remoteMountId, userId);
+        CronExpression expression = syncTaskSupport.parseCron(dto.getCronExpr());
         LocalDateTime nextSyncTime = dto.getEnabled() == 1 ? expression.next(LocalDateTime.now()) : null;
 
         LambdaUpdateWrapper<RemoteMount> wrapper = new LambdaUpdateWrapper<>();
@@ -117,37 +120,20 @@ public class RemoteMountSyncServiceImpl implements RemoteMountSyncService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public RemoteSyncTask createScheduledTask(String remoteMountId) {
-        RemoteSyncTask task = createTask(remoteMountId, RemoteSyncTaskType.SCHEDULED.getValue());
+        RemoteSyncTask task = createTask(remoteMountId, SyncTaskType.SCHEDULED.getValue());
         remoteSyncTaskMapper.insert(task);
         return task;
     }
 
     private RemoteSyncTask createTask(String remoteMountId, String type) {
-        RemoteSyncTask task = new RemoteSyncTask();
-        task.setId(IdUtil.nextId());
+        RemoteSyncTask task = syncTaskSupport.buildPendingTask(RemoteSyncTask::new, type);
         task.setRemoteMountId(remoteMountId);
-        task.setType(type);
-        task.setStatus(RemoteSyncTaskStatus.PENDING.getValue());
-        task.setTotalCount(0L);
-        task.setSuccessCount(0L);
-        task.setFailCount(0L);
         return task;
     }
 
-    private RemoteMount requireOwnedMount(String remoteMountId, String userId) {
-        RemoteMount mount = remoteMountMapper.selectById(remoteMountId);
-        if (mount == null || !mount.getUserId().equals(userId) || mount.getDeleteAt() != 0L) {
-            throw new BusinessException(ResultCode.NOT_FOUND, "远程挂载不存在");
-        }
-        return mount;
-    }
-
     private void rejectIfSyncRunning(String remoteMountId) {
-        LambdaQueryWrapper<RemoteSyncTask> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(RemoteSyncTask::getRemoteMountId, remoteMountId);
-        wrapper.eq(RemoteSyncTask::getStatus, RemoteSyncTaskStatus.RUNNING.getValue());
-        wrapper.eq(RemoteSyncTask::getDeleteAt, 0L);
-        if (remoteSyncTaskMapper.selectCount(wrapper) > 0) {
+        if (syncTaskSupport.hasActiveTask(remoteSyncTaskMapper, RemoteSyncTask::getRemoteMountId, remoteMountId,
+                RemoteSyncTask::getStatus, List.of(SyncTaskStatus.RUNNING.getValue()))) {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "存在进行中的同步任务");
         }
     }
@@ -155,19 +141,11 @@ public class RemoteMountSyncServiceImpl implements RemoteMountSyncService {
     private void removePendingTask(String remoteMountId) {
         LambdaQueryWrapper<RemoteSyncTask> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(RemoteSyncTask::getRemoteMountId, remoteMountId);
-        wrapper.eq(RemoteSyncTask::getStatus, RemoteSyncTaskStatus.PENDING.getValue());
+        wrapper.eq(RemoteSyncTask::getStatus, SyncTaskStatus.PENDING.getValue());
         wrapper.eq(RemoteSyncTask::getDeleteAt, 0L);
         List<RemoteSyncTask> pendingTasks = remoteSyncTaskMapper.selectList(wrapper);
         for (RemoteSyncTask task : pendingTasks) {
             remoteSyncTaskMapper.deleteById(task.getId());
-        }
-    }
-
-    private CronExpression parseCron(String cronExpr) {
-        try {
-            return CronExpression.parse(cronExpr);
-        } catch (Exception e) {
-            throw new BusinessException(ResultCode.PARAM_ERROR, "cron 表达式格式错误: " + e.getMessage());
         }
     }
 }

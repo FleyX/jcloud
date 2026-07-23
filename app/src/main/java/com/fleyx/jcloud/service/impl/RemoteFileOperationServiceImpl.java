@@ -12,22 +12,19 @@ import com.fleyx.jcloud.model.vo.FileNodeVo;
 import com.fleyx.jcloud.service.RemoteFileOperationService;
 import com.fleyx.jcloud.service.RemoteMountService;
 import com.fleyx.jcloud.service.RemoteProtocolAdapter;
+import com.fleyx.jcloud.service.support.FileNodeSupport;
+import com.fleyx.jcloud.service.support.RemoteMountSupport;
 import com.fleyx.jcloud.util.FileConflictHelper;
 import com.fleyx.jcloud.util.FilePathUtil;
 import com.fleyx.jcloud.util.RemoteMountLock;
-import com.fleyx.jcloud.util.RemotePathUtil;
 import lombok.RequiredArgsConstructor;
 import org.redisson.api.RLock;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
-import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 import java.util.regex.Pattern;
 
 /**
@@ -46,6 +43,8 @@ public class RemoteFileOperationServiceImpl implements RemoteFileOperationServic
     private final RemoteProtocolAdapterFactory adapterFactory;
     private final RemoteMountLock remoteMountLock;
     private final RemoteMountService remoteMountService;
+    private final RemoteMountSupport remoteMountSupport;
+    private final FileNodeSupport fileNodeSupport;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -56,7 +55,7 @@ public class RemoteFileOperationServiceImpl implements RemoteFileOperationServic
         if (!FileNodeConstants.SOURCE_REMOTE.equals(node.getSourceType())) {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "不是远程文件");
         }
-        if (isMountPoint(node)) {
+        if (remoteMountSupport.isMountPoint(node)) {
             return renameMountPoint(node, newName, userId);
         }
         return renameRemoteNode(node, newName, userId);
@@ -69,7 +68,7 @@ public class RemoteFileOperationServiceImpl implements RemoteFileOperationServic
         node.setName(newName);
         fileMapper.updateById(node);
 
-        RemoteMount mount = requireMount(node.getRemoteMountId(), userId);
+        RemoteMount mount = remoteMountSupport.requireOwnedMount(node.getRemoteMountId(), userId);
         mount.setName(newName);
         remoteMountMapper.updateById(mount);
         return fileConvert.poToVo(node);
@@ -80,11 +79,11 @@ public class RemoteFileOperationServiceImpl implements RemoteFileOperationServic
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "同名文件或文件夹已存在");
         }
 
-        RemoteMount mount = requireMount(node.getRemoteMountId(), userId);
+        RemoteMount mount = remoteMountSupport.requireOwnedMount(node.getRemoteMountId(), userId);
         RLock lock = remoteMountLock.getLock(mount.getId());
         lock.lock();
         try {
-            String oldRemotePath = deriveRemotePath(node, mount);
+            String oldRemotePath = remoteMountSupport.deriveRemotePath(node, mount);
             String newRemotePath = FilePathUtil.buildPathName(FilePathUtil.parentOf(oldRemotePath), newName);
 
             RemoteProtocolAdapter adapter = adapterFactory.create(mount);
@@ -111,14 +110,14 @@ public class RemoteFileOperationServiceImpl implements RemoteFileOperationServic
         if (!Objects.equals(node.getRemoteMountId(), newParentNode.getRemoteMountId())) {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "不能跨本地与远程目录操作");
         }
-        if (isMountPoint(node)) {
+        if (remoteMountSupport.isMountPoint(node)) {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "不能移动远程挂载点");
         }
         if (TYPE_FOLDER.equals(node.getType())) {
             validateNotMoveToSelfSubtree(node, newParentNode.getId(), userId);
         }
 
-        RemoteMount mount = requireMount(node.getRemoteMountId(), userId);
+        RemoteMount mount = remoteMountSupport.requireOwnedMount(node.getRemoteMountId(), userId);
         RLock lock = remoteMountLock.getLock(mount.getId());
         lock.lock();
         try {
@@ -129,8 +128,8 @@ public class RemoteFileOperationServiceImpl implements RemoteFileOperationServic
     }
 
     private FileNodeVo doMove(FileNode node, FileNode newParentNode, String finalName, RemoteMount mount) {
-        String oldRemotePath = deriveRemotePath(node, mount);
-        String parentRemotePath = deriveRemotePath(newParentNode, mount);
+        String oldRemotePath = remoteMountSupport.deriveRemotePath(node, mount);
+        String parentRemotePath = remoteMountSupport.deriveRemotePath(newParentNode, mount);
         String newRemotePath = FilePathUtil.buildPathName(parentRemotePath, finalName);
 
         if (!oldRemotePath.equals(newRemotePath)) {
@@ -182,12 +181,12 @@ public class RemoteFileOperationServiceImpl implements RemoteFileOperationServic
         if (!FileNodeConstants.SOURCE_REMOTE.equals(node.getSourceType())) {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "不是远程文件");
         }
-        if (isMountPoint(node)) {
+        if (remoteMountSupport.isMountPoint(node)) {
             remoteMountService.delete(node.getRemoteMountId(), userId);
             return;
         }
 
-        RemoteMount mount = requireMount(node.getRemoteMountId(), userId);
+        RemoteMount mount = remoteMountSupport.requireOwnedMount(node.getRemoteMountId(), userId);
         RLock lock = remoteMountLock.getLock(mount.getId());
         lock.lock();
         try {
@@ -202,14 +201,7 @@ public class RemoteFileOperationServiceImpl implements RemoteFileOperationServic
         RemoteProtocolAdapter adapter = adapterFactory.create(mount);
         adapter.delete(remotePath);
 
-        List<FileNode> subtree = fileMapper.selectByIdPathPrefix(node.getUserId(), node.getPath(), node.getId());
-        Set<String> ids = new HashSet<>();
-        for (FileNode n : subtree) {
-            ids.add(n.getId());
-        }
-        if (!ids.isEmpty()) {
-            fileMapper.physicalDeleteByIds(ids);
-        }
+        fileNodeSupport.deleteSubtree(node);
     }
 
     @Override
@@ -237,38 +229,7 @@ public class RemoteFileOperationServiceImpl implements RemoteFileOperationServic
 
     @Override
     public String deriveRemotePath(FileNode node, RemoteMount mount) {
-        Set<String> ancestorIds = FilePathUtil.extractAncestorIds(List.of(node));
-        Map<String, String> cache = queryAncestorNames(node.getUserId(), ancestorIds);
-        FilePathUtil.ResolveContext ctx = FilePathUtil.contextOf(null, node.getUserId(), cache);
-        String fullNamePath = FilePathUtil.resolveNamePath(node, ctx);
-        return RemotePathUtil.relativeNamePath(mount.getName(), fullNamePath);
-    }
-
-    private boolean isMountPoint(FileNode node) {
-        return FileNodeConstants.ROOT_ID.equals(node.getParentId())
-                && FileNodeConstants.SOURCE_REMOTE.equals(node.getSourceType());
-    }
-
-    private RemoteMount requireMount(String remoteMountId, String userId) {
-        RemoteMount mount = remoteMountMapper.selectById(remoteMountId);
-        if (mount == null || !userId.equals(mount.getUserId()) || mount.getDeleteAt() != 0L) {
-            throw new BusinessException(ResultCode.NOT_FOUND, "远程挂载不存在");
-        }
-        return mount;
-    }
-
-    private Map<String, String> queryAncestorNames(String userId, Set<String> ancestorIds) {
-        Map<String, String> cache = new HashMap<>();
-        if (ancestorIds.isEmpty()) {
-            return cache;
-        }
-        List<FileNode> ancestors = fileMapper.selectBatchIds(ancestorIds);
-        for (FileNode ancestor : ancestors) {
-            if (userId.equals(ancestor.getUserId())) {
-                cache.put(ancestor.getId(), ancestor.getName());
-            }
-        }
-        return cache;
+        return remoteMountSupport.deriveRemotePath(node, mount);
     }
 
     private void validateNotMoveToSelfSubtree(FileNode source, String targetParentId, String userId) {

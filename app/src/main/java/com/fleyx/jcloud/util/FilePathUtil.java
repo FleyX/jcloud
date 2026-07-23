@@ -237,6 +237,19 @@ public final class FilePathUtil {
     }
 
     /**
+     * 计算子节点的 id 路径（父节点为根节点时返回根 ID）。
+     *
+     * @param parentNode 父节点
+     * @return 子节点的 id 路径
+     */
+    public static String buildChildPath(FileNode parentNode) {
+        if (FileNodeConstants.ROOT_ID.equals(parentNode.getId())) {
+            return FileNodeConstants.ROOT_ID;
+        }
+        return parentNode.getPath() + FileNodeConstants.PATH_SEPARATOR + parentNode.getId();
+    }
+
+    /**
      * 解析回收站记录的物理根目录。
      *
      * @param space    存储空间
