@@ -2,6 +2,7 @@ package com.fleyx.jcloud.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.fleyx.jcloud.common.enums.SyncTaskStatus;
 import com.fleyx.jcloud.mapper.FileMapper;
 import com.fleyx.jcloud.mapper.UserMapper;
 import com.fleyx.jcloud.mapper.UserMigrationTaskMapper;
@@ -21,9 +22,9 @@ import java.time.LocalDateTime;
 @RequiredArgsConstructor
 public class UserMigrationTransactionHelper {
 
-    private static final String STATUS_RUNNING = "RUNNING";
-    private static final String STATUS_COMPLETED = "COMPLETED";
-    private static final String STATUS_FAILED = "FAILED";
+    private static final String STATUS_RUNNING = SyncTaskStatus.RUNNING.getValue();
+    private static final String STATUS_COMPLETED = SyncTaskStatus.COMPLETED.getValue();
+    private static final String STATUS_FAILED = SyncTaskStatus.FAILED.getValue();
     private static final int ERROR_MSG_MAX_LENGTH = 2000;
 
     private final UserMigrationTaskMapper userMigrationTaskMapper;

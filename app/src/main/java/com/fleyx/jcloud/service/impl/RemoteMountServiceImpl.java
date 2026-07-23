@@ -7,7 +7,6 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fleyx.jcloud.common.constant.FileNodeConstants;
 import com.fleyx.jcloud.common.enums.RemoteMountType;
-import com.fleyx.jcloud.common.enums.RemoteSyncTaskStatus;
 import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.common.exception.SystemException;
@@ -26,6 +25,9 @@ import com.fleyx.jcloud.model.vo.RemoteMountVo;
 import com.fleyx.jcloud.service.RemoteMountService;
 import com.fleyx.jcloud.service.RemoteMountSyncService;
 import com.fleyx.jcloud.service.RemoteProtocolAdapter;
+import com.fleyx.jcloud.service.support.FileNodeSupport;
+import com.fleyx.jcloud.service.support.RemoteMountSupport;
+import com.fleyx.jcloud.service.support.SyncTaskSupport;
 import com.fleyx.jcloud.util.IdUtil;
 import com.fleyx.jcloud.util.RemoteConfigCrypto;
 import com.fleyx.jcloud.util.UserReadWriteLock;
@@ -49,8 +51,6 @@ import java.util.List;
 @RequiredArgsConstructor
 public class RemoteMountServiceImpl implements RemoteMountService {
 
-    private static final String TYPE_FOLDER = "folder";
-    private static final String SOURCE_REMOTE = "remote";
     private static final String STATUS_OK = "ok";
     private static final String STATUS_ERROR = "error";
 
@@ -62,6 +62,9 @@ public class RemoteMountServiceImpl implements RemoteMountService {
     private final RemoteMountSyncService remoteMountSyncService;
     private final RemoteProtocolAdapterFactory adapterFactory;
     private final UserReadWriteLock userReadWriteLock;
+    private final RemoteMountSupport remoteMountSupport;
+    private final FileNodeSupport fileNodeSupport;
+    private final SyncTaskSupport syncTaskSupport;
 
     @Override
     public IPage<RemoteMountVo> page(RemoteMountPageQueryDto dto, String userId) {
@@ -104,7 +107,7 @@ public class RemoteMountServiceImpl implements RemoteMountService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public RemoteMountVo update(RemoteMountUpdateDto dto, String userId) {
-        RemoteMount mount = requireOwnedMount(dto.getId(), userId);
+        RemoteMount mount = remoteMountSupport.requireOwnedMount(dto.getId(), userId);
         if (!mount.getName().equals(dto.getName())) {
             rejectDuplicateName(userId, dto.getName(), dto.getId());
         }
@@ -117,7 +120,7 @@ public class RemoteMountServiceImpl implements RemoteMountService {
             RLock lock = userReadWriteLock.writeLock(userId);
             lock.lock();
             try {
-                FileNode mountNode = findMountNode(mount.getId(), userId);
+                FileNode mountNode = remoteMountSupport.findMountNode(mount.getId(), userId);
                 if (mountNode != null) {
                     mountNode.setName(dto.getName());
                     fileMapper.updateById(mountNode);
@@ -132,22 +135,15 @@ public class RemoteMountServiceImpl implements RemoteMountService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void delete(String id, String userId) {
-        RemoteMount mount = requireOwnedMount(id, userId);
+        RemoteMount mount = remoteMountSupport.requireOwnedMount(id, userId);
         remoteMountMapper.deleteById(id);
 
         RLock lock = userReadWriteLock.writeLock(userId);
         lock.lock();
         try {
-            FileNode mountNode = findMountNode(id, userId);
+            FileNode mountNode = remoteMountSupport.findMountNode(id, userId);
             if (mountNode != null) {
-                List<FileNode> subtree = fileMapper.selectByIdPathPrefix(userId, mountNode.getPath(), mountNode.getId());
-                List<String> ids = new ArrayList<>(subtree.size());
-                for (FileNode node : subtree) {
-                    ids.add(node.getId());
-                }
-                if (!ids.isEmpty()) {
-                    fileMapper.physicalDeleteByIds(ids);
-                }
+                fileNodeSupport.deleteSubtree(mountNode);
             }
         } finally {
             lock.unlock();
@@ -156,7 +152,7 @@ public class RemoteMountServiceImpl implements RemoteMountService {
 
     @Override
     public RemoteMountDetailVo detail(String id, String userId) {
-        RemoteMount mount = requireOwnedMount(id, userId);
+        RemoteMount mount = remoteMountSupport.requireOwnedMount(id, userId);
         RemoteMountDetailVo vo = remoteMountConvert.poToDetailVo(mount);
         fillConfigToVo(mount.getConfig(), vo);
         return vo;
@@ -164,7 +160,7 @@ public class RemoteMountServiceImpl implements RemoteMountService {
 
     @Override
     public void testConnection(String id, String userId) {
-        RemoteMount mount = requireOwnedMount(id, userId);
+        RemoteMount mount = remoteMountSupport.requireOwnedMount(id, userId);
         RemoteProtocolAdapter adapter = adapterFactory.create(mount);
         adapter.exists("/");
     }
@@ -201,14 +197,6 @@ public class RemoteMountServiceImpl implements RemoteMountService {
             result.add(vo);
         }
         return result;
-    }
-
-    private RemoteMount requireOwnedMount(String id, String userId) {
-        RemoteMount mount = remoteMountMapper.selectById(id);
-        if (mount == null || !mount.getUserId().equals(userId) || mount.getDeleteAt() != 0L) {
-            throw new BusinessException(ResultCode.NOT_FOUND, "远程挂载不存在");
-        }
-        return mount;
     }
 
     private void rejectDuplicateName(String userId, String name, String excludeId) {
@@ -273,13 +261,8 @@ public class RemoteMountServiceImpl implements RemoteMountService {
             mount.setNextSyncTime(null);
             return;
         }
-        try {
-            CronExpression expression = CronExpression.parse(mount.getCronExpr());
-            mount.setNextSyncTime(expression.next(LocalDateTime.now()));
-        } catch (Exception e) {
-            log.warn("解析 cron 表达式失败，mountId={}", mount.getId(), e);
-            mount.setNextSyncTime(null);
-        }
+        CronExpression expression = syncTaskSupport.tryParseCron(mount.getCronExpr());
+        mount.setNextSyncTime(expression == null ? null : expression.next(LocalDateTime.now()));
     }
 
     private FileNode createMountNode(RemoteMount mount, String userId) {
@@ -288,21 +271,12 @@ public class RemoteMountServiceImpl implements RemoteMountService {
         node.setUserId(userId);
         node.setParentId(FileNodeConstants.ROOT_ID);
         node.setName(mount.getName());
-        node.setType(TYPE_FOLDER);
+        node.setType(FileNodeConstants.TYPE_FOLDER);
         node.setSize(0L);
-        node.setSourceType(SOURCE_REMOTE);
+        node.setSourceType(FileNodeConstants.SOURCE_REMOTE);
         node.setRemoteMountId(mount.getId());
         node.setPath(FileNodeConstants.ROOT_ID);
         node.setStatus(1);
         return node;
-    }
-
-    private FileNode findMountNode(String remoteMountId, String userId) {
-        LambdaQueryWrapper<FileNode> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(FileNode::getUserId, userId);
-        wrapper.eq(FileNode::getRemoteMountId, remoteMountId);
-        wrapper.eq(FileNode::getParentId, FileNodeConstants.ROOT_ID);
-        wrapper.eq(FileNode::getSourceType, SOURCE_REMOTE);
-        return fileMapper.selectOne(wrapper);
     }
 }

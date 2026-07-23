@@ -4,11 +4,11 @@ import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 
 /**
- * 远程同步任务状态。
+ * 同步任务状态（远程挂载同步、用户存储空间同步、用户迁移通用）。
  */
 @Getter
 @RequiredArgsConstructor
-public enum RemoteSyncTaskStatus {
+public enum SyncTaskStatus {
 
     /**
      * 待执行。

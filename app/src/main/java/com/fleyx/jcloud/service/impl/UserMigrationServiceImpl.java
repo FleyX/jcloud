@@ -2,6 +2,7 @@ package com.fleyx.jcloud.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fleyx.jcloud.common.enums.ResultCode;
+import com.fleyx.jcloud.common.enums.SyncTaskStatus;
 import com.fleyx.jcloud.common.event.UserMigrationSubmittedEvent;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.StorageSpaceMapper;
@@ -14,6 +15,8 @@ import com.fleyx.jcloud.model.po.User;
 import com.fleyx.jcloud.model.po.UserMigrationTask;
 import com.fleyx.jcloud.model.vo.UserMigrationTaskVo;
 import com.fleyx.jcloud.service.UserMigrationService;
+import com.fleyx.jcloud.service.support.SyncTaskSupport;
+import com.fleyx.jcloud.service.support.UserSpaceSupport;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
@@ -29,11 +32,10 @@ import java.util.List;
 @RequiredArgsConstructor
 public class UserMigrationServiceImpl implements UserMigrationService {
 
-    private static final String STATUS_PENDING = "PENDING";
-    private static final String STATUS_RUNNING = "RUNNING";
-
     private final UserMapper userMapper;
     private final StorageSpaceMapper storageSpaceMapper;
+    private final UserSpaceSupport userSpaceSupport;
+    private final SyncTaskSupport syncTaskSupport;
     private final UserMigrationTaskMapper userMigrationTaskMapper;
     private final UserMigrationTaskConvert userMigrationTaskConvert;
     private final ApplicationEventPublisher eventPublisher;
@@ -41,7 +43,7 @@ public class UserMigrationServiceImpl implements UserMigrationService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public UserMigrationTaskVo submitMigration(UserMigrationSubmitDto dto) {
-        User user = requireUser(dto.getUserId());
+        User user = userSpaceSupport.requireUser(dto.getUserId());
         if (user.getStorageSpaceId() == null) {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "用户未绑定存储空间");
         }
@@ -63,7 +65,7 @@ public class UserMigrationServiceImpl implements UserMigrationService {
         task.setSourceSpaceId(sourceSpace.getId());
         task.setTargetSpaceId(targetSpace.getId());
         task.setNewQuota(newQuota);
-        task.setStatus(STATUS_PENDING);
+        task.setStatus(SyncTaskStatus.PENDING.getValue());
         task.setTotalBytes(0L);
         task.setMigratedBytes(0L);
         task.setCreateTime(LocalDateTime.now());
@@ -90,14 +92,6 @@ public class UserMigrationServiceImpl implements UserMigrationService {
         return userMigrationTaskConvert.poToVo(task);
     }
 
-    private User requireUser(String userId) {
-        User user = userMapper.selectById(userId);
-        if (user == null) {
-            throw new BusinessException(ResultCode.NOT_FOUND, "用户不存在");
-        }
-        return user;
-    }
-
     private StorageSpace requireSpace(String spaceId) {
         StorageSpace space = storageSpaceMapper.selectById(spaceId);
         if (space == null) {
@@ -120,11 +114,8 @@ public class UserMigrationServiceImpl implements UserMigrationService {
     }
 
     private void rejectIfMigrationInProgress(String userId) {
-        LambdaQueryWrapper<UserMigrationTask> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(UserMigrationTask::getUserId, userId);
-        wrapper.in(UserMigrationTask::getStatus, List.of(STATUS_PENDING, STATUS_RUNNING));
-        wrapper.eq(UserMigrationTask::getDeleteAt, 0L);
-        if (userMigrationTaskMapper.selectCount(wrapper) > 0) {
+        if (syncTaskSupport.hasActiveTask(userMigrationTaskMapper, UserMigrationTask::getUserId, userId,
+                UserMigrationTask::getStatus, SyncTaskSupport.ACTIVE_STATUSES)) {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "用户存在进行中的迁移任务");
         }
     }

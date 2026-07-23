@@ -13,7 +13,7 @@ import java.time.LocalDateTime;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("t_remote_sync_task")
-public class RemoteSyncTask extends SoftDeleteEntity {
+public class RemoteSyncTask extends SoftDeleteEntity implements SyncTaskFields {
 
     @Serial
     private static final long serialVersionUID = 1L;

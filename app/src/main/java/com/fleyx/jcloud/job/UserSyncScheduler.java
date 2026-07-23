@@ -6,6 +6,7 @@ import com.fleyx.jcloud.mapper.UserSyncTaskMapper;
 import com.fleyx.jcloud.model.po.UserSyncConfig;
 import com.fleyx.jcloud.model.po.UserSyncTask;
 import com.fleyx.jcloud.service.UserSyncService;
+import com.fleyx.jcloud.service.support.SyncTaskSupport;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
@@ -26,13 +27,11 @@ import java.util.List;
 @RequiredArgsConstructor
 public class UserSyncScheduler {
 
-    private static final String STATUS_PENDING = "PENDING";
-    private static final String STATUS_RUNNING = "RUNNING";
-
     private final UserSyncConfigMapper userSyncConfigMapper;
     private final UserSyncTaskMapper userSyncTaskMapper;
     private final UserSyncService userSyncService;
     private final ApplicationEventPublisher eventPublisher;
+    private final SyncTaskSupport syncTaskSupport;
 
     /**
      * 每分钟扫描到期配置并触发同步。
@@ -70,22 +69,16 @@ public class UserSyncScheduler {
     }
 
     private boolean hasRunningTask(String userId) {
-        com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<UserSyncTask> wrapper =
-                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<>();
-        wrapper.eq(UserSyncTask::getUserId, userId);
-        wrapper.in(UserSyncTask::getStatus, List.of(STATUS_PENDING, STATUS_RUNNING));
-        wrapper.eq(UserSyncTask::getDeleteAt, 0L);
-        return userSyncTaskMapper.selectCount(wrapper) > 0;
+        return syncTaskSupport.hasActiveTask(userSyncTaskMapper, UserSyncTask::getUserId, userId,
+                UserSyncTask::getStatus, SyncTaskSupport.ACTIVE_STATUSES);
     }
 
     private void updateNextSyncTime(UserSyncConfig config, LocalDateTime now) {
-        try {
-            CronExpression expression = CronExpression.parse(config.getCronExpr());
-            LocalDateTime next = expression.next(now);
-            config.setNextSyncTime(next);
-            userSyncConfigMapper.updateById(config);
-        } catch (Exception e) {
-            log.warn("更新下次同步时间失败，userId={}", config.getUserId(), e);
+        CronExpression expression = syncTaskSupport.tryParseCron(config.getCronExpr());
+        if (expression == null) {
+            return;
         }
+        config.setNextSyncTime(expression.next(now));
+        userSyncConfigMapper.updateById(config);
     }
 }

@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fleyx.jcloud.common.constant.FileNodeConstants;
 import com.fleyx.jcloud.common.constant.StorageConstant;
 import com.fleyx.jcloud.common.enums.ResultCode;
+import com.fleyx.jcloud.common.enums.SyncTaskStatus;
 import com.fleyx.jcloud.common.event.UserMigrationSubmittedEvent;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.FileMapper;
@@ -14,6 +15,7 @@ import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.po.StorageSpace;
 import com.fleyx.jcloud.model.po.User;
 import com.fleyx.jcloud.model.po.UserMigrationTask;
+import com.fleyx.jcloud.service.support.SyncTaskSupport;
 import com.fleyx.jcloud.util.UserReadWriteLock;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -45,9 +47,8 @@ public class UserMigrationTaskExecutor {
     private final UserMigrationTransactionHelper transactionHelper;
     private final UserReadWriteLock userReadWriteLock;
 
-    private static final String STATUS_PENDING = "PENDING";
-    private static final String STATUS_RUNNING = "RUNNING";
-    private static final long LOCK_WAIT_SECONDS = 30L;
+    private static final String STATUS_PENDING = SyncTaskStatus.PENDING.getValue();
+    private static final long LOCK_WAIT_SECONDS = SyncTaskSupport.LOCK_WAIT_SECONDS;
 
     /**
      * 监听迁移任务提交事件，在事务提交后异步执行迁移。

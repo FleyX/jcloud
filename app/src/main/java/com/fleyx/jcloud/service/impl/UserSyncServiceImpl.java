@@ -1,11 +1,10 @@
 package com.fleyx.jcloud.service.impl;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fleyx.jcloud.common.enums.ResultCode;
+import com.fleyx.jcloud.common.enums.SyncTaskType;
 import com.fleyx.jcloud.common.event.UserSyncSubmittedEvent;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.StorageSpaceMapper;
-import com.fleyx.jcloud.mapper.UserMapper;
 import com.fleyx.jcloud.mapper.UserSyncConfigMapper;
 import com.fleyx.jcloud.mapper.UserSyncTaskMapper;
 import com.fleyx.jcloud.model.convert.UserSyncConfigConvert;
@@ -18,7 +17,8 @@ import com.fleyx.jcloud.model.po.UserSyncTask;
 import com.fleyx.jcloud.model.vo.UserSyncConfigVo;
 import com.fleyx.jcloud.model.vo.UserSyncTaskVo;
 import com.fleyx.jcloud.service.UserSyncService;
-import com.fleyx.jcloud.util.IdUtil;
+import com.fleyx.jcloud.service.support.SyncTaskSupport;
+import com.fleyx.jcloud.service.support.UserSpaceSupport;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.scheduling.support.CronExpression;
@@ -26,7 +26,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
-import java.util.List;
 
 /**
  * 用户存储空间同步服务实现。
@@ -35,35 +34,25 @@ import java.util.List;
 @RequiredArgsConstructor
 public class UserSyncServiceImpl implements UserSyncService {
 
-    private static final String TYPE_MANUAL = "manual";
-    private static final String TYPE_SCHEDULED = "scheduled";
-    private static final String STATUS_PENDING = "PENDING";
-    private static final String STATUS_RUNNING = "RUNNING";
     private static final int DEFAULT_ENABLED = 0;
 
-    private final UserMapper userMapper;
     private final StorageSpaceMapper storageSpaceMapper;
     private final UserSyncTaskMapper userSyncTaskMapper;
     private final UserSyncConfigMapper userSyncConfigMapper;
     private final UserSyncTaskConvert userSyncTaskConvert;
     private final UserSyncConfigConvert userSyncConfigConvert;
     private final ApplicationEventPublisher eventPublisher;
+    private final UserSpaceSupport userSpaceSupport;
+    private final SyncTaskSupport syncTaskSupport;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public UserSyncTaskVo submitImmediate(String userId) {
-        User user = requireUser(userId);
+        User user = userSpaceSupport.requireUser(userId);
         requireEnabledSpace(user.getStorageSpaceId());
         rejectIfSyncRunning(userId);
 
-        UserSyncTask task = new UserSyncTask();
-        task.setId(IdUtil.nextId());
-        task.setUserId(userId);
-        task.setType(TYPE_MANUAL);
-        task.setStatus(STATUS_PENDING);
-        task.setTotalCount(0L);
-        task.setSuccessCount(0L);
-        task.setFailCount(0L);
+        UserSyncTask task = buildTask(userId, SyncTaskType.MANUAL.getValue());
         userSyncTaskMapper.insert(task);
 
         eventPublisher.publishEvent(new UserSyncSubmittedEvent(this, task.getId()));
@@ -96,9 +85,9 @@ public class UserSyncServiceImpl implements UserSyncService {
     @Transactional(rollbackFor = Exception.class)
     public UserSyncConfigVo updateConfig(UserSyncConfigUpdateDto dto) {
         String userId = dto.getUserId();
-        requireUser(userId);
+        userSpaceSupport.requireUser(userId);
 
-        CronExpression expression = parseCron(dto.getCronExpr());
+        CronExpression expression = syncTaskSupport.parseCron(dto.getCronExpr());
         LocalDateTime nextSyncTime = expression.next(LocalDateTime.now());
 
         UserSyncConfig config = userSyncConfigMapper.selectById(userId);
@@ -121,24 +110,15 @@ public class UserSyncServiceImpl implements UserSyncService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public UserSyncTask createScheduledTask(String userId) {
-        UserSyncTask task = new UserSyncTask();
-        task.setId(IdUtil.nextId());
-        task.setUserId(userId);
-        task.setType(TYPE_SCHEDULED);
-        task.setStatus(STATUS_PENDING);
-        task.setTotalCount(0L);
-        task.setSuccessCount(0L);
-        task.setFailCount(0L);
+        UserSyncTask task = buildTask(userId, SyncTaskType.SCHEDULED.getValue());
         userSyncTaskMapper.insert(task);
         return task;
     }
 
-    private User requireUser(String userId) {
-        User user = userMapper.selectById(userId);
-        if (user == null) {
-            throw new BusinessException(ResultCode.NOT_FOUND, "用户不存在");
-        }
-        return user;
+    private UserSyncTask buildTask(String userId, String type) {
+        UserSyncTask task = syncTaskSupport.buildPendingTask(UserSyncTask::new, type);
+        task.setUserId(userId);
+        return task;
     }
 
     private StorageSpace requireEnabledSpace(String spaceId) {
@@ -156,20 +136,9 @@ public class UserSyncServiceImpl implements UserSyncService {
     }
 
     private void rejectIfSyncRunning(String userId) {
-        LambdaQueryWrapper<UserSyncTask> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(UserSyncTask::getUserId, userId);
-        wrapper.in(UserSyncTask::getStatus, List.of(STATUS_PENDING, STATUS_RUNNING));
-        wrapper.eq(UserSyncTask::getDeleteAt, 0L);
-        if (userSyncTaskMapper.selectCount(wrapper) > 0) {
+        if (syncTaskSupport.hasActiveTask(userSyncTaskMapper, UserSyncTask::getUserId, userId,
+                UserSyncTask::getStatus, SyncTaskSupport.ACTIVE_STATUSES)) {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "用户存在进行中的同步任务");
-        }
-    }
-
-    private CronExpression parseCron(String cronExpr) {
-        try {
-            return CronExpression.parse(cronExpr);
-        } catch (Exception e) {
-            throw new BusinessException(ResultCode.PARAM_ERROR, "cron 表达式格式错误: " + e.getMessage());
         }
     }
 }

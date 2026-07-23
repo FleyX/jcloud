@@ -4,11 +4,11 @@ import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 
 /**
- * 远程同步任务触发方式。
+ * 同步任务触发方式（远程挂载同步、用户存储空间同步通用）。
  */
 @Getter
 @RequiredArgsConstructor
-public enum RemoteSyncTaskType {
+public enum SyncTaskType {
 
     /**
      * 手动触发。

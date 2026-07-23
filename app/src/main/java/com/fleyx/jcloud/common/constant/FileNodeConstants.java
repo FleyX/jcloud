@@ -16,6 +16,16 @@ public final class FileNodeConstants {
     public static final String ROOT_ID = "0000000000000";
 
     /**
+     * 节点类型：文件。
+     */
+    public static final String TYPE_FILE = "file";
+
+    /**
+     * 节点类型：文件夹。
+     */
+    public static final String TYPE_FOLDER = "folder";
+
+    /**
      * id 路径分隔符。
      */
     public static final String PATH_SEPARATOR = ".";

@@ -1,12 +1,12 @@
 package com.fleyx.jcloud.job;
 
 import com.fleyx.jcloud.common.event.RemoteMountSubmittedEvent;
-import com.fleyx.jcloud.common.enums.RemoteSyncTaskStatus;
 import com.fleyx.jcloud.mapper.RemoteMountMapper;
 import com.fleyx.jcloud.mapper.RemoteSyncTaskMapper;
 import com.fleyx.jcloud.model.po.RemoteMount;
 import com.fleyx.jcloud.model.po.RemoteSyncTask;
 import com.fleyx.jcloud.service.RemoteMountSyncService;
+import com.fleyx.jcloud.service.support.SyncTaskSupport;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
@@ -30,6 +30,7 @@ public class RemoteMountScheduler {
     private final RemoteSyncTaskMapper remoteSyncTaskMapper;
     private final RemoteMountSyncService remoteMountSyncService;
     private final ApplicationEventPublisher eventPublisher;
+    private final SyncTaskSupport syncTaskSupport;
 
     /**
      * 每分钟扫描一次到期的定时同步挂载点。
@@ -65,13 +66,8 @@ public class RemoteMountScheduler {
     }
 
     private boolean hasRunningTask(String mountId) {
-        com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<RemoteSyncTask> wrapper =
-                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<>();
-        wrapper.eq(RemoteSyncTask::getRemoteMountId, mountId);
-        wrapper.in(RemoteSyncTask::getStatus,
-                List.of(RemoteSyncTaskStatus.PENDING.getValue(), RemoteSyncTaskStatus.RUNNING.getValue()));
-        wrapper.eq(RemoteSyncTask::getDeleteAt, 0L);
-        return remoteSyncTaskMapper.selectCount(wrapper) > 0;
+        return syncTaskSupport.hasActiveTask(remoteSyncTaskMapper, RemoteSyncTask::getRemoteMountId, mountId,
+                RemoteSyncTask::getStatus, SyncTaskSupport.ACTIVE_STATUSES);
     }
 
     private void updateNextSyncTime(RemoteMount mount, LocalDateTime now) {
@@ -80,13 +76,11 @@ public class RemoteMountScheduler {
             remoteMountMapper.updateById(mount);
             return;
         }
-        try {
-            CronExpression expression = CronExpression.parse(mount.getCronExpr());
-            LocalDateTime next = expression.next(now);
-            mount.setNextSyncTime(next);
-            remoteMountMapper.updateById(mount);
-        } catch (Exception e) {
-            log.warn("更新下次同步时间失败，mountId={}", mount.getId(), e);
+        CronExpression expression = syncTaskSupport.tryParseCron(mount.getCronExpr());
+        if (expression == null) {
+            return;
         }
+        mount.setNextSyncTime(expression.next(now));
+        remoteMountMapper.updateById(mount);
     }
 }

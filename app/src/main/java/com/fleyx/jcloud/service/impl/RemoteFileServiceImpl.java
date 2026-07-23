@@ -4,7 +4,6 @@ import com.fleyx.jcloud.common.constant.FileNodeConstants;
 import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.FileMapper;
-import com.fleyx.jcloud.mapper.RemoteMountMapper;
 import com.fleyx.jcloud.model.bo.FileDownloadResult;
 import com.fleyx.jcloud.model.convert.FileConvert;
 import com.fleyx.jcloud.model.dto.FileInstantUploadDto;
@@ -16,10 +15,10 @@ import com.fleyx.jcloud.model.vo.FileNodeVo;
 import com.fleyx.jcloud.model.vo.UploadPreCheckVo;
 import com.fleyx.jcloud.service.RemoteFileService;
 import com.fleyx.jcloud.service.RemoteProtocolAdapter;
+import com.fleyx.jcloud.service.support.RemoteMountSupport;
 import com.fleyx.jcloud.util.FileConflictHelper;
 import com.fleyx.jcloud.util.FilePathUtil;
 import com.fleyx.jcloud.util.RemoteMountLock;
-import com.fleyx.jcloud.util.RemotePathUtil;
 import lombok.RequiredArgsConstructor;
 import org.redisson.api.RLock;
 import org.springframework.stereotype.Service;
@@ -28,11 +27,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
 
 /**
  * 远程文件上传/下载服务实现。
@@ -45,16 +40,16 @@ public class RemoteFileServiceImpl implements RemoteFileService {
     private static final String TYPE_FOLDER = "folder";
 
     private final FileMapper fileMapper;
-    private final RemoteMountMapper remoteMountMapper;
     private final FileConvert fileConvert;
     private final RemoteProtocolAdapterFactory adapterFactory;
     private final RemoteMountLock remoteMountLock;
+    private final RemoteMountSupport remoteMountSupport;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public FileNodeVo upload(MultipartFile file, FileNode parentNode, String userId, String finalName) {
         validateRemoteFolder(parentNode, userId);
-        RemoteMount mount = requireMount(parentNode.getRemoteMountId(), userId);
+        RemoteMount mount = remoteMountSupport.requireOwnedMount(parentNode.getRemoteMountId(), userId);
         RLock lock = remoteMountLock.getLock(mount.getId());
         lock.lock();
         try {
@@ -71,7 +66,7 @@ public class RemoteFileServiceImpl implements RemoteFileService {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "不能覆盖文件夹");
         }
 
-        String parentRemotePath = deriveRemotePath(parentNode, mount);
+        String parentRemotePath = remoteMountSupport.deriveRemotePath(parentNode, mount);
         String newRemotePath = FilePathUtil.buildPathName(parentRemotePath, finalName);
 
         RemoteProtocolAdapter adapter = adapterFactory.create(mount);
@@ -94,7 +89,7 @@ public class RemoteFileServiceImpl implements RemoteFileService {
         node.setHash(null);
         node.setSourceType(FileNodeConstants.SOURCE_REMOTE);
         node.setRemoteMountId(mount.getId());
-        node.setPath(buildChildPath(parentNode));
+        node.setPath(FilePathUtil.buildChildPath(parentNode));
         node.setMimeType(file.getContentType());
         node.setStatus(1);
         fileMapper.insert(node);
@@ -113,8 +108,8 @@ public class RemoteFileServiceImpl implements RemoteFileService {
         if (!FileNodeConstants.SOURCE_REMOTE.equals(node.getSourceType())) {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "不是远程文件");
         }
-        RemoteMount mount = requireMount(node.getRemoteMountId(), userId);
-        String remotePath = deriveRemotePath(node, mount);
+        RemoteMount mount = remoteMountSupport.requireOwnedMount(node.getRemoteMountId(), userId);
+        String remotePath = remoteMountSupport.deriveRemotePath(node, mount);
         RemoteProtocolAdapter adapter = adapterFactory.create(mount);
         InputStream inputStream = adapter.download(remotePath);
         return new FileDownloadResult(node.getName(), inputStream, node.getMimeType(), node.getSize());
@@ -138,7 +133,7 @@ public class RemoteFileServiceImpl implements RemoteFileService {
     @Transactional(rollbackFor = Exception.class)
     public FileNodeVo createFolder(FileNode parentNode, String name, String userId) {
         validateRemoteFolder(parentNode, userId);
-        RemoteMount mount = requireMount(parentNode.getRemoteMountId(), userId);
+        RemoteMount mount = remoteMountSupport.requireOwnedMount(parentNode.getRemoteMountId(), userId);
         RLock lock = remoteMountLock.getLock(mount.getId());
         lock.lock();
         try {
@@ -153,7 +148,7 @@ public class RemoteFileServiceImpl implements RemoteFileService {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "同名文件或文件夹已存在");
         }
 
-        String parentRemotePath = deriveRemotePath(parentNode, mount);
+        String parentRemotePath = remoteMountSupport.deriveRemotePath(parentNode, mount);
         String newRemotePath = FilePathUtil.buildPathName(parentRemotePath, name);
 
         RemoteProtocolAdapter adapter = adapterFactory.create(mount);
@@ -168,7 +163,7 @@ public class RemoteFileServiceImpl implements RemoteFileService {
         folder.setHash(null);
         folder.setSourceType(FileNodeConstants.SOURCE_REMOTE);
         folder.setRemoteMountId(mount.getId());
-        folder.setPath(buildChildPath(parentNode));
+        folder.setPath(FilePathUtil.buildChildPath(parentNode));
         folder.setStatus(1);
         fileMapper.insert(folder);
 
@@ -203,40 +198,4 @@ public class RemoteFileServiceImpl implements RemoteFileService {
         }
     }
 
-    private RemoteMount requireMount(String remoteMountId, String userId) {
-        RemoteMount mount = remoteMountMapper.selectById(remoteMountId);
-        if (mount == null || !userId.equals(mount.getUserId()) || mount.getDeleteAt() != 0L) {
-            throw new BusinessException(ResultCode.NOT_FOUND, "远程挂载不存在");
-        }
-        return mount;
-    }
-
-    private String deriveRemotePath(FileNode node, RemoteMount mount) {
-        Set<String> ancestorIds = FilePathUtil.extractAncestorIds(List.of(node));
-        Map<String, String> cache = queryAncestorNames(node.getUserId(), ancestorIds);
-        FilePathUtil.ResolveContext ctx = FilePathUtil.contextOf(null, node.getUserId(), cache);
-        String fullNamePath = FilePathUtil.resolveNamePath(node, ctx);
-        return RemotePathUtil.relativeNamePath(mount.getName(), fullNamePath);
-    }
-
-    private Map<String, String> queryAncestorNames(String userId, Set<String> ancestorIds) {
-        Map<String, String> cache = new HashMap<>();
-        if (ancestorIds.isEmpty()) {
-            return cache;
-        }
-        List<FileNode> ancestors = fileMapper.selectBatchIds(ancestorIds);
-        for (FileNode ancestor : ancestors) {
-            if (userId.equals(ancestor.getUserId())) {
-                cache.put(ancestor.getId(), ancestor.getName());
-            }
-        }
-        return cache;
-    }
-
-    private String buildChildPath(FileNode parentNode) {
-        if (FileNodeConstants.ROOT_ID.equals(parentNode.getId())) {
-            return FileNodeConstants.ROOT_ID;
-        }
-        return parentNode.getPath() + FileNodeConstants.PATH_SEPARATOR + parentNode.getId();
-    }
 }
