@@ -15,6 +15,7 @@ import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.po.StorageSpace;
 import com.fleyx.jcloud.model.po.User;
 import com.fleyx.jcloud.model.po.UserSyncTask;
+import com.fleyx.jcloud.service.support.AbstractTreeSyncExecutor;
 import com.fleyx.jcloud.service.support.FileNodeSupport;
 import com.fleyx.jcloud.service.support.SyncContext;
 import com.fleyx.jcloud.service.support.SyncTaskSupport;
@@ -22,7 +23,6 @@ import com.fleyx.jcloud.service.support.UserSpaceSupport;
 import com.fleyx.jcloud.util.FilePathUtil;
 import com.fleyx.jcloud.util.IdUtil;
 import com.fleyx.jcloud.util.UserReadWriteLock;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RLock;
 import org.springframework.scheduling.annotation.Async;
@@ -35,9 +35,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
@@ -46,21 +44,36 @@ import java.util.stream.Stream;
  * <p>
  * 监听同步任务提交事件，异步执行物理目录到数据库的增量对齐。
  * 默认以单条数据库操作自动提交为单位，不依赖大事务，以支持长时间同步与及时状态回写。
+ * 目录对齐流程由 {@link AbstractTreeSyncExecutor} 承载，本类仅保留物理侧差异实现。
  */
 @Slf4j
 @Component
-@RequiredArgsConstructor
-public class UserSyncExecutor {
+public class UserSyncExecutor extends AbstractTreeSyncExecutor<Path, Path> {
 
     private static final String ERROR_LOCK_TIMEOUT = "获取用户写锁超时";
 
     private final UserSyncTaskMapper userSyncTaskMapper;
     private final StorageSpaceMapper storageSpaceMapper;
-    private final FileMapper fileMapper;
     private final UserReadWriteLock userReadWriteLock;
     private final UserSpaceSupport userSpaceSupport;
     private final FileNodeSupport fileNodeSupport;
     private final SyncTaskSupport syncTaskSupport;
+
+    public UserSyncExecutor(FileMapper fileMapper,
+                            UserSyncTaskMapper userSyncTaskMapper,
+                            StorageSpaceMapper storageSpaceMapper,
+                            UserReadWriteLock userReadWriteLock,
+                            UserSpaceSupport userSpaceSupport,
+                            FileNodeSupport fileNodeSupport,
+                            SyncTaskSupport syncTaskSupport) {
+        super(fileMapper);
+        this.userSyncTaskMapper = userSyncTaskMapper;
+        this.storageSpaceMapper = storageSpaceMapper;
+        this.userReadWriteLock = userReadWriteLock;
+        this.userSpaceSupport = userSpaceSupport;
+        this.fileNodeSupport = fileNodeSupport;
+        this.syncTaskSupport = syncTaskSupport;
+    }
 
     /**
      * 监听同步任务提交事件，在事务提交后异步执行。
@@ -112,7 +125,7 @@ public class UserSyncExecutor {
         }
     }
 
-    private void doSync(UserSyncTask task) {
+    private void doSync(UserSyncTask task) throws Exception {
         String userId = task.getUserId();
         User user = userSpaceSupport.requireUser(userId);
         StorageSpace space = storageSpaceMapper.selectById(user.getStorageSpaceId());
@@ -141,115 +154,99 @@ public class UserSyncExecutor {
         syncTaskSupport.completeTask(task, context, userSyncTaskMapper);
     }
 
-    private void syncFolder(FileNode parentNode, Path physicalFolder, SyncContext context) {
-        List<FileNode> dbChildren = loadDbChildren(context.getUserId(), parentNode.getId());
-        Map<String, FileNode> dbByName = new HashMap<>();
-        for (FileNode child : dbChildren) {
-            dbByName.put(child.getName(), child);
-        }
-
-        List<Path> physicalChildren = listPhysicalChildren(physicalFolder);
-        Map<String, Path> physicalByName = new HashMap<>();
-        for (Path child : physicalChildren) {
-            physicalByName.put(child.getFileName().toString(), child);
-        }
-
-        // 删除物理端不存在的 DB 节点
-        for (FileNode dbChild : dbChildren) {
-            if (!physicalByName.containsKey(dbChild.getName())) {
-                try {
-                    fileNodeSupport.deleteSubtree(dbChild);
-                    context.recordSuccess();
-                } catch (Exception e) {
-                    log.warn("删除数据库子树失败，nodeId={}", dbChild.getId(), e);
-                    context.recordFailure("删除节点 " + dbChild.getName() + " 失败: " + e.getMessage());
-                }
-            }
-        }
-
-        // 处理物理端节点
-        for (Path physicalChild : physicalChildren) {
-            String name = physicalChild.getFileName().toString();
-            FileNode dbChild = dbByName.get(name);
-            try {
-                processPhysicalEntry(parentNode, dbChild, physicalChild, context);
-            } catch (Exception e) {
-                log.warn("同步物理条目失败，path={}", physicalChild, e);
-                context.recordFailure("同步 " + name + " 失败: " + e.getMessage());
-            }
-        }
-    }
-
-    private void processPhysicalEntry(FileNode parentNode, FileNode dbChild, Path physicalPath,
-                                      SyncContext context) throws IOException {
-        boolean isDirectory = Files.isDirectory(physicalPath);
-        String type = isDirectory ? FileNodeConstants.TYPE_FOLDER : FileNodeConstants.TYPE_FILE;
-        long size = isDirectory ? 0L : Files.size(physicalPath);
-        long lastModified = Files.getLastModifiedTime(physicalPath).toMillis();
-
-        if (dbChild == null) {
-            FileNode newNode = createNode(parentNode, physicalPath, type, size, lastModified, context);
-            fileMapper.insert(newNode);
-            context.recordSuccess();
-            if (isDirectory) {
-                syncFolder(newNode, physicalPath, context);
-            }
-            return;
-        }
-
-        if (!type.equals(dbChild.getType())) {
-            fileNodeSupport.deleteSubtree(dbChild);
-            FileNode newNode = createNode(parentNode, physicalPath, type, size, lastModified, context);
-            fileMapper.insert(newNode);
-            context.recordSuccess();
-            if (isDirectory) {
-                syncFolder(newNode, physicalPath, context);
-            }
-            return;
-        }
-
-        if (FileNodeConstants.TYPE_FILE.equals(type)) {
-            Long dbSize = dbChild.getSize() == null ? 0L : dbChild.getSize();
-            Long dbModified = dbChild.getLastModified() == null ? 0L : dbChild.getLastModified();
-            if (!dbSize.equals(size) || !dbModified.equals(lastModified)) {
-                LambdaUpdateWrapper<FileNode> wrapper = new LambdaUpdateWrapper<>();
-                wrapper.eq(FileNode::getId, dbChild.getId());
-                wrapper.set(FileNode::getSize, size);
-                wrapper.set(FileNode::getLastModified, lastModified);
-                wrapper.set(FileNode::getMimeType, probeMimeType(physicalPath));
-                wrapper.set(FileNode::getHash, null);
-                wrapper.set(FileNode::getUpdateTime, LocalDateTime.now());
-                fileMapper.update(wrapper);
-            }
-            context.recordSuccess();
-        } else {
-            Long dbModified = dbChild.getLastModified() == null ? 0L : dbChild.getLastModified();
-            if (!dbModified.equals(lastModified)) {
-                dbChild.setLastModified(lastModified);
-                dbChild.setUpdateTime(LocalDateTime.now());
-                fileMapper.updateById(dbChild);
-            }
-            context.recordSuccess();
-            syncFolder(dbChild, physicalPath, context);
-        }
-    }
-
-    private List<FileNode> loadDbChildren(String userId, String parentId) {
-        return fileMapper.selectByParentId(userId, parentId);
-    }
-
-    private List<Path> listPhysicalChildren(Path folder) {
-        if (!Files.isDirectory(folder)) {
+    @Override
+    protected List<Path> listChildren(Path source, SyncContext context) {
+        if (!Files.isDirectory(source)) {
             return List.of();
         }
-        try (Stream<Path> stream = Files.list(folder)) {
+        try (Stream<Path> stream = Files.list(source)) {
             return stream
                     .filter(this::isSyncable)
                     .sorted(Comparator.comparing(Path::getFileName))
                     .toList();
         } catch (IOException e) {
-            throw new SystemException(ResultCode.SYSTEM_ERROR, "读取目录失败: " + folder, e);
+            throw new SystemException(ResultCode.SYSTEM_ERROR, "读取目录失败: " + source, e);
         }
+    }
+
+    @Override
+    protected boolean isFolder(Path entry) {
+        return Files.isDirectory(entry);
+    }
+
+    @Override
+    protected String nameOf(Path entry) {
+        return entry.getFileName().toString();
+    }
+
+    @Override
+    protected boolean metaChanged(FileNode dbNode, Path entry) throws IOException {
+        long lastModified = Files.getLastModifiedTime(entry).toMillis();
+        Long dbModified = dbNode.getLastModified() == null ? 0L : dbNode.getLastModified();
+        if (Files.isDirectory(entry)) {
+            return !dbModified.equals(lastModified);
+        }
+        Long dbSize = dbNode.getSize() == null ? 0L : dbNode.getSize();
+        return !dbSize.equals(Files.size(entry)) || !dbModified.equals(lastModified);
+    }
+
+    @Override
+    protected void applyMetaUpdate(FileNode dbNode, Path entry) throws IOException {
+        long lastModified = Files.getLastModifiedTime(entry).toMillis();
+        if (Files.isDirectory(entry)) {
+            dbNode.setLastModified(lastModified);
+            dbNode.setUpdateTime(LocalDateTime.now());
+            fileMapper.updateById(dbNode);
+            return;
+        }
+        LambdaUpdateWrapper<FileNode> wrapper = new LambdaUpdateWrapper<>();
+        wrapper.eq(FileNode::getId, dbNode.getId());
+        wrapper.set(FileNode::getSize, Files.size(entry));
+        wrapper.set(FileNode::getLastModified, lastModified);
+        wrapper.set(FileNode::getMimeType, probeMimeType(entry));
+        wrapper.set(FileNode::getHash, null);
+        wrapper.set(FileNode::getUpdateTime, LocalDateTime.now());
+        fileMapper.update(wrapper);
+    }
+
+    @Override
+    protected FileNode createNode(FileNode parentNode, Path entry, SyncContext context) throws IOException {
+        boolean isDirectory = Files.isDirectory(entry);
+        FileNode node = new FileNode();
+        node.setId(IdUtil.nextId());
+        node.setUserId(context.getUserId());
+        node.setParentId(parentNode.getId());
+        node.setName(entry.getFileName().toString());
+        node.setType(isDirectory ? FileNodeConstants.TYPE_FOLDER : FileNodeConstants.TYPE_FILE);
+        node.setSize(isDirectory ? 0L : Files.size(entry));
+        node.setLastModified(Files.getLastModifiedTime(entry).toMillis());
+        node.setStorageSpaceId(context.getTargetId());
+        node.setPath(FilePathUtil.buildChildPath(parentNode));
+        node.setMimeType(isDirectory ? null : probeMimeType(entry));
+        node.setStatus(1);
+        return node;
+    }
+
+    @Override
+    protected Path childSource(Path entry, Path source) {
+        return entry;
+    }
+
+    @Override
+    protected void deleteDbSubtree(FileNode node, SyncContext context) {
+        fileNodeSupport.deleteSubtree(node);
+    }
+
+    @Override
+    protected void recordDeleteFailure(FileNode dbChild, Exception e, SyncContext context) {
+        log.warn("删除数据库子树失败，nodeId={}", dbChild.getId(), e);
+        context.recordFailure("删除节点 " + dbChild.getName() + " 失败: " + e.getMessage());
+    }
+
+    @Override
+    protected void recordEntryFailure(Path entry, Exception e, SyncContext context) {
+        log.warn("同步物理条目失败，path={}", entry, e);
+        context.recordFailure("同步 " + entry.getFileName() + " 失败: " + e.getMessage());
     }
 
     private boolean isSyncable(Path path) {
@@ -274,23 +271,6 @@ public class UserSyncExecutor {
         }
     }
 
-    private FileNode createNode(FileNode parentNode, Path physicalPath, String type, long size,
-                                long lastModified, SyncContext context) {
-        FileNode node = new FileNode();
-        node.setId(IdUtil.nextId());
-        node.setUserId(context.getUserId());
-        node.setParentId(parentNode.getId());
-        node.setName(physicalPath.getFileName().toString());
-        node.setType(type);
-        node.setSize(size);
-        node.setLastModified(lastModified);
-        node.setStorageSpaceId(context.getTargetId());
-        node.setPath(FilePathUtil.buildChildPath(parentNode));
-        node.setMimeType(FileNodeConstants.TYPE_FILE.equals(type) ? probeMimeType(physicalPath) : null);
-        node.setStatus(1);
-        return node;
-    }
-
     private String probeMimeType(Path path) {
         try {
             return Files.probeContentType(path);
@@ -304,5 +284,4 @@ public class UserSyncExecutor {
         fileMapper.delete(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<FileNode>()
                 .eq(FileNode::getUserId, userId));
     }
-
 }

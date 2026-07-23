@@ -14,13 +14,13 @@ import com.fleyx.jcloud.model.po.PreviewFile;
 import com.fleyx.jcloud.model.po.RemoteMount;
 import com.fleyx.jcloud.model.po.RemoteSyncTask;
 import com.fleyx.jcloud.service.RemoteProtocolAdapter;
+import com.fleyx.jcloud.service.support.AbstractTreeSyncExecutor;
 import com.fleyx.jcloud.service.support.RemoteMountSupport;
 import com.fleyx.jcloud.service.support.SyncContext;
 import com.fleyx.jcloud.service.support.SyncTaskSupport;
 import com.fleyx.jcloud.util.FilePathUtil;
 import com.fleyx.jcloud.util.IdUtil;
 import com.fleyx.jcloud.util.RemoteMountLock;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RLock;
 import org.springframework.scheduling.annotation.Async;
@@ -29,30 +29,45 @@ import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
 
 import java.net.URLConnection;
-import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 /**
  * 远程挂载同步任务执行器。
+ * <p>
+ * 目录对齐流程由 {@link AbstractTreeSyncExecutor} 承载，本类仅保留远程侧差异实现。
  */
 @Slf4j
 @Component
-@RequiredArgsConstructor
-public class RemoteMountSyncExecutor {
+public class RemoteMountSyncExecutor extends AbstractTreeSyncExecutor<RemoteMountSyncExecutor.RemoteFolder, RemoteFileEntry> {
 
     private final RemoteSyncTaskMapper remoteSyncTaskMapper;
     private final RemoteMountMapper remoteMountMapper;
-    private final FileMapper fileMapper;
     private final PreviewFileMapper previewFileMapper;
     private final RemoteProtocolAdapterFactory adapterFactory;
     private final RemoteMountLock remoteMountLock;
     private final RemoteMountSupport remoteMountSupport;
     private final SyncTaskSupport syncTaskSupport;
+
+    public RemoteMountSyncExecutor(FileMapper fileMapper,
+                                   RemoteSyncTaskMapper remoteSyncTaskMapper,
+                                   RemoteMountMapper remoteMountMapper,
+                                   PreviewFileMapper previewFileMapper,
+                                   RemoteProtocolAdapterFactory adapterFactory,
+                                   RemoteMountLock remoteMountLock,
+                                   RemoteMountSupport remoteMountSupport,
+                                   SyncTaskSupport syncTaskSupport) {
+        super(fileMapper);
+        this.remoteSyncTaskMapper = remoteSyncTaskMapper;
+        this.remoteMountMapper = remoteMountMapper;
+        this.previewFileMapper = previewFileMapper;
+        this.adapterFactory = adapterFactory;
+        this.remoteMountLock = remoteMountLock;
+        this.remoteMountSupport = remoteMountSupport;
+        this.syncTaskSupport = syncTaskSupport;
+    }
 
     @Async
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
@@ -93,7 +108,7 @@ public class RemoteMountSyncExecutor {
         }
     }
 
-    private void doSync(RemoteSyncTask task, RemoteMount mount) {
+    private void doSync(RemoteSyncTask task, RemoteMount mount) throws Exception {
         syncTaskSupport.markRunning(task, remoteSyncTaskMapper);
         RemoteProtocolAdapter adapter = adapterFactory.create(mount);
         FileNode mountNode = remoteMountSupport.findMountNode(mount.getId(), mount.getUserId());
@@ -103,106 +118,101 @@ public class RemoteMountSyncExecutor {
         }
         SyncContext context = new SyncContext(task.getId(), mount.getUserId(), mount.getId());
 
-        syncFolder(mountNode, "/", adapter, context);
+        syncFolder(mountNode, new RemoteFolder("/", adapter), context);
         syncTaskSupport.completeTask(task, context, remoteSyncTaskMapper);
         updateMountStatus(mount, context);
     }
 
-    private void syncFolder(FileNode parentNode, String remotePath, RemoteProtocolAdapter adapter, SyncContext context) {
-        List<RemoteFileEntry> remoteChildren;
+    /**
+     * 远端目录标识（携带协议适配器）。
+     *
+     * @param remotePath 远端路径
+     * @param adapter    协议适配器
+     */
+    public record RemoteFolder(String remotePath, RemoteProtocolAdapter adapter) {
+    }
+
+    @Override
+    protected List<RemoteFileEntry> listChildren(RemoteFolder source, SyncContext context) {
         try {
-            remoteChildren = adapter.listChildren(remotePath);
+            return source.adapter().listChildren(source.remotePath());
         } catch (Exception e) {
-            context.addError("列出远程目录 " + remotePath + " 失败: " + e.getMessage());
-            return;
-        }
-
-        List<FileNode> dbChildren = fileMapper.selectByParentId(context.getUserId(), parentNode.getId());
-        Map<String, FileNode> dbByName = new HashMap<>();
-        for (FileNode child : dbChildren) {
-            dbByName.put(child.getName(), child);
-        }
-        Map<String, RemoteFileEntry> remoteByName = new HashMap<>();
-        for (RemoteFileEntry entry : remoteChildren) {
-            remoteByName.put(entry.getName(), entry);
-        }
-
-        for (FileNode dbChild : dbChildren) {
-            if (!remoteByName.containsKey(dbChild.getName())) {
-                try {
-                    deleteSubtree(dbChild);
-                    context.recordSuccess();
-                } catch (Exception e) {
-                    context.recordFailure("删除本地节点 " + dbChild.getName() + " 失败: " + e.getMessage());
-                }
-            }
-        }
-
-        for (RemoteFileEntry entry : remoteChildren) {
-            FileNode dbChild = dbByName.get(entry.getName());
-            try {
-                processEntry(parentNode, dbChild, entry, adapter, context);
-            } catch (Exception e) {
-                context.recordFailure("同步远程节点 " + entry.getName() + " 失败: " + e.getMessage());
-            }
+            context.addError("列出远程目录 " + source.remotePath() + " 失败: " + e.getMessage());
+            return null;
         }
     }
 
-    private void processEntry(FileNode parentNode, FileNode dbChild, RemoteFileEntry entry,
-                              RemoteProtocolAdapter adapter, SyncContext context) {
-        if (entry.isFolder()) {
-            FileNode folderNode = dbChild;
-            if (folderNode == null || !FileNodeConstants.TYPE_FOLDER.equals(folderNode.getType())) {
-                if (folderNode != null) {
-                    deleteSubtree(folderNode);
-                }
-                folderNode = createNode(parentNode, entry, true, context);
-                fileMapper.insert(folderNode);
-            } else if (isMetaChanged(folderNode, entry)) {
-                updateNodeMeta(folderNode, entry);
-                fileMapper.updateById(folderNode);
-            }
-            context.recordSuccess();
-            syncFolder(folderNode, entry.getRemotePath(), adapter, context);
-            return;
-        }
-
-        if (dbChild == null || !FileNodeConstants.TYPE_FILE.equals(dbChild.getType())) {
-            if (dbChild != null) {
-                deleteSubtree(dbChild);
-            }
-            FileNode fileNode = createNode(parentNode, entry, false, context);
-            fileMapper.insert(fileNode);
-            context.recordSuccess();
-            return;
-        }
-
-        if (isMetaChanged(dbChild, entry)) {
-            clearPreviewCacheIfChanged(dbChild, entry.getEtag());
-            updateNodeMeta(dbChild, entry);
-            fileMapper.updateById(dbChild);
-        }
-        context.recordSuccess();
+    @Override
+    protected boolean isFolder(RemoteFileEntry entry) {
+        return entry.isFolder();
     }
 
-    private FileNode createNode(FileNode parentNode, RemoteFileEntry entry, boolean folder, SyncContext context) {
+    @Override
+    protected String nameOf(RemoteFileEntry entry) {
+        return entry.getName();
+    }
+
+    @Override
+    protected boolean metaChanged(FileNode dbNode, RemoteFileEntry entry) {
+        return isMetaChanged(dbNode, entry);
+    }
+
+    @Override
+    protected void applyMetaUpdate(FileNode dbNode, RemoteFileEntry entry) {
+        if (!entry.isFolder()) {
+            clearPreviewCacheIfChanged(dbNode, entry.getEtag());
+        }
+        updateNodeMeta(dbNode, entry);
+        fileMapper.updateById(dbNode);
+    }
+
+    @Override
+    protected FileNode createNode(FileNode parentNode, RemoteFileEntry entry, SyncContext context) {
         FileNode node = new FileNode();
         node.setId(IdUtil.nextId());
         node.setUserId(context.getUserId());
         node.setParentId(parentNode.getId());
         node.setName(entry.getName());
-        node.setType(folder ? FileNodeConstants.TYPE_FOLDER : FileNodeConstants.TYPE_FILE);
-        node.setSize(folder ? 0L : entry.getSize());
+        node.setType(entry.isFolder() ? FileNodeConstants.TYPE_FOLDER : FileNodeConstants.TYPE_FILE);
+        node.setSize(entry.isFolder() ? 0L : entry.getSize());
         node.setHash(entry.getEtag());
         node.setLastModified(entry.getLastModified());
         node.setSourceType(FileNodeConstants.SOURCE_REMOTE);
         node.setRemoteMountId(context.getTargetId());
         node.setPath(FilePathUtil.buildChildPath(parentNode));
-        if (!folder) {
+        if (!entry.isFolder()) {
             node.setMimeType(URLConnection.guessContentTypeFromName(entry.getName()));
         }
         node.setStatus(1);
         return node;
+    }
+
+    @Override
+    protected RemoteFolder childSource(RemoteFileEntry entry, RemoteFolder source) {
+        return new RemoteFolder(entry.getRemotePath(), source.adapter());
+    }
+
+    @Override
+    protected void deleteDbSubtree(FileNode node, SyncContext context) {
+        List<FileNode> descendants = fileMapper.selectByIdPathPrefix(node.getUserId(), node.getPath(), node.getId());
+        List<String> ids = new ArrayList<>(descendants.size());
+        for (FileNode descendant : descendants) {
+            ids.add(descendant.getId());
+            clearPreviewCache(descendant.getId());
+        }
+        if (!ids.isEmpty()) {
+            fileMapper.physicalDeleteByIds(ids);
+        }
+    }
+
+    @Override
+    protected void recordDeleteFailure(FileNode dbChild, Exception e, SyncContext context) {
+        context.recordFailure("删除本地节点 " + dbChild.getName() + " 失败: " + e.getMessage());
+    }
+
+    @Override
+    protected void recordEntryFailure(RemoteFileEntry entry, Exception e, SyncContext context) {
+        context.recordFailure("同步远程节点 " + entry.getName() + " 失败: " + e.getMessage());
     }
 
     private void updateNodeMeta(FileNode node, RemoteFileEntry entry) {
@@ -243,18 +253,6 @@ public class RemoteMountSyncExecutor {
             return true;
         }
         return false;
-    }
-
-    private void deleteSubtree(FileNode node) {
-        List<FileNode> descendants = fileMapper.selectByIdPathPrefix(node.getUserId(), node.getPath(), node.getId());
-        List<String> ids = new ArrayList<>(descendants.size());
-        for (FileNode descendant : descendants) {
-            ids.add(descendant.getId());
-            clearPreviewCache(descendant.getId());
-        }
-        if (!ids.isEmpty()) {
-            fileMapper.physicalDeleteByIds(ids);
-        }
     }
 
     private void clearPreviewCacheIfChanged(FileNode node, String newEtag) {
