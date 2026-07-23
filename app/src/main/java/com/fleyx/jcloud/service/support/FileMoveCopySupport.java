@@ -230,7 +230,7 @@ public class FileMoveCopySupport {
             }
             if (FileNodeConstants.SOURCE_REMOTE.equals(sourceSource)
                     && !Objects.equals(targetMountId, source.getRemoteMountId())) {
-                throw new BusinessException(ResultCode.BUSINESS_ERROR, "不能跨本地与远程目录操作");
+                throw new BusinessException(ResultCode.BUSINESS_ERROR, "不能跨远程挂载点操作");
             }
         }
     }
