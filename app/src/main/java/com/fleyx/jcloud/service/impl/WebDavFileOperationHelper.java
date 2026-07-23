@@ -1,6 +1,5 @@
 package com.fleyx.jcloud.service.impl;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fleyx.jcloud.common.constant.FileNodeConstants;
 import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.exception.BusinessException;
@@ -12,11 +11,12 @@ import com.fleyx.jcloud.mapper.UserMapper;
 import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.po.StorageSpace;
 import com.fleyx.jcloud.model.po.User;
+import com.fleyx.jcloud.service.support.FileNodeSupport;
+import com.fleyx.jcloud.service.support.FilePathSupport;
+import com.fleyx.jcloud.service.support.UserSpaceSupport;
 import com.fleyx.jcloud.util.FileConflictHelper;
 import com.fleyx.jcloud.util.FileHashUtil;
 import com.fleyx.jcloud.util.FilePathUtil;
-import com.fleyx.jcloud.util.IdUtil;
-import com.fleyx.jcloud.util.WebDavPathResolver;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -25,13 +25,8 @@ import org.springframework.stereotype.Component;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.time.Instant;
 import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
 
 /**
  * WebDAV 文件操作辅助类。
@@ -43,13 +38,12 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class WebDavFileOperationHelper {
 
-    private static final String TYPE_FILE = "file";
-    private static final String TYPE_FOLDER = "folder";
-
     private final FileMapper fileMapper;
     private final UserMapper userMapper;
     private final StorageSpaceMapper storageSpaceMapper;
-    private final WebDavPathResolver pathResolver;
+    private final UserSpaceSupport userSpaceSupport;
+    private final FileNodeSupport fileNodeSupport;
+    private final FilePathSupport filePathSupport;
 
     /**
      * 上传或覆盖文件。
@@ -62,15 +56,15 @@ public class WebDavFileOperationHelper {
      */
     public void upload(String userId, FileNode parent, String name, HttpServletRequest request, long size) {
         FileNode existing = FileConflictHelper.findSameName(fileMapper, userId, parent.getId(), name);
-        User user = requireUser(userId);
-        StorageSpace space = requireSpace(user.getStorageSpaceId());
+        User user = userSpaceSupport.requireUser(userId);
+        StorageSpace space = userSpaceSupport.requireSpace(user.getStorageSpaceId());
         long usedSpace = user.getUsedSpace() == null ? 0L : user.getUsedSpace();
         long quota = user.getQuota() == null ? 0L : user.getQuota();
-        long delta = size - (existing != null && TYPE_FILE.equals(existing.getType()) ? existing.getSize() : 0);
+        long delta = size - (existing != null && FileNodeConstants.TYPE_FILE.equals(existing.getType()) ? existing.getSize() : 0);
         if (quota > 0 && usedSpace + delta > quota) {
             throw new WebDavException(507, "Insufficient Storage");
         }
-        String parentPathName = resolveNamePath(parent, userId);
+        String parentPathName = filePathSupport.resolveNamePath(parent, userId);
         String filePathName = FilePathUtil.buildPathName(parentPathName, name);
         Path physicalPath = FilePathUtil.resolvePhysicalPath(space, user.getUsername(), filePathName);
         try {
@@ -88,8 +82,9 @@ public class WebDavFileOperationHelper {
         if (existing != null) {
             deleteExistingForOverwrite(existing, user);
         }
-        FileNode node = buildFileNode(userId, parent.getId(), name, size, hash, space.getId(),
+        FileNode node = fileNodeSupport.buildFileNode(userId, parent.getId(), name, size, hash, space.getId(),
                 probeContentType(name));
+        node.setLastModified(System.currentTimeMillis());
         setNodePath(node, parent);
         fileMapper.insert(node);
         user.setUsedSpace(usedSpace + delta);
@@ -104,8 +99,9 @@ public class WebDavFileOperationHelper {
      * @param name     文件夹名称
      */
     public void createFolder(String userId, String parentId, String name) {
-        FileNode folder = buildFolderNode(userId, parentId, name);
-        FileNode parent = pathResolver.resolveNode(userId, parentId.equals(FileNodeConstants.ROOT_ID) ? "" : null);
+        FileNode folder = fileNodeSupport.buildFolderNode(userId, parentId, name);
+        folder.setLastModified(System.currentTimeMillis());
+        FileNode parent = FileNodeConstants.ROOT_ID.equals(parentId) ? null : fileMapper.selectById(parentId);
         setNodePath(folder, parent);
         fileMapper.insert(folder);
     }
@@ -117,8 +113,9 @@ public class WebDavFileOperationHelper {
      * @param node   要删除的节点
      */
     public void delete(String userId, FileNode node) {
-        User user = requireUser(userId);
+        User user = userSpaceSupport.requireUser(userId);
         deleteNodeRecursively(node, user);
+        userMapper.updateById(user);
     }
 
     /**
@@ -130,24 +127,16 @@ public class WebDavFileOperationHelper {
      * @param targetName   目标名称
      */
     public void move(String userId, FileNode source, FileNode targetParent, String targetName) {
-        if (TYPE_FOLDER.equals(source.getType())) {
+        if (FileNodeConstants.TYPE_FOLDER.equals(source.getType())) {
             validateNotMoveToSelfSubtree(source, targetParent.getId(), userId);
         }
-        if (TYPE_FILE.equals(source.getType())) {
-            StorageSpace space = requireSpace(source.getStorageSpaceId());
-            User user = requireUser(userId);
-            String oldNamePath = resolveNamePath(source, userId);
-            String newNamePath = FilePathUtil.buildPathName(resolveNamePath(targetParent, userId), targetName);
+        StorageSpace space = userSpaceSupport.requireSpace(source.getStorageSpaceId());
+        User user = userSpaceSupport.requireUser(userId);
+        String oldNamePath = filePathSupport.resolveNamePath(source, userId);
+        String newNamePath = FilePathUtil.buildPathName(filePathSupport.resolveNamePath(targetParent, userId), targetName);
+        if (FileNodeConstants.TYPE_FILE.equals(source.getType())
+                || Files.exists(FilePathUtil.resolvePhysicalPath(space, user.getUsername(), oldNamePath))) {
             movePhysical(space, user.getUsername(), oldNamePath, newNamePath);
-        } else {
-            StorageSpace space = requireSpace(source.getStorageSpaceId());
-            User user = requireUser(userId);
-            String oldNamePath = resolveNamePath(source, userId);
-            String newNamePath = FilePathUtil.buildPathName(resolveNamePath(targetParent, userId), targetName);
-            Path oldPath = FilePathUtil.resolvePhysicalPath(space, user.getUsername(), oldNamePath);
-            if (Files.exists(oldPath)) {
-                movePhysical(space, user.getUsername(), oldNamePath, newNamePath);
-            }
         }
         source.setParentId(targetParent.getId());
         source.setName(targetName);
@@ -164,8 +153,9 @@ public class WebDavFileOperationHelper {
      * @param targetName   目标名称
      */
     public void copy(String userId, FileNode source, FileNode targetParent, String targetName) {
-        if (TYPE_FOLDER.equals(source.getType())) {
-            FileNode copied = buildFolderNode(userId, targetParent.getId(), targetName);
+        if (FileNodeConstants.TYPE_FOLDER.equals(source.getType())) {
+            FileNode copied = fileNodeSupport.buildFolderNode(userId, targetParent.getId(), targetName);
+            copied.setLastModified(System.currentTimeMillis());
             setNodePath(copied, targetParent);
             fileMapper.insert(copied);
             List<FileNode> children = fileMapper.selectByParentId(userId, source.getId());
@@ -173,10 +163,10 @@ public class WebDavFileOperationHelper {
                 copy(userId, child, copied, child.getName());
             }
         } else {
-            User user = requireUser(userId);
-            StorageSpace space = requireSpace(source.getStorageSpaceId());
-            String sourceNamePath = resolveNamePath(source, userId);
-            String targetNamePath = FilePathUtil.buildPathName(resolveNamePath(targetParent, userId), targetName);
+            User user = userSpaceSupport.requireUser(userId);
+            StorageSpace space = userSpaceSupport.requireSpace(source.getStorageSpaceId());
+            String sourceNamePath = filePathSupport.resolveNamePath(source, userId);
+            String targetNamePath = FilePathUtil.buildPathName(filePathSupport.resolveNamePath(targetParent, userId), targetName);
             Path sourcePath = FilePathUtil.resolvePhysicalPath(space, user.getUsername(), sourceNamePath);
             Path targetPath = FilePathUtil.resolvePhysicalPath(space, user.getUsername(), targetNamePath);
             long size = source.getSize() == null ? 0 : source.getSize();
@@ -191,7 +181,7 @@ public class WebDavFileOperationHelper {
             } catch (IOException e) {
                 throw new SystemException(ResultCode.SYSTEM_ERROR, "复制文件失败", e);
             }
-            FileNode copied = buildFileNode(userId, targetParent.getId(), targetName, size,
+            FileNode copied = fileNodeSupport.buildFileNode(userId, targetParent.getId(), targetName, size,
                     source.getHash(), space.getId(), source.getMimeType());
             copied.setLastModified(source.getLastModified());
             setNodePath(copied, targetParent);
@@ -205,7 +195,7 @@ public class WebDavFileOperationHelper {
         if (existing == null) {
             return;
         }
-        if (TYPE_FOLDER.equals(existing.getType())) {
+        if (FileNodeConstants.TYPE_FOLDER.equals(existing.getType())) {
             deleteNodeRecursively(existing, user);
         } else {
             deleteSingleFile(existing, user);
@@ -215,7 +205,7 @@ public class WebDavFileOperationHelper {
     private void deleteNodeRecursively(FileNode node, User user) {
         List<FileNode> subtree = collectSubtree(node, user.getId());
         for (FileNode n : subtree) {
-            if (TYPE_FILE.equals(n.getType())) {
+            if (FileNodeConstants.TYPE_FILE.equals(n.getType())) {
                 deleteSingleFile(n, user);
             }
         }
@@ -228,7 +218,7 @@ public class WebDavFileOperationHelper {
         if (space == null) {
             return;
         }
-        String namePath = resolveNamePath(node, user.getId());
+        String namePath = filePathSupport.resolveNamePath(node, user.getId());
         Path physicalPath = FilePathUtil.resolvePhysicalPath(space, user.getUsername(), namePath);
         try {
             Files.deleteIfExists(physicalPath);
@@ -270,7 +260,7 @@ public class WebDavFileOperationHelper {
     private List<FileNode> collectSubtree(FileNode node, String userId) {
         List<FileNode> nodes = new ArrayList<>();
         nodes.add(node);
-        if (TYPE_FOLDER.equals(node.getType())) {
+        if (FileNodeConstants.TYPE_FOLDER.equals(node.getType())) {
             List<FileNode> descendants = fileMapper.selectByIdPathPrefix(userId, node.getPath(), node.getId());
             for (FileNode descendant : descendants) {
                 if (!descendant.getId().equals(node.getId())) {
@@ -279,78 +269,6 @@ public class WebDavFileOperationHelper {
             }
         }
         return nodes;
-    }
-
-    private String resolveNamePath(FileNode node, String userId) {
-        if (FileNodeConstants.ROOT_ID.equals(node.getId())) {
-            return "/";
-        }
-        Set<String> ancestorIds = FilePathUtil.extractAncestorIds(List.of(node));
-        Map<String, String> cache = queryAncestorNames(userId, ancestorIds);
-        FilePathUtil.ResolveContext ctx = FilePathUtil.contextOf(null, userId, cache);
-        return FilePathUtil.resolveNamePath(node, ctx);
-    }
-
-    private Map<String, String> queryAncestorNames(String userId, Set<String> ancestorIds) {
-        Map<String, String> cache = new HashMap<>();
-        if (ancestorIds.isEmpty()) {
-            return cache;
-        }
-        List<FileNode> ancestors = fileMapper.selectBatchIds(ancestorIds);
-        for (FileNode ancestor : ancestors) {
-            if (userId.equals(ancestor.getUserId())) {
-                cache.put(ancestor.getId(), ancestor.getName());
-            }
-        }
-        return cache;
-    }
-
-    private User requireUser(String userId) {
-        User user = userMapper.selectById(userId);
-        if (user == null) {
-            throw new BusinessException(ResultCode.NOT_FOUND, "用户不存在");
-        }
-        return user;
-    }
-
-    private StorageSpace requireSpace(String spaceId) {
-        StorageSpace space = storageSpaceMapper.selectById(spaceId);
-        if (space == null) {
-            throw new BusinessException(ResultCode.NOT_FOUND, "存储空间不存在");
-        }
-        return space;
-    }
-
-    private FileNode buildFileNode(String userId, String parentId, String name, long size,
-                                   String hash, String storageSpaceId, String mimeType) {
-        FileNode node = new FileNode();
-        node.setId(IdUtil.nextId());
-        node.setUserId(userId);
-        node.setParentId(parentId);
-        node.setName(name);
-        node.setType(TYPE_FILE);
-        node.setSize(size);
-        node.setHash(hash);
-        node.setStorageSpaceId(storageSpaceId);
-        node.setSourceType(FileNodeConstants.SOURCE_LOCAL);
-        node.setMimeType(mimeType);
-        node.setStatus(1);
-        node.setLastModified(System.currentTimeMillis());
-        return node;
-    }
-
-    private FileNode buildFolderNode(String userId, String parentId, String name) {
-        FileNode folder = new FileNode();
-        folder.setId(IdUtil.nextId());
-        folder.setUserId(userId);
-        folder.setParentId(parentId);
-        folder.setName(name);
-        folder.setType(TYPE_FOLDER);
-        folder.setSize(0L);
-        folder.setSourceType(FileNodeConstants.SOURCE_LOCAL);
-        folder.setStatus(1);
-        folder.setLastModified(System.currentTimeMillis());
-        return folder;
     }
 
     private void setNodePath(FileNode node, FileNode parent) {
