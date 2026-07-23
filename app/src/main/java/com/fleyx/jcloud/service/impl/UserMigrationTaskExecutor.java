@@ -7,6 +7,7 @@ import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.enums.SyncTaskStatus;
 import com.fleyx.jcloud.common.event.UserMigrationSubmittedEvent;
 import com.fleyx.jcloud.common.exception.BusinessException;
+import com.fleyx.jcloud.common.exception.SystemException;
 import com.fleyx.jcloud.mapper.FileMapper;
 import com.fleyx.jcloud.mapper.StorageSpaceMapper;
 import com.fleyx.jcloud.mapper.UserMapper;
@@ -82,12 +83,14 @@ public class UserMigrationTaskExecutor {
             locked = lock.tryLock(LOCK_WAIT_SECONDS, TimeUnit.SECONDS);
             if (!locked) {
                 log.warn("获取用户写锁超时，userId={}", userId);
+                transactionHelper.failTask(task, userId, "获取用户写锁超时");
                 return;
             }
             doMigrate(task);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             log.warn("迁移任务获取锁被中断，taskId={}", taskId);
+            transactionHelper.failTask(task, userId, "迁移任务被中断");
         } catch (Exception e) {
             log.error("迁移任务执行失败，taskId={}", taskId, e);
             rollback(task, e.getMessage());
@@ -136,7 +139,7 @@ public class UserMigrationTaskExecutor {
         } catch (Exception e) {
             moveDirectoryIfExists(targetFilesDir, sourceFilesDir);
             moveDirectoryIfExists(targetTrashDir, sourceTrashDir);
-            throw new BusinessException(ResultCode.BUSINESS_ERROR, "迁移数据库更新失败，已回滚文件位置: " + e.getMessage(), e);
+            throw new SystemException(ResultCode.BUSINESS_ERROR, "迁移数据库更新失败，已回滚文件位置: " + e.getMessage(), e);
         }
         log.info("迁移任务完成，taskId={}", task.getId());
     }
@@ -174,7 +177,7 @@ public class UserMigrationTaskExecutor {
         try {
             Files.createDirectories(path);
         } catch (Exception e) {
-            throw new BusinessException(ResultCode.BUSINESS_ERROR, "创建目标目录失败: " + e.getMessage(), e);
+            throw new SystemException(ResultCode.BUSINESS_ERROR, "创建目标目录失败: " + e.getMessage(), e);
         }
     }
 
@@ -182,7 +185,7 @@ public class UserMigrationTaskExecutor {
         try {
             Files.move(source, target, StandardCopyOption.REPLACE_EXISTING);
         } catch (Exception e) {
-            throw new BusinessException(ResultCode.BUSINESS_ERROR, "移动用户文件目录失败: " + e.getMessage(), e);
+            throw new SystemException(ResultCode.BUSINESS_ERROR, "移动用户文件目录失败: " + e.getMessage(), e);
         }
     }
 

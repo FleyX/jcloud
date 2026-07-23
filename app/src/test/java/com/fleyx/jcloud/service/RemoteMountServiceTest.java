@@ -23,6 +23,7 @@ import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
@@ -64,6 +65,18 @@ class RemoteMountServiceTest {
         remoteMountService.save(dto, user.getId());
 
         assertThrows(BusinessException.class, () -> remoteMountService.save(dto, user.getId()));
+    }
+
+    @Test
+    void shouldNotReturnPlainPasswordInDetail() throws Exception {
+        UserVo user = prepareUser();
+        RemoteMountVo mount = remoteMountService.save(buildSaveDto(), user.getId());
+
+        RemoteMountDetailVo detail = remoteMountService.detail(mount.getId(), user.getId());
+
+        assertEquals("http://example.com/dav", detail.getUrl());
+        assertEquals("user", detail.getUsername());
+        assertNull(detail.getPassword());
     }
 
     @Test

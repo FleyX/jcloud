@@ -250,7 +250,7 @@ public class RemoteMountServiceImpl implements RemoteMountService {
             WebDavConfig config = objectMapper.readValue(configJson, WebDavConfig.class);
             vo.setUrl(config.getUrl());
             vo.setUsername(config.getUsername());
-            vo.setPassword(remoteConfigCrypto.decrypt(config.getPassword()));
+            // 出于安全考虑不回填明文密码；编辑时密码留空表示不修改（后端 update 保留原值）
         } catch (Exception e) {
             log.warn("解析挂载配置到详情视图失败", e);
         }

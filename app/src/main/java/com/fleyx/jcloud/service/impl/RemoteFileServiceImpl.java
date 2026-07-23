@@ -3,6 +3,7 @@ package com.fleyx.jcloud.service.impl;
 import com.fleyx.jcloud.common.constant.FileNodeConstants;
 import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.exception.BusinessException;
+import com.fleyx.jcloud.common.exception.SystemException;
 import com.fleyx.jcloud.mapper.FileMapper;
 import com.fleyx.jcloud.model.bo.FileDownloadResult;
 import com.fleyx.jcloud.model.convert.FileConvert;
@@ -73,7 +74,7 @@ public class RemoteFileServiceImpl implements RemoteFileService {
         try (InputStream is = file.getInputStream()) {
             adapter.upload(newRemotePath, is, file.getSize(), file.getContentType());
         } catch (IOException e) {
-            throw new BusinessException(ResultCode.BUSINESS_ERROR, "读取上传文件失败", e);
+            throw new SystemException(ResultCode.BUSINESS_ERROR, "读取上传文件失败", e);
         }
 
         if (existing != null) {
