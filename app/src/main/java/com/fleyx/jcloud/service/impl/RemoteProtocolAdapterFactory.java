@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fleyx.jcloud.common.enums.RemoteMountType;
 import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.exception.BusinessException;
+import com.fleyx.jcloud.common.exception.SystemException;
 import com.fleyx.jcloud.model.bo.WebDavConfig;
 import com.fleyx.jcloud.model.po.RemoteMount;
 import com.fleyx.jcloud.service.RemoteProtocolAdapter;
@@ -44,7 +45,7 @@ public class RemoteProtocolAdapterFactory {
             return new WebDavProtocolAdapter(config);
         } catch (Exception e) {
             log.error("创建 WebDAV 适配器失败，mountId={}", mount.getId(), e);
-            throw new BusinessException(ResultCode.BUSINESS_ERROR, "远程挂载配置解析失败");
+            throw new SystemException(ResultCode.SYSTEM_ERROR, "远程挂载配置解析失败", e);
         }
     }
 }

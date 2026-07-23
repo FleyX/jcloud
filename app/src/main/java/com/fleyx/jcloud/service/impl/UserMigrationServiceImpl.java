@@ -15,6 +15,7 @@ import com.fleyx.jcloud.model.po.User;
 import com.fleyx.jcloud.model.po.UserMigrationTask;
 import com.fleyx.jcloud.model.vo.UserMigrationTaskVo;
 import com.fleyx.jcloud.service.UserMigrationService;
+import com.fleyx.jcloud.util.IdUtil;
 import com.fleyx.jcloud.service.support.SyncTaskSupport;
 import com.fleyx.jcloud.service.support.UserSpaceSupport;
 import lombok.RequiredArgsConstructor;
@@ -61,6 +62,7 @@ public class UserMigrationServiceImpl implements UserMigrationService {
         userMapper.updateById(user);
 
         UserMigrationTask task = new UserMigrationTask();
+        task.setId(IdUtil.nextId());
         task.setUserId(dto.getUserId());
         task.setSourceSpaceId(sourceSpace.getId());
         task.setTargetSpaceId(targetSpace.getId());
