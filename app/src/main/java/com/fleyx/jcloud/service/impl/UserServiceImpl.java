@@ -1,21 +1,12 @@
 package com.fleyx.jcloud.service.impl;
 
 import cn.hutool.core.util.StrUtil;
-import cn.hutool.crypto.digest.BCrypt;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import cn.hutool.core.collection.CollUtil;
-import com.fleyx.jcloud.common.cache.UserPermissionCache;
 import com.fleyx.jcloud.common.enums.ResultCode;
-import com.fleyx.jcloud.common.enums.UserStatus;
 import com.fleyx.jcloud.common.exception.BusinessException;
-import com.fleyx.jcloud.mapper.RoleMapper;
-import com.fleyx.jcloud.mapper.StorageSpaceMapper;
 import com.fleyx.jcloud.mapper.UserMapper;
-import com.fleyx.jcloud.mapper.UserRoleMapper;
-import com.fleyx.jcloud.model.convert.RoleConvert;
-import com.fleyx.jcloud.model.convert.UserConvert;
 import com.fleyx.jcloud.model.dto.BatchUserStatusDto;
 import com.fleyx.jcloud.model.dto.ChangePasswordDto;
 import com.fleyx.jcloud.model.dto.UserPageQueryDto;
@@ -25,72 +16,47 @@ import com.fleyx.jcloud.model.dto.UserStatusDto;
 import com.fleyx.jcloud.model.dto.UserStorageDto;
 import com.fleyx.jcloud.model.dto.UserUpdateDto;
 import com.fleyx.jcloud.model.dto.UserUpdateRolesDto;
-import com.fleyx.jcloud.model.po.Role;
-import com.fleyx.jcloud.model.po.StorageSpace;
 import com.fleyx.jcloud.model.po.User;
-import com.fleyx.jcloud.model.po.UserRole;
-import com.fleyx.jcloud.model.vo.RoleVo;
 import com.fleyx.jcloud.model.vo.UserProfileVo;
 import com.fleyx.jcloud.model.vo.UserVo;
 import com.fleyx.jcloud.service.UserService;
-import com.fleyx.jcloud.util.ByteFormatUtil;
-import com.fleyx.jcloud.util.IdUtil;
+import com.fleyx.jcloud.service.support.UserAdminSupport;
+import com.fleyx.jcloud.service.support.UserProfileSupport;
+import com.fleyx.jcloud.service.support.UserRoleSupport;
+import com.fleyx.jcloud.service.support.UserSpaceSupport;
+import com.fleyx.jcloud.service.support.UserVoEnrichSupport;
 import com.fleyx.jcloud.util.UsernameUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * 用户业务实现。
+ * <p>
+ * 入口编排类：简单查询在此处理，写操作委托给各支撑组件
+ * （{@link UserAdminSupport}、{@link UserRoleSupport}、{@link UserProfileSupport}）。
  */
 @Service
 @RequiredArgsConstructor
 public class UserServiceImpl implements UserService {
 
     private final UserMapper userMapper;
-    private final RoleMapper roleMapper;
-    private final UserRoleMapper userRoleMapper;
-    private final StorageSpaceMapper storageSpaceMapper;
-    private final UserConvert userConvert;
-    private final RoleConvert roleConvert;
-    private final UserPermissionCache userPermissionCache;
+    private final UserSpaceSupport userSpaceSupport;
+    private final UserAdminSupport userAdminSupport;
+    private final UserRoleSupport userRoleSupport;
+    private final UserProfileSupport userProfileSupport;
+    private final UserVoEnrichSupport userVoEnrichSupport;
 
     @Override
-    @Transactional(rollbackFor = Exception.class)
     public UserVo saveUser(UserSaveDto dto) {
-        String username = UsernameUtil.requireValid(dto.getUsername());
-        checkUsernameUnique(username);
-        StorageSpace space = requireEnabledStorageSpace(dto.getStorageSpaceId());
-        long quotaBytes = ByteFormatUtil.parse(dto.getQuota(), dto.getQuotaUnit());
-
-        User user = userConvert.dtoToPo(dto);
-        user.setUsername(username);
-        user.setPassword(BCrypt.hashpw(user.getPassword(), BCrypt.gensalt()));
-        user.setStatus(UserStatus.ENABLED.getCode());
-        user.setIsAdmin(0);
-        user.setStorageSpaceId(space.getId());
-        user.setQuota(quotaBytes);
-        user.setUsedSpace(0L);
-        user.setReservedSpace(0L);
-        userMapper.insert(user);
-        return enrichUserVo(user);
+        return userAdminSupport.saveUser(dto);
     }
 
     @Override
     public UserVo getById(String id) {
-        User user = userMapper.selectById(id);
-        if (user == null) {
-            throw new BusinessException(ResultCode.NOT_FOUND, "用户不存在");
-        }
-        return enrichUserVo(user);
+        User user = userSpaceSupport.requireUser(id);
+        return userVoEnrichSupport.enrichUserVo(user);
     }
 
     @Override
@@ -99,16 +65,13 @@ public class UserServiceImpl implements UserService {
             throw new BusinessException(ResultCode.PARAM_ERROR, "用户名关键字不能为空");
         }
         List<User> list = userMapper.selectByUsernameLike(UsernameUtil.normalize(username));
-        return enrichUserVos(list);
+        return userVoEnrichSupport.enrichUserVos(list);
     }
 
     @Override
     public boolean removeById(String id) {
-        User user = userMapper.selectById(id);
-        if (user == null) {
-            throw new BusinessException(ResultCode.NOT_FOUND, "用户不存在");
-        }
-        rejectIfSuperAdmin(user, "不能删除超级管理员账号");
+        User user = userSpaceSupport.requireUser(id);
+        userRoleSupport.rejectIfSuperAdmin(user, "不能删除超级管理员账号");
         return userMapper.deleteById(id) > 0;
     }
 
@@ -117,199 +80,60 @@ public class UserServiceImpl implements UserService {
         Page<User> pageParam = new Page<>(dto.getPageNum(), dto.getPageSize());
         LambdaQueryWrapper<User> wrapper = buildQueryWrapper(dto);
         IPage<User> page = userMapper.selectPage(pageParam, wrapper);
-        List<UserVo> records = enrichUserVos(page.getRecords());
+        List<UserVo> records = userVoEnrichSupport.enrichUserVos(page.getRecords());
         Page<UserVo> result = new Page<>(page.getCurrent(), page.getSize(), page.getTotal());
         result.setRecords(records);
         return result;
     }
 
     @Override
-    @Transactional(rollbackFor = Exception.class)
     public void updateRoles(UserUpdateRolesDto dto) {
-        User user = requireUser(dto.getUserId());
-        rejectIfBuiltInAdmin(user, "不能修改内置管理员的角色");
-        validateRoleIds(dto.getRoleIds());
-
-        LambdaQueryWrapper<UserRole> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(UserRole::getUserId, user.getId());
-        userRoleMapper.delete(wrapper);
-
-        List<UserRole> relations = dto.getRoleIds().stream()
-                .map(roleId -> buildUserRole(user.getId(), roleId))
-                .collect(Collectors.toList());
-        if (!relations.isEmpty()) {
-            userRoleMapper.batchInsert(relations);
-        }
-        userPermissionCache.evict(user.getId());
+        userRoleSupport.updateRoles(dto);
     }
 
     @Override
     public void updateStatus(UserStatusDto dto) {
-        User user = requireUser(dto.getUserId());
-        rejectIfBuiltInAdmin(user, "不能禁用/启用内置管理员账号");
-        if (dto.getStatus() != UserStatus.ENABLED.getCode() && dto.getStatus() != UserStatus.DISABLED.getCode()) {
-            throw new BusinessException(ResultCode.PARAM_ERROR, "用户状态只能是 1（启用）或 0（禁用）");
-        }
-        User update = new User();
-        update.setId(user.getId());
-        update.setStatus(dto.getStatus());
-        userMapper.updateById(update);
+        userRoleSupport.updateStatus(dto);
     }
 
     @Override
-    @Transactional(rollbackFor = Exception.class)
     public UserVo updateUser(UserUpdateDto dto) {
-        User user = requireUser(dto.getId());
-        boolean isBuiltInAdmin = isBuiltInAdmin(user);
-        if (!isBuiltInAdmin) {
-            validateStatus(dto.getStatus());
-            validateRoleIds(dto.getRoleIds());
-        }
-
-        User update = buildUserUpdate(user, dto, isBuiltInAdmin);
-        userMapper.updateById(update);
-
-        if (dto.getRoleIds() != null && !isBuiltInAdmin) {
-            updateUserRoles(user.getId(), dto.getRoleIds());
-            userPermissionCache.evict(user.getId());
-        }
-
-        User updated = userMapper.selectById(user.getId());
-        return enrichUserVo(updated);
+        return userAdminSupport.updateUser(dto);
     }
 
     @Override
-    @Transactional(rollbackFor = Exception.class)
     public List<String> batchDelete(List<String> userIds) {
-        if (CollUtil.isEmpty(userIds)) {
-            return List.of();
-        }
-        List<User> users = userMapper.selectBatchIds(userIds);
-        List<String> deletableIds = users.stream()
-                .filter(u -> !u.isSuperAdmin())
-                .map(User::getId)
-                .toList();
-        if (deletableIds.isEmpty()) {
-            return List.of();
-        }
-        deletableIds.forEach(userMapper::deleteById);
-        return deletableIds;
+        return userAdminSupport.batchDelete(userIds);
     }
 
     @Override
-    @Transactional(rollbackFor = Exception.class)
     public List<String> batchUpdateStatus(BatchUserStatusDto dto) {
-        validateStatus(dto.getStatus());
-        if (CollUtil.isEmpty(dto.getUserIds())) {
-            return List.of();
-        }
-        List<User> users = userMapper.selectBatchIds(dto.getUserIds());
-        List<String> updatableIds = users.stream()
-                .filter(u -> !u.isSuperAdmin())
-                .map(User::getId)
-                .toList();
-        if (updatableIds.isEmpty()) {
-            return List.of();
-        }
-        for (String userId : updatableIds) {
-            User update = new User();
-            update.setId(userId);
-            update.setStatus(dto.getStatus());
-            userMapper.updateById(update);
-        }
-        return updatableIds;
+        return userAdminSupport.batchUpdateStatus(dto);
     }
 
     @Override
     public UserProfileVo getUserProfile(String userId) {
-        User user = requireUser(userId);
-        return userConvert.poToProfileVo(user);
+        return userProfileSupport.getUserProfile(userId);
     }
 
     @Override
     public UserProfileVo updateUserProfile(String userId, UserProfileUpdateDto dto) {
-        User user = requireUser(userId);
-        User update = new User();
-        update.setId(user.getId());
-        if (dto.getEmail() != null) {
-            update.setEmail(dto.getEmail());
-        }
-        if (dto.getNickname() != null) {
-            update.setNickname(dto.getNickname());
-        }
-        userMapper.updateById(update);
-        User updated = userMapper.selectById(user.getId());
-        return userConvert.poToProfileVo(updated);
+        return userProfileSupport.updateUserProfile(userId, dto);
     }
 
     @Override
     public void changePassword(String userId, ChangePasswordDto dto) {
-        if (!dto.getNewPassword().equals(dto.getConfirmPassword())) {
-            throw new BusinessException(ResultCode.PARAM_ERROR, "两次输入的新密码不一致");
-        }
-        User user = requireUser(userId);
-        if (!BCrypt.checkpw(dto.getCurrentPassword(), user.getPassword())) {
-            throw new BusinessException(ResultCode.PARAM_ERROR, "当前密码错误");
-        }
-        User update = new User();
-        update.setId(user.getId());
-        update.setPassword(BCrypt.hashpw(dto.getNewPassword(), BCrypt.gensalt()));
-        userMapper.updateById(update);
+        userProfileSupport.changePassword(userId, dto);
     }
 
     @Override
-    @Transactional(rollbackFor = Exception.class)
     public UserProfileVo toggleWebDav(String userId, boolean enabled) {
-        User user = requireUser(userId);
-        User update = new User();
-        update.setId(user.getId());
-        update.setWebdavEnabled(enabled);
-        userMapper.updateById(update);
-        User updated = userMapper.selectById(user.getId());
-        return userConvert.poToProfileVo(updated);
+        return userProfileSupport.toggleWebDav(userId, enabled);
     }
 
-    private User buildUserUpdate(User user, UserUpdateDto dto, boolean isBuiltInAdmin) {
-        User update = new User();
-        update.setId(user.getId());
-        if (dto.getNickname() != null) {
-            update.setNickname(dto.getNickname());
-        }
-        if (dto.getEmail() != null) {
-            update.setEmail(dto.getEmail());
-        }
-        if (dto.getStatus() != null && !isBuiltInAdmin) {
-            update.setStatus(dto.getStatus());
-        }
-        if (StrUtil.isNotBlank(dto.getPassword())) {
-            update.setPassword(BCrypt.hashpw(dto.getPassword(), BCrypt.gensalt()));
-        }
-        if (dto.getQuota() != null) {
-            update.setQuota(ByteFormatUtil.parse(dto.getQuota(), dto.getQuotaUnit()));
-        }
-        return update;
-    }
-
-    private void validateStatus(Integer status) {
-        if (status == null) {
-            return;
-        }
-        if (status != UserStatus.ENABLED.getCode() && status != UserStatus.DISABLED.getCode()) {
-            throw new BusinessException(ResultCode.PARAM_ERROR, "用户状态只能是 1（启用）或 0（禁用）");
-        }
-    }
-
-    private void updateUserRoles(String userId, List<String> roleIds) {
-        LambdaQueryWrapper<UserRole> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(UserRole::getUserId, userId);
-        userRoleMapper.delete(wrapper);
-        if (CollUtil.isEmpty(roleIds)) {
-            return;
-        }
-        List<UserRole> relations = roleIds.stream()
-                .map(roleId -> buildUserRole(userId, roleId))
-                .collect(Collectors.toList());
-        userRoleMapper.batchInsert(relations);
+    @Override
+    public void bindStorageSpace(UserStorageDto dto) {
+        userAdminSupport.bindStorageSpace(dto);
     }
 
     private LambdaQueryWrapper<User> buildQueryWrapper(UserPageQueryDto dto) {
@@ -325,168 +149,5 @@ public class UserServiceImpl implements UserService {
             wrapper.eq(User::getStatus, dto.getStatus());
         }
         return wrapper;
-    }
-
-    private UserVo enrichUserVo(User user) {
-        if (user == null) {
-            return null;
-        }
-        return enrichUserVo(user, userConvert.poToVo(user));
-    }
-
-    private UserVo enrichUserVo(User user, UserVo vo) {
-        if (vo == null) {
-            return null;
-        }
-        boolean isSuperAdmin = user != null && user.isSuperAdmin();
-        vo.setIsAdmin(isSuperAdmin);
-        List<String> roleIds = userRoleMapper.selectRoleIdsByUserId(vo.getId());
-        List<RoleVo> roles = new ArrayList<>();
-        if (!roleIds.isEmpty()) {
-            roles.addAll(roleConvert.poListToVoList(roleMapper.selectBatchIds(roleIds)));
-        }
-        if (isSuperAdmin && roles.stream().noneMatch(r -> "super_admin".equals(r.getCode()))) {
-            roles.add(0, buildSuperAdminRoleVo());
-        }
-        vo.setRoles(roles);
-        return vo;
-    }
-
-    private List<UserVo> enrichUserVos(List<User> users) {
-        if (CollUtil.isEmpty(users)) {
-            return List.of();
-        }
-        List<UserVo> vos = users.stream().map(userConvert::poToVo).toList();
-        List<String> userIds = users.stream().map(User::getId).toList();
-        Map<String, Boolean> superAdminMap = users.stream()
-                .collect(Collectors.toMap(User::getId, User::isSuperAdmin));
-
-        List<UserRole> userRoles = userRoleMapper.selectByUserIds(userIds);
-        Map<String, List<String>> userRoleIdsMap = userRoles.stream()
-                .collect(Collectors.groupingBy(UserRole::getUserId,
-                        Collectors.mapping(UserRole::getRoleId, Collectors.toList())));
-        Set<String> allRoleIds = userRoles.stream()
-                .map(UserRole::getRoleId)
-                .collect(Collectors.toSet());
-        Map<String, Role> roleMap = allRoleIds.isEmpty() ? Map.of()
-                : roleMapper.selectBatchIds(new ArrayList<>(allRoleIds)).stream()
-                .collect(Collectors.toMap(Role::getId, r -> r));
-
-        Set<String> storageSpaceIds = users.stream()
-                .map(User::getStorageSpaceId)
-                .filter(StrUtil::isNotBlank)
-                .collect(Collectors.toSet());
-        Map<String, StorageSpace> spaceMap = storageSpaceIds.isEmpty() ? Map.of()
-                : storageSpaceMapper.selectBatchIds(new ArrayList<>(storageSpaceIds)).stream()
-                .collect(Collectors.toMap(StorageSpace::getId, s -> s));
-
-        for (int i = 0; i < vos.size(); i++) {
-            UserVo vo = vos.get(i);
-            String uid = vo.getId();
-            boolean isSuperAdmin = superAdminMap.getOrDefault(uid, false);
-            vo.setIsAdmin(isSuperAdmin);
-            List<String> roleIds = userRoleIdsMap.getOrDefault(uid, List.of());
-            List<RoleVo> roles = roleIds.stream()
-                    .map(roleMap::get)
-                    .filter(Objects::nonNull)
-                    .map(roleConvert::poToVo)
-                    .collect(Collectors.toList());
-            if (isSuperAdmin && roles.stream().noneMatch(r -> "super_admin".equals(r.getCode()))) {
-                roles.add(0, buildSuperAdminRoleVo());
-            }
-            vo.setRoles(roles);
-            if (StrUtil.isNotBlank(vo.getStorageSpaceId())) {
-                StorageSpace space = spaceMap.get(vo.getStorageSpaceId());
-                if (space != null) {
-                    vo.setStorageSpaceName(space.getName());
-                }
-            }
-        }
-        return vos;
-    }
-
-    private RoleVo buildSuperAdminRoleVo() {
-        RoleVo vo = new RoleVo();
-        vo.setCode("super_admin");
-        vo.setName("超级管理员");
-        vo.setDescription("系统内置超级管理员");
-        return vo;
-    }
-
-    private User requireUser(String id) {
-        User user = userMapper.selectById(id);
-        if (user == null) {
-            throw new BusinessException(ResultCode.NOT_FOUND, "用户不存在");
-        }
-        return user;
-    }
-
-    private void rejectIfSuperAdmin(User user, String message) {
-        if (user.isSuperAdmin()) {
-            throw new BusinessException(ResultCode.FORBIDDEN, message);
-        }
-    }
-
-    private void rejectIfBuiltInAdmin(User user, String message) {
-        if (isBuiltInAdmin(user)) {
-            throw new BusinessException(ResultCode.FORBIDDEN, message);
-        }
-    }
-
-    private boolean isBuiltInAdmin(User user) {
-        return "admin".equals(user.getUsername());
-    }
-
-    private void validateRoleIds(List<String> roleIds) {
-        if (roleIds == null || roleIds.isEmpty()) {
-            return;
-        }
-        long validCount = roleMapper.selectBatchIds(roleIds).size();
-        if (validCount != roleIds.size()) {
-            throw new BusinessException(ResultCode.PARAM_ERROR, "存在无效的角色 ID");
-        }
-    }
-
-    private UserRole buildUserRole(String userId, String roleId) {
-        UserRole relation = new UserRole();
-        relation.setId(IdUtil.nextId());
-        relation.setUserId(userId);
-        relation.setRoleId(roleId);
-        relation.setCreateTime(LocalDateTime.now());
-        return relation;
-    }
-
-    private void checkUsernameUnique(String username) {
-        if (userMapper.countByUsernameIncludingDeleted(username) > 0) {
-            throw new BusinessException(ResultCode.BUSINESS_ERROR, "用户名已存在");
-        }
-    }
-
-    @Override
-    @Transactional(rollbackFor = Exception.class)
-    public void bindStorageSpace(UserStorageDto dto) {
-        User user = requireUser(dto.getUserId());
-        StorageSpace space = requireEnabledStorageSpace(dto.getStorageSpaceId());
-        long quota = dto.getQuota() == null ? 0L : dto.getQuota();
-        if (quota > 0 && quota > space.getCapacity()) {
-            throw new BusinessException(ResultCode.BUSINESS_ERROR, "用户配额不能超过存储空间容量");
-        }
-        user.setStorageSpaceId(space.getId());
-        user.setQuota(quota);
-        userMapper.updateById(user);
-    }
-
-    private StorageSpace requireEnabledStorageSpace(String storageSpaceId) {
-        if (storageSpaceId == null) {
-            throw new BusinessException(ResultCode.PARAM_ERROR, "存储空间不能为空");
-        }
-        StorageSpace space = storageSpaceMapper.selectById(storageSpaceId);
-        if (space == null) {
-            throw new BusinessException(ResultCode.NOT_FOUND, "存储空间不存在");
-        }
-        if (!Integer.valueOf(1).equals(space.getStatus())) {
-            throw new BusinessException(ResultCode.BUSINESS_ERROR, "存储空间已被禁用");
-        }
-        return space;
     }
 }
