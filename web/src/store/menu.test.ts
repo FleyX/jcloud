@@ -21,6 +21,11 @@ function buildMenus(): Record<PrimaryModule, SecondaryMenuItem[]> {
       { key: 'permissions', label: '权限管理', route: '/admin/permissions' },
       { key: 'storage-spaces', label: '存储空间管理', route: '/admin/storage-spaces' },
     ],
+    person: [
+      { key: 'profile', label: '个人资料', route: '/person' },
+      { key: 'remote-mounts', label: '远程挂载', route: '/person/remote-mounts' },
+      { key: 'webdav', label: 'WebDAV共享', route: '/person/webdav' },
+    ],
   }
 }
 
@@ -38,6 +43,12 @@ describe('resolvePrimaryModuleByRoute', () => {
     expect(resolvePrimaryModuleByRoute('/admin/users', buildMenus())).toBe('system')
     expect(resolvePrimaryModuleByRoute('/admin/roles', buildMenus())).toBe('system')
     expect(resolvePrimaryModuleByRoute('/admin/permissions', buildMenus())).toBe('system')
+  })
+
+  it('resolves person routes to the person primary module', () => {
+    expect(resolvePrimaryModuleByRoute('/person', buildMenus())).toBe('person')
+    expect(resolvePrimaryModuleByRoute('/person/remote-mounts', buildMenus())).toBe('person')
+    expect(resolvePrimaryModuleByRoute('/person/webdav', buildMenus())).toBe('person')
   })
 
   it('returns null for routes that do not belong to any primary module', () => {
@@ -92,6 +103,26 @@ describe('menuStore secondary menus', () => {
 
     expect(menus.map((menu) => menu.key)).toEqual(['users'])
   })
+
+  it('returns person menus with profile, remote-mounts and webdav', () => {
+    const userStore = useUserStore()
+    userStore.userInfo = buildRegularUser()
+
+    const menuStore = useMenuStore()
+    const menus = menuStore.getSecondaryMenusByPrimary('person')
+
+    expect(menus.map((menu) => menu.key)).toEqual(['profile', 'remote-mounts', 'webdav'])
+  })
+
+  it('does not include remote-mounts in files menus', () => {
+    const userStore = useUserStore()
+    userStore.userInfo = buildAdminUser()
+
+    const menuStore = useMenuStore()
+    const menus = menuStore.getSecondaryMenusByPrimary('files')
+
+    expect(menus.map((menu) => menu.key)).toEqual(['all', 'share', 'trash'])
+  })
 })
 
 describe('menuStore syncWithRoute', () => {
@@ -132,6 +163,28 @@ describe('menuStore syncWithRoute', () => {
 
     expect(menuStore.activePrimary).toBe('system')
     expect(menuStore.activeSecondary).toBe('roles')
+  })
+
+  it('syncs /person/webdav to person primary and webdav secondary', () => {
+    const userStore = useUserStore()
+    userStore.userInfo = buildAdminUser()
+
+    const menuStore = useMenuStore()
+    menuStore.syncWithRoute('/person/webdav')
+
+    expect(menuStore.activePrimary).toBe('person')
+    expect(menuStore.activeSecondary).toBe('webdav')
+  })
+
+  it('syncs /person/remote-mounts to person primary and remote-mounts secondary', () => {
+    const userStore = useUserStore()
+    userStore.userInfo = buildAdminUser()
+
+    const menuStore = useMenuStore()
+    menuStore.syncWithRoute('/person/remote-mounts')
+
+    expect(menuStore.activePrimary).toBe('person')
+    expect(menuStore.activeSecondary).toBe('remote-mounts')
   })
 
   it('does not change state for routes that do not belong to any primary module', () => {

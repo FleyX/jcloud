@@ -33,7 +33,7 @@ async function mountHeader(routePath: string) {
       { path: '/files/share', component: { template: '<div>share</div>' } },
       { path: '/admin/users', component: { template: '<div>users</div>' } },
       { path: '/admin/roles', component: { template: '<div>roles</div>' } },
-      { path: '/profile', component: { template: '<div>profile</div>' } },
+      { path: '/person', component: { template: '<div>person</div>' } },
     ],
   })
 
@@ -87,32 +87,33 @@ describe('MobileHeader', () => {
     expect(pushSpy).toHaveBeenCalledWith('/files')
   })
 
-  it('navigates to the profile page when the avatar is clicked', async () => {
+  it('navigates to the person settings page when the avatar is clicked', async () => {
     const { wrapper, router } = await mountHeader('/files')
     const pushSpy = vi.spyOn(router, 'push')
 
     await wrapper.find('button.rounded-full').trigger('click')
 
-    expect(pushSpy).toHaveBeenCalledWith('/profile')
+    expect(pushSpy).toHaveBeenCalledWith('/person')
   })
 
-  it('renders a back button on the profile page', async () => {
-    const { wrapper } = await mountHeader('/profile')
+  it('renders the person module title and person menus on /person', async () => {
+    const { wrapper } = await mountHeader('/person')
 
-    expect(wrapper.text()).toContain('个人中心')
-    expect(wrapper.text()).toContain('返回')
-    expect(wrapper.find('button.rounded-full').exists()).toBe(false)
+    expect(wrapper.text()).toContain('个人设置')
+
+    await wrapper.find('button.text-base').trigger('click')
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.text()).toContain('个人资料')
+    expect(wrapper.text()).toContain('远程挂载')
+    expect(wrapper.text()).toContain('WebDAV共享')
   })
 
-  it('navigates back via router.back when back is clicked on profile', async () => {
-    const { wrapper, router } = await mountHeader('/profile')
-    const backSpy = vi.spyOn(router, 'back')
+  it('highlights the profile secondary menu key on /person', async () => {
+    const { wrapper } = await mountHeader('/person')
 
-    const backButton = wrapper.findAll('button').find((b) => b.text().includes('返回'))
-    expect(backButton).toBeDefined()
-    await backButton!.trigger('click')
-
-    expect(backSpy).toHaveBeenCalled()
+    const drawer = wrapper.findComponent(MobileDrawer)
+    expect(drawer.props('activeKey')).toBe('profile')
   })
 
   it('highlights the deepest matching secondary menu key', async () => {

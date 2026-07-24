@@ -3,26 +3,12 @@
  * 顶部一级导航栏
  * 负责全站核心模块切换，状态由 Pinia store/menu.ts 统一管理
  */
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMenuStore, type PrimaryModule } from '@/store/menu'
 import { useUserStore } from '@/store/user'
-import { Cloud, Settings, LogOut, User, KeyRound, HardDrive } from '@lucide/vue'
+import { Cloud, Settings, LogOut, User } from '@lucide/vue'
 import { cn } from '@/utils/cn'
-import {
-  getCurrentUserProfile,
-  updateCurrentUserProfile,
-  changePassword,
-  toggleWebDav,
-} from '@/api/user'
-import type {
-  ChangePasswordDto,
-  UserProfileUpdateDto,
-  UserProfileVo,
-  UserWebDavToggleDto,
-} from '@/types/auth'
-import ProfileDialog from '@/components/user/ProfileDialog.vue'
-import ChangePasswordDialog from '@/components/user/ChangePasswordDialog.vue'
 import type { Component } from 'vue'
 
 const router = useRouter()
@@ -35,7 +21,7 @@ interface PrimaryModuleItem {
   icon: Component
 }
 
-// notes / todos 模块尚未实现，暂不在一级导航中展示
+// notes / todos 模块尚未实现，暂不在一级导航中展示；person 为虚拟模块，不在一级导航渲染
 const primaryModules: PrimaryModuleItem[] = [
   { key: 'files', label: '文件', icon: Cloud },
   { key: 'system', label: '系统', icon: Settings },
@@ -58,59 +44,8 @@ function handlePrimaryClick(module: PrimaryModule) {
   }
 }
 
-const profileOpen = ref(false)
-const passwordOpen = ref(false)
-const profileSubmitting = ref(false)
-const passwordSubmitting = ref(false)
-const profile = ref<UserProfileVo | null>(null)
-const profileForm = ref<UserProfileUpdateDto>({ email: '', nickname: '' })
-const webdavEnabled = ref(false)
-const webdavToggling = ref(false)
-
-async function openProfile() {
-  profile.value = await getCurrentUserProfile()
-  profileForm.value = {
-    email: profile.value.email ?? '',
-    nickname: profile.value.nickname ?? '',
-  }
-  webdavEnabled.value = profile.value.webdavEnabled ?? false
-  profileOpen.value = true
-}
-
-async function handleWebDavToggle(enabled: boolean) {
-  if (webdavToggling.value) return
-  webdavToggling.value = true
-  try {
-    const dto: UserWebDavToggleDto = { enabled }
-    const updated = await toggleWebDav(dto)
-    webdavEnabled.value = updated.webdavEnabled ?? enabled
-    if (userStore.userInfo) {
-      userStore.userInfo.webdavEnabled = webdavEnabled.value
-    }
-  } finally {
-    webdavToggling.value = false
-  }
-}
-
-async function handleProfileSubmit(dto: UserProfileUpdateDto) {
-  profileSubmitting.value = true
-  try {
-    await updateCurrentUserProfile(dto)
-    await userStore.fetchCurrentUser()
-    profileOpen.value = false
-  } finally {
-    profileSubmitting.value = false
-  }
-}
-
-async function handlePasswordSubmit(dto: ChangePasswordDto) {
-  passwordSubmitting.value = true
-  try {
-    await changePassword(dto)
-    passwordOpen.value = false
-  } finally {
-    passwordSubmitting.value = false
-  }
+function handlePersonSettings() {
+  router.push('/person')
 }
 </script>
 
@@ -172,37 +107,10 @@ async function handlePasswordSubmit(dto: ChangePasswordDto) {
           </div>
           <button
             class="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm text-surface-700 transition-colors hover:bg-surface-100"
-            @click="openProfile"
+            @click="handlePersonSettings"
           >
             <User class="h-4 w-4" />
-            个人信息
-          </button>
-          <button
-            class="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm text-surface-700 transition-colors hover:bg-surface-100"
-            @click="passwordOpen = true"
-          >
-            <KeyRound class="h-4 w-4" />
-            修改密码
-          </button>
-          <button
-            :disabled="webdavToggling"
-            class="flex w-full items-center justify-between rounded-xl px-3 py-2 text-sm text-surface-700 transition-colors hover:bg-surface-100 disabled:opacity-60"
-            @click="handleWebDavToggle(!webdavEnabled)"
-          >
-            <span class="flex items-center gap-2">
-              <HardDrive class="h-4 w-4" />
-              WebDAV
-            </span>
-            <span
-              :class="
-                cn(
-                  'rounded-full px-2 py-0.5 text-xs font-medium',
-                  webdavEnabled ? 'bg-green-100 text-green-700' : 'bg-surface-100 text-surface-500'
-                )
-              "
-            >
-              {{ webdavEnabled ? '已开启' : '已关闭' }}
-            </span>
+            个人设置
           </button>
           <div class="my-1 border-b border-surface-100" />
           <button
@@ -216,20 +124,4 @@ async function handlePasswordSubmit(dto: ChangePasswordDto) {
       </div>
     </div>
   </header>
-
-  <ProfileDialog
-    v-model:open="profileOpen"
-    v-model="profileForm"
-    :profile="profile"
-    :submitting="profileSubmitting"
-    :webdav-enabled="webdavEnabled"
-    :webdav-toggling="webdavToggling"
-    @submit="handleProfileSubmit"
-    @toggle-webdav="handleWebDavToggle"
-  />
-  <ChangePasswordDialog
-    v-model:open="passwordOpen"
-    :submitting="passwordSubmitting"
-    @submit="handlePasswordSubmit"
-  />
 </template>

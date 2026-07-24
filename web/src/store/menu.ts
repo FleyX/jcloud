@@ -2,9 +2,10 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { useUserStore } from '@/store/user'
 
-export type PrimaryModule = 'files' | 'notes' | 'todos' | 'system'
+export type PrimaryModule = 'files' | 'notes' | 'todos' | 'system' | 'person'
 
-export const primaryModuleList: PrimaryModule[] = ['files', 'notes', 'todos', 'system']
+// person 为虚拟一级模块：不在顶部一级导航中渲染，仅用于路由推导与二级菜单联动
+export const primaryModuleList: PrimaryModule[] = ['files', 'notes', 'todos', 'system', 'person']
 
 export interface SecondaryMenuItem {
   key: string
@@ -60,7 +61,6 @@ export const useMenuStore = defineStore('menu', () => {
           { key: 'all', label: '全部文件', route: '/files' },
           { key: 'share', label: '我的分享', route: '/files/share' },
           { key: 'trash', label: '回收站', route: '/files/trash' },
-          { key: 'remote-mounts', label: '远程挂载', route: '/files/remote-mounts' },
         ]
       case 'notes':
         if (!userStore.isAdmin && !userStore.hasPermission('note:menu')) {
@@ -80,6 +80,12 @@ export const useMenuStore = defineStore('menu', () => {
         ]
       case 'system':
         return buildSystemMenus()
+      case 'person':
+        return [
+          { key: 'profile', label: '个人资料', route: '/person' },
+          { key: 'remote-mounts', label: '远程挂载', route: '/person/remote-mounts' },
+          { key: 'webdav', label: 'WebDAV共享', route: '/person/webdav' },
+        ]
       default:
         return []
     }

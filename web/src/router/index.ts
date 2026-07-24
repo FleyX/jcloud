@@ -3,7 +3,7 @@ import type { RouteRecordRaw } from 'vue-router'
 import { useUserStore } from '@/store/user'
 import { deviceView } from '@/utils/device'
 
-type RouteName = 'Login' | 'Register' | 'NotFound' | 'Forbidden' | 'Init' | 'Files' | 'Trash' | 'Share' | 'RemoteMount' | 'UserManagement' | 'RoleManagement' | 'PermissionManagement' | 'StorageSpaceManagement' | 'Profile'
+type RouteName = 'Login' | 'Register' | 'NotFound' | 'Forbidden' | 'Init' | 'Files' | 'Trash' | 'Share' | 'RemoteMount' | 'UserManagement' | 'RoleManagement' | 'PermissionManagement' | 'StorageSpaceManagement' | 'PersonProfile' | 'PersonWebDav'
 
 /**
  * 公开静态路由
@@ -76,10 +76,31 @@ const dynamicRoutes: RouteRecordRaw[] = [
     meta: { permission: 'file:menu', title: '我的分享' },
   },
   {
-    path: '/files/remote-mounts',
+    path: '/person',
+    name: 'PersonProfile' as RouteName,
+    component: deviceView('person/profile'),
+    meta: { title: '个人资料' },
+  },
+  {
+    path: '/person/remote-mounts',
     name: 'RemoteMount' as RouteName,
     component: deviceView('files/remote-mounts'),
-    meta: { permission: 'file:menu', title: '远程挂载' },
+    meta: { title: '远程挂载' },
+  },
+  {
+    path: '/person/webdav',
+    name: 'PersonWebDav' as RouteName,
+    component: deviceView('person/webdav'),
+    meta: { title: 'WebDAV共享' },
+  },
+  // 旧路径重定向，保持兼容
+  {
+    path: '/profile',
+    redirect: '/person',
+  },
+  {
+    path: '/files/remote-mounts',
+    redirect: '/person/remote-mounts',
   },
   {
     path: '/admin/users',
@@ -104,12 +125,6 @@ const dynamicRoutes: RouteRecordRaw[] = [
     name: 'StorageSpaceManagement' as RouteName,
     component: deviceView('admin/StorageSpaces'),
     meta: { permission: 'storage_space:menu', title: '存储空间管理' },
-  },
-  {
-    path: '/profile',
-    name: 'Profile' as RouteName,
-    component: deviceView('user/Profile'),
-    meta: { title: '个人中心', hideTabBar: true },
   },
 ]
 

@@ -48,7 +48,7 @@ async function mountShell(initialPath: string) {
     history: createWebHistory(),
     routes: [
       { path: '/files', component: filesPage, meta: { title: '全部文件' } },
-      { path: '/profile', component: profilePage, meta: { title: '个人中心', hideTabBar: true } },
+      { path: '/person', component: profilePage, meta: { title: '个人资料' } },
       { path: '/admin/users', component: usersPage, meta: { title: '用户管理' } },
     ],
   })
@@ -81,8 +81,8 @@ describe('MobileAppShell', () => {
     expect(wrapper.text()).toContain('files content')
   })
 
-  it('renders the files page content after navigating back from profile', async () => {
-    const { wrapper, router } = await mountShell('/profile')
+  it('renders the files page content after navigating back from person settings', async () => {
+    const { wrapper, router } = await mountShell('/person')
 
     expect(wrapper.find('.profile-page').exists()).toBe(true)
 
