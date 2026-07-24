@@ -1,6 +1,8 @@
 package com.fleyx.jcloud.util;
 
 import cn.hutool.core.util.StrUtil;
+import com.fleyx.jcloud.common.enums.ResultCode;
+import com.fleyx.jcloud.common.exception.BusinessException;
 
 import java.util.Locale;
 import java.util.Set;
@@ -66,7 +68,7 @@ public final class UsernameUtil {
     }
 
     /**
-     * 校验并归一化用户名，非法时抛出异常。
+     * 校验并归一化用户名，非法时抛出 {@link BusinessException}。
      *
      * @param username 原始输入
      * @return 归一化后的用户名
@@ -74,7 +76,7 @@ public final class UsernameUtil {
     public static String requireValid(String username) {
         String normalized = normalize(username);
         if (!isValid(normalized)) {
-            throw new IllegalArgumentException("用户名必须为 6-32 位小写字母、数字或下划线，且不能以下划线开头/结尾或连续出现下划线");
+            throw new BusinessException(ResultCode.PARAM_ERROR, "用户名必须为 6-32 位小写字母、数字或下划线，且不能以下划线开头/结尾或连续出现下划线");
         }
         return normalized;
     }
