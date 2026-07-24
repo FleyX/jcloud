@@ -19,6 +19,7 @@ import {
   FileText,
   CheckSquare,
   Globe,
+  User,
 } from '@lucide/vue'
 import { cn } from '@/utils/cn'
 import type { Component } from 'vue'
@@ -38,6 +39,8 @@ const iconMap: Record<string, Component> = {
   today: CheckSquare,
   archive: CheckSquare,
   users: Shield,
+  profile: User,
+  webdav: HardDrive,
 }
 
 function bytesToGB(bytes?: string | number): number {
