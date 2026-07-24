@@ -92,7 +92,7 @@ class UserMigrationTaskExecutorTest {
         UserMigrationSubmitDto submitDto = new UserMigrationSubmitDto();
         submitDto.setUserId(user.getId());
         submitDto.setTargetSpaceId(targetSpace.getId());
-        submitDto.setNewQuota(21474836480L);
+        submitDto.setNewQuota(1073741824L);
         UserMigrationTaskVo task = userMigrationService.submitMigration(submitDto);
 
         executor.execute(task.getId());
@@ -102,7 +102,7 @@ class UserMigrationTaskExecutorTest {
 
         User migratedUser = userMapper.selectById(user.getId());
         assertEquals(targetSpace.getId(), migratedUser.getStorageSpaceId());
-        assertEquals(Long.valueOf(21474836480L), migratedUser.getQuota());
+        assertEquals(Long.valueOf(1073741824L), migratedUser.getQuota());
         assertEquals(Integer.valueOf(0), migratedUser.getReadOnly());
 
         Path targetTrashFile = targetPath.resolve("trash").resolve(user.getUsername());
@@ -153,7 +153,7 @@ class UserMigrationTaskExecutorTest {
         UserMigrationSubmitDto submitDto = new UserMigrationSubmitDto();
         submitDto.setUserId(user.getId());
         submitDto.setTargetSpaceId(targetSpace.getId());
-        submitDto.setNewQuota(21474836480L);
+        submitDto.setNewQuota(1073741824L);
         UserMigrationTaskVo task = userMigrationService.submitMigration(submitDto);
 
         executor.execute(task.getId());
