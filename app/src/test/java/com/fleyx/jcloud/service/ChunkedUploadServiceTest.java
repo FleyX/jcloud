@@ -42,7 +42,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * 分片上传服务测试。
  */
-@SpringBootTest
+@SpringBootTest(properties = "jcloud.upload.chunk-size=10485760")
 @ActiveProfiles("test")
 @Transactional
 class ChunkedUploadServiceTest {
