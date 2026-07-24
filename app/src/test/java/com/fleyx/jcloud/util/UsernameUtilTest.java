@@ -1,5 +1,6 @@
 package com.fleyx.jcloud.util;
 
+import com.fleyx.jcloud.common.exception.BusinessException;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -65,6 +66,6 @@ class UsernameUtilTest {
     @Test
     void shouldRequireValidUsername() {
         assertEquals("alice_01", UsernameUtil.requireValid("Alice_01"));
-        assertThrows(IllegalArgumentException.class, () -> UsernameUtil.requireValid("Alice-01"));
+        assertThrows(BusinessException.class, () -> UsernameUtil.requireValid("Alice-01"));
     }
 }
