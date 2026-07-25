@@ -8,6 +8,7 @@
 import Header from '@/components/pc/layout/Header.vue'
 import Sidebar from '@/components/pc/layout/Sidebar.vue'
 import TransferPanel from '@/components/transfer/TransferPanel.vue'
+import TransferTaskPanel from '@/components/transfer/TransferTaskPanel.vue'
 </script>
 
 <template>
@@ -38,5 +39,6 @@ import TransferPanel from '@/components/transfer/TransferPanel.vue'
     </div>
 
     <TransferPanel />
+    <TransferTaskPanel />
   </div>
 </template>

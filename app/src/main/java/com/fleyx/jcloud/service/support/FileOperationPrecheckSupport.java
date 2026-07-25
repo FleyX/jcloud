@@ -43,7 +43,7 @@ public class FileOperationPrecheckSupport {
         List<FileNode> sources = dto.getItems().stream()
                 .map(item -> fileNodeSupport.getOwnedNode(item.getId(), userId))
                 .toList();
-        fileMoveCopySupport.validateSourceConsistency(sources, targetParent);
+        fileMoveCopySupport.validateSourcesHomogeneous(sources);
         fileMoveCopySupport.validateTargetNotSelfOrDescendant(sources, targetParent, targetParentId);
 
         String targetParentPathName = fileMoveCopySupport.resolveParentPathName(targetParentId, userId);

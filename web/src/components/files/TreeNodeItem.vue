@@ -8,6 +8,8 @@ import { cn } from '@/utils/cn'
 interface TreeNode {
   id: string
   name: string
+  sourceType?: 'local' | 'remote'
+  remoteMountId?: string
   children: TreeNode[]
   loaded: boolean
   expanded: boolean
