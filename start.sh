@@ -28,7 +28,8 @@ rm -f app.pid web.pid app.log web.log
 kill_port "$APP_PORT"
 kill_port "$WEB_PORT"
 
-nohup bash -c "cd \"$SCRIPT_DIR/app\" && mvn spring-boot:run" > app.log 2>&1 &
+# clean compile 避免增量编译导致 MapStruct 生成的 Impl 残缺（No qualifying bean of type ...Convert）
+nohup bash -c "cd \"$SCRIPT_DIR/app\" && mvn clean compile spring-boot:run" > app.log 2>&1 &
 APP_PID=$!
 echo $APP_PID > app.pid
 echo "启动后端，端口: $APP_PORT, PID: $APP_PID"
