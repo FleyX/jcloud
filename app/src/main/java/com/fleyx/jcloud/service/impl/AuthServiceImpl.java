@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.enums.UserStatus;
 import com.fleyx.jcloud.common.exception.BusinessException;
+import com.fleyx.jcloud.common.permission.PermissionRegistry;
 import com.fleyx.jcloud.common.permission.PermissionResolver;
 import com.fleyx.jcloud.mapper.RoleMapper;
 import com.fleyx.jcloud.mapper.UserMapper;
@@ -44,6 +45,7 @@ public class AuthServiceImpl implements AuthService {
     private final RoleConvert roleConvert;
     private final JwtUtil jwtUtil;
     private final PermissionResolver permissionResolver;
+    private final PermissionRegistry permissionRegistry;
     private final SystemInitService systemInitService;
 
     @Override
@@ -98,21 +100,23 @@ public class AuthServiceImpl implements AuthService {
     }
 
     private LoginVo buildLoginVo(User user) {
-        List<String> permissions = permissionResolver.resolvePermissionCodes(user.getId());
+        List<String> roleIds = userRoleMapper.selectRoleIdsByUserId(user.getId());
+        List<String> resources = user.isSuperAdmin()
+                ? permissionRegistry.allResourceCodes()
+                : permissionResolver.resolveResourceCodes(roleIds);
         String token = jwtUtil.generateToken(user.getId(), user.getUsername());
 
         LoginVo vo = new LoginVo();
         vo.setToken(token);
-        vo.setUserInfo(toUserVo(user));
-        vo.setPermissions(permissions);
+        vo.setUserInfo(toUserVo(user, roleIds));
+        vo.setResources(resources);
         vo.setInitialized(systemInitService.isInitialized());
         return vo;
     }
 
-    private UserVo toUserVo(User user) {
+    private UserVo toUserVo(User user, List<String> roleIds) {
         UserVo vo = userConvert.poToVo(user);
         vo.setIsAdmin(user.isSuperAdmin());
-        List<String> roleIds = userRoleMapper.selectRoleIdsByUserId(user.getId());
         if (!roleIds.isEmpty()) {
             List<Role> roles = roleMapper.selectBatchIds(roleIds);
             vo.setRoles(roleConvert.poListToVoList(roles));

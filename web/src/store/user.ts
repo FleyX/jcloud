@@ -7,12 +7,12 @@ const TOKEN_KEY = 'jcloud_token'
 
 /**
  * 全局用户状态 Store
- * 维护登录态、用户信息、权限编码列表
+ * 维护登录态、用户信息、资源编码列表
  */
 export const useUserStore = defineStore('user', () => {
   const token = ref<string>(localStorage.getItem(TOKEN_KEY) ?? '')
   const userInfo = ref<UserVo | null>(null)
-  const permissions = ref<string[]>([])
+  const resources = ref<string[]>([])
   const dynamicRoutesAdded = ref(false)
   const initialized = ref<boolean>(true)
 
@@ -31,7 +31,7 @@ export const useUserStore = defineStore('user', () => {
   function setLoginData(data: LoginVo) {
     setToken(data.token)
     userInfo.value = data.userInfo
-    permissions.value = data.permissions ?? []
+    resources.value = data.resources ?? []
     initialized.value = data.initialized ?? true
     dynamicRoutesAdded.value = false
   }
@@ -55,7 +55,7 @@ export const useUserStore = defineStore('user', () => {
   async function fetchCurrentUser(): Promise<LoginVo> {
     const data = await getCurrentUser()
     userInfo.value = data.userInfo
-    permissions.value = data.permissions ?? []
+    resources.value = data.resources ?? []
     initialized.value = data.initialized ?? true
     return data
   }
@@ -66,37 +66,37 @@ export const useUserStore = defineStore('user', () => {
   function logoutAction() {
     setToken('')
     userInfo.value = null
-    permissions.value = []
+    resources.value = []
     initialized.value = true
     dynamicRoutesAdded.value = false
   }
 
   /**
-   * 判断当前用户是否拥有指定权限编码。
+   * 判断当前用户是否拥有指定资源编码（如 VIEW:/admin/users）。
    * 超级管理员直接返回 true。
    */
-  function hasPermission(code: string): boolean {
+  function hasResource(code: string): boolean {
     if (isAdmin.value) {
       return true
     }
-    return permissions.value.includes(code)
+    return resources.value.includes(code)
   }
 
   /**
-   * 判断当前用户是否拥有任意一个权限编码。
+   * 判断当前用户是否拥有任意一个资源编码。
    * 超级管理员直接返回 true。
    */
-  function hasAnyPermission(codes: string[]): boolean {
+  function hasAnyResource(codes: string[]): boolean {
     if (isAdmin.value) {
       return true
     }
-    return codes.some((code) => permissions.value.includes(code))
+    return codes.some((code) => resources.value.includes(code))
   }
 
   return {
     token,
     userInfo,
-    permissions,
+    resources,
     dynamicRoutesAdded,
     initialized,
     isLoggedIn,
@@ -104,8 +104,8 @@ export const useUserStore = defineStore('user', () => {
     loginAction,
     fetchCurrentUser,
     logoutAction,
-    hasPermission,
-    hasAnyPermission,
+    hasResource,
+    hasAnyResource,
     markDynamicRoutesAdded,
   }
 })

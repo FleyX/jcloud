@@ -1,0 +1,149 @@
+# 权限与资源定义（唯一事实来源）。
+# 应用启动时加载到内存 PermissionRegistry，数据库不存储权限/资源数据。
+#
+# 结构说明：
+#   public      无需登录即可访问的 API 资源
+#   login       仅需登录（JWT 有效）即可访问的 API 资源
+#   permissions 权限树，角色通过绑定权限 code 获得其下所有资源（含祖先权限的资源）
+#     - code      权限编码，全局唯一
+#     - name      权限名称
+#     - parent    父权限 code（可选）
+#     - resources 权限下挂的资源列表
+#         - code  资源编码，全局唯一。API 资源格式为 "METHOD:path"（如 GET:/jcloud/api/users），
+#                 前端菜单资源以 "VIEW:" 为前缀（如 VIEW:/admin/users）
+#         - name  资源名称（仅人读）
+#
+# 注意：新增后端接口时必须在此登记，否则请求会被鉴权过滤器拒绝（超级管理员除外）。
+
+public:
+  - { code: "POST:/jcloud/api/auth/login", name: "用户登录" }
+  - { code: "POST:/jcloud/api/auth/register", name: "用户注册" }
+  - { code: "GET:/jcloud/api/s/{code}", name: "获取公开分享信息" }
+  - { code: "POST:/jcloud/api/s/{code}/access", name: "校验分享访问密码" }
+  - { code: "GET:/jcloud/api/s/{code}/items", name: "获取公开分享项列表" }
+  - { code: "GET:/jcloud/api/s/{code}/files/{fileId}/download", name: "公开下载单个文件" }
+  - { code: "GET:/jcloud/api/s/{code}/files/{fileId}/preview", name: "公开预览文件" }
+  - { code: "POST:/jcloud/api/s/{code}/batch-download", name: "公开批量下载" }
+  - { code: "GET:/jcloud/api/s/{code}/batch-download/{taskId}/status", name: "查询公开批量下载任务" }
+  - { code: "GET:/jcloud/api/s/{code}/batch-download/{taskId}", name: "下载公开批量下载结果" }
+
+login:
+  - { code: "GET:/jcloud/api/auth/me", name: "当前用户信息" }
+  - { code: "GET:/jcloud/api/users/me", name: "获取当前登录用户个人信息" }
+  - { code: "PUT:/jcloud/api/users/me", name: "更新当前登录用户个人信息" }
+  - { code: "PUT:/jcloud/api/users/me/password", name: "修改当前登录用户密码" }
+  - { code: "GET:/jcloud/api/remote-mounts", name: "分页查询远程挂载" }
+  - { code: "POST:/jcloud/api/remote-mounts", name: "创建远程挂载" }
+  - { code: "GET:/jcloud/api/remote-mounts/{id}", name: "查看远程挂载详情" }
+  - { code: "PUT:/jcloud/api/remote-mounts/{id}", name: "编辑远程挂载" }
+  - { code: "DELETE:/jcloud/api/remote-mounts/{id}", name: "删除远程挂载" }
+  - { code: "POST:/jcloud/api/remote-mounts/test-connection", name: "测试远程挂载连接" }
+  - { code: "POST:/jcloud/api/remote-mounts/health-check", name: "检查远程挂载连接状态" }
+  - { code: "POST:/jcloud/api/remote-mounts/{id}/sync", name: "立即同步远程挂载" }
+  - { code: "GET:/jcloud/api/remote-mounts/{id}/sync/task", name: "查询远程挂载最新同步任务" }
+  - { code: "PUT:/jcloud/api/remote-mounts/{id}/sync-config", name: "更新远程挂载同步配置" }
+  - { code: "GET:/jcloud/api/remote-mounts/sync-tasks", name: "分页查询远程同步任务" }
+
+permissions:
+  - code: "file:menu"
+    name: "文件管理"
+    resources:
+      - { code: "VIEW:/files", name: "文件管理页面" }
+      - { code: "GET:/jcloud/api/files", name: "分页查询文件列表" }
+      - { code: "POST:/jcloud/api/files/upload", name: "上传文件" }
+      - { code: "POST:/jcloud/api/files/upload/pre-check", name: "上传前预检" }
+      - { code: "POST:/jcloud/api/files/instant", name: "秒传" }
+      - { code: "POST:/jcloud/api/files/chunked-upload/init", name: "初始化分片上传" }
+      - { code: "POST:/jcloud/api/files/chunked-upload/{uploadId}/chunks", name: "上传分片" }
+      - { code: "GET:/jcloud/api/files/chunked-upload/{uploadId}/chunks", name: "查询已上传分片" }
+      - { code: "POST:/jcloud/api/files/chunked-upload/{uploadId}/complete", name: "完成分片上传" }
+      - { code: "GET:/jcloud/api/files/{id}/download", name: "下载文件" }
+      - { code: "GET:/jcloud/api/files/{id}/preview", name: "文件预览" }
+      - { code: "POST:/jcloud/api/files/folders", name: "创建文件夹" }
+      - { code: "POST:/jcloud/api/files/rename", name: "重命名文件或文件夹" }
+      - { code: "POST:/jcloud/api/files/move", name: "移动文件或文件夹" }
+      - { code: "POST:/jcloud/api/files/copy", name: "复制文件或文件夹" }
+      - { code: "POST:/jcloud/api/files/operations/pre-check", name: "移动复制预检" }
+      - { code: "POST:/jcloud/api/files/delete", name: "删除文件或文件夹到回收站" }
+      - { code: "GET:/jcloud/api/files/trash", name: "分页查询回收站列表" }
+      - { code: "POST:/jcloud/api/files/trash/restore", name: "恢复文件或文件夹" }
+      - { code: "POST:/jcloud/api/files/trash/restore/pre-check", name: "恢复前冲突预检" }
+      - { code: "POST:/jcloud/api/files/trash/permanent-delete", name: "永久删除回收站记录" }
+      - { code: "GET:/jcloud/api/shares", name: "分页查询我的分享" }
+      - { code: "POST:/jcloud/api/shares", name: "创建分享" }
+      - { code: "GET:/jcloud/api/shares/{id}", name: "查看分享详情" }
+      - { code: "PUT:/jcloud/api/shares/{id}", name: "更新分享" }
+      - { code: "DELETE:/jcloud/api/shares/{id}", name: "删除分享" }
+      - { code: "GET:/jcloud/api/transfers/recent", name: "查询最近传输任务" }
+      - { code: "GET:/jcloud/api/transfers/{id}", name: "查询传输任务详情" }
+      - { code: "POST:/jcloud/api/transfers/copy", name: "跨来源复制" }
+      - { code: "POST:/jcloud/api/transfers/move", name: "跨来源移动" }
+      - { code: "POST:/jcloud/api/transfers/{id}/cancel", name: "取消传输任务" }
+
+  - code: "note:menu"
+    name: "笔记管理"
+    resources:
+      - { code: "VIEW:/notes", name: "笔记管理页面" }
+
+  - code: "todo:menu"
+    name: "待办管理"
+    resources:
+      - { code: "VIEW:/todos", name: "待办管理页面" }
+
+  - code: "system:menu"
+    name: "系统设置"
+    resources:
+      - { code: "VIEW:/admin", name: "系统设置页面" }
+      - { code: "GET:/jcloud/api/admin/users/{id}/migration-task", name: "查询用户最新迁移任务" }
+      - { code: "POST:/jcloud/api/admin/users/{id}/migrate", name: "发起用户存储空间迁移" }
+
+  - code: "user:menu"
+    name: "用户管理"
+    parent: "system:menu"
+    resources:
+      - { code: "VIEW:/admin/users", name: "用户管理页面" }
+      - { code: "GET:/jcloud/api/users", name: "用户分页查询" }
+      - { code: "POST:/jcloud/api/users", name: "新增用户" }
+      - { code: "GET:/jcloud/api/users/{id}", name: "查看用户详情" }
+      - { code: "PUT:/jcloud/api/users/{id}", name: "编辑用户" }
+      - { code: "DELETE:/jcloud/api/users/{id}", name: "删除用户" }
+      - { code: "GET:/jcloud/api/users/search", name: "按用户名搜索用户" }
+      - { code: "PUT:/jcloud/api/users/{id}/roles", name: "分配用户角色" }
+      - { code: "PUT:/jcloud/api/users/{id}/status", name: "修改用户状态" }
+      - { code: "DELETE:/jcloud/api/users/batch", name: "批量删除用户" }
+      - { code: "PUT:/jcloud/api/users/batch/status", name: "批量修改用户状态" }
+      - { code: "GET:/jcloud/api/roles", name: "角色列表" }
+      - { code: "GET:/jcloud/api/admin/users/{id}/sync/config", name: "查询用户同步配置" }
+      - { code: "PUT:/jcloud/api/admin/users/{id}/sync/config", name: "更新用户同步配置" }
+      - { code: "GET:/jcloud/api/admin/users/{id}/sync/task", name: "查询用户最新同步任务" }
+      - { code: "POST:/jcloud/api/admin/users/{id}/sync/immediate", name: "立即同步用户存储空间" }
+
+  - code: "role:menu"
+    name: "角色管理"
+    parent: "system:menu"
+    resources:
+      - { code: "VIEW:/admin/roles", name: "角色管理页面" }
+      - { code: "GET:/jcloud/api/roles/page", name: "分页查询角色" }
+      - { code: "GET:/jcloud/api/roles/{id}", name: "查看角色详情" }
+      - { code: "POST:/jcloud/api/roles", name: "新增角色" }
+      - { code: "PUT:/jcloud/api/roles/{id}", name: "编辑角色" }
+      - { code: "DELETE:/jcloud/api/roles/{id}", name: "删除角色" }
+      - { code: "PATCH:/jcloud/api/roles/{id}/status", name: "修改角色状态" }
+      - { code: "GET:/jcloud/api/permissions/tree", name: "查询权限树（只读，角色分配用）" }
+
+  - code: "storage_space:menu"
+    name: "存储空间管理"
+    parent: "system:menu"
+    resources:
+      - { code: "VIEW:/admin/storage-spaces", name: "存储空间管理页面" }
+      - { code: "GET:/jcloud/api/admin/storage-spaces", name: "分页查询存储空间" }
+      - { code: "POST:/jcloud/api/admin/storage-spaces", name: "新增存储空间" }
+      - { code: "GET:/jcloud/api/admin/storage-spaces/{id}", name: "查看存储空间详情" }
+      - { code: "PUT:/jcloud/api/admin/storage-spaces/{id}", name: "编辑存储空间" }
+      - { code: "DELETE:/jcloud/api/admin/storage-spaces/{id}", name: "删除存储空间" }
+      - { code: "POST:/jcloud/api/admin/storage-spaces/{id}/refresh", name: "刷新存储空间磁盘状态" }
+      - { code: "GET:/jcloud/api/admin/storage-spaces/system-config", name: "查询系统数据目录配置" }
+      - { code: "PUT:/jcloud/api/admin/storage-spaces/system-config", name: "更新系统数据目录配置" }
+      - { code: "GET:/jcloud/api/admin/system/init-status", name: "查询系统初始化状态" }
+      - { code: "POST:/jcloud/api/admin/system/initialize", name: "执行系统初始化" }
+      - { code: "PUT:/jcloud/api/users/{id}/storage", name: "设置用户默认存储空间" }

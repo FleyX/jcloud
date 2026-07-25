@@ -2,12 +2,10 @@ package com.fleyx.jcloud.filter;
 
 import tools.jackson.databind.ObjectMapper;
 import com.fleyx.jcloud.common.cache.UserPermissionCache;
-import com.fleyx.jcloud.common.enums.CommonStatus;
+import com.fleyx.jcloud.common.permission.PermissionRegistry;
 import com.fleyx.jcloud.common.permission.PermissionResolver;
-import com.fleyx.jcloud.mapper.ResourceMapper;
 import com.fleyx.jcloud.mapper.UserMapper;
 import com.fleyx.jcloud.mapper.UserRoleMapper;
-import com.fleyx.jcloud.model.po.Resource;
 import com.fleyx.jcloud.model.po.User;
 import com.fleyx.jcloud.util.JwtUtil;
 import io.jsonwebtoken.Claims;
@@ -30,7 +28,7 @@ import static org.mockito.Mockito.when;
 /**
  * {@link AuthTokenFilter} 单元测试。
  * <p>
- * 验证虚拟线程改造后，资源在构造时一次性加载，且权限校验逻辑正确。
+ * 验证资源在构造时从权限注册表一次性加载，且权限校验逻辑正确。
  */
 class AuthTokenFilterTest {
 
@@ -40,7 +38,7 @@ class AuthTokenFilterTest {
 
     private JwtUtil jwtUtil;
     private ObjectMapper objectMapper;
-    private ResourceMapper resourceMapper;
+    private PermissionRegistry permissionRegistry;
     private UserMapper userMapper;
     private UserRoleMapper userRoleMapper;
     private UserPermissionCache userPermissionCache;
@@ -52,20 +50,19 @@ class AuthTokenFilterTest {
     void setUp() {
         jwtUtil = mock(JwtUtil.class);
         objectMapper = new ObjectMapper();
-        resourceMapper = mock(ResourceMapper.class);
+        permissionRegistry = mock(PermissionRegistry.class);
         userMapper = mock(UserMapper.class);
         userRoleMapper = mock(UserRoleMapper.class);
         userPermissionCache = new UserPermissionCache();
         permissionResolver = mock(PermissionResolver.class);
 
-        List<Resource> resources = List.of(
-                buildResource("GET:" + PUBLIC_PATH, "PUBLIC"),
-                buildResource("GET:" + LOGIN_PATH, "LOGIN"),
-                buildResource("GET:" + API_PATH, "API")
+        List<PermissionRegistry.FilterResourceEntry> entries = List.of(
+                new PermissionRegistry.FilterResourceEntry("GET:" + PUBLIC_PATH, PermissionRegistry.TYPE_PUBLIC),
+                new PermissionRegistry.FilterResourceEntry("GET:" + LOGIN_PATH, PermissionRegistry.TYPE_LOGIN)
         );
-        when(resourceMapper.selectList(any())).thenReturn(resources);
+        when(permissionRegistry.filterEntries()).thenReturn(entries);
 
-        filter = new AuthTokenFilter(jwtUtil, objectMapper, resourceMapper,
+        filter = new AuthTokenFilter(jwtUtil, objectMapper, permissionRegistry,
                 userMapper, userRoleMapper, userPermissionCache, permissionResolver);
     }
 
@@ -155,11 +152,4 @@ class AuthTokenFilterTest {
         assertEquals(403, response.getStatus());
     }
 
-    private Resource buildResource(String code, String type) {
-        Resource resource = new Resource();
-        resource.setCode(code);
-        resource.setType(type);
-        resource.setStatus(CommonStatus.ENABLED.getCode());
-        return resource;
-    }
 }

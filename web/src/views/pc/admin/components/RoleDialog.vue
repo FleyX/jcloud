@@ -22,7 +22,7 @@ type RoleForm = {
   name: string
   description?: string
   status?: number
-  permissionIds: string[]
+  permissionCodes: string[]
 }
 
 const form = reactive<RoleForm>({
@@ -30,7 +30,7 @@ const form = reactive<RoleForm>({
   name: '',
   description: '',
   status: 1,
-  permissionIds: [],
+  permissionCodes: [],
 })
 
 const localOpen = computed({
@@ -46,7 +46,7 @@ watch(
       form.name = props.initialForm?.name ?? ''
       form.description = props.initialForm?.description ?? ''
       form.status = props.initialForm?.status ?? 1
-      form.permissionIds = props.initialForm?.permissionIds ? [...props.initialForm.permissionIds] : []
+      form.permissionCodes = props.initialForm?.permissionCodes ? [...props.initialForm.permissionCodes] : []
     }
   },
 )
@@ -57,14 +57,14 @@ function handleSubmit() {
         name: form.name,
         description: form.description,
         status: form.status,
-        permissionIds: form.permissionIds,
+        permissionCodes: form.permissionCodes,
       } as RoleUpdateDto)
     : ({
         code: form.code,
         name: form.name,
         description: form.description,
         status: form.status,
-        permissionIds: form.permissionIds,
+        permissionCodes: form.permissionCodes,
       } as RoleSaveDto)
   emit('submit', dto)
 }
@@ -129,7 +129,7 @@ function handleSubmit() {
             <label class="mb-1 block text-sm font-medium">权限</label>
             <div class="max-h-64 overflow-y-auto rounded-xl border border-surface-200 p-3">
               <PermissionTree
-                v-model:checked-ids="form.permissionIds"
+                v-model:checked-codes="form.permissionCodes"
                 :tree="permissionTree"
               />
             </div>

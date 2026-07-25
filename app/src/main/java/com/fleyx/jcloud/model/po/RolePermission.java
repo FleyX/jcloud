@@ -20,7 +20,7 @@ public class RolePermission extends BaseEntity {
     private String roleId;
 
     /**
-     * 权限 ID。
+     * 权限编码（引用 permissions.yml 中的 code）。
      */
-    private String permissionId;
+    private String permissionCode;
 }

@@ -29,10 +29,25 @@ public interface RolePermissionMapper extends BaseMapper<RolePermission> {
     int batchInsert(@Param("list") List<RolePermission> list);
 
     /**
-     * 根据角色 ID 查询权限 ID 列表。
+     * 根据角色 ID 查询权限编码列表。
      *
      * @param roleId 角色 ID
-     * @return 权限 ID 列表
+     * @return 权限编码列表
      */
-    List<String> selectPermissionIdsByRoleId(@Param("roleId") String roleId);
+    List<String> selectPermissionCodesByRoleId(@Param("roleId") String roleId);
+
+    /**
+     * 根据角色 ID 列表查询权限编码列表。
+     *
+     * @param roleIds 角色 ID 列表
+     * @return 权限编码列表
+     */
+    List<String> selectPermissionCodesByRoleIds(@Param("roleIds") List<String> roleIds);
+
+    /**
+     * 查询所有不重复的权限编码（用于启动时审计悬空绑定）。
+     *
+     * @return 权限编码列表
+     */
+    List<String> selectDistinctPermissionCodes();
 }

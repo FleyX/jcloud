@@ -26,9 +26,9 @@ public class LoginVo implements Serializable {
     private UserVo userInfo;
 
     /**
-     * 当前用户拥有的全部权限编码。
+     * 当前用户拥有的全部资源编码（API 与 VIEW 资源）。
      */
-    private List<String> permissions;
+    private List<String> resources;
 
     /**
      * 系统是否已完成初始化（仅管理员有意义）。

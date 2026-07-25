@@ -4,26 +4,26 @@ import type { PermissionTreeVo } from '@/types/auth'
 
 const props = defineProps<{
   tree: PermissionTreeVo[]
-  checkedIds: string[]
+  checkedCodes: string[]
 }>()
 
 const emit = defineEmits<{
-  'update:checkedIds': [ids: string[]]
+  'update:checkedCodes': [codes: string[]]
 }>()
 
 const localChecked = computed({
-  get: () => [...props.checkedIds],
-  set: (val) => emit('update:checkedIds', val),
+  get: () => [...props.checkedCodes],
+  set: (val) => emit('update:checkedCodes', val),
 })
 
-function collectAncestorIds(tree: PermissionTreeVo[], targetId: string): string[] {
+function collectAncestorCodes(tree: PermissionTreeVo[], targetCode: string): string[] {
   function dfs(nodes: PermissionTreeVo[], parents: string[]): string[] | null {
     for (const node of nodes) {
-      if (node.id === targetId) {
-        return [...parents, node.id]
+      if (node.code === targetCode) {
+        return [...parents, node.code]
       }
       if (node.children) {
-        const result = dfs(node.children, [...parents, node.id])
+        const result = dfs(node.children, [...parents, node.code])
         if (result) return result
       }
     }
@@ -32,10 +32,10 @@ function collectAncestorIds(tree: PermissionTreeVo[], targetId: string): string[
   return dfs(tree, []) || []
 }
 
-function collectDescendantIds(node: PermissionTreeVo): string[] {
-  const ids = [node.id]
+function collectDescendantCodes(node: PermissionTreeVo): string[] {
+  const ids = [node.code]
   if (node.children) {
-    node.children.forEach((child) => ids.push(...collectDescendantIds(child)))
+    node.children.forEach((child) => ids.push(...collectDescendantCodes(child)))
   }
   return ids
 }
@@ -43,24 +43,24 @@ function collectDescendantIds(node: PermissionTreeVo): string[] {
 function toggleNode(node: PermissionTreeVo, checked: boolean) {
   const current = new Set(localChecked.value)
   if (checked) {
-    const ancestors = collectAncestorIds(props.tree, node.id)
-    const descendants = collectDescendantIds(node)
-    ;[...ancestors, ...descendants].forEach((id) => current.add(id))
+    const ancestors = collectAncestorCodes(props.tree, node.code)
+    const descendants = collectDescendantCodes(node)
+    ;[...ancestors, ...descendants].forEach((code) => current.add(code))
   } else {
-    const descendants = collectDescendantIds(node)
-    descendants.forEach((id) => current.delete(id))
+    const descendants = collectDescendantCodes(node)
+    descendants.forEach((code) => current.delete(code))
   }
   localChecked.value = Array.from(current)
 }
 
-function isChecked(id: string): boolean {
-  return localChecked.value.includes(id)
+function isChecked(code: string): boolean {
+  return localChecked.value.includes(code)
 }
 
 function isIndeterminate(node: PermissionTreeVo): boolean {
   if (!node.children || node.children.length === 0) return false
-  const descendants = collectDescendantIds(node).filter((id) => id !== node.id)
-  const checkedDescendants = descendants.filter((id) => isChecked(id))
+  const descendants = collectDescendantCodes(node).filter((code) => code !== node.code)
+  const checkedDescendants = descendants.filter((code) => isChecked(code))
   return checkedDescendants.length > 0 && checkedDescendants.length < descendants.length
 }
 </script>
@@ -69,13 +69,13 @@ function isIndeterminate(node: PermissionTreeVo): boolean {
   <ul class="space-y-1">
     <li
       v-for="node in tree"
-      :key="node.id"
+      :key="node.code"
       class="pl-4"
     >
       <label class="flex items-center gap-2 py-1">
         <input
           type="checkbox"
-          :checked="isChecked(node.id)"
+          :checked="isChecked(node.code)"
           :indeterminate.prop="isIndeterminate(node)"
           class="h-4 w-4 rounded border-surface-300 text-primary-600 focus:ring-primary-500"
           @change="toggleNode(node, ($event.target as HTMLInputElement).checked)"
@@ -85,7 +85,7 @@ function isIndeterminate(node: PermissionTreeVo): boolean {
       </label>
       <PermissionTree
         v-if="node.children && node.children.length > 0"
-        v-model:checked-ids="localChecked"
+        v-model:checked-codes="localChecked"
         :tree="node.children"
       />
     </li>

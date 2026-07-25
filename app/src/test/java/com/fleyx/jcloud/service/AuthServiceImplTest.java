@@ -59,8 +59,9 @@ class AuthServiceImplTest {
         assertNotNull(vo.getToken());
         assertNotNull(vo.getUserInfo());
         assertEquals(reg.getUsername(), vo.getUserInfo().getUsername());
-        assertNotNull(vo.getPermissions());
-        assertTrue(vo.getPermissions().contains("file:menu"));
+        assertNotNull(vo.getResources());
+        assertTrue(vo.getResources().contains("VIEW:/files"));
+        assertTrue(vo.getResources().contains("GET:/jcloud/api/files"));
     }
 
     @Test
