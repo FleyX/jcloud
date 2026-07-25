@@ -64,6 +64,7 @@ public class FileOperationExecutor {
         if (FileNodeConstants.SOURCE_REMOTE.equals(source.getSourceType())) {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "远程文件操作应由上层服务处理");
         }
+        String sourceName = source.getName();
         String targetName = resolveTargetName(item, source);
         ConflictStrategy strategy = resolveStrategy(item);
 
@@ -72,7 +73,7 @@ public class FileOperationExecutor {
         FileNode existing = FileConflictHelper.findSameName(fileMapper, userId, targetParentId, targetName);
         if (existing != null && TYPE_FOLDER.equals(source.getType()) && TYPE_FOLDER.equals(existing.getType())) {
             moveFolderContents(source, existing, userId);
-            return OperationOutcome.success(source, source.getName());
+            return OperationOutcome.success(source.getId(), sourceName, sourceName);
         }
 
         FileConflictResolver.ConflictResolution resolution =
@@ -104,7 +105,7 @@ public class FileOperationExecutor {
         source.setName(resolution.finalName());
         fileNodeSupport.setNodePath(source, targetParentId);
         fileMapper.updateById(source);
-        return OperationOutcome.success(source, resolution.finalName());
+        return OperationOutcome.success(source.getId(), sourceName, resolution.finalName());
     }
 
     /**
@@ -124,6 +125,7 @@ public class FileOperationExecutor {
         if (FileNodeConstants.SOURCE_REMOTE.equals(source.getSourceType())) {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "远程文件操作应由上层服务处理");
         }
+        String sourceName = source.getName();
         String targetName = resolveTargetName(item, source);
         ConflictStrategy strategy = resolveStrategy(item);
 
@@ -132,7 +134,7 @@ public class FileOperationExecutor {
         FileNode existing = FileConflictHelper.findSameName(fileMapper, userId, targetParentId, targetName);
         if (existing != null && TYPE_FOLDER.equals(source.getType()) && TYPE_FOLDER.equals(existing.getType())) {
             copyFolderContents(source, existing, user);
-            return OperationOutcome.success(existing, existing.getName());
+            return OperationOutcome.success(existing.getId(), sourceName, existing.getName());
         }
 
         FileConflictResolver.ConflictResolution resolution =
@@ -147,7 +149,7 @@ public class FileOperationExecutor {
         String username = user.getUsername();
         FileNode copied = copyNodeRecursively(source, targetParentId, targetParentPathName,
                 resolution.finalName(), user, space, username);
-        return OperationOutcome.success(copied, copied.getName());
+        return OperationOutcome.success(copied.getId(), sourceName, copied.getName());
     }
 
     private ConflictStrategy resolveStrategy(OperationItemDto item) {
@@ -312,8 +314,10 @@ public class FileOperationExecutor {
     public record OperationOutcome(String status, String sourceId, String sourceName,
                                     String newName, String nodeId) {
 
-        static OperationOutcome success(FileNode node, String newName) {
-            return new OperationOutcome(FileNodeConstants.STATUS_SUCCESS, node.getId(), node.getName(), newName, node.getId());
+        static OperationOutcome success(String nodeId, String sourceName, String finalName) {
+            // 仅在最终名称与源名称不一致时才视为发生了重命名，避免前端误报“已重命名为”
+            String renamed = finalName != null && !finalName.equals(sourceName) ? finalName : null;
+            return new OperationOutcome(FileNodeConstants.STATUS_SUCCESS, nodeId, sourceName, renamed, nodeId);
         }
 
         static OperationOutcome skipped(FileNode node) {
