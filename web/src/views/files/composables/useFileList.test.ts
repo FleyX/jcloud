@@ -123,6 +123,44 @@ describe('useFileList', () => {
     expect(mockFetchFilePage).toHaveBeenLastCalledWith(expect.objectContaining({ name: '' }))
   })
 
+  it('auto-searches on keyword input with debounce', async () => {
+    const list = await createList([])
+    vi.useFakeTimers()
+    try {
+      const callsBefore = mockFetchFilePage.mock.calls.length
+
+      list.keyword.value = 'bi'
+      list.keyword.value = 'big'
+      await vi.advanceTimersByTimeAsync(350)
+
+      // 防抖窗口内连续输入只触发一次查询
+      expect(mockFetchFilePage).toHaveBeenCalledTimes(callsBefore + 1)
+      expect(mockFetchFilePage).toHaveBeenLastCalledWith(expect.objectContaining({ name: 'big' }))
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not auto-search when keyword is cleared programmatically', async () => {
+    const list = await createList([])
+    vi.useFakeTimers()
+    try {
+      await list.clearSearch()
+      const callsBefore = mockFetchFilePage.mock.calls.length
+
+      list.keyword.value = 'temp'
+      await vi.advanceTimersByTimeAsync(350)
+      await list.clearSearch()
+      await vi.advanceTimersByTimeAsync(350)
+
+      // clearSearch 只产生显式的一次 loadFiles，不会触发 watcher 的二次查询
+      expect(mockFetchFilePage).toHaveBeenCalledTimes(callsBefore + 2)
+      expect(mockFetchFilePage).toHaveBeenLastCalledWith(expect.objectContaining({ name: '' }))
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('toggles sort for PC', async () => {
     const list = await createList([])
     const initialCalls = mockFetchFilePage.mock.calls.length

@@ -151,8 +151,28 @@ export function useFileList(options: UseFileListOptions = {}) {
     return loadFiles()
   }
 
-  function clearSearch() {
+  // 搜索关键词实时过滤：输入防抖 300ms 后自动查询
+  let searchTimer: ReturnType<typeof setTimeout> | null = null
+  let suppressKeywordWatch = false
+  watch(keyword, () => {
+    if (suppressKeywordWatch) {
+      suppressKeywordWatch = false
+      return
+    }
+    if (searchTimer) clearTimeout(searchTimer)
+    searchTimer = setTimeout(() => {
+      void loadFiles()
+    }, 300)
+  })
+
+  /** 程序化清空关键词（随后会显式调用 loadFiles），避免触发重复查询 */
+  function resetKeywordSilently() {
+    if (keyword.value !== '') suppressKeywordWatch = true
     keyword.value = ''
+  }
+
+  function clearSearch() {
+    resetKeywordSilently()
     return loadFiles()
   }
 
@@ -160,14 +180,14 @@ export function useFileList(options: UseFileListOptions = {}) {
     if (file.type !== 'folder') return
     currentParentId.value = file.id
     breadcrumbStack.value.push({ id: file.id, name: file.name })
-    keyword.value = ''
+    resetKeywordSilently()
     return loadFiles()
   }
 
   function navigateToBreadcrumb(index: number) {
     breadcrumbStack.value = breadcrumbStack.value.slice(0, index + 1)
     currentParentId.value = breadcrumbStack.value[index].id
-    keyword.value = ''
+    resetKeywordSilently()
     return loadFiles()
   }
 
