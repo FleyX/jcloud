@@ -19,21 +19,12 @@ import TransferTaskPanel from '@/components/transfer/TransferTaskPanel.vue'
       <Sidebar />
 
       <main class="flex-1 overflow-y-auto p-6">
+        <!-- 注意：不要在此包裹 <transition mode="out-in">，异步路由组件会导致旧视图永远不卸载 -->
         <router-view v-slot="{ Component, route }">
-          <transition
-            enter-active-class="transition-all duration-300 ease-out-expo"
-            enter-from-class="opacity-0 translate-y-2"
-            enter-to-class="opacity-100 translate-y-0"
-            leave-active-class="transition-all duration-200 ease-in"
-            leave-from-class="opacity-100 translate-y-0"
-            leave-to-class="opacity-0 -translate-y-2"
-            mode="out-in"
-          >
-            <component
-              :is="Component"
-              :key="route.fullPath"
-            />
-          </transition>
+          <component
+            :is="Component"
+            :key="route.fullPath"
+          />
         </router-view>
       </main>
     </div>
