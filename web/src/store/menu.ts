@@ -54,7 +54,7 @@ export const useMenuStore = defineStore('menu', () => {
   function getSecondaryMenusByPrimary(primary: PrimaryModule): SecondaryMenuItem[] {
     switch (primary) {
       case 'files':
-        if (!userStore.isAdmin && !userStore.hasPermission('file:menu')) {
+        if (!userStore.isAdmin && !userStore.hasResource('VIEW:/files')) {
           return []
         }
         return [
@@ -63,7 +63,7 @@ export const useMenuStore = defineStore('menu', () => {
           { key: 'trash', label: '回收站', route: '/files/trash' },
         ]
       case 'notes':
-        if (!userStore.isAdmin && !userStore.hasPermission('note:menu')) {
+        if (!userStore.isAdmin && !userStore.hasResource('VIEW:/notes')) {
           return []
         }
         return [
@@ -71,7 +71,7 @@ export const useMenuStore = defineStore('menu', () => {
           { key: 'tags', label: '标签', route: '/notes/tags' },
         ]
       case 'todos':
-        if (!userStore.isAdmin && !userStore.hasPermission('todo:menu')) {
+        if (!userStore.isAdmin && !userStore.hasResource('VIEW:/todos')) {
           return []
         }
         return [
@@ -93,16 +93,13 @@ export const useMenuStore = defineStore('menu', () => {
 
   function buildSystemMenus(): SecondaryMenuItem[] {
     const menus: SecondaryMenuItem[] = []
-    if (userStore.isAdmin || userStore.hasPermission('user:menu')) {
+    if (userStore.isAdmin || userStore.hasResource('VIEW:/admin/users')) {
       menus.push({ key: 'users', label: '用户管理', route: '/admin/users' })
     }
-    if (userStore.isAdmin || userStore.hasPermission('role:menu')) {
+    if (userStore.isAdmin || userStore.hasResource('VIEW:/admin/roles')) {
       menus.push({ key: 'roles', label: '角色管理', route: '/admin/roles' })
     }
-    if (userStore.isAdmin || userStore.hasPermission('permission:menu')) {
-      menus.push({ key: 'permissions', label: '权限管理', route: '/admin/permissions' })
-    }
-    if (userStore.isAdmin || userStore.hasPermission('storage_space:menu')) {
+    if (userStore.isAdmin || userStore.hasResource('VIEW:/admin/storage-spaces')) {
       menus.push({ key: 'storage-spaces', label: '存储空间管理', route: '/admin/storage-spaces' })
     }
     return menus

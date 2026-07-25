@@ -60,7 +60,7 @@ export interface UserWebDavToggleDto {
 export interface LoginVo {
   token: string
   userInfo: UserVo
-  permissions: string[]
+  resources: string[]
   initialized: boolean
 }
 
@@ -157,7 +157,7 @@ export interface RoleVo {
   name: string
   description?: string
   status: number
-  permissionIds?: string[]
+  permissionCodes?: string[]
   createTime?: string
   updateTime?: string
 }
@@ -181,7 +181,7 @@ export interface RoleSaveDto {
   name: string
   description?: string
   status?: number
-  permissionIds?: string[]
+  permissionCodes?: string[]
 }
 
 /**
@@ -191,7 +191,7 @@ export interface RoleUpdateDto {
   name: string
   description?: string
   status?: number
-  permissionIds?: string[]
+  permissionCodes?: string[]
 }
 
 /**
@@ -202,65 +202,21 @@ export interface RoleStatusDto {
 }
 
 /**
- * 权限树视图对象
- */
-export interface PermissionTreeVo {
-  id: string
-  code: string
-  name: string
-  parentId?: string
-  status: number
-  children?: PermissionTreeVo[]
-  level?: number // 仅前端渲染使用
-}
-
-/**
- * 权限详情视图对象
- */
-export interface PermissionVo {
-  id: string
-  code: string
-  name: string
-  parentId?: string
-  status: number
-  resourceIds?: string[]
-}
-
-/**
- * 权限保存 DTO
- */
-export interface PermissionSaveDto {
-  code: string
-  name: string
-  parentId?: string
-  status: number
-  resourceIds?: string[]
-}
-
-/**
- * 权限更新 DTO
- */
-export interface PermissionUpdateDto {
-  name: string
-  parentId?: string
-  status: number
-  resourceIds?: string[]
-}
-
-/**
- * 权限状态 DTO
- */
-export interface PermissionStatusDto {
-  status: number
-}
-
-/**
- * 资源视图对象
+ * 资源视图对象（只读，来自后端内存权限注册表）
  */
 export interface ResourceVo {
-  id: string
   code: string
   name: string
-  type: 'PUBLIC' | 'PAGE' | 'LOGIN' | 'API'
-  status: number
+}
+
+/**
+ * 权限树视图对象（只读，来自后端内存权限注册表）
+ */
+export interface PermissionTreeVo {
+  code: string
+  name: string
+  parentCode?: string
+  resources?: ResourceVo[]
+  children?: PermissionTreeVo[]
+  level?: number // 仅前端渲染使用
 }

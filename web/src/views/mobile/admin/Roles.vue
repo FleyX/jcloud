@@ -50,7 +50,7 @@ const dialogForm = reactive<Partial<RoleSaveDto & RoleUpdateDto>>({
   name: '',
   description: '',
   status: 1,
-  permissionIds: [],
+  permissionCodes: [],
 })
 
 async function loadRoles() {
@@ -83,7 +83,7 @@ function openCreateDialog() {
   dialogForm.name = ''
   dialogForm.description = ''
   dialogForm.status = 1
-  dialogForm.permissionIds = []
+  dialogForm.permissionCodes = []
   dialogOpen.value = true
 }
 
@@ -94,7 +94,7 @@ function openEditDialog(role: RoleVo) {
   dialogForm.name = role.name
   dialogForm.description = role.description
   dialogForm.status = role.status
-  dialogForm.permissionIds = role.permissionIds ? [...role.permissionIds] : []
+  dialogForm.permissionCodes = role.permissionCodes ? [...role.permissionCodes] : []
   dialogOpen.value = true
 }
 

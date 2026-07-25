@@ -23,5 +23,5 @@ public class RoleUpdateDto implements Serializable {
 
     private Integer status;
 
-    private List<String> permissionIds;
+    private List<String> permissionCodes;
 }

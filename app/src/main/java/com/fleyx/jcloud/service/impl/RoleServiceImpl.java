@@ -6,18 +6,17 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fleyx.jcloud.common.cache.UserPermissionCache;
+import com.fleyx.jcloud.common.permission.PermissionRegistry;
 import com.fleyx.jcloud.common.enums.CommonStatus;
 import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.RoleMapper;
-import com.fleyx.jcloud.mapper.PermissionMapper;
 import com.fleyx.jcloud.mapper.RolePermissionMapper;
 import com.fleyx.jcloud.mapper.UserRoleMapper;
 import com.fleyx.jcloud.model.convert.RoleConvert;
 import com.fleyx.jcloud.model.dto.RolePageQueryDto;
 import com.fleyx.jcloud.model.dto.RoleSaveDto;
 import com.fleyx.jcloud.model.dto.RoleUpdateDto;
-import com.fleyx.jcloud.model.po.Permission;
 import com.fleyx.jcloud.model.po.Role;
 import com.fleyx.jcloud.model.po.RolePermission;
 import com.fleyx.jcloud.model.po.UserRole;
@@ -42,7 +41,7 @@ public class RoleServiceImpl implements RoleService {
     private final RoleConvert roleConvert;
     private final RolePermissionMapper rolePermissionMapper;
     private final UserRoleMapper userRoleMapper;
-    private final PermissionMapper permissionMapper;
+    private final PermissionRegistry permissionRegistry;
     private final UserPermissionCache userPermissionCache;
 
     @Override
@@ -50,13 +49,13 @@ public class RoleServiceImpl implements RoleService {
     public RoleVo saveRole(RoleSaveDto dto) {
         checkCodeUnique(dto.getCode(), null);
         validateStatus(dto.getStatus());
-        validatePermissionIds(dto.getPermissionIds());
+        validatePermissionCodes(dto.getPermissionCodes());
         Role role = roleConvert.saveDtoToPo(dto);
         if (role.getStatus() == null) {
             role.setStatus(CommonStatus.ENABLED.getCode());
         }
         roleMapper.insert(role);
-        saveRolePermissions(role.getId(), dto.getPermissionIds());
+        saveRolePermissions(role.getId(), dto.getPermissionCodes());
         return enrichRoleVo(role);
     }
 
@@ -66,11 +65,11 @@ public class RoleServiceImpl implements RoleService {
         Role role = requireRole(id);
         rejectIfProtectedRole(role, "系统内置超级管理员角色不允许修改");
         validateStatus(dto.getStatus());
-        validatePermissionIds(dto.getPermissionIds());
+        validatePermissionCodes(dto.getPermissionCodes());
         roleConvert.updatePoFromDto(dto, role);
         roleMapper.updateById(role);
 
-        saveRolePermissions(id, dto.getPermissionIds());
+        saveRolePermissions(id, dto.getPermissionCodes());
         evictUserCachesByRoleId(id);
 
         Role updated = roleMapper.selectById(id);
@@ -182,31 +181,28 @@ public class RoleServiceImpl implements RoleService {
         }
     }
 
-    private void validatePermissionIds(List<String> permissionIds) {
-        if (CollUtil.isEmpty(permissionIds)) {
+    private void validatePermissionCodes(List<String> permissionCodes) {
+        if (CollUtil.isEmpty(permissionCodes)) {
             return;
         }
-        List<String> distinctIds = permissionIds.stream().distinct().toList();
-        long validCount = permissionMapper.selectCount(
-                new LambdaQueryWrapper<Permission>().in(Permission::getId, distinctIds)
-        );
-        if (validCount != distinctIds.size()) {
-            throw new BusinessException(ResultCode.PARAM_ERROR, "存在无效的权限 ID");
+        List<String> unknown = permissionRegistry.findUnknownCodes(permissionCodes);
+        if (!unknown.isEmpty()) {
+            throw new BusinessException(ResultCode.PARAM_ERROR, "存在无效的权限编码：" + String.join("、", unknown));
         }
     }
 
-    private void saveRolePermissions(String roleId, List<String> permissionIds) {
+    private void saveRolePermissions(String roleId, List<String> permissionCodes) {
         rolePermissionMapper.deleteByRoleId(roleId);
-        if (CollUtil.isEmpty(permissionIds)) {
+        if (CollUtil.isEmpty(permissionCodes)) {
             return;
         }
-        List<RolePermission> relations = permissionIds.stream()
+        List<RolePermission> relations = permissionCodes.stream()
                 .distinct()
-                .map(pid -> {
+                .map(code -> {
                     RolePermission rp = new RolePermission();
                     rp.setId(IdUtil.nextId());
                     rp.setRoleId(roleId);
-                    rp.setPermissionId(pid);
+                    rp.setPermissionCode(code);
                     rp.setCreateTime(LocalDateTime.now());
                     return rp;
                 })
@@ -219,7 +215,7 @@ public class RoleServiceImpl implements RoleService {
             return null;
         }
         RoleVo vo = roleConvert.poToVo(role);
-        vo.setPermissionIds(rolePermissionMapper.selectPermissionIdsByRoleId(role.getId()));
+        vo.setPermissionCodes(rolePermissionMapper.selectPermissionCodesByRoleId(role.getId()));
         return vo;
     }
 

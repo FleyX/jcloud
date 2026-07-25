@@ -7,7 +7,6 @@ function buildMenus(): SecondaryMenuItem[] {
   return [
     { key: 'users', label: '用户管理', route: '/admin/users' },
     { key: 'roles', label: '角色管理', route: '/admin/roles' },
-    { key: 'permissions', label: '权限管理', route: '/admin/permissions' },
   ]
 }
 
@@ -24,7 +23,6 @@ describe('MobileDrawer', () => {
 
     expect(wrapper.text()).toContain('用户管理')
     expect(wrapper.text()).toContain('角色管理')
-    expect(wrapper.text()).toContain('权限管理')
   })
 
   it('highlights the active secondary menu', () => {
@@ -53,7 +51,7 @@ describe('MobileDrawer', () => {
     })
 
     const buttons = wrapper.findAll('nav button')
-    expect(buttons.length).toBe(3)
+    expect(buttons.length).toBe(2)
 
     await buttons[1].trigger('click')
 

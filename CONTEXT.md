@@ -23,7 +23,7 @@ JCloud 是一个前后端分离的个人网盘。本文档记录项目核心领�
 全站核心功能域的顶层划分，对应 PC 端顶部导航栏与移动端底部 TabBar 的条目。示例：`files`（文件）、`system`（系统）。一级模块由 `menuStore` 统一管理。
 
 **二级菜单（Secondary Menu）**：
-某个一级模块下的具体页面入口，对应 PC 端左侧边栏的菜单项，以及移动端顶部栏抽屉中的列表项。示例：`/admin/users`、`/admin/roles`、`/admin/permissions` 均属于 `system` 模块的二级菜单。
+某个一级模块下的具体页面入口，对应 PC 端左侧边栏的菜单项，以及移动端顶部栏抽屉中的列表项。示例：`/admin/users`、`/admin/roles`、`/admin/storage-spaces` 均属于 `system` 模块的二级菜单。
 
 **移动顶部栏（Mobile Header）**：
 移动端设备外壳中的固定顶部栏，承载品牌图标、当前一级模块标题（点击展开二级菜单抽屉）以及用户头像入口。

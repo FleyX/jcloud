@@ -7,19 +7,30 @@
     </delete>
 
     <insert id="batchInsert">
-        INSERT INTO t_role_permission (id, role_id, permission_id, create_time)
+        INSERT INTO t_role_permission (id, role_id, permission_code, create_time)
         VALUES
         <foreach collection="list" item="item" separator=",">
-            (#{item.id}, #{item.roleId}, #{item.permissionId}, #{item.createTime})
+            (#{item.id}, #{item.roleId}, #{item.permissionCode}, #{item.createTime})
         </foreach>
     </insert>
 
-    <select id="selectPermissionIdsByRoleId" resultType="java.lang.String">
-        SELECT permission_id
-        FROM t_role_permission rp
-        INNER JOIN t_permission p ON p.id = rp.permission_id
-        WHERE rp.role_id = #{roleId}
-          AND p.delete_at = 0
-          AND p.status = 1
+    <select id="selectPermissionCodesByRoleId" resultType="java.lang.String">
+        SELECT permission_code
+        FROM t_role_permission
+        WHERE role_id = #{roleId}
+    </select>
+
+    <select id="selectPermissionCodesByRoleIds" resultType="java.lang.String">
+        SELECT permission_code
+        FROM t_role_permission
+        WHERE role_id IN
+        <foreach collection="roleIds" item="roleId" open="(" separator="," close=")">
+            #{roleId}
+        </foreach>
+    </select>
+
+    <select id="selectDistinctPermissionCodes" resultType="java.lang.String">
+        SELECT DISTINCT permission_code
+        FROM t_role_permission
     </select>
 </mapper>

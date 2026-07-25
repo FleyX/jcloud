@@ -3,17 +3,14 @@ package com.fleyx.jcloud.filter;
 import cn.hutool.core.util.StrUtil;
 import tools.jackson.databind.ObjectMapper;
 import com.fleyx.jcloud.common.R;
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fleyx.jcloud.common.cache.UserPermissionCache;
 import com.fleyx.jcloud.common.context.CurrentUser;
 import com.fleyx.jcloud.common.context.UserContext;
-import com.fleyx.jcloud.common.enums.CommonStatus;
 import com.fleyx.jcloud.common.enums.ResultCode;
+import com.fleyx.jcloud.common.permission.PermissionRegistry;
 import com.fleyx.jcloud.common.permission.PermissionResolver;
-import com.fleyx.jcloud.mapper.ResourceMapper;
 import com.fleyx.jcloud.mapper.UserMapper;
 import com.fleyx.jcloud.mapper.UserRoleMapper;
-import com.fleyx.jcloud.model.po.Resource;
 import com.fleyx.jcloud.model.po.User;
 import com.fleyx.jcloud.util.JwtUtil;
 import io.jsonwebtoken.Claims;
@@ -34,7 +31,7 @@ import java.util.List;
 
 /**
  * Token 认证与鉴权过滤器。
- * 启动时加载有效资源，逻辑：
+ * 启动时从内存权限注册表加载 PUBLIC/LOGIN 资源，逻辑：
  * 1. PUBLIC 类型资源直接放行；
  * 2. 非 PUBLIC 资源必须携带有效 JWT；
  * 3. LOGIN 类型资源仅需 JWT 有效即可放行；
@@ -45,19 +42,9 @@ public class AuthTokenFilter extends OncePerRequestFilter {
 
     private static final String BEARER_PREFIX = "Bearer ";
 
-    /**
-     * PUBLIC 类型资源：无需登录与权限校验即可访问。
-     */
-    private static final String RESOURCE_TYPE_PUBLIC = "PUBLIC";
-
-    /**
-     * LOGIN 类型资源：仅需登录（JWT 有效）即可访问，不校验具体权限。
-     */
-    private static final String RESOURCE_TYPE_LOGIN = "LOGIN";
-
     private final JwtUtil jwtUtil;
     private final ObjectMapper objectMapper;
-    private final ResourceMapper resourceMapper;
+    private final PermissionRegistry permissionRegistry;
     private final UserMapper userMapper;
     private final UserRoleMapper userRoleMapper;
     private final UserPermissionCache userPermissionCache;
@@ -67,12 +54,12 @@ public class AuthTokenFilter extends OncePerRequestFilter {
 
     private final List<ResourceEntry> resourceEntries;
 
-    public AuthTokenFilter(JwtUtil jwtUtil, ObjectMapper objectMapper, ResourceMapper resourceMapper,
+    public AuthTokenFilter(JwtUtil jwtUtil, ObjectMapper objectMapper, PermissionRegistry permissionRegistry,
                            UserMapper userMapper, UserRoleMapper userRoleMapper,
                            UserPermissionCache userPermissionCache, PermissionResolver permissionResolver) {
         this.jwtUtil = jwtUtil;
         this.objectMapper = objectMapper;
-        this.resourceMapper = resourceMapper;
+        this.permissionRegistry = permissionRegistry;
         this.userMapper = userMapper;
         this.userRoleMapper = userRoleMapper;
         this.userPermissionCache = userPermissionCache;
@@ -81,15 +68,11 @@ public class AuthTokenFilter extends OncePerRequestFilter {
     }
 
     /**
-     * 启动时加载有效资源。
+     * 启动时从权限注册表加载 PUBLIC/LOGIN 资源。
      */
     private List<ResourceEntry> loadResources() {
-        List<Resource> resources = resourceMapper.selectList(
-                new LambdaQueryWrapper<Resource>()
-                        .eq(Resource::getStatus, CommonStatus.ENABLED.getCode())
-        );
-        return resources.stream()
-                .map(r -> new ResourceEntry(r.getCode(), r.getType()))
+        return permissionRegistry.filterEntries().stream()
+                .map(e -> new ResourceEntry(e.pattern(), e.type()))
                 .toList();
     }
 
@@ -104,9 +87,9 @@ public class AuthTokenFilter extends OncePerRequestFilter {
         boolean loginResource = false;
         for (ResourceEntry entry : resourceEntries) {
             if (pathMatcher.match(entry.pattern(), resourceKey)) {
-                if (RESOURCE_TYPE_PUBLIC.equals(entry.type())) {
+                if (PermissionRegistry.TYPE_PUBLIC.equals(entry.type())) {
                     publicResource = true;
-                } else if (RESOURCE_TYPE_LOGIN.equals(entry.type())) {
+                } else if (PermissionRegistry.TYPE_LOGIN.equals(entry.type())) {
                     loginResource = true;
                 }
             }

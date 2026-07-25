@@ -56,7 +56,7 @@ class RoleServiceImplTest {
         dto.setCode(uniqueCode());
         dto.setName("测试角色");
         dto.setDescription("测试角色描述");
-        dto.setPermissionIds(Collections.emptyList());
+        dto.setPermissionCodes(Collections.emptyList());
 
         RoleVo vo = roleService.saveRole(dto);
 
@@ -72,15 +72,26 @@ class RoleServiceImplTest {
         dto.setCode(uniqueCode());
         dto.setName("带权限角色");
         dto.setDescription("测试带权限角色");
-        dto.setPermissionIds(List.of("0000000000004"));
+        dto.setPermissionCodes(List.of("user:menu"));
 
         RoleVo vo = roleService.saveRole(dto);
 
         assertNotNull(vo);
         assertNotNull(vo.getId());
-        List<String> permissionIds = rolePermissionMapper.selectPermissionIdsByRoleId(vo.getId());
-        assertEquals(1, permissionIds.size());
-        assertEquals("0000000000004", permissionIds.get(0));
+        List<String> permissionCodes = rolePermissionMapper.selectPermissionCodesByRoleId(vo.getId());
+        assertEquals(1, permissionCodes.size());
+        assertEquals("user:menu", permissionCodes.get(0));
+    }
+
+    @Test
+    void shouldRejectInvalidPermissionCode() {
+        RoleSaveDto dto = new RoleSaveDto();
+        dto.setCode(uniqueCode());
+        dto.setName("非法权限角色");
+        dto.setPermissionCodes(List.of("not:exist"));
+
+        BusinessException exception = assertThrows(BusinessException.class, () -> roleService.saveRole(dto));
+        assertEquals(ResultCode.PARAM_ERROR, exception.getResultCode());
     }
 
     @Test
@@ -89,13 +100,13 @@ class RoleServiceImplTest {
         RoleSaveDto dto = new RoleSaveDto();
         dto.setCode(code);
         dto.setName("测试角色");
-        dto.setPermissionIds(Collections.emptyList());
+        dto.setPermissionCodes(Collections.emptyList());
         roleService.saveRole(dto);
 
         RoleSaveDto duplicate = new RoleSaveDto();
         duplicate.setCode(code);
         duplicate.setName("重复角色");
-        duplicate.setPermissionIds(Collections.emptyList());
+        duplicate.setPermissionCodes(Collections.emptyList());
 
         BusinessException exception = assertThrows(BusinessException.class, () -> roleService.saveRole(duplicate));
         assertEquals(ResultCode.BUSINESS_ERROR, exception.getResultCode());
@@ -117,7 +128,7 @@ class RoleServiceImplTest {
 
         RoleUpdateDto dto = new RoleUpdateDto();
         dto.setName("修改名称");
-        dto.setPermissionIds(Collections.emptyList());
+        dto.setPermissionCodes(Collections.emptyList());
 
         BusinessException exception = assertThrows(BusinessException.class, () -> roleService.updateRole(role.getId(), dto));
         assertEquals(ResultCode.FORBIDDEN, exception.getResultCode());
@@ -159,7 +170,7 @@ class RoleServiceImplTest {
         RoleSaveDto dto = new RoleSaveDto();
         dto.setCode(code);
         dto.setName("测试角色");
-        dto.setPermissionIds(Collections.emptyList());
+        dto.setPermissionCodes(Collections.emptyList());
         RoleVo created = roleService.saveRole(dto);
 
         roleService.removeById(created.getId());
@@ -176,14 +187,14 @@ class RoleServiceImplTest {
         RoleSaveDto dto = new RoleSaveDto();
         dto.setCode(code);
         dto.setName("测试角色");
-        dto.setPermissionIds(Collections.emptyList());
+        dto.setPermissionCodes(Collections.emptyList());
         RoleVo created = roleService.saveRole(dto);
         roleService.removeById(created.getId());
 
         RoleSaveDto reused = new RoleSaveDto();
         reused.setCode(code);
         reused.setName("复用角色");
-        reused.setPermissionIds(Collections.emptyList());
+        reused.setPermissionCodes(Collections.emptyList());
         RoleVo vo = roleService.saveRole(reused);
 
         assertNotNull(vo);

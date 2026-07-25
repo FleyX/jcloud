@@ -18,7 +18,6 @@ function buildMenus(): Record<PrimaryModule, SecondaryMenuItem[]> {
     system: [
       { key: 'users', label: '用户管理', route: '/admin/users' },
       { key: 'roles', label: '角色管理', route: '/admin/roles' },
-      { key: 'permissions', label: '权限管理', route: '/admin/permissions' },
       { key: 'storage-spaces', label: '存储空间管理', route: '/admin/storage-spaces' },
     ],
     person: [
@@ -42,7 +41,6 @@ describe('resolvePrimaryModuleByRoute', () => {
   it('resolves admin routes to the system primary module', () => {
     expect(resolvePrimaryModuleByRoute('/admin/users', buildMenus())).toBe('system')
     expect(resolvePrimaryModuleByRoute('/admin/roles', buildMenus())).toBe('system')
-    expect(resolvePrimaryModuleByRoute('/admin/permissions', buildMenus())).toBe('system')
   })
 
   it('resolves person routes to the person primary module', () => {
@@ -90,13 +88,13 @@ describe('menuStore secondary menus', () => {
     const menuStore = useMenuStore()
     const menus = menuStore.getSecondaryMenusByPrimary('system')
 
-    expect(menus.map((menu) => menu.key)).toEqual(['users', 'roles', 'permissions', 'storage-spaces'])
+    expect(menus.map((menu) => menu.key)).toEqual(['users', 'roles', 'storage-spaces'])
   })
 
-  it('returns only user management for a user with only user:menu permission', () => {
+  it('returns only user management for a user with only the user menu resource', () => {
     const userStore = useUserStore()
     userStore.userInfo = buildRegularUser()
-    userStore.permissions = ['user:menu']
+    userStore.resources = ['VIEW:/admin/users']
 
     const menuStore = useMenuStore()
     const menus = menuStore.getSecondaryMenusByPrimary('system')
@@ -133,7 +131,7 @@ describe('menuStore syncWithRoute', () => {
 
   it('syncs /files/trash to files primary and trash secondary', () => {
     const userStore = useUserStore()
-    userStore.permissions = ['file:menu']
+    userStore.resources = ['VIEW:/files']
 
     const menuStore = useMenuStore()
     menuStore.syncWithRoute('/files/trash')

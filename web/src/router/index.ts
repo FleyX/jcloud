@@ -3,7 +3,7 @@ import type { RouteRecordRaw } from 'vue-router'
 import { useUserStore } from '@/store/user'
 import { deviceView } from '@/utils/device'
 
-type RouteName = 'Login' | 'Register' | 'NotFound' | 'Forbidden' | 'Init' | 'Files' | 'Trash' | 'Share' | 'RemoteMount' | 'UserManagement' | 'RoleManagement' | 'PermissionManagement' | 'StorageSpaceManagement' | 'PersonProfile' | 'PersonWebDav'
+type RouteName = 'Login' | 'Register' | 'NotFound' | 'Forbidden' | 'Init' | 'Files' | 'Trash' | 'Share' | 'RemoteMount' | 'UserManagement' | 'RoleManagement' | 'StorageSpaceManagement' | 'PersonProfile' | 'PersonWebDav'
 
 /**
  * 公开静态路由
@@ -54,26 +54,26 @@ const publicRoutes: RouteRecordRaw[] = [
 /**
  * 动态路由：登录后根据权限注入
  * - /files 为基础模块，无权限要求
- * - /admin/users 需要 user:menu 权限
+ * - /admin/users 需要 VIEW:/admin/users 资源
  */
 const dynamicRoutes: RouteRecordRaw[] = [
   {
     path: '/files',
     name: 'Files' as RouteName,
     component: deviceView('files/index'),
-    meta: { permission: 'file:menu', title: '全部文件' },
+    meta: { resource: 'VIEW:/files', title: '全部文件' },
   },
   {
     path: '/files/trash',
     name: 'Trash' as RouteName,
     component: deviceView('files/trash'),
-    meta: { permission: 'file:menu', title: '回收站' },
+    meta: { resource: 'VIEW:/files', title: '回收站' },
   },
   {
     path: '/files/share',
     name: 'Share' as RouteName,
     component: deviceView('files/share'),
-    meta: { permission: 'file:menu', title: '我的分享' },
+    meta: { resource: 'VIEW:/files', title: '我的分享' },
   },
   {
     path: '/person',
@@ -106,25 +106,19 @@ const dynamicRoutes: RouteRecordRaw[] = [
     path: '/admin/users',
     name: 'UserManagement' as RouteName,
     component: deviceView('admin/Users'),
-    meta: { permission: 'user:menu', title: '用户管理' },
+    meta: { resource: 'VIEW:/admin/users', title: '用户管理' },
   },
   {
     path: '/admin/roles',
     name: 'RoleManagement' as RouteName,
     component: deviceView('admin/Roles'),
-    meta: { permission: 'role:menu', title: '角色管理' },
-  },
-  {
-    path: '/admin/permissions',
-    name: 'PermissionManagement' as RouteName,
-    component: deviceView('admin/Permissions'),
-    meta: { permission: 'permission:menu', title: '权限管理' },
+    meta: { resource: 'VIEW:/admin/roles', title: '角色管理' },
   },
   {
     path: '/admin/storage-spaces',
     name: 'StorageSpaceManagement' as RouteName,
     component: deviceView('admin/StorageSpaces'),
-    meta: { permission: 'storage_space:menu', title: '存储空间管理' },
+    meta: { resource: 'VIEW:/admin/storage-spaces', title: '存储空间管理' },
   },
 ]
 
@@ -141,8 +135,8 @@ function addDynamicRoutes(userStore: ReturnType<typeof useUserStore>) {
   const routesToAdd = userStore.isAdmin
     ? dynamicRoutes
     : dynamicRoutes.filter((route) => {
-        const required = route.meta?.permission as string | undefined
-        return !required || userStore.hasPermission(required)
+        const required = route.meta?.resource as string | undefined
+        return !required || userStore.hasResource(required)
       })
 
   routesToAdd.forEach((route) => {
@@ -161,7 +155,7 @@ const publicPaths = publicRoutes.map((route) => route.path)
  */
 function isProtectedRoutePath(path: string): boolean {
   return dynamicRoutes.some((route) => {
-    const required = route.meta?.permission as string | undefined
+    const required = route.meta?.resource as string | undefined
     if (!required) {
       return false
     }
