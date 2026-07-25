@@ -9,6 +9,7 @@ import { useRoute } from 'vue-router'
 import MobileHeader from '@/components/mobile/layout/MobileHeader.vue'
 import MobileBottomNav from '@/components/mobile/layout/MobileBottomNav.vue'
 import TransferPanel from '@/components/transfer/TransferPanel.vue'
+import TransferTaskPanel from '@/components/transfer/TransferTaskPanel.vue'
 import { useMenuStore } from '@/store/menu'
 
 const route = useRoute()
@@ -31,5 +32,6 @@ watch(() => route.path, (path) => menuStore.syncWithRoute(path), { immediate: tr
     <MobileBottomNav v-if="!route.meta.hideTabBar" />
 
     <TransferPanel />
+    <TransferTaskPanel />
   </div>
 </template>

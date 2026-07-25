@@ -211,7 +211,34 @@ public class FileMoveCopySupport {
     }
 
     /**
+     * 校验批量源节点之间来源一致（同一来源类型且同一远程挂载点）。
+     *
+     * @param sources 源节点列表
+     */
+    public void validateSourcesHomogeneous(List<FileNode> sources) {
+        if (sources == null || sources.isEmpty()) {
+            return;
+        }
+        String firstSource = sources.get(0).getSourceType() == null
+                ? FileNodeConstants.SOURCE_LOCAL : sources.get(0).getSourceType();
+        String firstMountId = sources.get(0).getRemoteMountId();
+        for (FileNode source : sources) {
+            String sourceType = source.getSourceType() == null
+                    ? FileNodeConstants.SOURCE_LOCAL : source.getSourceType();
+            if (!firstSource.equals(sourceType)) {
+                throw new BusinessException(ResultCode.BUSINESS_ERROR, "不能混合本地与远程文件一起操作");
+            }
+            if (FileNodeConstants.SOURCE_REMOTE.equals(sourceType)
+                    && !Objects.equals(firstMountId, source.getRemoteMountId())) {
+                throw new BusinessException(ResultCode.BUSINESS_ERROR, "不能混合不同远程挂载点的文件一起操作");
+            }
+        }
+    }
+
+    /**
      * 校验源节点与目标父节点的本地/远程来源一致性。
+     * <p>
+     * 跨来源复制/移动需通过跨来源传输任务（/jcloud/api/transfers）执行。
      *
      * @param sources      源节点列表
      * @param targetParent 目标父节点
@@ -225,12 +252,10 @@ public class FileMoveCopySupport {
             String sourceSource = source.getSourceType() == null
                     ? FileNodeConstants.SOURCE_LOCAL
                     : source.getSourceType();
-            if (!targetSource.equals(sourceSource)) {
-                throw new BusinessException(ResultCode.BUSINESS_ERROR, "不能跨本地与远程目录操作");
-            }
-            if (FileNodeConstants.SOURCE_REMOTE.equals(sourceSource)
-                    && !Objects.equals(targetMountId, source.getRemoteMountId())) {
-                throw new BusinessException(ResultCode.BUSINESS_ERROR, "不能跨远程挂载点操作");
+            if (!targetSource.equals(sourceSource)
+                    || (FileNodeConstants.SOURCE_REMOTE.equals(sourceSource)
+                    && !Objects.equals(targetMountId, source.getRemoteMountId()))) {
+                throw new BusinessException(ResultCode.BUSINESS_ERROR, "跨来源复制/移动请通过传输任务执行");
             }
         }
     }

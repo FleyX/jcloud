@@ -7,8 +7,9 @@ import { computed, ref, watch } from 'vue'
 import { X, FolderInput, Copy, Search } from '@lucide/vue'
 import { cn } from '@/utils/cn'
 import { copyFiles, moveFiles, preCheckOperation } from '@/api/file'
+import { useTransferTaskStore } from '@/store/transferTask'
 import FileConflictModal from '@/components/files/FileConflictModal.vue'
-import FolderTree from '@/components/files/FolderTree.vue'
+import FolderTree, { type TreeNode } from '@/components/files/FolderTree.vue'
 import type { ConflictItemVo, ConflictStrategy, FileNodeVo, OperationResultVo } from '@/types/file'
 
 interface Props {
@@ -27,12 +28,14 @@ const emit = defineEmits<{
 type Step = 'select' | 'result'
 
 const targetParentId = ref<string>('0')
+const targetNode = ref<TreeNode | null>(null)
 const conflicts = ref<ConflictItemVo[]>([])
 const strategies = ref<Record<string, ConflictStrategy>>({})
 const results = ref<OperationResultVo[]>([])
 const step = ref<Step>('select')
 const loading = ref(false)
 const conflictOpen = ref(false)
+const transferTaskStore = useTransferTaskStore()
 
 const isMove = computed(() => props.type === 'move')
 const title = computed(() => (isMove.value ? '移动' : '复制'))
@@ -40,12 +43,23 @@ const icon = computed(() => (isMove.value ? FolderInput : Copy))
 const keyword = ref('')
 const disabledIds = computed(() => props.files.map((file) => file.id))
 
+/** 源与目标是否跨来源（本地↔远程或跨远程挂载点） */
+const isCrossSource = computed(() => {
+  const source = props.files[0]
+  if (!source) return false
+  const sourceType = source.sourceType ?? 'local'
+  const targetType = targetNode.value?.sourceType ?? 'local'
+  if (sourceType !== targetType) return true
+  return sourceType === 'remote' && source.remoteMountId !== targetNode.value?.remoteMountId
+})
+
 watch(
   () => props.open,
   (open) => {
     if (open) {
       step.value = 'select'
       targetParentId.value = '0'
+      targetNode.value = null
       keyword.value = ''
       conflicts.value = []
       strategies.value = {}
@@ -58,6 +72,11 @@ watch(
 
 function handleClose() {
   emit('close')
+}
+
+function handleSelectTarget(node: TreeNode) {
+  targetParentId.value = node.id
+  targetNode.value = node
 }
 
 async function handleNext() {
@@ -92,6 +111,16 @@ async function executeMoveCopy() {
   }))
   loading.value = true
   try {
+    if (isCrossSource.value) {
+      // 跨来源：创建异步传输任务，进度由传输任务浮层展示
+      await transferTaskStore.create(props.type, {
+        targetParentId: targetParentId.value,
+        items: items.map((item) => ({ id: item.id, strategy: item.strategy })),
+      })
+      emit('confirm', [])
+      emit('close')
+      return
+    }
     results.value = props.type === 'move'
       ? await moveFiles({ type: 'move', targetParentId: targetParentId.value, items })
       : await copyFiles({ type: 'copy', targetParentId: targetParentId.value, items })
@@ -160,7 +189,7 @@ function handleFinish() {
             :selected-id="targetParentId"
             :disabled-ids="disabledIds"
             :keyword="keyword"
-            @select="targetParentId = $event"
+            @select="handleSelectTarget"
           />
         </div>
 

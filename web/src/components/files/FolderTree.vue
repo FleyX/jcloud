@@ -9,9 +9,11 @@ import { computed, onMounted, ref } from 'vue'
 import { fetchChildFolders } from '@/api/file'
 import TreeNodeItem from './TreeNodeItem.vue'
 
-interface TreeNode {
+export interface TreeNode {
   id: string
   name: string
+  sourceType?: 'local' | 'remote'
+  remoteMountId?: string
   children: TreeNode[]
   loaded: boolean
   expanded: boolean
@@ -30,7 +32,7 @@ const props = withDefaults(defineProps<Props>(), {
 })
 
 const emit = defineEmits<{
-  select: [id: string]
+  select: [node: TreeNode]
 }>()
 
 const root = ref<TreeNode>({
@@ -52,6 +54,8 @@ async function loadChildren(node: TreeNode) {
     node.children = folders.map((folder) => ({
       id: folder.id,
       name: folder.name,
+      sourceType: folder.sourceType,
+      remoteMountId: folder.remoteMountId,
       children: [],
       loaded: false,
       expanded: false,
@@ -72,7 +76,7 @@ async function toggleExpand(node: TreeNode) {
 
 function handleSelect(node: TreeNode) {
   if (props.disabledIds.includes(node.id)) return
-  emit('select', node.id)
+  emit('select', node)
 }
 
 function isMatch(node: TreeNode): boolean {

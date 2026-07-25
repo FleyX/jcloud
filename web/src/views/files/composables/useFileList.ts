@@ -1,4 +1,4 @@
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import {
   deleteToTrash,
   downloadBatchFiles,
@@ -9,6 +9,7 @@ import { useBatchUpload } from '@/composables/useBatchUpload'
 import { useConfirmStore } from '@/store/confirm'
 import { useNotificationStore } from '@/store/notification'
 import { useTransferStore } from '@/store/transfer'
+import { useTransferTaskStore } from '@/store/transferTask'
 import { formatSize, inferFileType } from '@/utils/fileDisplay'
 import type { FileDisplayType } from '@/utils/fileDisplay'
 import type {
@@ -97,6 +98,12 @@ export function useFileList(options: UseFileListOptions = {}) {
       selected: selectedIds.value.has(file.id),
     })),
   )
+
+  const transferTaskStore = useTransferTaskStore()
+  // 跨来源传输任务到达终态后刷新文件列表
+  watch(() => transferTaskStore.finishedTick, () => {
+    loadFiles()
+  })
 
   async function loadFiles() {
     loading.value = true

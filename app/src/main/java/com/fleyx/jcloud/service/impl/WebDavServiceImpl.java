@@ -2,12 +2,17 @@ package com.fleyx.jcloud.service.impl;
 
 import com.fleyx.jcloud.common.constant.FileNodeConstants;
 import com.fleyx.jcloud.common.context.UserContext;
+import com.fleyx.jcloud.common.enums.TransferTaskStatus;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.common.exception.WebDavException;
 import com.fleyx.jcloud.mapper.FileMapper;
 import com.fleyx.jcloud.model.bo.FileDownloadResult;
+import com.fleyx.jcloud.model.dto.FileExecuteOperationDto;
+import com.fleyx.jcloud.model.dto.OperationItemDto;
 import com.fleyx.jcloud.model.po.FileNode;
+import com.fleyx.jcloud.model.vo.TransferTaskVo;
 import com.fleyx.jcloud.service.FileService;
+import com.fleyx.jcloud.service.TransferService;
 import com.fleyx.jcloud.service.WebDavLockService;
 import com.fleyx.jcloud.service.WebDavService;
 import com.fleyx.jcloud.util.FileConflictHelper;
@@ -49,6 +54,7 @@ public class WebDavServiceImpl implements WebDavService {
     private final WebDavFileOperationHelper operationHelper;
     private final UserReadWriteLock userReadWriteLock;
     private final UserReadOnlyChecker userReadOnlyChecker;
+    private final TransferService transferService;
 
     @Override
     public void handle(String userCode, HttpServletRequest request, HttpServletResponse response) {
@@ -232,8 +238,11 @@ public class WebDavServiceImpl implements WebDavService {
             sendError(response, HttpServletResponse.SC_CONFLICT, "Destination parent does not exist");
             return;
         }
-        validateSameSourceType(source, dest.parent());
         boolean overwrite = !"F".equalsIgnoreCase(request.getHeader(HEADER_OVERWRITE));
+        if (isCrossSource(source, dest.parent())) {
+            doCrossSourceMoveOrCopy(userId, source, dest.parent(), dest.name(), isMove, overwrite, response);
+            return;
+        }
         RLock lock = userReadWriteLock.writeLock(userId);
         lock.lock();
         try {
@@ -241,6 +250,59 @@ public class WebDavServiceImpl implements WebDavService {
         } finally {
             lock.unlock();
         }
+    }
+
+    /**
+     * WebDAV 跨来源 COPY/MOVE：转为跨来源传输任务并等待终态（同步语义）。
+     */
+    private void doCrossSourceMoveOrCopy(String userId, FileNode source, FileNode targetParent,
+                                         String targetName, boolean isMove, boolean overwrite,
+                                         HttpServletResponse response) {
+        FileNode existing = FileConflictHelper.findSameName(fileMapper, userId, targetParent.getId(), targetName);
+        if (existing != null && !overwrite) {
+            sendError(response, HttpServletResponse.SC_PRECONDITION_FAILED, "Already exists");
+            return;
+        }
+        OperationItemDto item = new OperationItemDto();
+        item.setId(source.getId());
+        item.setNewName(targetName);
+        if (existing != null) {
+            item.setStrategy("overwrite");
+        }
+        FileExecuteOperationDto dto = new FileExecuteOperationDto();
+        dto.setTargetParentId(targetParent.getId());
+        dto.setItems(List.of(item));
+
+        TransferTaskVo task;
+        RLock lock = userReadWriteLock.writeLock(userId);
+        lock.lock();
+        try {
+            task = transferService.createTransfer(dto, isMove ? "move" : "copy", userId);
+        } finally {
+            lock.unlock();
+        }
+        TransferTaskVo done = transferService.waitTerminal(task.getId(), userId);
+        if (!TransferTaskStatus.COMPLETED.getValue().equals(done.getStatus())) {
+            String msg = done.getErrorMsg() != null ? done.getErrorMsg() : "部分文件传输失败";
+            sendError(response, HttpServletResponse.SC_INTERNAL_SERVER_ERROR, msg);
+            return;
+        }
+        response.setStatus(isMove ? HttpServletResponse.SC_NO_CONTENT : HttpServletResponse.SC_CREATED);
+    }
+
+    /**
+     * 判断源与目标父节点是否跨来源（本地↔远程或跨远程挂载点）。
+     */
+    private boolean isCrossSource(FileNode source, FileNode targetParent) {
+        String targetSource = targetParent.getSourceType() == null
+                ? FileNodeConstants.SOURCE_LOCAL : targetParent.getSourceType();
+        String sourceSource = source.getSourceType() == null
+                ? FileNodeConstants.SOURCE_LOCAL : source.getSourceType();
+        if (!targetSource.equals(sourceSource)) {
+            return true;
+        }
+        return FileNodeConstants.SOURCE_REMOTE.equals(sourceSource)
+                && !java.util.Objects.equals(targetParent.getRemoteMountId(), source.getRemoteMountId());
     }
 
     private void executeMoveOrCopy(String userId, FileNode source, FileNode targetParent,
@@ -294,20 +356,6 @@ public class WebDavServiceImpl implements WebDavService {
     private void validateNotRemoteSourceForDelete(FileNode node) {
         if (FileNodeConstants.SOURCE_REMOTE.equals(node.getSourceType())) {
             throw new BusinessException("远程文件需通过远程挂载管理删除");
-        }
-    }
-
-    private void validateSameSourceType(FileNode source, FileNode targetParent) {
-        String targetSource = targetParent.getSourceType() == null
-                ? FileNodeConstants.SOURCE_LOCAL : targetParent.getSourceType();
-        String sourceSource = source.getSourceType() == null
-                ? FileNodeConstants.SOURCE_LOCAL : source.getSourceType();
-        if (!targetSource.equals(sourceSource)) {
-            throw new BusinessException("不能跨本地与远程目录操作");
-        }
-        if (FileNodeConstants.SOURCE_REMOTE.equals(sourceSource)
-                && !java.util.Objects.equals(source.getRemoteMountId(), targetParent.getRemoteMountId())) {
-            throw new BusinessException("不能跨远程挂载点操作");
         }
     }
 
