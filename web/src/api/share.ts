@@ -85,7 +85,7 @@ export function downloadPublicFileUrl(code: string, fileId: string, token?: stri
 export function previewPublicFileUrl(
   code: string,
   fileId: string,
-  type: 'thumbnail' | 'poster' | 'text',
+  type: 'thumbnail' | 'poster' | 'text' | 'office',
   token?: string,
 ): string {
   const query = new URLSearchParams({ type })

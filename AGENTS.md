@@ -11,6 +11,7 @@
 - 数据库操作可直接使用 `psql` 命令。
 - 开发环境管理员账户admin/admin
 - mysql,redis等环境查看application-dev.yml,application-test.yml获取
+- Office 文档预览依赖 LibreOffice：`sudo apt install libreoffice fonts-noto-cjk`（中文字体必装，否则转换出的 PDF 中文乱码）；可用 `jcloud.preview.libreoffice-path` 指定 soffice 路径。
 ## 快速启动
 
 ```bash
