@@ -1,0 +1,12 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://dev.lan:5432/jcloud_test
+  data:
+    redis:
+      host: dev.lan
+      database: 1
+
+jcloud:
+  preview:
+    # 测试环境缩小转换上限，便于验证大小闸门
+    office-max-convert-size: 2048
