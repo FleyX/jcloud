@@ -41,6 +41,9 @@ COPY --from=jre-base /opt/java /opt/java
 ENV JAVA_HOME=/opt/java/openjdk
 ENV PATH="${JAVA_HOME}/bin:${PATH}"
 
+# 安装 LibreOffice（Office 文档转 PDF 预览）与中文字体（Noto CJK，避免转换后中文乱码）
+RUN apk add --no-cache libreoffice font-noto-cjk
+
 WORKDIR /app
 
 # 复制后端 jar、前端静态资源、Caddy 配置与启动脚本

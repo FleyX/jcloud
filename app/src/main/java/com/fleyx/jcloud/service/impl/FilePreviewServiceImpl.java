@@ -1,9 +1,11 @@
 package com.fleyx.jcloud.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import cn.hutool.core.io.FileUtil;
 import com.fleyx.jcloud.common.enums.PreviewType;
 import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.exception.BusinessException;
+import com.fleyx.jcloud.common.exception.SystemException;
 import com.fleyx.jcloud.mapper.FileMapper;
 import com.fleyx.jcloud.mapper.PreviewFileMapper;
 import com.fleyx.jcloud.mapper.StorageSpaceMapper;
@@ -14,6 +16,7 @@ import com.fleyx.jcloud.common.constant.FileNodeConstants;
 import com.fleyx.jcloud.model.po.PreviewFile;
 import com.fleyx.jcloud.model.po.StorageSpace;
 import com.fleyx.jcloud.common.context.UserContext;
+import com.fleyx.jcloud.config.PreviewProperties;
 import com.fleyx.jcloud.service.FilePreviewGenerator;
 import com.fleyx.jcloud.service.FilePreviewService;
 import com.fleyx.jcloud.service.RemoteFileService;
@@ -48,6 +51,7 @@ public class FilePreviewServiceImpl implements FilePreviewService {
     private final SystemStorageSpaceProvider systemStorageSpaceProvider;
     private final RemoteFileService remoteFileService;
     private final List<FilePreviewGenerator> generators;
+    private final PreviewProperties previewProperties;
 
     private volatile Map<PreviewType, FilePreviewGenerator> generatorMap;
 
@@ -69,6 +73,15 @@ public class FilePreviewServiceImpl implements FilePreviewService {
         }
         if (!"file".equals(node.getType())) {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "仅支持文件预览");
+        }
+
+        if (type == PreviewType.OFFICE) {
+            String ext = FileUtil.extName(node.getName()).toLowerCase();
+            if ("pdf".equals(ext)) {
+                // PDF 原文件不转换、不缓存，直接流式返回
+                return streamOriginalPdf(node, ownerUserId, ownerUserCode);
+            }
+            checkOfficeConvertible(node, ext);
         }
 
         FilePreviewGenerator generator = getGeneratorMap().get(type);
@@ -99,6 +112,31 @@ public class FilePreviewServiceImpl implements FilePreviewService {
 
         PreviewFile previewFile = savePreviewRecord(node, type, space, relativePath);
         return buildResult(previewFile, targetPath);
+    }
+
+    /**
+     * PDF 原文件直接流式返回，不生成预览缓存。
+     */
+    private PreviewResult streamOriginalPdf(FileNode node, String ownerUserId, String ownerUserCode) {
+        Path sourcePath = resolvePreviewSourcePath(node, ownerUserId, ownerUserCode);
+        try {
+            return new PreviewResult(node.getName(), "application/pdf",
+                    Files.size(sourcePath), Files.newInputStream(sourcePath));
+        } catch (IOException e) {
+            throw new SystemException(ResultCode.SYSTEM_ERROR, "PDF 预览读取失败", e);
+        }
+    }
+
+    /**
+     * 校验 Office 文档是否可在线转换：格式支持与大小上限。
+     */
+    private void checkOfficeConvertible(FileNode node, String ext) {
+        if (!OfficePdfPreviewGenerator.CONVERTIBLE_EXTENSIONS.contains(ext)) {
+            throw new BusinessException(ResultCode.BUSINESS_ERROR, "该格式不支持在线预览");
+        }
+        if (node.getSize() != null && node.getSize() > previewProperties.getOfficeMaxConvertSize()) {
+            throw new BusinessException(ResultCode.BUSINESS_ERROR, "文件过大，请下载后查看");
+        }
     }
 
     private Path resolvePreviewSourcePath(FileNode node, String ownerUserId, String ownerUserCode) {
@@ -156,7 +194,11 @@ public class FilePreviewServiceImpl implements FilePreviewService {
             hash = String.valueOf(node.getId());
         }
         String safeHash = hash.replaceAll("[^a-zA-Z0-9\\-_.]", "_");
-        String ext = type == PreviewType.TEXT ? "txt" : "jpg";
+        String ext = switch (type) {
+            case TEXT -> "txt";
+            case OFFICE -> "pdf";
+            default -> "jpg";
+        };
         return String.format("previews/%s/%s.%s",
                 safeHash.substring(0, Math.min(2, safeHash.length())), safeHash, ext);
     }

@@ -14,6 +14,7 @@ import com.fleyx.jcloud.service.SystemConfigService;
 import com.fleyx.jcloud.common.constant.FileNodeConstants;
 import com.fleyx.jcloud.common.context.CurrentUser;
 import com.fleyx.jcloud.common.context.UserContext;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -32,6 +33,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -156,6 +158,71 @@ class FilePreviewServiceTest {
     }
 
     @Test
+    void shouldStreamPdfDirectlyWithoutCache() throws Exception {
+        UserWithSpace userWithSpace = prepareUserWithStorageSpace();
+        UserVo user = userWithSpace.user();
+        byte[] pdfBytes = minimalPdfBytes();
+        MultipartFile file = new MockMultipartFile("file", "report.pdf", "application/pdf", pdfBytes);
+
+        FileNodeVo uploaded = fileService.upload(file, user.getId(), FileNodeConstants.ROOT_ID, null);
+        PreviewResult result = filePreviewService.preview(uploaded.getId(), user.getId(), PreviewType.OFFICE);
+
+        assertEquals("application/pdf", result.getContentType());
+        assertArrayEquals(pdfBytes, result.getInputStream().readAllBytes());
+        // PDF 原文件直接返回，不生成预览缓存记录
+        long cacheCount = previewFileMapper.selectCount(
+                new LambdaQueryWrapper<PreviewFile>()
+                        .eq(PreviewFile::getFileNodeId, uploaded.getId()));
+        assertEquals(0, cacheCount);
+    }
+
+    @Test
+    void shouldRejectUnsupportedOfficeFormat() throws Exception {
+        UserWithSpace userWithSpace = prepareUserWithStorageSpace();
+        UserVo user = userWithSpace.user();
+        MultipartFile file = buildFile("archive.zip", "not an office file");
+
+        FileNodeVo uploaded = fileService.upload(file, user.getId(), FileNodeConstants.ROOT_ID, null);
+
+        assertThrows(com.fleyx.jcloud.common.exception.BusinessException.class,
+                () -> filePreviewService.preview(uploaded.getId(), user.getId(), PreviewType.OFFICE));
+    }
+
+    @Test
+    void shouldRejectOversizedOfficeFile() throws Exception {
+        UserWithSpace userWithSpace = prepareUserWithStorageSpace();
+        UserVo user = userWithSpace.user();
+        // 测试环境转换上限为 2048 字节
+        byte[] bigContent = new byte[4096];
+        MultipartFile file = new MockMultipartFile("file", "big.docx", "application/octet-stream", bigContent);
+
+        FileNodeVo uploaded = fileService.upload(file, user.getId(), FileNodeConstants.ROOT_ID, null);
+
+        com.fleyx.jcloud.common.exception.BusinessException ex =
+                assertThrows(com.fleyx.jcloud.common.exception.BusinessException.class,
+                        () -> filePreviewService.preview(uploaded.getId(), user.getId(), PreviewType.OFFICE));
+        assertTrue(ex.getMessage().contains("文件过大"));
+    }
+
+    @Test
+    void shouldConvertDocToPdf() throws Exception {
+        Assumptions.assumeTrue(isSofficeAvailable(), "soffice 不可用，跳过真实转换测试");
+        UserWithSpace userWithSpace = prepareUserWithStorageSpace();
+        UserVo user = userWithSpace.user();
+        MultipartFile file = new MockMultipartFile("file", "note.doc", "application/msword",
+                "hello jcloud office preview".getBytes());
+
+        FileNodeVo uploaded = fileService.upload(file, user.getId(), FileNodeConstants.ROOT_ID, null);
+        PreviewResult result = filePreviewService.preview(uploaded.getId(), user.getId(), PreviewType.OFFICE);
+
+        byte[] bytes = result.getInputStream().readAllBytes();
+        assertTrue(bytes.length > 0);
+        byte[] head = new byte[4];
+        System.arraycopy(bytes, 0, head, 0, 4);
+        assertArrayEquals("%PDF".getBytes(), head);
+    }
+
+    @Test
     void shouldRejectPreviewFromOtherUser() throws Exception {
         UserWithSpace userAWithSpace = prepareUserWithStorageSpace();
         UserWithSpace userBWithSpace = prepareUserWithStorageSpace();
@@ -167,6 +234,21 @@ class FilePreviewServiceTest {
 
         assertThrows(com.fleyx.jcloud.common.exception.BusinessException.class,
                 () -> filePreviewService.preview(uploaded.getId(), userB.getId(), PreviewType.TEXT));
+    }
+
+    private byte[] minimalPdfBytes() {
+        return ("%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n"
+                + "2 0 obj<</Type/Pages/Kids[]/Count 0>>endobj\n"
+                + "trailer<</Root 1 0 R>>\n%%EOF").getBytes(StandardCharsets.UTF_8);
+    }
+
+    private boolean isSofficeAvailable() {
+        try {
+            Process process = new ProcessBuilder("soffice", "--version").start();
+            return process.waitFor() == 0;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     private Path createTestVideo() throws Exception {

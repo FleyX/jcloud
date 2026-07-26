@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   DialogContent,
   DialogOverlay,
@@ -12,12 +12,14 @@ import {
   Film,
   X,
   Download,
+  Maximize,
+  Minimize,
 } from '@lucide/vue'
 import { cn } from '@/utils/cn'
 import { downloadPublicFileUrl, previewPublicFileUrl } from '@/api/share'
+import { resolvePreviewCategory } from '@/utils/previewCategory'
+import PdfPreview from '@/components/files/PdfPreview.vue'
 import type { FileNodeVo } from '@/types/file'
-
-type PreviewCategory = 'image' | 'video' | 'text' | 'unsupported'
 
 interface Props {
   open: boolean
@@ -33,23 +35,33 @@ const emit = defineEmits<{
 
 const textContent = ref('')
 const mediaUrl = ref('')
+const officeData = ref<ArrayBuffer | null>(null)
 const loading = ref(false)
 const error = ref('')
+const rootRef = ref<HTMLDivElement | null>(null)
+const isFullscreen = ref(false)
 
-const category = computed<PreviewCategory>(() => {
-  const mime = props.file?.mimeType || ''
-  const ext = props.file?.name.split('.').pop()?.toLowerCase() || ''
-  if (mime.startsWith('image/') || ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp'].includes(ext)) {
-    return 'image'
+function toggleFullscreen() {
+  if (document.fullscreenElement) {
+    void document.exitFullscreen()
+  } else {
+    void rootRef.value?.requestFullscreen()
   }
-  if (mime.startsWith('video/') || ['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(ext)) {
-    return 'video'
-  }
-  if (mime.startsWith('text/') || ['txt', 'md', 'json', 'xml', 'csv', 'log'].includes(ext)) {
-    return 'text'
-  }
-  return 'unsupported'
+}
+
+function syncFullscreenState() {
+  isFullscreen.value = Boolean(document.fullscreenElement)
+}
+
+onMounted(() => {
+  document.addEventListener('fullscreenchange', syncFullscreenState)
 })
+
+onBeforeUnmount(() => {
+  document.removeEventListener('fullscreenchange', syncFullscreenState)
+})
+
+const category = computed(() => resolvePreviewCategory(props.file?.mimeType, props.file?.name ?? ''))
 
 async function fetchBlob(url: string): Promise<string> {
   const response = await fetch(url)
@@ -58,11 +70,22 @@ async function fetchBlob(url: string): Promise<string> {
   return URL.createObjectURL(blob)
 }
 
+async function extractError(response: Response, fallback: string): Promise<Error> {
+  try {
+    const data = await response.json() as { msg?: string }
+    if (data.msg) return new Error(data.msg)
+  } catch {
+    // 非 JSON 响应，使用默认提示
+  }
+  return new Error(fallback)
+}
+
 async function loadPreview() {
   if (!props.file) return
   loading.value = true
   error.value = ''
   textContent.value = ''
+  officeData.value = null
   if (mediaUrl.value) {
     URL.revokeObjectURL(mediaUrl.value)
     mediaUrl.value = ''
@@ -73,6 +96,10 @@ async function loadPreview() {
       mediaUrl.value = await fetchBlob(previewPublicFileUrl(props.code, props.file.id, 'thumbnail', props.token))
     } else if (category.value === 'video') {
       mediaUrl.value = await fetchBlob(downloadPublicFileUrl(props.code, props.file.id, props.token))
+    } else if (category.value === 'office') {
+      const response = await fetch(previewPublicFileUrl(props.code, props.file.id, 'office', props.token))
+      if (!response.ok) throw await extractError(response, '预览加载失败')
+      officeData.value = await response.arrayBuffer()
     } else if (category.value === 'text') {
       const response = await fetch(previewPublicFileUrl(props.code, props.file.id, 'text', props.token))
       if (!response.ok) throw new Error('文本加载失败')
@@ -117,6 +144,7 @@ function handleDownload() {
       >
         <div
           v-if="file"
+          ref="rootRef"
           class="flex h-full flex-col bg-surface-900"
         >
           <!-- 顶部栏 -->
@@ -128,6 +156,7 @@ function handleDownload() {
                   category === 'image' && 'bg-purple-500/20 text-purple-300',
                   category === 'video' && 'bg-rose-500/20 text-rose-300',
                   category === 'text' && 'bg-blue-500/20 text-blue-300',
+                  category === 'office' && 'bg-amber-500/20 text-amber-300',
                   category === 'unsupported' && 'bg-surface-500/20 text-surface-300'
                 )"
               >
@@ -147,6 +176,20 @@ function handleDownload() {
               <span class="truncate text-sm font-medium">{{ file.name }}</span>
             </div>
             <div class="flex items-center gap-2">
+              <button
+                class="rounded-lg p-2 text-surface-300 transition-colors hover:bg-white/10 hover:text-white"
+                :title="isFullscreen ? '退出全屏' : '全屏显示'"
+                @click="toggleFullscreen"
+              >
+                <Minimize
+                  v-if="isFullscreen"
+                  class="h-5 w-5"
+                />
+                <Maximize
+                  v-else
+                  class="h-5 w-5"
+                />
+              </button>
               <button
                 class="rounded-lg p-2 text-surface-300 transition-colors hover:bg-white/10 hover:text-white"
                 @click="handleDownload"
@@ -182,6 +225,29 @@ function handleDownload() {
               controls
               class="max-h-full max-w-full rounded-lg shadow-lg"
             />
+            <div
+              v-else-if="category === 'office'"
+              class="flex h-full w-full items-center justify-center"
+            >
+              <div
+                v-if="error"
+                class="text-center"
+              >
+                <p class="text-sm text-red-400">
+                  {{ error }}
+                </p>
+                <button
+                  class="mt-4 rounded-xl bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700"
+                  @click="handleDownload"
+                >
+                  下载文件
+                </button>
+              </div>
+              <PdfPreview
+                v-else-if="officeData"
+                :data="officeData"
+              />
+            </div>
             <div
               v-else-if="category === 'text'"
               class="h-full w-full max-w-4xl overflow-auto rounded-lg bg-surface-800 p-6 text-sm text-surface-200"

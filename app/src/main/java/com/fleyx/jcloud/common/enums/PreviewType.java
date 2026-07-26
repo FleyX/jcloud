@@ -23,7 +23,12 @@ public enum PreviewType {
     /**
      * 文本预览。
      */
-    TEXT("text", "文本预览");
+    TEXT("text", "文本预览"),
+
+    /**
+     * Office 文档预览（统一转换为 PDF）。
+     */
+    OFFICE("office", "Office 文档预览");
 
     private final String code;
     private final String desc;

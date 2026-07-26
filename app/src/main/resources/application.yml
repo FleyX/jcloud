@@ -20,6 +20,11 @@ jcloud:
     zip-task-ttl-minutes: 60
   remote:
     encryption-key: ${JCLOUD_REMOTE_ENC_KEY:change-me-remote-enc-key}
+  preview:
+    libreoffice-path: ${JCLOUD_LIBREOFFICE_PATH:soffice}
+    office-max-convert-size: 52428800
+    convert-timeout-seconds: 60
+    max-concurrent-conversions: 2
 
 spring:
   application:
