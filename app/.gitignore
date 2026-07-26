@@ -26,5 +26,3 @@ node_modules
 /nbdist/
 /.nb-gradle/
 /build/
-application-dev.yml
-application-test.yml

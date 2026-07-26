@@ -1,0 +1,7 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://dev.lan:5432/jcloud
+  data:
+    redis:
+      host: dev.lan
+      database: 0
