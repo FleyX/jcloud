@@ -7,7 +7,7 @@ import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMenuStore, type PrimaryModule } from '@/store/menu'
 import { useUserStore } from '@/store/user'
-import { Cloud, Settings, LogOut, User } from '@lucide/vue'
+import { Cloud, Film, Settings, LogOut, User } from '@lucide/vue'
 import { cn } from '@/utils/cn'
 import type { Component } from 'vue'
 
@@ -24,6 +24,7 @@ interface PrimaryModuleItem {
 // notes / todos 模块尚未实现，暂不在一级导航中展示；person 为虚拟模块，不在一级导航渲染
 const primaryModules: PrimaryModuleItem[] = [
   { key: 'files', label: '文件', icon: Cloud },
+  { key: 'media', label: '影视', icon: Film },
   { key: 'system', label: '系统', icon: Settings },
 ]
 

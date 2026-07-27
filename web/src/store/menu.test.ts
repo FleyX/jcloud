@@ -15,10 +15,17 @@ function buildMenus(): Record<PrimaryModule, SecondaryMenuItem[]> {
     ],
     notes: [],
     todos: [],
+    media: [
+      { key: 'movies', label: '电影', route: '/media/movies' },
+      { key: 'series', label: '电视剧', route: '/media/series' },
+      { key: 'others', label: '其他', route: '/media/others' },
+      { key: 'directories', label: '目录管理', route: '/media/directories' },
+    ],
     system: [
       { key: 'users', label: '用户管理', route: '/admin/users' },
       { key: 'roles', label: '角色管理', route: '/admin/roles' },
       { key: 'storage-spaces', label: '存储空间管理', route: '/admin/storage-spaces' },
+      { key: 'media', label: '影视', route: '/admin/media' },
     ],
     person: [
       { key: 'profile', label: '个人资料', route: '/person' },
@@ -88,7 +95,7 @@ describe('menuStore secondary menus', () => {
     const menuStore = useMenuStore()
     const menus = menuStore.getSecondaryMenusByPrimary('system')
 
-    expect(menus.map((menu) => menu.key)).toEqual(['users', 'roles', 'storage-spaces'])
+    expect(menus.map((menu) => menu.key)).toEqual(['users', 'roles', 'storage-spaces', 'media'])
   })
 
   it('returns only user management for a user with only the user menu resource', () => {

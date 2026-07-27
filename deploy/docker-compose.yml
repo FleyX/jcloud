@@ -16,6 +16,9 @@ services:
       - spring.profiles.active=prod
     volumes:
       - ${JCLOUD_DATA_PATH:-./data}/jcloud:/data/jcloud
+    # 视频转码硬件加速（VAAPI）：映射 GPU 渲染节点；无核显/独显时可删除
+    devices:
+      - /dev/dri:/dev/dri
     depends_on:
       postgres:
         condition: service_healthy
