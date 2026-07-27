@@ -38,7 +38,7 @@
 | `REDIS_HOST` | `redis` | Redis 主机 |
 | `REDIS_PORT` | `6379` | Redis 端口 |
 | `REDIS_DB` | `0` | Redis 数据库索引 |
-| `JCLOUD_JWT_SECRET` | `change-me-in-production-jcloud-secret-key-2026` | JWT 签名密钥，**生产环境必须修改** |
+| `JCLOUD_JWT_SECRET` | `change-me-in-production-jcloud-secret-key-2026` | JWT 签名密钥，至少36位字符**生产环境必须修改** |
 | `JCLOUD_DATA_PATH` | `./data` | 数据存放目录，默认位于 `deploy/data` |
 
 > 可通过 `.env` 文件、Shell 导出或 `docker compose` 命令行传入变量。`.env` 文件放在项目根目录即可。

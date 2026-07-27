@@ -5,21 +5,27 @@
 FROM --platform=$BUILDPLATFORM maven:3.9-eclipse-temurin-25-alpine AS backend-builder
 WORKDIR /build
 
+# 使用阿里云 Maven 镜像加速依赖下载（不放在 /root/.m2，避免被缓存挂载遮蔽）
+COPY deploy/maven-settings.xml /opt/maven-settings.xml
+
 # 先复制 pom.xml 并下载依赖，充分利用缓存层
 COPY app/pom.xml ./pom.xml
 RUN --mount=type=cache,target=/root/.m2 \
-    mvn dependency:go-offline -q
+    mvn -s /opt/maven-settings.xml dependency:go-offline -q
 
 # 再复制源码构建；依赖未变化时不会重新下载
 COPY app/src ./src
 RUN --mount=type=cache,target=/root/.m2 \
-    mvn clean package -DskipTests
+    mvn -s /opt/maven-settings.xml clean package -DskipTests
 
 # 阶段 2：构建前端
 # 产物为静态文件，同样可在任意平台运行
 FROM --platform=$BUILDPLATFORM node:22-alpine AS frontend-builder
 ENV CI=true
-RUN corepack enable && corepack prepare pnpm@latest --activate
+# 使用 npmmirror 加速 corepack 下载 pnpm 及依赖安装
+ENV COREPACK_NPM_REGISTRY=https://registry.npmmirror.com
+RUN corepack enable && corepack prepare pnpm@latest --activate \
+    && pnpm config set registry https://registry.npmmirror.com
 WORKDIR /build
 
 # 先复制依赖描述文件并安装，充分利用缓存层
@@ -40,6 +46,9 @@ FROM caddy:2-alpine
 COPY --from=jre-base /opt/java /opt/java
 ENV JAVA_HOME=/opt/java/openjdk
 ENV PATH="${JAVA_HOME}/bin:${PATH}"
+
+# 使用阿里云 Alpine 镜像源加速 apk 安装
+RUN sed -i 's#dl-cdn.alpinelinux.org#mirrors.aliyun.com#g' /etc/apk/repositories
 
 # 安装 LibreOffice（Office 文档转 PDF 预览）与中文字体（Noto CJK，避免转换后中文乱码）
 RUN apk add --no-cache libreoffice font-noto-cjk
