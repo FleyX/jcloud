@@ -19,7 +19,6 @@ export type DownloadStatus = 'pending' | 'downloading' | 'success' | 'error'
 export interface FileChunk {
   index: number
   size: number
-  hash: string
   status: 'waiting' | 'uploading' | 'success' | 'error'
 }
 

@@ -137,7 +137,7 @@ public class FileController {
     @PostMapping(value = "/chunked-upload/{uploadId}/chunks", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public R<ChunkedUploadChunkVo> uploadChunk(@PathVariable String uploadId,
                                                @RequestParam("index") Integer index,
-                                               @RequestParam("chunkHash") String chunkHash,
+                                               @RequestParam(value = "chunkHash", required = false) String chunkHash,
                                                @RequestParam("chunk") MultipartFile chunk) {
         return R.ok(chunkedUploadService.uploadChunk(UserContext.get().id(), uploadId, index, chunk, chunkHash));
     }

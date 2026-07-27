@@ -103,7 +103,7 @@ export function useChunkedUpload() {
       task.completedChunks = task.chunks.filter((c) => c.status === 'success').length
       updateTaskProgress(task, transferStore)
 
-      const chunks = await createChunks(task.file, task.chunkSize)
+      const chunks = createChunks(task.file, task.chunkSize)
       let loadedBytes = chunks
         .filter((c) => task.chunks!.some((s) => s.index === c.index && s.status === 'success'))
         .reduce((sum, c) => sum + c.size, 0)
@@ -133,7 +133,6 @@ export function useChunkedUpload() {
           await uploadChunk(
             task.uploadId,
             chunk.index,
-            chunk.hash,
             chunk.blob,
             (loaded) => {
               const currentLoaded = loadedBytes + loaded
@@ -201,7 +200,7 @@ export function useChunkedUpload() {
             size: file.size,
             parentId,
             relativePath,
-            partialHash: partialHash || undefined,
+            partialHash,
           },
         ],
       })
@@ -272,11 +271,10 @@ export function useChunkedUpload() {
       task.totalChunks = initResult.totalChunks
       task.chunkSize = initResult.chunkSize
       task.completedChunks = 0
-      const chunks = await createChunks(file, initResult.chunkSize)
+      const chunks = createChunks(file, initResult.chunkSize)
       task.chunks = chunks.map((c) => ({
         index: c.index,
         size: c.size,
-        hash: c.hash,
         status: 'waiting' as const,
       }))
 

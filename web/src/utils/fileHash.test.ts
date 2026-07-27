@@ -1,5 +1,8 @@
+import { md5 } from 'js-md5'
 import { describe, it, expect } from 'vitest'
 import { fullHash, identityHash } from './fileHash'
+
+const SAMPLE_SIZE = 50 * 1024 * 1024
 
 async function buildFile(content: string): Promise<File> {
   return new File([content], 'test.txt', { type: 'text/plain' })
@@ -19,10 +22,21 @@ describe('fileHash', () => {
     expect(identity).toBe(full)
   })
 
-  it('returns null for large files to fallback to regular upload', async () => {
-    const buffer = new ArrayBuffer(150 * 1024 * 1024)
-    const file = new File([buffer], 'large.bin')
+  it('computes sampled identity hash for large files', async () => {
+    const size = 150 * 1024 * 1024
+    const content = new Uint8Array(size)
+    for (let i = 0; i < size; i++) {
+      content[i] = i % 251
+    }
+    const file = new File([content], 'large.bin')
+
+    const hash = md5.create()
+    hash.update(content.subarray(0, SAMPLE_SIZE))
+    hash.update(content.subarray(Math.floor(size / 2), Math.floor(size / 2) + SAMPLE_SIZE))
+    hash.update(content.subarray(size - SAMPLE_SIZE))
+    const expected = hash.hex()
+
     const identity = await identityHash(file)
-    expect(identity).toBeNull()
+    expect(identity).toBe(expected)
   })
 })

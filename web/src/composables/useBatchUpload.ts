@@ -105,7 +105,7 @@ export function useBatchUpload() {
           size: item.file.size,
           parentId,
           relativePath: item.relativePath,
-          partialHash: partialHash || undefined,
+          partialHash,
         }
       }),
     )
@@ -250,11 +250,10 @@ export function useBatchUpload() {
       task.totalChunks = initData.totalChunks
       task.chunkSize = initData.chunkSize
       task.completedChunks = 0
-      const chunks = await createChunks(ctx.item.file, initData.chunkSize)
+      const chunks = createChunks(ctx.item.file, initData.chunkSize)
       task.chunks = chunks.map((c) => ({
         index: c.index,
         size: c.size,
-        hash: c.hash,
         status: 'waiting' as const,
       }))
 

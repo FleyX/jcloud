@@ -172,7 +172,6 @@ export function initChunkedUpload(dto: BatchChunkedUploadInitRequest): Promise<B
 export function uploadChunk(
   uploadId: string,
   index: number,
-  chunkHash: string,
   chunk: Blob,
   onProgress?: (loaded: number) => void,
   signal?: AbortSignal,
@@ -180,7 +179,6 @@ export function uploadChunk(
   const userStore = useUserStore()
   const formData = new FormData()
   formData.append('index', String(index))
-  formData.append('chunkHash', chunkHash)
   formData.append('chunk', chunk, 'chunk')
 
   return new Promise((resolve, reject) => {
