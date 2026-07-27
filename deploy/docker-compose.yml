@@ -14,6 +14,8 @@ services:
       - REDIS_DB=${REDIS_DB:-0}
       - JCLOUD_JWT_SECRET=${JCLOUD_JWT_SECRET:-change-me-in-production-jcloud-secret-key-2026}
       - spring.profiles.active=prod
+      # 关闭 MyBatis SQL 日志（application.yml 默认 StdOutImpl）
+      - mybatis-plus.configuration.log-impl=org.apache.ibatis.logging.nologging.NoLoggingImpl
     volumes:
       - ${JCLOUD_DATA_PATH:-./data}/jcloud:/data/jcloud
     # 视频转码硬件加速（VAAPI）：映射 GPU 渲染节点；无核显/独显时可删除
