@@ -15,6 +15,7 @@ import com.fleyx.jcloud.model.vo.ChunkedUploadChunkVo;
 import com.fleyx.jcloud.util.FilePathUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
@@ -39,13 +40,13 @@ public class ChunkedUploadChunkSupport {
     private final UploadProperties uploadProperties;
 
     /**
-     * 上传单个分片并校验分片 hash。
+     * 上传单个分片；当客户端携带分片 hash 时进行校验，为空则跳过。
      *
      * @param userId     用户 ID
      * @param uploadId   上传任务 ID
      * @param chunkIndex 分片索引
      * @param chunk      分片文件
-     * @param chunkHash  分片 hash
+     * @param chunkHash  分片 hash，可为空（局域网场景信任 TCP 完整性，跳过校验）
      * @return 分片上传结果
      */
     public ChunkedUploadChunkVo uploadChunk(String userId, String uploadId, Integer chunkIndex,
@@ -55,14 +56,16 @@ public class ChunkedUploadChunkSupport {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "分片索引超出范围");
         }
 
-        String actualHash;
-        try (InputStream is = chunk.getInputStream()) {
-            actualHash = DigestUtil.md5Hex(is);
-        } catch (IOException e) {
-            throw new BusinessException(ResultCode.BUSINESS_ERROR, "读取分片失败");
-        }
-        if (!actualHash.equals(chunkHash)) {
-            throw new BusinessException(ResultCode.BUSINESS_ERROR, "分片 hash 校验失败");
+        if (StringUtils.hasText(chunkHash)) {
+            String actualHash;
+            try (InputStream is = chunk.getInputStream()) {
+                actualHash = DigestUtil.md5Hex(is);
+            } catch (IOException e) {
+                throw new BusinessException(ResultCode.BUSINESS_ERROR, "读取分片失败");
+            }
+            if (!actualHash.equals(chunkHash)) {
+                throw new BusinessException(ResultCode.BUSINESS_ERROR, "分片 hash 校验失败");
+            }
         }
 
         Path chunkPath = context.tempDir().resolve(chunkFileName(chunkIndex));
@@ -72,7 +75,9 @@ public class ChunkedUploadChunkSupport {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "保存分片失败");
         }
 
-        saveOrUpdateChunkRecord(uploadId, userId, chunkIndex, chunkHash, chunk.getSize());
+        // chunk_hash 列非空，客户端未携带 hash 时落库为空字符串
+        saveOrUpdateChunkRecord(uploadId, userId, chunkIndex,
+                StringUtils.hasText(chunkHash) ? chunkHash : "", chunk.getSize());
 
         ChunkedUploadChunkVo vo = new ChunkedUploadChunkVo();
         vo.setChunkIndex(chunkIndex);

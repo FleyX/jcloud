@@ -3,10 +3,8 @@
  *
  * 与后端 ChunkedUploadService 约定一致：
  * - 默认分片大小 64MB
- * - 每个分片使用完整 MD5 作为 chunkHash
+ * - 分片仅做切片，不计算 hash（局域网场景信任 TCP 完整性，后端对空 hash 跳过校验）
  */
-
-import { md5 } from 'js-md5'
 
 /**
  * 默认分片大小：64MB。
@@ -21,17 +19,16 @@ export interface ChunkInfo {
   index: number
   blob: Blob
   size: number
-  hash: string
 }
 
 /**
- * 将文件切分为指定大小的分片，并计算每个分片的 MD5。
+ * 将文件切分为指定大小的分片。
  *
  * @param file 待切分文件
  * @param chunkSize 分片大小，默认 64MB
  * @returns 分片信息列表
  */
-export async function createChunks(file: File, chunkSize = CHUNK_SIZE): Promise<ChunkInfo[]> {
+export function createChunks(file: File, chunkSize = CHUNK_SIZE): ChunkInfo[] {
   const chunks: ChunkInfo[] = []
   let start = 0
   let index = 0
@@ -39,29 +36,16 @@ export async function createChunks(file: File, chunkSize = CHUNK_SIZE): Promise<
   while (start < file.size) {
     const end = Math.min(start + chunkSize, file.size)
     const blob = file.slice(start, end)
-    const hash = await computeChunkHash(blob)
     chunks.push({
       index,
       blob,
       size: blob.size,
-      hash,
     })
     start = end
     index++
   }
 
   return chunks
-}
-
-/**
- * 计算单个 Blob 的 MD5。
- *
- * @param blob 待计算 Blob
- * @returns MD5 字符串
- */
-export async function computeChunkHash(blob: Blob): Promise<string> {
-  const buffer = await blob.arrayBuffer()
-  return md5(buffer)
 }
 
 /**

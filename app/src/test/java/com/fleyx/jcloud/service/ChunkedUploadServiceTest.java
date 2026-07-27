@@ -258,6 +258,28 @@ class ChunkedUploadServiceTest {
     }
 
     @Test
+    void shouldUploadChunkWhenHashIsBlank() {
+        UserWithSpace userWithSpace = prepareUserWithStorageSpace();
+        UserVo user = userWithSpace.user();
+
+        ChunkedUploadInitDto dto = new ChunkedUploadInitDto();
+        dto.setFileName("chunked.bin");
+        dto.setSize(uploadProperties.getChunkSize());
+        dto.setParentId(FileNodeConstants.ROOT_ID);
+        ChunkedUploadInitVo initVo = initSingle(dto, user.getId());
+
+        byte[] chunk = new byte[(int) uploadProperties.getChunkSize()];
+        fillBytes(chunk, (byte) 9);
+
+        ChunkedUploadChunkVo result = chunkedUploadService.uploadChunk(user.getId(), initVo.getUploadId(), 0,
+                buildChunk(chunk), null);
+
+        assertEquals(0, result.getChunkIndex());
+        assertEquals("success", result.getStatus());
+        assertEquals(List.of(0), chunkedUploadService.listUploadedChunks(user.getId(), initVo.getUploadId()));
+    }
+
+    @Test
     void shouldRejectChunkWithWrongHash() {
         UserWithSpace userWithSpace = prepareUserWithStorageSpace();
         UserVo user = userWithSpace.user();
