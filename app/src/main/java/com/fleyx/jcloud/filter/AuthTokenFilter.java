@@ -187,6 +187,11 @@ public class AuthTokenFilter extends OncePerRequestFilter {
         if (StrUtil.isNotBlank(header) && header.startsWith(BEARER_PREFIX)) {
             return header.substring(BEARER_PREFIX.length());
         }
+        // 媒体流、图片等无法携带 Authorization 头的场景，支持 token 查询参数
+        String param = request.getParameter("token");
+        if (StrUtil.isNotBlank(param)) {
+            return param;
+        }
         return null;
     }
 

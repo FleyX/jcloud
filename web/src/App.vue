@@ -19,7 +19,7 @@ const deviceStore = useDeviceStore()
 
 useRemoteMountHealthCheck()
 
-const isStandaloneRoute = computed(() => !!route.meta.public || !!route.meta.init)
+const isStandaloneRoute = computed(() => !!route.meta.public || !!route.meta.init || !!route.meta.standalone)
 </script>
 
 <template>

@@ -15,6 +15,7 @@ const userStore = useUserStore()
 
 const primaryLabels: Record<PrimaryModule, string> = {
   files: '文件',
+  media: '影视',
   notes: '笔记',
   todos: '待办',
   system: '系统',

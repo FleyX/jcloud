@@ -2,10 +2,10 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { useUserStore } from '@/store/user'
 
-export type PrimaryModule = 'files' | 'notes' | 'todos' | 'system' | 'person'
+export type PrimaryModule = 'files' | 'media' | 'notes' | 'todos' | 'system' | 'person'
 
 // person 为虚拟一级模块：不在顶部一级导航中渲染，仅用于路由推导与二级菜单联动
-export const primaryModuleList: PrimaryModule[] = ['files', 'notes', 'todos', 'system', 'person']
+export const primaryModuleList: PrimaryModule[] = ['files', 'media', 'notes', 'todos', 'system', 'person']
 
 export interface SecondaryMenuItem {
   key: string
@@ -62,6 +62,16 @@ export const useMenuStore = defineStore('menu', () => {
           { key: 'share', label: '我的分享', route: '/files/share' },
           { key: 'trash', label: '回收站', route: '/files/trash' },
         ]
+      case 'media':
+        if (!userStore.isAdmin && !userStore.hasResource('VIEW:/media')) {
+          return []
+        }
+        return [
+          { key: 'movies', label: '电影', route: '/media/movies' },
+          { key: 'series', label: '电视剧', route: '/media/series' },
+          { key: 'others', label: '其他', route: '/media/others' },
+          { key: 'directories', label: '目录管理', route: '/media/directories' },
+        ]
       case 'notes':
         if (!userStore.isAdmin && !userStore.hasResource('VIEW:/notes')) {
           return []
@@ -101,6 +111,9 @@ export const useMenuStore = defineStore('menu', () => {
     }
     if (userStore.isAdmin || userStore.hasResource('VIEW:/admin/storage-spaces')) {
       menus.push({ key: 'storage-spaces', label: '存储空间管理', route: '/admin/storage-spaces' })
+    }
+    if (userStore.isAdmin || userStore.hasResource('VIEW:/admin/media')) {
+      menus.push({ key: 'media', label: '影视', route: '/admin/media' })
     }
     return menus
   }

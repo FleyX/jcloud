@@ -13,7 +13,7 @@ import {
   type PrimaryModule,
   type SecondaryMenuItem,
 } from '@/store/menu'
-import { Cloud, Settings } from '@lucide/vue'
+import { Cloud, Film, Settings } from '@lucide/vue'
 import { cn } from '@/utils/cn'
 import type { Component } from 'vue'
 
@@ -30,6 +30,7 @@ interface TabItem {
 
 const primaryModules: Array<{ key: PrimaryModule; label: string; icon: Component }> = [
   { key: 'files', label: '文件', icon: Cloud },
+  { key: 'media', label: '影视', icon: Film },
   { key: 'system', label: '系统', icon: Settings },
 ]
 

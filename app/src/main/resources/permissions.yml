@@ -90,6 +90,34 @@ permissions:
     resources:
       - { code: "VIEW:/todos", name: "待办管理页面" }
 
+  - code: "media:menu"
+    name: "影视媒体库"
+    resources:
+      - { code: "VIEW:/media", name: "影视媒体库页面" }
+      - { code: "GET:/jcloud/api/media/directories", name: "查询视频目录" }
+      - { code: "POST:/jcloud/api/media/directories", name: "新增视频目录" }
+      - { code: "PUT:/jcloud/api/media/directories/{id}", name: "编辑视频目录" }
+      - { code: "DELETE:/jcloud/api/media/directories/{id}", name: "删除视频目录" }
+      - { code: "POST:/jcloud/api/media/directories/{id}/scan", name: "刷新视频目录" }
+      - { code: "GET:/jcloud/api/media/items/movies", name: "查询电影海报墙" }
+      - { code: "GET:/jcloud/api/media/items/series", name: "查询电视剧海报墙" }
+      - { code: "GET:/jcloud/api/media/items/series/episodes", name: "查询剧集列表" }
+      - { code: "GET:/jcloud/api/media/items/others", name: "查询其他视频" }
+      - { code: "GET:/jcloud/api/media/items/{id}/detail", name: "查询条目详情" }
+      - { code: "GET:/jcloud/api/media/series/detail", name: "查询电视剧详情" }
+      - { code: "PUT:/jcloud/api/media/items/{id}/match", name: "手动修正条目匹配" }
+      - { code: "PUT:/jcloud/api/media/items/series/match", name: "手动修正剧集匹配" }
+      - { code: "PUT:/jcloud/api/media/items/{id}/progress", name: "上报播放进度" }
+      - { code: "GET:/jcloud/api/media/items/{id}/playback", name: "获取播放信息" }
+      - { code: "GET:/jcloud/api/media/items/{id}/stream", name: "直放媒体流" }
+      - { code: "GET:/jcloud/api/media/items/{id}/subtitles/{index}", name: "提取字幕" }
+      - { code: "POST:/jcloud/api/media/items/{id}/transcode", name: "创建转码会话" }
+      - { code: "GET:/jcloud/api/media/transcode/{sessionId}/{fileName}", name: "获取转码文件" }
+      - { code: "GET:/jcloud/api/media/metadata/{id}/poster", name: "获取海报图" }
+      - { code: "GET:/jcloud/api/media/metadata/{id}/backdrop", name: "获取背景图" }
+      - { code: "POST:/jcloud/api/media/metadata/{id}/refresh", name: "刷新元数据" }
+      - { code: "GET:/jcloud/api/media/tmdb/search", name: "搜索 TMDB" }
+
   - code: "system:menu"
     name: "系统设置"
     resources:
@@ -147,3 +175,13 @@ permissions:
       - { code: "GET:/jcloud/api/admin/system/init-status", name: "查询系统初始化状态" }
       - { code: "POST:/jcloud/api/admin/system/initialize", name: "执行系统初始化" }
       - { code: "PUT:/jcloud/api/users/{id}/storage", name: "设置用户默认存储空间" }
+
+  - code: "media_settings:menu"
+    name: "影视设置"
+    parent: "system:menu"
+    resources:
+      - { code: "VIEW:/admin/media", name: "影视设置页面" }
+      - { code: "GET:/jcloud/api/admin/media/tmdb-config", name: "查询 TMDB 配置" }
+      - { code: "PUT:/jcloud/api/admin/media/tmdb-config", name: "更新 TMDB 配置" }
+      - { code: "GET:/jcloud/api/admin/media/transcode-config", name: "查询转码配置" }
+      - { code: "PUT:/jcloud/api/admin/media/transcode-config", name: "更新转码配置" }
