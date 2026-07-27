@@ -4,6 +4,8 @@
 
 **[部署文档](./deploy.md)**
 
+![alt text](images/image.png)
+
 ## 简介
 
 jcloud 是一个面向个人的高性能网盘系统，支持文件上传、下载、浏览、组织、分享等核心能力。项目采用前后端分离设计，后端基于 Spring Boot 虚拟线程支撑高并发 I/O，前端基于 Vite + Vue 3 构建，同时适配 PC 与移动端访问。
@@ -38,64 +40,6 @@ jcloud 是一个面向个人的高性能网盘系统，支持文件上传、下�
 - Tailwind CSS + radix-vue + tailwind-merge
 - Vue Router 5
 - Vitest
-
-## 快速开始
-
-### 环境要求
-
-- JDK 25+
-- Maven 3.9+
-- Node.js 22+ + pnpm
-- PostgreSQL 15+
-- Redis 7+
-
-### 一键启动
-
-```bash
-./start.sh
-```
-
-该脚本会释放 8080 与 5173 端口，并以后台方式启动前后端服务。
-
-### 手动启动
-
-```bash
-# 后端
-cd app && mvn spring-boot:run
-
-# 前端
-cd web && pnpm dev
-```
-
-前端默认访问地址：http://localhost:5173  
-后端默认访问地址：http://localhost:8080
-
-## 项目结构
-
-```
-jcloud
-├── app/              # 后端 Spring Boot 应用
-│   └── src/main/java/com/fleyx/jcloud
-│       ├── common/   # 异常、常量、枚举、工具
-│       ├── config/   # 配置类
-│       ├── filter/   # 过滤器
-│       ├── controller/   # 控制层
-│       ├── service/      # 业务逻辑
-│       ├── mapper/       # 数据访问
-│       └── model/        # DTO / VO / BO / PO / Convert
-├── web/              # 前端 Vue 3 应用
-│   └── src
-│       ├── api/      # 接口请求
-│       ├── components/   # 组件
-│       ├── router/       # 路由
-│       ├── store/        # Pinia 状态
-│       ├── views/        # 页面视图
-│       └── utils/        # 工具函数
-└── docs/             # 架构决策与文档
-    ├── adr/          # 架构决策记录
-    ├── agents/       # Agent 协作规范
-    └── prd/          # 产品需求文档
-```
 
 ## 文档
 
