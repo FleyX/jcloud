@@ -1,31 +1,45 @@
 # syntax=docker/dockerfile:1
 
+# 是否使用国内镜像加速（Maven/Alpine/npm）。
+# 本地构建默认开启；CI（GitHub Actions）构建时通过 --build-arg CN_MIRROR=false 关闭。
+ARG CN_MIRROR=true
+
 # 阶段 1：构建后端
 # 使用 BUILDPLATFORM 加速跨平台构建（产物为平台无关的字节码）
 FROM --platform=$BUILDPLATFORM maven:3.9-eclipse-temurin-25-alpine AS backend-builder
+ARG CN_MIRROR
 WORKDIR /build
 
-# 使用阿里云 Maven 镜像加速依赖下载（不放在 /root/.m2，避免被缓存挂载遮蔽）
+# 国内镜像加速：阿里云 Maven 镜像（不放在 /root/.m2，避免被缓存挂载遮蔽）
 COPY deploy/maven-settings.xml /opt/maven-settings.xml
 
 # 先复制 pom.xml 并下载依赖，充分利用缓存层
 COPY app/pom.xml ./pom.xml
 RUN --mount=type=cache,target=/root/.m2 \
-    mvn -s /opt/maven-settings.xml dependency:go-offline -q
+    MAVEN_OPTS="" && \
+    if [ "$CN_MIRROR" = "true" ]; then MAVEN_OPTS="-s /opt/maven-settings.xml"; fi && \
+    mvn $MAVEN_OPTS dependency:go-offline -q
 
 # 再复制源码构建；依赖未变化时不会重新下载
 COPY app/src ./src
 RUN --mount=type=cache,target=/root/.m2 \
-    mvn -s /opt/maven-settings.xml clean package -DskipTests
+    MAVEN_OPTS="" && \
+    if [ "$CN_MIRROR" = "true" ]; then MAVEN_OPTS="-s /opt/maven-settings.xml"; fi && \
+    mvn $MAVEN_OPTS clean package -DskipTests
 
 # 阶段 2：构建前端
 # 产物为静态文件，同样可在任意平台运行
 FROM --platform=$BUILDPLATFORM node:22-alpine AS frontend-builder
+ARG CN_MIRROR
 ENV CI=true
-# 使用 npmmirror 加速 corepack 下载 pnpm 及依赖安装
-ENV COREPACK_NPM_REGISTRY=https://registry.npmmirror.com
-RUN corepack enable && corepack prepare pnpm@latest --activate \
-    && pnpm config set registry https://registry.npmmirror.com
+# 国内镜像加速：corepack 下载 pnpm 及依赖安装走 npmmirror
+RUN if [ "$CN_MIRROR" = "true" ]; then \
+        export COREPACK_NPM_REGISTRY=https://registry.npmmirror.com; \
+    fi && \
+    corepack enable && corepack prepare pnpm@latest --activate && \
+    if [ "$CN_MIRROR" = "true" ]; then \
+        pnpm config set registry https://registry.npmmirror.com; \
+    fi
 WORKDIR /build
 
 # 先复制依赖描述文件并安装，充分利用缓存层
@@ -43,12 +57,15 @@ FROM eclipse-temurin:25-jre-alpine AS jre-base
 # 阶段 4：运行镜像
 # 使用官方 Caddy 镜像作为基础，并注入 Eclipse Temurin JRE
 FROM caddy:2-alpine
+ARG CN_MIRROR
 COPY --from=jre-base /opt/java /opt/java
 ENV JAVA_HOME=/opt/java/openjdk
 ENV PATH="${JAVA_HOME}/bin:${PATH}"
 
-# 使用阿里云 Alpine 镜像源加速 apk 安装
-RUN sed -i 's#dl-cdn.alpinelinux.org#mirrors.aliyun.com#g' /etc/apk/repositories
+# 国内镜像加速：阿里云 Alpine 镜像源
+RUN if [ "$CN_MIRROR" = "true" ]; then \
+        sed -i 's#dl-cdn.alpinelinux.org#mirrors.aliyun.com#g' /etc/apk/repositories; \
+    fi
 
 # 安装 LibreOffice（Office 文档转 PDF 预览）与中文字体（Noto CJK，避免转换后中文乱码）
 RUN apk add --no-cache libreoffice font-noto-cjk
