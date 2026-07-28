@@ -1,0 +1,93 @@
+name: docker
+
+on:
+  # 发布 release 时构建正式镜像（等价 deploy/release.sh --push）
+  release:
+    types: [published]
+  # test 分支每次 push/merge 构建测试镜像（等价 deploy/release.sh --test）
+  push:
+    branches: [test]
+  # 手动兜底
+  workflow_dispatch:
+
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOCKERHUB_REPO: fleyx/jcloud
+
+jobs:
+  # amd64 / arm64 分别在原生 runner 上并行构建，各推架构专属 tag
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+            suffix: amd64
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            suffix: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # release 触发：版本号取 tag（去前导 v）；其余触发：test 标签
+      - name: 计算镜像版本标签
+        id: meta
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            echo "tag=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=test" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 构建并推送 ${{ matrix.suffix }} 镜像
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/Dockerfile
+          platforms: ${{ matrix.platform }}
+          build-args: CN_MIRROR=false
+          push: true
+          tags: ${{ env.DOCKERHUB_REPO }}:${{ steps.meta.outputs.tag }}-${{ matrix.suffix }}
+          cache-from: type=gha,scope=${{ matrix.suffix }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.suffix }}
+
+  # 合并两个架构的镜像为 multi-arch manifest，并打最终标签
+  merge:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: 合并 manifest 并推送最终标签
+        run: |
+          REPO="${{ env.DOCKERHUB_REPO }}"
+          if [ "${{ github.event_name }}" = "release" ]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+            docker buildx imagetools create \
+              -t "${REPO}:${VERSION}" \
+              -t "${REPO}:latest" \
+              "${REPO}:${VERSION}-amd64" "${REPO}:${VERSION}-arm64"
+            echo "发布完成：${REPO}:${VERSION}、${REPO}:latest"
+          else
+            docker buildx imagetools create \
+              -t "${REPO}:test" \
+              "${REPO}:test-amd64" "${REPO}:test-arm64"
+            echo "测试镜像推送完成：${REPO}:test"
+          fi
