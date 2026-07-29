@@ -1,9 +1,11 @@
 import { del, get, post, put } from './request'
+import type { PageResult } from '@/types/auth'
 import type {
   MediaDirectorySaveDto,
   MediaDirectoryVo,
   MediaItemDetailVo,
   MediaItemVo,
+  MediaPageQuery,
   MediaPlaybackInfoVo,
   MediaSeriesDetailVo,
   MediaSeriesVo,
@@ -47,20 +49,20 @@ export function scanMediaDirectory(id: string): Promise<void> {
 
 // ---------- 海报墙 ----------
 
-export function fetchMediaMovies(): Promise<MediaItemVo[]> {
-  return get<MediaItemVo[]>('/media/items/movies')
+export function fetchMediaMovies(query: MediaPageQuery): Promise<PageResult<MediaItemVo>> {
+  return get<PageResult<MediaItemVo>>('/media/items/movies', query as Record<string, unknown>)
 }
 
-export function fetchMediaSeries(): Promise<MediaSeriesVo[]> {
-  return get<MediaSeriesVo[]>('/media/items/series')
+export function fetchMediaSeries(query: MediaPageQuery): Promise<PageResult<MediaSeriesVo>> {
+  return get<PageResult<MediaSeriesVo>>('/media/items/series', query as Record<string, unknown>)
 }
 
 export function fetchMediaEpisodes(seriesName: string): Promise<MediaItemVo[]> {
   return get<MediaItemVo[]>('/media/items/series/episodes', { seriesName })
 }
 
-export function fetchMediaOthers(): Promise<MediaItemVo[]> {
-  return get<MediaItemVo[]>('/media/items/others')
+export function fetchMediaOthers(query: MediaPageQuery): Promise<PageResult<MediaItemVo>> {
+  return get<PageResult<MediaItemVo>>('/media/items/others', query as Record<string, unknown>)
 }
 
 // ---------- 匹配与进度 ----------

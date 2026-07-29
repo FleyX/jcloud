@@ -26,6 +26,16 @@ public final class MediaFileNameParser {
     private static final Pattern BRACKET_PATTERN = Pattern.compile("[\\[【(（][^\\]】)）]*[\\]】)）]");
     private static final Pattern QUALITY_PATTERN = Pattern.compile(
             "(?i)(1080p|720p|2160p|4k|8k|blu-?ray|bd|web-?dl|webrip|hdtv|hdr|x264|x265|h\\.?264|h\\.?265|hevc|av1|aac|dts|remux)");
+    /**
+     * 季号与版本/字幕组标签（对齐 Jellyfin 清洗规则，搜索 TMDB 前剥离）。
+     */
+    private static final Pattern SEASON_WORD_PATTERN = Pattern.compile(
+            "(?i)season\\s*\\d{1,2}|第\\s*(\\d{1,2}|[零一二三四五六七八九十]{1,3})\\s*季"
+                    + "|中文字幕|英文字幕|中英字幕|中英双语|国语|粤语|未删减|导演剪辑版?|加长版|修复版|完整版|合集|全集|完结");
+    /**
+     * 片尾字幕组标记，如 "Movie Name -GRP"。
+     */
+    private static final Pattern RELEASE_GROUP_PATTERN = Pattern.compile("\\s+-\\s*[A-Za-z0-9]+$");
 
     private MediaFileNameParser() {
     }
@@ -127,9 +137,11 @@ public final class MediaFileNameParser {
         }
         String cleaned = BRACKET_PATTERN.matcher(dirName).replaceAll(" ");
         cleaned = QUALITY_PATTERN.matcher(cleaned).replaceAll(" ");
+        cleaned = SEASON_WORD_PATTERN.matcher(cleaned).replaceAll(" ");
         cleaned = YEAR_PATTERN.matcher(cleaned).replaceAll(" ");
         cleaned = cleaned.replace('.', ' ').replace('_', ' ');
-        return cleaned.trim().replaceAll("\\s{2,}", " ");
+        cleaned = cleaned.trim().replaceAll("\\s{2,}", " ");
+        return RELEASE_GROUP_PATTERN.matcher(cleaned).replaceAll("").trim();
     }
 
     /**

@@ -16,6 +16,12 @@ public class MediaDirectoryUpdateDto {
     private String id;
 
     /**
+     * 虚拟文件树文件夹节点 ID，变更后会清空旧数据并全量重扫。
+     */
+    @NotBlank(message = "文件夹不能为空")
+    private String fileNodeId;
+
+    /**
      * 显示名。
      */
     @NotBlank(message = "显示名不能为空")

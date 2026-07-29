@@ -14,6 +14,7 @@ import com.fleyx.jcloud.model.po.MediaItem;
 import com.fleyx.jcloud.model.vo.MediaDirectoryVo;
 import com.fleyx.jcloud.service.MediaDirectoryService;
 import com.fleyx.jcloud.service.MediaScanService;
+import com.fleyx.jcloud.service.support.MediaSeriesSupport;
 import lombok.RequiredArgsConstructor;
 import org.springframework.scheduling.support.CronExpression;
 import org.springframework.stereotype.Service;
@@ -37,6 +38,7 @@ public class MediaDirectoryServiceImpl implements MediaDirectoryService {
     private final MediaItemMapper mediaItemMapper;
     private final FileMapper fileMapper;
     private final MediaScanService mediaScanService;
+    private final MediaSeriesSupport mediaSeriesSupport;
 
     @Override
     public List<MediaDirectoryVo> list(String userId) {
@@ -83,18 +85,40 @@ public class MediaDirectoryServiceImpl implements MediaDirectoryService {
     public MediaDirectoryVo update(MediaDirectoryUpdateDto dto, String userId) {
         MediaDirectory directory = requireOwned(dto.getId(), userId);
         validateCron(dto.getScanCron());
+        boolean pathChanged = !directory.getFileNodeId().equals(dto.getFileNodeId());
         boolean typeChanged = !directory.getMediaType().equals(dto.getMediaType());
 
+        if (pathChanged) {
+            FileNode folder = fileMapper.selectById(dto.getFileNodeId());
+            if (folder == null || !userId.equals(folder.getUserId()) || !"folder".equals(folder.getType())) {
+                throw new BusinessException(ResultCode.PARAM_ERROR, "所选文件夹不存在");
+            }
+            Long exists = mediaDirectoryMapper.selectCount(new LambdaQueryWrapper<MediaDirectory>()
+                    .eq(MediaDirectory::getUserId, userId)
+                    .eq(MediaDirectory::getFileNodeId, dto.getFileNodeId())
+                    .ne(MediaDirectory::getId, directory.getId()));
+            if (exists > 0) {
+                throw new BusinessException(ResultCode.BUSINESS_ERROR, "该文件夹已添加为视频目录");
+            }
+        }
+
+        directory.setFileNodeId(dto.getFileNodeId());
         directory.setName(dto.getName());
         directory.setMediaType(dto.getMediaType());
         directory.setScanCron(dto.getScanCron());
         directory.setNextScanTime(computeNextScanTime(dto.getScanCron()));
         mediaDirectoryMapper.updateById(directory);
 
-        if (typeChanged) {
-            // 类型变更后清空条目并重扫
-            mediaItemMapper.delete(new LambdaQueryWrapper<MediaItem>().eq(MediaItem::getDirectoryId, directory.getId()));
-            submitScanAfterCommit(directory.getId(), userId);
+        if (pathChanged || typeChanged) {
+            // 中断正在进行的扫描
+            mediaScanService.requestCancel(directory.getId());
+            if (pathChanged) {
+                // 路径变更：旧目录识别出的数据全部删除（fileNodeId 已失效）
+                mediaItemMapper.delete(new LambdaQueryWrapper<MediaItem>().eq(MediaItem::getDirectoryId, directory.getId()));
+                mediaSeriesSupport.cleanupOrphans(userId);
+            }
+            // 类型变更：保留条目（手动匹配与播放进度随之保留），强制全量重扫重新识别
+            submitForceScanAfterCommit(directory.getId(), userId);
         }
         Long count = mediaItemMapper.selectCount(
                 new LambdaQueryWrapper<MediaItem>().eq(MediaItem::getDirectoryId, directory.getId()));
@@ -105,8 +129,26 @@ public class MediaDirectoryServiceImpl implements MediaDirectoryService {
     @Transactional(rollbackFor = Exception.class)
     public void delete(String id, String userId) {
         requireOwned(id, userId);
+        mediaScanService.requestCancel(id);
         mediaItemMapper.delete(new LambdaQueryWrapper<MediaItem>().eq(MediaItem::getDirectoryId, id));
+        mediaSeriesSupport.cleanupOrphans(userId);
         mediaDirectoryMapper.deleteById(id);
+    }
+
+    /**
+     * 事务提交后再触发异步强制全量扫描，避免扫描线程读到未提交数据。
+     */
+    private void submitForceScanAfterCommit(String directoryId, String userId) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    mediaScanService.submitScan(directoryId, userId, true);
+                }
+            });
+        } else {
+            mediaScanService.submitScan(directoryId, userId, true);
+        }
     }
 
     /**

@@ -13,6 +13,7 @@ import com.fleyx.jcloud.model.vo.TmdbSearchResultVo;
 import com.fleyx.jcloud.service.SystemConfigService;
 import com.fleyx.jcloud.service.SystemStorageSpaceProvider;
 import com.fleyx.jcloud.service.TmdbService;
+import com.fleyx.jcloud.util.TmdbMatchScorer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -114,7 +115,13 @@ public class TmdbServiceImpl implements TmdbService {
             if (results.isEmpty()) {
                 return null;
             }
-            return getOrFetch(results.getFirst().getTmdbId(), mediaType);
+            // 对齐 Jellyfin：候选打分选最优，不再盲取第一条
+            TmdbSearchResultVo best = TmdbMatchScorer.pickBest(results, title, year);
+            if (best == null) {
+                log.info("TMDB 候选均低于匹配阈值: title={}, year={}", title, year);
+                return null;
+            }
+            return getOrFetch(best.getTmdbId(), mediaType);
         } catch (Exception e) {
             log.warn("TMDB 自动匹配失败: title={}, year={}, error={}", title, year, e.getMessage());
             return null;

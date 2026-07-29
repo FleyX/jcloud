@@ -1,6 +1,7 @@
 package com.fleyx.jcloud.controller;
 
 import com.fleyx.jcloud.common.R;
+import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.fleyx.jcloud.common.constant.CommonConstant;
 import com.fleyx.jcloud.common.context.UserContext;
 import com.fleyx.jcloud.common.enums.ResultCode;
@@ -10,6 +11,7 @@ import com.fleyx.jcloud.model.bo.FileDownloadResult;
 import com.fleyx.jcloud.model.dto.MediaDirectorySaveDto;
 import com.fleyx.jcloud.model.dto.MediaDirectoryUpdateDto;
 import com.fleyx.jcloud.model.dto.MediaMatchUpdateDto;
+import com.fleyx.jcloud.model.dto.MediaPageQueryDto;
 import com.fleyx.jcloud.model.dto.MediaProgressUpdateDto;
 import com.fleyx.jcloud.model.po.MediaMetadata;
 import com.fleyx.jcloud.model.po.StorageSpace;
@@ -104,13 +106,13 @@ public class MediaController {
     // ---------- 海报墙 ----------
 
     @GetMapping("/items/movies")
-    public R<List<MediaItemVo>> listMovies() {
-        return R.ok(mediaItemService.listMovies(UserContext.get().id()));
+    public R<IPage<MediaItemVo>> listMovies(MediaPageQueryDto query) {
+        return R.ok(mediaItemService.listMovies(UserContext.get().id(), query));
     }
 
     @GetMapping("/items/series")
-    public R<List<MediaSeriesVo>> listSeries() {
-        return R.ok(mediaItemService.listSeries(UserContext.get().id()));
+    public R<IPage<MediaSeriesVo>> listSeries(MediaPageQueryDto query) {
+        return R.ok(mediaItemService.listSeries(UserContext.get().id(), query));
     }
 
     @GetMapping("/items/series/episodes")
@@ -119,8 +121,8 @@ public class MediaController {
     }
 
     @GetMapping("/items/others")
-    public R<List<MediaItemVo>> listOthers() {
-        return R.ok(mediaItemService.listOthers(UserContext.get().id()));
+    public R<IPage<MediaItemVo>> listOthers(MediaPageQueryDto query) {
+        return R.ok(mediaItemService.listOthers(UserContext.get().id(), query));
     }
 
     @GetMapping("/items/{id}/detail")
