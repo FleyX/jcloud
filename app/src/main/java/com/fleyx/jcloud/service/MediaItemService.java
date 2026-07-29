@@ -1,6 +1,8 @@
 package com.fleyx.jcloud.service;
 
+import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.fleyx.jcloud.model.dto.MediaMatchUpdateDto;
+import com.fleyx.jcloud.model.dto.MediaPageQueryDto;
 import com.fleyx.jcloud.model.dto.MediaProgressUpdateDto;
 import com.fleyx.jcloud.model.vo.MediaItemDetailVo;
 import com.fleyx.jcloud.model.vo.MediaItemVo;
@@ -15,20 +17,22 @@ import java.util.List;
 public interface MediaItemService {
 
     /**
-     * 查询电影条目（海报墙）。
+     * 分页查询电影条目（海报墙）。
      *
      * @param userId 用户 ID
-     * @return 电影条目列表
+     * @param query  分页/搜索/排序参数
+     * @return 电影条目分页
      */
-    List<MediaItemVo> listMovies(String userId);
+    IPage<MediaItemVo> listMovies(String userId, MediaPageQueryDto query);
 
     /**
-     * 查询电视剧聚合列表（海报墙）。
+     * 分页查询电视剧列表（海报墙，按剧）。
      *
      * @param userId 用户 ID
-     * @return 剧集列表
+     * @param query  分页/搜索/排序参数
+     * @return 电视剧分页
      */
-    List<MediaSeriesVo> listSeries(String userId);
+    IPage<MediaSeriesVo> listSeries(String userId, MediaPageQueryDto query);
 
     /**
      * 查询某部剧的所有剧集。
@@ -40,12 +44,13 @@ public interface MediaItemService {
     List<MediaItemVo> listEpisodes(String seriesName, String userId);
 
     /**
-     * 查询其他类型条目。
+     * 分页查询其他类型条目。
      *
      * @param userId 用户 ID
-     * @return 条目列表
+     * @param query  分页/搜索/排序参数
+     * @return 条目分页
      */
-    List<MediaItemVo> listOthers(String userId);
+    IPage<MediaItemVo> listOthers(String userId, MediaPageQueryDto query);
 
     /**
      * 手动修正条目匹配。

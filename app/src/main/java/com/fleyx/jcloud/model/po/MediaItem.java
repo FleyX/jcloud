@@ -49,6 +49,16 @@ public class MediaItem extends BaseEntity {
     private String seriesName;
 
     /**
+     * 所属剧 ID，仅 episode 有效。
+     */
+    private String seriesId;
+
+    /**
+     * 所属季 ID，仅 episode 有效。
+     */
+    private String seasonId;
+
+    /**
      * 季号，仅 episode 有效。
      */
     private Integer seasonNo;

@@ -5,6 +5,18 @@
 export type MediaType = 'movie' | 'tv' | 'other'
 export type MediaItemType = 'movie' | 'episode' | 'other'
 export type MediaMatchStatus = 'matched' | 'manual' | 'unmatched' | 'none'
+export type MediaScanStatus = 'SCANNING' | 'COMPLETED' | 'FAILED' | 'PARTIAL'
+
+/**
+ * 媒体列表分页查询参数（电影/电视/其他通用）
+ */
+export interface MediaPageQuery {
+  pageNum?: number
+  pageSize?: number
+  keyword?: string
+  sortField?: 'added' | 'release'
+  sortOrder?: 'asc' | 'desc'
+}
 
 export interface MediaDirectoryVo {
   id: string

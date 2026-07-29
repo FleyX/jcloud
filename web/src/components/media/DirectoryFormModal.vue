@@ -4,7 +4,7 @@
  * - 选择虚拟文件树文件夹（面包屑逐级浏览）
  * - 指定媒体类型与定时重扫 cron
  */
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { X, Folder, ChevronRight } from '@lucide/vue'
 import type { MediaDirectorySaveDto, MediaDirectoryVo, MediaType } from '@/types/media'
 import { fetchChildFolders } from '@/api/file'
@@ -104,6 +104,14 @@ const typeOptions: Array<{ value: MediaType; label: string }> = [
   { value: 'tv', label: '电视' },
   { value: 'other', label: '其他' },
 ]
+
+/** 编辑时是否变更了文件夹（会清空旧数据重扫） */
+const folderChanged = computed(
+  () => !!props.editing && !!selectedFolderId.value && props.editing.fileNodeId !== selectedFolderId.value,
+)
+
+/** 编辑时是否变更了媒体类型（会中断扫描全量重扫，但保留手动匹配与播放进度） */
+const typeChanged = computed(() => !!props.editing && props.editing.mediaType !== mediaType.value)
 </script>
 
 <template>
@@ -221,6 +229,19 @@ const typeOptions: Array<{ value: MediaType; label: string }> = [
           placeholder="如 0 0 3 * * *（每天凌晨 3 点）"
           class="mb-2 w-full rounded-xl border border-surface-200 bg-surface-50 px-4 py-2 text-sm outline-none focus:border-primary-300 focus:bg-white"
         >
+
+        <p
+          v-if="folderChanged"
+          class="mb-2 text-xs text-amber-500"
+        >
+          修改文件夹将清空该目录已识别的数据并重新扫描
+        </p>
+        <p
+          v-else-if="typeChanged"
+          class="mb-2 text-xs text-amber-500"
+        >
+          修改媒体类型将中断当前扫描并全量重新识别（手动匹配与播放进度保留）
+        </p>
 
         <p
           v-if="error"

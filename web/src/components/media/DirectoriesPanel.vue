@@ -2,7 +2,7 @@
 /**
  * 视频目录管理面板（PC/移动端共用）
  */
-import { onMounted, ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { Plus, RefreshCw, Pencil, Trash2, FolderOpen } from '@lucide/vue'
 import type { MediaDirectorySaveDto, MediaDirectoryVo, MediaType } from '@/types/media'
 import {
@@ -23,15 +23,33 @@ const formOpen = ref(false)
 const editingDirectory = ref<MediaDirectoryVo | null>(null)
 const scanningIds = ref<Set<string>>(new Set())
 
+let pollTimer: ReturnType<typeof setTimeout> | null = null
+
 onMounted(load)
 
+onBeforeUnmount(() => {
+  if (pollTimer) clearTimeout(pollTimer)
+})
+
 async function load() {
+  if (pollTimer) {
+    clearTimeout(pollTimer)
+    pollTimer = null
+  }
   loading.value = true
   try {
     directories.value = await fetchMediaDirectories()
   } finally {
     loading.value = false
   }
+  // 存在扫描中的目录时轮询刷新状态
+  if (directories.value.some((d) => d.lastScanStatus === 'SCANNING')) {
+    pollTimer = setTimeout(load, 3000)
+  }
+}
+
+function isScanning(directory: MediaDirectoryVo): boolean {
+  return directory.lastScanStatus === 'SCANNING' || scanningIds.value.has(directory.id)
 }
 
 function handleAdd() {
@@ -81,7 +99,9 @@ function typeLabel(type: MediaType): string {
 
 function scanStatusLabel(directory: MediaDirectoryVo): string {
   if (!directory.lastScanStatus) return '未扫描'
-  return { COMPLETED: '扫描完成', FAILED: '扫描失败', PARTIAL: '部分失败' }[directory.lastScanStatus] ?? directory.lastScanStatus
+  return { SCANNING: '扫描中', COMPLETED: '扫描完成', FAILED: '扫描失败', PARTIAL: '部分失败' }[
+    directory.lastScanStatus
+  ] ?? directory.lastScanStatus
 }
 
 function formatScanTime(time: string | null): string {
@@ -141,7 +161,12 @@ function formatScanTime(time: string | null): string {
             </span>
           </p>
           <p class="mt-0.5 truncate text-xs text-surface-400">
-            {{ directory.itemCount }} 个条目 · {{ scanStatusLabel(directory) }}
+            {{ directory.itemCount }} 个条目 ·
+            <span
+              v-if="directory.lastScanStatus === 'SCANNING'"
+              class="text-primary-500"
+            >扫描中…</span>
+            <template v-else>{{ scanStatusLabel(directory) }}</template>
             <span v-if="directory.lastScanTime">· {{ formatScanTime(directory.lastScanTime) }}</span>
             <span v-if="directory.scanCron">· 定时：{{ directory.scanCron }}</span>
           </p>
@@ -154,12 +179,12 @@ function formatScanTime(time: string | null): string {
         </div>
         <div class="flex shrink-0 items-center gap-1">
           <button
-            class="rounded-lg p-2 text-surface-400 hover:bg-surface-100 hover:text-primary-600"
+            class="rounded-lg p-2 text-surface-400 hover:bg-surface-100 hover:text-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
             title="刷新扫描"
-            :disabled="scanningIds.has(directory.id)"
+            :disabled="isScanning(directory)"
             @click="handleScan(directory)"
           >
-            <RefreshCw :class="['h-4 w-4', scanningIds.has(directory.id) && 'animate-spin']" />
+            <RefreshCw :class="['h-4 w-4', isScanning(directory) && 'animate-spin']" />
           </button>
           <button
             class="rounded-lg p-2 text-surface-400 hover:bg-surface-100 hover:text-primary-600"
