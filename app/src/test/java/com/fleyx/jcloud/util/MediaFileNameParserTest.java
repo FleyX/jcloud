@@ -91,4 +91,29 @@ class MediaFileNameParserTest {
         assertEquals("Breaking Bad", MediaFileNameParser.cleanTitle("Breaking.Bad.2008.1080p.BluRay"));
         assertEquals("某某剧", MediaFileNameParser.cleanTitle("某某剧【蓝光】"));
     }
+
+    @Test
+    void testCleanTitleStripsSeasonWord() {
+        assertEquals("庆余年", MediaFileNameParser.cleanTitle("庆余年 第二季"));
+        assertEquals("权力的游戏", MediaFileNameParser.cleanTitle("权力的游戏 Season 2"));
+    }
+
+    @Test
+    void testCleanTitleStripsReleaseGroup() {
+        assertEquals("The Last of Us", MediaFileNameParser.cleanTitle("The.Last.of.Us.2023.1080p.WEB-DL-GRP"));
+    }
+
+    @Test
+    void testParseYear() {
+        assertEquals(2018, MediaFileNameParser.parseYear("火星生活 (2018)"));
+        assertEquals(2005, MediaFileNameParser.parseYear("亮剑.2005.1080p"));
+        assertNull(MediaFileNameParser.parseYear("白鹿原"));
+        assertNull(MediaFileNameParser.parseYear(null));
+    }
+
+    @Test
+    void testCleanTitleStripsVersionTags() {
+        assertEquals("某电影", MediaFileNameParser.cleanTitle("某电影 导演剪辑版"));
+        assertEquals("某剧", MediaFileNameParser.cleanTitle("某剧 中文字幕 全集"));
+    }
 }

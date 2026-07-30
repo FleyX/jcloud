@@ -60,6 +60,13 @@ describe('resolvePrimaryModuleByRoute', () => {
     expect(resolvePrimaryModuleByRoute('/profile', buildMenus())).toBeNull()
     expect(resolvePrimaryModuleByRoute('/unknown', buildMenus())).toBeNull()
   })
+
+  it('resolves media routes via module routePrefix when media has no secondary menus', () => {
+    const menus = { ...buildMenus(), media: [] }
+    expect(resolvePrimaryModuleByRoute('/media', menus)).toBe('media')
+    expect(resolvePrimaryModuleByRoute('/media/libraries/123', menus)).toBe('media')
+    expect(resolvePrimaryModuleByRoute('/media/directories', menus)).toBe('media')
+  })
 })
 
 function buildAdminUser(): UserVo {
@@ -127,6 +134,33 @@ describe('menuStore secondary menus', () => {
     const menus = menuStore.getSecondaryMenusByPrimary('files')
 
     expect(menus.map((menu) => menu.key)).toEqual(['all', 'share', 'trash'])
+  })
+
+  it('returns no secondary menus for media (hideSidebar module)', () => {
+    const userStore = useUserStore()
+    userStore.userInfo = buildAdminUser()
+
+    const menuStore = useMenuStore()
+
+    expect(menuStore.getSecondaryMenusByPrimary('media')).toEqual([])
+  })
+
+  it('returns /media as media primary home route for admin', () => {
+    const userStore = useUserStore()
+    userStore.userInfo = buildAdminUser()
+
+    const menuStore = useMenuStore()
+
+    expect(menuStore.getPrimaryHomeRoute('media')).toBe('/media')
+  })
+
+  it('returns undefined media home route for user without media resource', () => {
+    const userStore = useUserStore()
+    userStore.userInfo = buildRegularUser()
+
+    const menuStore = useMenuStore()
+
+    expect(menuStore.getPrimaryHomeRoute('media')).toBeUndefined()
   })
 })
 
@@ -201,5 +235,16 @@ describe('menuStore syncWithRoute', () => {
 
     expect(menuStore.activePrimary).toBe('files')
     expect(menuStore.activeSecondary).toBe('all')
+  })
+
+  it('syncs media sub routes to media primary without secondary menus', () => {
+    const userStore = useUserStore()
+    userStore.userInfo = buildAdminUser()
+
+    const menuStore = useMenuStore()
+    menuStore.syncWithRoute('/media/libraries/1')
+
+    expect(menuStore.activePrimary).toBe('media')
+    expect(menuStore.secondaryMenus).toEqual([])
   })
 })

@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.fleyx.jcloud.mapper.MediaItemMapper">
+
+    <!-- 分页查询媒体条目：关键词命中文件名或元数据标题/原始标题/简介；发行时间为空的条目始终沉底 -->
+    <select id="selectItemPage" resultType="com.fleyx.jcloud.model.po.MediaItem">
+        SELECT i.*
+        FROM t_media_item i
+        LEFT JOIN t_file_node f ON f.id = i.file_node_id
+        LEFT JOIN t_media_metadata m ON m.id = i.metadata_id
+        WHERE i.user_id = #{userId}
+          AND i.item_type = #{itemType}
+        <if test="directoryId != null and directoryId != ''">
+          AND i.directory_id = #{directoryId}
+        </if>
+        <if test="keyword != null and keyword != ''">
+          AND (
+              f.name ILIKE CONCAT('%', #{keyword}, '%')
+              OR m.title ILIKE CONCAT('%', #{keyword}, '%')
+              OR m.original_title ILIKE CONCAT('%', #{keyword}, '%')
+              OR m.overview ILIKE CONCAT('%', #{keyword}, '%')
+          )
+        </if>
+        <choose>
+            <when test="sortField == 'release'">
+                <choose>
+                    <when test="asc">ORDER BY m.release_date ASC NULLS LAST, i.id</when>
+                    <otherwise>ORDER BY m.release_date DESC NULLS LAST, i.id</otherwise>
+                </choose>
+            </when>
+            <otherwise>
+                <choose>
+                    <when test="asc">ORDER BY i.file_last_modified ASC NULLS LAST, i.id</when>
+                    <otherwise>ORDER BY i.file_last_modified DESC NULLS LAST, i.id</otherwise>
+                </choose>
+            </otherwise>
+        </choose>
+    </select>
+
+    <!-- 在播条目：有播放进度且未看完（时长为空或为 0 视为未看完），按最近播放时间倒序 -->
+    <select id="selectInProgressItems" resultType="com.fleyx.jcloud.model.po.MediaItem">
+        SELECT *
+        FROM t_media_item
+        WHERE user_id = #{userId}
+          AND progress_ms > 0
+          AND (duration_ms IS NULL OR duration_ms = 0 OR progress_ms &lt; 0.95 * duration_ms)
+        ORDER BY last_play_time DESC NULLS LAST, id
+        LIMIT #{limit}
+    </select>
+
+    <!-- 媒体库封面：库内最新添加且元数据有海报的条目 -->
+    <select id="selectLatestPosterItem" resultType="com.fleyx.jcloud.model.po.MediaItem">
+        SELECT i.*
+        FROM t_media_item i
+        JOIN t_media_metadata m ON m.id = i.metadata_id
+        WHERE i.directory_id = #{directoryId}
+          AND m.poster_path IS NOT NULL
+        ORDER BY i.file_last_modified DESC NULLS LAST, i.create_time DESC, i.id
+        LIMIT 1
+    </select>
+
+</mapper>

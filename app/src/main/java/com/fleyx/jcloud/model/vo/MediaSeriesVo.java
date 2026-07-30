@@ -11,6 +11,11 @@ import java.time.LocalDateTime;
 public class MediaSeriesVo {
 
     /**
+     * 电视剧 ID。
+     */
+    private String id;
+
+    /**
      * 剧名。
      */
     private String seriesName;

@@ -1,6 +1,7 @@
 package com.fleyx.jcloud.controller;
 
 import com.fleyx.jcloud.common.R;
+import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.fleyx.jcloud.common.constant.CommonConstant;
 import com.fleyx.jcloud.common.context.UserContext;
 import com.fleyx.jcloud.common.enums.ResultCode;
@@ -10,10 +11,12 @@ import com.fleyx.jcloud.model.bo.FileDownloadResult;
 import com.fleyx.jcloud.model.dto.MediaDirectorySaveDto;
 import com.fleyx.jcloud.model.dto.MediaDirectoryUpdateDto;
 import com.fleyx.jcloud.model.dto.MediaMatchUpdateDto;
+import com.fleyx.jcloud.model.dto.MediaPageQueryDto;
 import com.fleyx.jcloud.model.dto.MediaProgressUpdateDto;
 import com.fleyx.jcloud.model.po.MediaMetadata;
 import com.fleyx.jcloud.model.po.StorageSpace;
 import com.fleyx.jcloud.model.vo.MediaDirectoryVo;
+import com.fleyx.jcloud.model.vo.MediaHomeVo;
 import com.fleyx.jcloud.model.vo.MediaItemDetailVo;
 import com.fleyx.jcloud.model.vo.MediaItemVo;
 import com.fleyx.jcloud.model.vo.MediaPlaybackInfoVo;
@@ -21,9 +24,11 @@ import com.fleyx.jcloud.model.vo.MediaSeriesDetailVo;
 import com.fleyx.jcloud.model.vo.MediaSeriesVo;
 import com.fleyx.jcloud.model.vo.TmdbSearchResultVo;
 import com.fleyx.jcloud.service.MediaDirectoryService;
+import com.fleyx.jcloud.service.MediaHomeService;
 import com.fleyx.jcloud.service.MediaItemService;
 import com.fleyx.jcloud.service.MediaPlaybackService;
 import com.fleyx.jcloud.service.MediaScanService;
+import com.fleyx.jcloud.service.MediaScrapeService;
 import com.fleyx.jcloud.service.SystemStorageSpaceProvider;
 import com.fleyx.jcloud.service.TmdbService;
 import com.fleyx.jcloud.service.support.TranscodeSessionManager;
@@ -63,7 +68,9 @@ public class MediaController {
 
     private final MediaDirectoryService mediaDirectoryService;
     private final MediaScanService mediaScanService;
+    private final MediaScrapeService mediaScrapeService;
     private final MediaItemService mediaItemService;
+    private final MediaHomeService mediaHomeService;
     private final MediaPlaybackService mediaPlaybackService;
     private final TmdbService tmdbService;
     private final MediaMetadataMapper mediaMetadataMapper;
@@ -101,26 +108,38 @@ public class MediaController {
         return R.ok();
     }
 
+    @PostMapping("/directories/{id}/scrape")
+    public R<Void> scrapeDirectory(@PathVariable String id,
+                                   @RequestParam(defaultValue = "false") boolean force) {
+        mediaScrapeService.submitScrape(id, UserContext.get().id(), force);
+        return R.ok();
+    }
+
     // ---------- 海报墙 ----------
 
+    @GetMapping("/home")
+    public R<MediaHomeVo> home() {
+        return R.ok(mediaHomeService.getHome(UserContext.get().id()));
+    }
+
     @GetMapping("/items/movies")
-    public R<List<MediaItemVo>> listMovies() {
-        return R.ok(mediaItemService.listMovies(UserContext.get().id()));
+    public R<IPage<MediaItemVo>> listMovies(MediaPageQueryDto query) {
+        return R.ok(mediaItemService.listMovies(UserContext.get().id(), query));
     }
 
     @GetMapping("/items/series")
-    public R<List<MediaSeriesVo>> listSeries() {
-        return R.ok(mediaItemService.listSeries(UserContext.get().id()));
+    public R<IPage<MediaSeriesVo>> listSeries(MediaPageQueryDto query) {
+        return R.ok(mediaItemService.listSeries(UserContext.get().id(), query));
     }
 
-    @GetMapping("/items/series/episodes")
-    public R<List<MediaItemVo>> listEpisodes(@RequestParam String seriesName) {
-        return R.ok(mediaItemService.listEpisodes(seriesName, UserContext.get().id()));
+    @GetMapping("/items/series/{seriesId}/episodes")
+    public R<List<MediaItemVo>> listEpisodes(@PathVariable String seriesId) {
+        return R.ok(mediaItemService.listEpisodes(seriesId, UserContext.get().id()));
     }
 
     @GetMapping("/items/others")
-    public R<List<MediaItemVo>> listOthers() {
-        return R.ok(mediaItemService.listOthers(UserContext.get().id()));
+    public R<IPage<MediaItemVo>> listOthers(MediaPageQueryDto query) {
+        return R.ok(mediaItemService.listOthers(UserContext.get().id(), query));
     }
 
     @GetMapping("/items/{id}/detail")
@@ -128,9 +147,14 @@ public class MediaController {
         return R.ok(mediaItemService.getItemDetail(id, UserContext.get().id()));
     }
 
-    @GetMapping("/series/detail")
-    public R<MediaSeriesDetailVo> seriesDetail(@RequestParam String seriesName) {
-        return R.ok(mediaItemService.getSeriesDetail(seriesName, UserContext.get().id()));
+    @GetMapping("/series/{id}/detail")
+    public R<MediaSeriesDetailVo> seriesDetail(@PathVariable String id) {
+        return R.ok(mediaItemService.getSeriesDetail(id, UserContext.get().id()));
+    }
+
+    @GetMapping("/series/{id}/seasons/{seasonId}/episodes")
+    public R<List<MediaItemVo>> listSeasonEpisodes(@PathVariable String id, @PathVariable String seasonId) {
+        return R.ok(mediaItemService.listSeasonEpisodes(id, seasonId, UserContext.get().id()));
     }
 
     @PutMapping("/items/{id}/match")

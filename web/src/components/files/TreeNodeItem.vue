@@ -37,8 +37,13 @@ function isDisabled(id: string): boolean {
   return props.disabledIds.includes(id)
 }
 
-function hasChildren(node: TreeNode): boolean {
-  return node.children.length > 0
+/**
+ * 是否显示展开箭头。
+ * 子节点为懒加载，未加载前无法判断是否有子文件夹，故未加载的节点一律显示箭头；
+ * 已加载且确认无子文件夹时才隐藏。
+ */
+function showToggle(node: TreeNode): boolean {
+  return !node.loaded || node.children.length > 0
 }
 </script>
 
@@ -58,7 +63,7 @@ function hasChildren(node: TreeNode): boolean {
       <button
         :class="cn(
           'flex h-5 w-5 shrink-0 items-center justify-center rounded transition-colors',
-          hasChildren(node) ? 'text-surface-500 hover:bg-surface-200' : 'pointer-events-none opacity-0'
+          showToggle(node) ? 'text-surface-500 hover:bg-surface-200' : 'pointer-events-none opacity-0'
         )"
         @click.stop="emit('toggle', node)"
       >

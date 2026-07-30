@@ -32,7 +32,7 @@ public class MediaScanScheduler {
                 .isNotNull(MediaDirectory::getNextScanTime)
                 .le(MediaDirectory::getNextScanTime, LocalDateTime.now()));
         for (MediaDirectory directory : due) {
-            log.info("触发媒体目录定时重扫: {}", directory.getId());
+            log.info("触发媒体库定时重扫: {}", directory.getId());
             mediaScanService.submitScan(directory.getId(), directory.getUserId());
         }
     }

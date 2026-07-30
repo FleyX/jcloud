@@ -2,35 +2,53 @@
 /**
  * 其他视频网格（PC/移动端共用）
  * - 不获取元数据，使用视频截图作为封面
+ * - 分页加载（滚动到底自动加载）、排序
+ * - 搜索在 MediaSearchModal 内展示结果，点击结果直接播放
  */
-import { onMounted, ref } from 'vue'
+import { ref, watch } from 'vue'
 import type { MediaItemVo } from '@/types/media'
 import { fetchMediaOthers } from '@/api/media'
 import PosterCard from './PosterCard.vue'
 import MediaPlayerModal from './MediaPlayerModal.vue'
+import MediaWallToolbar from './MediaWallToolbar.vue'
+import MediaSearchModal from './MediaSearchModal.vue'
+import MediaSearchResultRow from './MediaSearchResultRow.vue'
+import { useMediaWall, type MediaWallFetcher } from './useMediaWall'
 import { cn } from '@/utils/cn'
 
 interface Props {
   dense?: boolean
+  /** 限定单个媒体库，为空表示跨库 */
+  directoryId?: string
 }
 
-defineProps<Props>()
+const props = defineProps<Props>()
 
-const items = ref<MediaItemVo[]>([])
-const loading = ref(true)
+const fetcher: MediaWallFetcher<MediaItemVo> = (query) =>
+  fetchMediaOthers({ ...query, directoryId: props.directoryId })
+
+const {
+  items,
+  loading,
+  loadingMore,
+  finished,
+  sortField,
+  sortOrder,
+  setSentinel,
+  reload,
+  toggleSort,
+} = useMediaWall<MediaItemVo>(props.directoryId ? `others:${props.directoryId}` : 'others', fetcher)
+
+watch(
+  () => props.directoryId,
+  (id, prev) => {
+    if (id !== prev) reload()
+  },
+)
+
+const searchOpen = ref(false)
 const playerOpen = ref(false)
 const playingItem = ref<MediaItemVo | null>(null)
-
-onMounted(load)
-
-async function load() {
-  loading.value = true
-  try {
-    items.value = await fetchMediaOthers()
-  } finally {
-    loading.value = false
-  }
-}
 
 function handlePlay(item: MediaItemVo) {
   playingItem.value = item
@@ -39,7 +57,7 @@ function handlePlay(item: MediaItemVo) {
 
 function handlePlayerClose() {
   playerOpen.value = false
-  load()
+  reload()
 }
 
 function thumbUrl(item: MediaItemVo): string {
@@ -57,6 +75,13 @@ function formatDuration(ms: number | null): string | null {
 
 <template>
   <div class="p-4 md:p-6">
+    <MediaWallToolbar
+      :sort-field="sortField"
+      :sort-order="sortOrder"
+      @open-search="searchOpen = true"
+      @sort="toggleSort"
+    />
+
     <p
       v-if="loading"
       class="py-16 text-center text-sm text-surface-400"
@@ -67,28 +92,61 @@ function formatDuration(ms: number | null): string | null {
       v-else-if="items.length === 0"
       class="py-16 text-center text-sm text-surface-400"
     >
-      暂无视频，请先在目录管理中添加其他类型目录
+      暂无视频，请先在目录管理中添加其他类型媒体库并扫描
     </p>
-    <div
-      v-else
-      :class="cn('grid gap-4', dense ? 'grid-cols-2' : 'grid-cols-3 lg:grid-cols-5 xl:grid-cols-6')"
-    >
-      <PosterCard
-        v-for="item in items"
-        :key="item.id"
-        :title="item.fileName"
-        :poster-url="thumbUrl(item)"
-        :release-date="formatDuration(item.durationMs)"
-        :progress-ms="item.progressMs"
-        :duration-ms="item.durationMs"
-        @play="handlePlay(item)"
+    <template v-else>
+      <div
+        :class="cn('grid gap-4', dense ? 'grid-cols-2' : 'grid-cols-3 lg:grid-cols-5 xl:grid-cols-6')"
+      >
+        <PosterCard
+          v-for="item in items"
+          :key="item.id"
+          :title="item.fileName"
+          :poster-url="thumbUrl(item)"
+          :release-date="formatDuration(item.durationMs)"
+          :progress-ms="item.progressMs"
+          :duration-ms="item.durationMs"
+          @play="handlePlay(item)"
+        />
+      </div>
+      <div
+        :ref="setSentinel"
+        class="h-1"
       />
-    </div>
+      <p
+        v-if="loadingMore"
+        class="py-4 text-center text-xs text-surface-400"
+      >
+        加载中…
+      </p>
+      <p
+        v-else-if="finished"
+        class="py-4 text-center text-xs text-surface-300"
+      >
+        已加载全部
+      </p>
+    </template>
 
     <MediaPlayerModal
       :open="playerOpen"
       :item="playingItem"
       @close="handlePlayerClose"
     />
+
+    <MediaSearchModal
+      :open="searchOpen"
+      placeholder="搜索文件名"
+      :fetcher="fetcher"
+      @close="searchOpen = false"
+      @select="handlePlay"
+    >
+      <template #row="{ item }">
+        <MediaSearchResultRow
+          :title="item.fileName"
+          :poster-url="thumbUrl(item)"
+          :subtitle="formatDuration(item.durationMs)"
+        />
+      </template>
+    </MediaSearchModal>
   </div>
 </template>

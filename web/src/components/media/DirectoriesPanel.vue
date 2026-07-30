@@ -2,7 +2,7 @@
 /**
  * 视频目录管理面板（PC/移动端共用）
  */
-import { onMounted, ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { Plus, RefreshCw, Pencil, Trash2, FolderOpen } from '@lucide/vue'
 import type { MediaDirectorySaveDto, MediaDirectoryVo, MediaType } from '@/types/media'
 import {
@@ -23,15 +23,38 @@ const formOpen = ref(false)
 const editingDirectory = ref<MediaDirectoryVo | null>(null)
 const scanningIds = ref<Set<string>>(new Set())
 
+let pollTimer: ReturnType<typeof setTimeout> | null = null
+
 onMounted(load)
 
+onBeforeUnmount(() => {
+  if (pollTimer) clearTimeout(pollTimer)
+})
+
 async function load() {
+  if (pollTimer) {
+    clearTimeout(pollTimer)
+    pollTimer = null
+  }
   loading.value = true
   try {
     directories.value = await fetchMediaDirectories()
   } finally {
     loading.value = false
   }
+  // 存在扫描中/削刮中的目录时轮询刷新状态
+  if (directories.value.some((d) => d.lastScanStatus === 'SCANNING' || d.lastScrapeStatus === 'SCRAPING')) {
+    pollTimer = setTimeout(load, 3000)
+  }
+}
+
+function isScanning(directory: MediaDirectoryVo): boolean {
+  return directory.lastScanStatus === 'SCANNING' || scanningIds.value.has(directory.id)
+}
+
+function isBusy(directory: MediaDirectoryVo): boolean {
+  // 扫描完成后后台会自动削刮，削刮期间同样禁止重复触发扫描
+  return isScanning(directory) || directory.lastScrapeStatus === 'SCRAPING'
 }
 
 function handleAdd() {
@@ -56,7 +79,7 @@ async function handleConfirm(dto: MediaDirectorySaveDto) {
 
 async function handleDelete(directory: MediaDirectoryVo) {
   const confirmed = await confirmStore.open({
-    title: '删除视频目录',
+    title: '删除媒体库',
     message: `删除「${directory.name}」后其媒体条目将被清空，但不会删除文件。`,
     type: 'danger',
   })
@@ -79,9 +102,15 @@ function typeLabel(type: MediaType): string {
   return { movie: '电影', tv: '电视', other: '其他' }[type]
 }
 
+function sourceNames(directory: MediaDirectoryVo): string {
+  return directory.sources.map((source) => source.folderName).join('、')
+}
+
 function scanStatusLabel(directory: MediaDirectoryVo): string {
   if (!directory.lastScanStatus) return '未扫描'
-  return { COMPLETED: '扫描完成', FAILED: '扫描失败', PARTIAL: '部分失败' }[directory.lastScanStatus] ?? directory.lastScanStatus
+  return { SCANNING: '扫描中', COMPLETED: '扫描完成', FAILED: '扫描失败', PARTIAL: '部分失败' }[
+    directory.lastScanStatus
+  ] ?? directory.lastScanStatus
 }
 
 function formatScanTime(time: string | null): string {
@@ -97,14 +126,14 @@ function formatScanTime(time: string | null): string {
   <div class="p-4 md:p-6">
     <div class="mb-4 flex items-center justify-between">
       <p class="text-sm text-surface-500">
-        共 {{ directories.length }} 个目录
+        共 {{ directories.length }} 个媒体库
       </p>
       <button
         class="flex items-center gap-1.5 rounded-xl bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700"
         @click="handleAdd"
       >
         <Plus class="h-4 w-4" />
-        新增目录
+        新增媒体库
       </button>
     </div>
 
@@ -118,7 +147,7 @@ function formatScanTime(time: string | null): string {
       v-else-if="directories.length === 0"
       class="py-16 text-center text-sm text-surface-400"
     >
-      尚未添加视频目录
+      尚未添加媒体库
     </p>
 
     <div
@@ -141,25 +170,39 @@ function formatScanTime(time: string | null): string {
             </span>
           </p>
           <p class="mt-0.5 truncate text-xs text-surface-400">
-            {{ directory.itemCount }} 个条目 · {{ scanStatusLabel(directory) }}
+            {{ directory.sources.length }} 个来源目录：{{ sourceNames(directory) }}
+          </p>
+          <p class="mt-0.5 truncate text-xs text-surface-400">
+            {{ directory.itemCount }} 个条目 ·
+            <span
+              v-if="directory.lastScanStatus === 'SCANNING'"
+              class="text-primary-500"
+            >扫描中…</span>
+            <template v-else>
+              {{ scanStatusLabel(directory) }}
+            </template>
             <span v-if="directory.lastScanTime">· {{ formatScanTime(directory.lastScanTime) }}</span>
+            <span
+              v-if="directory.lastScrapeStatus === 'SCRAPING'"
+              class="text-primary-500"
+            >· 削刮中…</span>
             <span v-if="directory.scanCron">· 定时：{{ directory.scanCron }}</span>
           </p>
           <p
-            v-if="directory.lastScanError"
+            v-if="directory.lastScanError || directory.lastScrapeError"
             class="mt-0.5 truncate text-xs text-red-400"
           >
-            {{ directory.lastScanError }}
+            {{ directory.lastScanError || directory.lastScrapeError }}
           </p>
         </div>
         <div class="flex shrink-0 items-center gap-1">
           <button
-            class="rounded-lg p-2 text-surface-400 hover:bg-surface-100 hover:text-primary-600"
-            title="刷新扫描"
-            :disabled="scanningIds.has(directory.id)"
+            class="rounded-lg p-2 text-surface-400 hover:bg-surface-100 hover:text-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
+            title="扫描（完成后自动削刮）"
+            :disabled="isBusy(directory)"
             @click="handleScan(directory)"
           >
-            <RefreshCw :class="['h-4 w-4', scanningIds.has(directory.id) && 'animate-spin']" />
+            <RefreshCw :class="['h-4 w-4', isScanning(directory) && 'animate-spin']" />
           </button>
           <button
             class="rounded-lg p-2 text-surface-400 hover:bg-surface-100 hover:text-primary-600"
