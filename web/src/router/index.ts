@@ -133,7 +133,7 @@ const dynamicRoutes: RouteRecordRaw[] = [
     meta: { resource: 'VIEW:/media', title: '电影详情' },
   },
   {
-    path: '/media/series/:seriesName',
+    path: '/media/series/:id',
     name: 'MediaSeriesDetail' as RouteName,
     component: deviceView('media/series-detail'),
     meta: { resource: 'VIEW:/media', title: '电视剧详情' },

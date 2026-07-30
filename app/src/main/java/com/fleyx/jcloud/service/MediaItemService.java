@@ -37,11 +37,11 @@ public interface MediaItemService {
     /**
      * 查询某部剧的所有剧集。
      *
-     * @param seriesName 剧名
-     * @param userId     用户 ID
+     * @param seriesId 电视剧 ID
+     * @param userId   用户 ID
      * @return 剧集条目列表
      */
-    List<MediaItemVo> listEpisodes(String seriesName, String userId);
+    List<MediaItemVo> listEpisodes(String seriesId, String userId);
 
     /**
      * 分页查询其他类型条目。
@@ -92,9 +92,9 @@ public interface MediaItemService {
     /**
      * 查询电视剧详情（详情页，含剧集列表）。
      *
-     * @param seriesName 剧名
-     * @param userId     用户 ID
+     * @param seriesId 电视剧 ID
+     * @param userId   用户 ID
      * @return 电视剧详情
      */
-    MediaSeriesDetailVo getSeriesDetail(String seriesName, String userId);
+    MediaSeriesDetailVo getSeriesDetail(String seriesId, String userId);
 }

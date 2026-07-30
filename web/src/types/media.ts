@@ -59,6 +59,7 @@ export interface MediaItemVo {
 }
 
 export interface MediaSeriesVo {
+  id: string
   seriesName: string
   metadataId: string | null
   title: string
@@ -123,6 +124,7 @@ export interface MediaItemDetailVo {
   fileSize: number | null
   matchStatus: MediaMatchStatus
   metadataId: string | null
+  seriesId: string | null
   seriesName: string | null
   seasonNo: number | null
   episodeNo: number | null

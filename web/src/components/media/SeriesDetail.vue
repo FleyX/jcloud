@@ -18,7 +18,7 @@ const route = useRoute()
 const router = useRouter()
 const notificationStore = useNotificationStore()
 
-const seriesName = route.params.seriesName as string
+const seriesId = route.params.id as string
 const detail = ref<MediaSeriesDetailVo | null>(null)
 const loading = ref(true)
 const matchOpen = ref(false)
@@ -28,7 +28,7 @@ onMounted(load)
 async function load() {
   loading.value = true
   try {
-    detail.value = await fetchSeriesDetail(seriesName)
+    detail.value = await fetchSeriesDetail(seriesId)
   } finally {
     loading.value = false
   }
@@ -77,7 +77,8 @@ function playEpisode(episode: MediaItemVo, startMs?: number) {
 }
 
 async function handleMatched(result: TmdbSearchResultVo) {
-  await updateSeriesMatch(seriesName, result.tmdbId)
+  if (!detail.value) return
+  await updateSeriesMatch(detail.value.seriesName, result.tmdbId)
   matchOpen.value = false
   await load()
 }

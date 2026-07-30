@@ -46,6 +46,11 @@ public class MediaItemDetailVo {
     private String seriesMetadataId;
 
     /**
+     * 所属剧 ID，仅 episode 有效。
+     */
+    private String seriesId;
+
+    /**
      * 所属剧名，仅 episode 有效。
      */
     private String seriesName;

@@ -124,9 +124,9 @@ public class MediaController {
         return R.ok(mediaItemService.listSeries(UserContext.get().id(), query));
     }
 
-    @GetMapping("/items/series/episodes")
-    public R<List<MediaItemVo>> listEpisodes(@RequestParam String seriesName) {
-        return R.ok(mediaItemService.listEpisodes(seriesName, UserContext.get().id()));
+    @GetMapping("/items/series/{seriesId}/episodes")
+    public R<List<MediaItemVo>> listEpisodes(@PathVariable String seriesId) {
+        return R.ok(mediaItemService.listEpisodes(seriesId, UserContext.get().id()));
     }
 
     @GetMapping("/items/others")
@@ -139,9 +139,9 @@ public class MediaController {
         return R.ok(mediaItemService.getItemDetail(id, UserContext.get().id()));
     }
 
-    @GetMapping("/series/detail")
-    public R<MediaSeriesDetailVo> seriesDetail(@RequestParam String seriesName) {
-        return R.ok(mediaItemService.getSeriesDetail(seriesName, UserContext.get().id()));
+    @GetMapping("/series/{id}/detail")
+    public R<MediaSeriesDetailVo> seriesDetail(@PathVariable String id) {
+        return R.ok(mediaItemService.getSeriesDetail(id, UserContext.get().id()));
     }
 
     @PutMapping("/items/{id}/match")
