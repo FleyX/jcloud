@@ -193,7 +193,9 @@ function formatScanTime(time: string | null): string {
               v-if="directory.lastScanStatus === 'SCANNING'"
               class="text-primary-500"
             >扫描中…</span>
-            <template v-else>{{ scanStatusLabel(directory) }}</template>
+            <template v-else>
+              {{ scanStatusLabel(directory) }}
+            </template>
             <span v-if="directory.lastScanTime">· {{ formatScanTime(directory.lastScanTime) }}</span>
             <template v-if="directory.mediaType !== 'other'">
               ·
@@ -201,7 +203,9 @@ function formatScanTime(time: string | null): string {
                 v-if="directory.lastScrapeStatus === 'SCRAPING'"
                 class="text-primary-500"
               >削刮中…</span>
-              <template v-else>{{ scrapeStatusLabel(directory) }}</template>
+              <template v-else>
+                {{ scrapeStatusLabel(directory) }}
+              </template>
               <span v-if="directory.lastScrapeTime">· {{ formatScanTime(directory.lastScrapeTime) }}</span>
             </template>
             <span v-if="directory.scanCron">· 定时：{{ directory.scanCron }}</span>
