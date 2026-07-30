@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Cloud } from '@lucide/vue'
-import { useMenuStore, resolvePrimaryModuleByRoute, primaryModuleList, type PrimaryModule } from '@/store/menu'
+import { useMenuStore, resolvePrimaryModuleByRoute, primaryModuleList, isSidebarHidden, type PrimaryModule } from '@/store/menu'
 import { useUserStore } from '@/store/user'
 import MobileDrawer from './MobileDrawer.vue'
 import type { SecondaryMenuItem } from '@/store/menu'
@@ -37,8 +37,11 @@ const headerTitle = computed(() => {
   return primaryLabels[resolvedPrimary.value ?? menuStore.activePrimary]
 })
 
+/** 当前一级模块是否隐藏二级菜单（抽屉不展示菜单列表） */
+const hideSecondary = computed(() => (resolvedPrimary.value ? isSidebarHidden(resolvedPrimary.value) : false))
+
 const drawerMenus = computed(() => {
-  if (!resolvedPrimary.value) return []
+  if (!resolvedPrimary.value || hideSecondary.value) return []
   return menuStore.getSecondaryMenusByPrimary(resolvedPrimary.value)
 })
 
@@ -86,13 +89,16 @@ function handleDrawerSelect(item: SecondaryMenuItem) {
       </button>
     </div>
 
-    <!-- 中间：模块标题 -->
+    <!-- 中间：模块标题（隐藏二级菜单的模块不可展开抽屉） -->
     <button
       class="flex items-center gap-1 text-base font-bold text-surface-900"
-      @click="drawerOpen = true"
+      @click="!hideSecondary && (drawerOpen = true)"
     >
       {{ headerTitle }}
-      <span class="text-xs text-surface-400">▼</span>
+      <span
+        v-if="!hideSecondary"
+        class="text-xs text-surface-400"
+      >▼</span>
     </button>
 
     <!-- 右侧：头像 -->

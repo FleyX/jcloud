@@ -3,6 +3,7 @@ import type { PageResult } from '@/types/auth'
 import type {
   MediaDirectorySaveDto,
   MediaDirectoryVo,
+  MediaHomeVo,
   MediaItemDetailVo,
   MediaItemVo,
   MediaPageQuery,
@@ -52,6 +53,10 @@ export function scrapeMediaDirectory(id: string, force = false): Promise<void> {
 }
 
 // ---------- 海报墙 ----------
+
+export function fetchMediaHome(): Promise<MediaHomeVo> {
+  return get<MediaHomeVo>('/media/home')
+}
 
 export function fetchMediaMovies(query: MediaPageQuery): Promise<PageResult<MediaItemVo>> {
   return get<PageResult<MediaItemVo>>('/media/items/movies', query as Record<string, unknown>)
@@ -115,6 +120,10 @@ export function fetchItemDetail(id: string): Promise<MediaItemDetailVo> {
 
 export function fetchSeriesDetail(id: string): Promise<MediaSeriesDetailVo> {
   return get<MediaSeriesDetailVo>(`/media/series/${id}/detail`)
+}
+
+export function fetchSeasonEpisodes(seriesId: string, seasonId: string): Promise<MediaItemVo[]> {
+  return get<MediaItemVo[]>(`/media/series/${seriesId}/seasons/${seasonId}/episodes`)
 }
 
 export function refreshMetadata(id: string): Promise<void> {

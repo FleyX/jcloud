@@ -35,6 +35,11 @@ public class MediaPageQueryDto {
     private String keyword;
 
     /**
+     * 媒体库 ID 过滤，可为空（为空表示跨库）。
+     */
+    private String directoryId;
+
+    /**
      * 排序字段：added 添加时间 / release 发行时间，默认 added。
      */
     private String sortField = SORT_FIELD_ADDED;

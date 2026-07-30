@@ -1,12 +1,19 @@
 package com.fleyx.jcloud.service.support;
 
 import cn.hutool.crypto.digest.DigestUtil;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.fleyx.jcloud.common.constant.FileNodeConstants;
+import com.fleyx.jcloud.common.enums.MediaItemType;
+import com.fleyx.jcloud.common.enums.MediaMatchStatus;
+import com.fleyx.jcloud.common.enums.MediaType;
 import com.fleyx.jcloud.mapper.FileMapper;
+import com.fleyx.jcloud.mapper.MediaItemMapper;
 import com.fleyx.jcloud.mapper.StorageSpaceMapper;
 import com.fleyx.jcloud.model.bo.MediaProbeResult;
 import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.po.MediaItem;
+import com.fleyx.jcloud.model.po.MediaSeason;
+import com.fleyx.jcloud.model.po.MediaSeries;
 import com.fleyx.jcloud.model.po.StorageSpace;
 import com.fleyx.jcloud.service.RemoteFileService;
 import com.fleyx.jcloud.util.FilePathUtil;
@@ -35,6 +42,8 @@ public class MediaScanSupport {
     private final StorageSpaceMapper storageSpaceMapper;
     private final RemoteFileService remoteFileService;
     private final MediaProbeSupport mediaProbeSupport;
+    private final MediaItemMapper mediaItemMapper;
+    private final MediaSeriesSupport mediaSeriesSupport;
 
     /**
      * ffprobe 探测并填充条目的时长/编码/分辨率，失败仅记日志。
@@ -67,16 +76,17 @@ public class MediaScanSupport {
     }
 
     /**
-     * 计算文件变更哈希：相对路径（相对视频目录的名称路径）+ 文件名 + 文件大小。
-     * 文件名、移动（含祖先目录改名）、大小任一变化都会改变哈希。
+     * 计算文件变更哈希：来源目录 ID + 相对路径（相对来源目录的名称路径）+ 文件名 + 文件大小。
+     * 文件名、移动（含祖先目录改名）、大小任一变化都会改变哈希；来源目录 ID 避免多来源下同路径文件撞键。
      *
      * @param file             文件节点
-     * @param folderFullIdPath 视频目录的完整物化路径
+     * @param sourceId         来源目录 ID
+     * @param folderFullIdPath 来源目录文件夹的完整物化路径
      * @param idToName         节点 ID → 名称缓存
      * @return MD5 哈希
      */
-    public String computeFileHash(FileNode file, String folderFullIdPath, Map<String, String> idToName) {
-        StringBuilder relative = new StringBuilder();
+    public String computeFileHash(FileNode file, String sourceId, String folderFullIdPath, Map<String, String> idToName) {
+        StringBuilder relative = new StringBuilder(sourceId).append(':');
         for (String folderId : relativeFolderIds(file, folderFullIdPath)) {
             String name = idToName.get(folderId);
             if (name != null) {
@@ -98,13 +108,13 @@ public class MediaScanSupport {
     }
 
     /**
-     * 按固定三层结构（视频目录/剧/季/集）解析剧集归属。
+     * 按固定三层结构（来源目录/剧/季/集）解析剧集归属。
      * <p>
      * 根下散文件（深度 1）与超过三层的文件返回 null 表示忽略；
      * 剧文件夹下散文件（深度 2）归第一季。
      *
      * @param file             文件节点
-     * @param folderFullIdPath 视频目录的完整物化路径
+     * @param folderFullIdPath 来源目录文件夹的完整物化路径
      * @param idToName         节点 ID → 名称缓存
      * @return 归属结果，忽略返回 null
      */
@@ -130,7 +140,7 @@ public class MediaScanSupport {
     }
 
     /**
-     * 文件相对视频目录的祖先文件夹 ID 列表（不含视频目录本身与文件自身）。
+     * 文件相对来源目录的祖先文件夹 ID 列表（不含来源目录本身与文件自身）。
      */
     private List<String> relativeFolderIds(FileNode file, String folderFullIdPath) {
         List<String> result = new ArrayList<>();
@@ -148,7 +158,7 @@ public class MediaScanSupport {
     }
 
     /**
-     * 补充视频目录祖先节点的名称缓存。
+     * 补充来源目录文件夹祖先节点的名称缓存。
      */
     public void fillAncestorNames(FileNode folder, String userId, Map<String, String> idToName) {
         Set<String> ancestorIds = new java.util.HashSet<>();
@@ -174,5 +184,77 @@ public class MediaScanSupport {
      */
     public boolean unchanged(MediaItem item, String fileHash) {
         return Objects.equals(item.getFileHash(), fileHash);
+    }
+
+    /**
+     * 填充条目类型与剧/季归属。
+     *
+     * @return 条目所属的剧（电视媒体库），其他类型返回 null
+     */
+    public MediaSeries fillItemTypeAndSeries(MediaItem item, MediaType mediaType, TvLocation tvLocation,
+                                             FileNode file, String userId,
+                                             Map<String, MediaSeries> seriesCache, Map<String, MediaSeason> seasonCache,
+                                             Set<String> touchedSeriesIds) {
+        switch (mediaType) {
+            case MOVIE -> {
+                item.setItemType(MediaItemType.MOVIE.getCode());
+                clearSeriesFields(item);
+                return null;
+            }
+            case TV -> {
+                item.setItemType(MediaItemType.EPISODE.getCode());
+                Integer episodeNo = MediaFileNameParser.parse(file.getName(), null, null).episodeNo();
+                item.setEpisodeNo(episodeNo);
+                item.setSeasonNo(tvLocation.seasonNo());
+                item.setSeriesName(tvLocation.seriesName());
+                MediaSeries series = mediaSeriesSupport.getOrCreateSeries(userId, tvLocation.seriesName(), seriesCache);
+                MediaSeason season = mediaSeriesSupport.getOrCreateSeason(series.getId(), tvLocation.seasonNo(), seasonCache);
+                item.setSeriesId(series.getId());
+                item.setSeasonId(season.getId());
+                touchedSeriesIds.add(series.getId());
+                return series;
+            }
+            case OTHER -> {
+                item.setItemType(MediaItemType.OTHER.getCode());
+                clearSeriesFields(item);
+                item.setMatchStatus(MediaMatchStatus.NONE.getCode());
+                return null;
+            }
+        }
+        return null;
+    }
+
+    private void clearSeriesFields(MediaItem item) {
+        item.setSeriesName(null);
+        item.setSeriesId(null);
+        item.setSeasonId(null);
+        item.setSeasonNo(null);
+        item.setEpisodeNo(null);
+    }
+
+    /**
+     * 变化的条目重置匹配状态：手动修正的保留，其余清空元数据待削刮。
+     *
+     * @return 是否发生了重置
+     */
+    public boolean resetMatchIfNotManual(MediaItem item, MediaType mediaType) {
+        if (mediaType == MediaType.OTHER) {
+            return false;
+        }
+        if (MediaMatchStatus.MANUAL.getCode().equals(item.getMatchStatus()) && item.getMetadataId() != null) {
+            return false;
+        }
+        item.setMetadataId(null);
+        item.setMatchStatus(MediaMatchStatus.UNMATCHED.getCode());
+        return true;
+    }
+
+    /**
+     * 显式清空条目的元数据关联（updateById 无法写入 null）。
+     */
+    public void clearItemMetadataId(String itemId) {
+        mediaItemMapper.update(null, new LambdaUpdateWrapper<MediaItem>()
+                .eq(MediaItem::getId, itemId)
+                .set(MediaItem::getMetadataId, null));
     }
 }

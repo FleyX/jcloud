@@ -3,22 +3,23 @@ package com.fleyx.jcloud.model.vo;
 import lombok.Data;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
- * 视频目录视图。
+ * 媒体库视图。
  */
 @Data
 public class MediaDirectoryVo {
 
     /**
-     * 目录 ID。
+     * 媒体库 ID。
      */
     private String id;
 
     /**
-     * 文件夹节点 ID。
+     * 来源目录列表。
      */
-    private String fileNodeId;
+    private List<MediaDirectorySourceVo> sources;
 
     /**
      * 显示名。
@@ -69,4 +70,9 @@ public class MediaDirectoryVo {
      * 条目数量。
      */
     private Long itemCount;
+
+    /**
+     * 封面图 URL（库内最新添加且有海报/缩略图的条目，无条目时为空）。
+     */
+    private String coverPosterUrl;
 }

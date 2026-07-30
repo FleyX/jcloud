@@ -1,7 +1,7 @@
 package com.fleyx.jcloud.common.enums;
 
 /**
- * 媒体目录扫描状态。
+ * 媒体库扫描状态。
  */
 public enum MediaScanStatus {
 

@@ -90,11 +90,21 @@ public interface MediaItemService {
     MediaItemDetailVo getItemDetail(String itemId, String userId);
 
     /**
-     * 查询电视剧详情（详情页，含剧集列表）。
+     * 查询电视剧详情（详情页，含季卡片列表，不含全量剧集）。
      *
      * @param seriesId 电视剧 ID
      * @param userId   用户 ID
      * @return 电视剧详情
      */
     MediaSeriesDetailVo getSeriesDetail(String seriesId, String userId);
+
+    /**
+     * 查询某部剧指定季的剧集列表（详情页按季懒加载）。
+     *
+     * @param seriesId 电视剧 ID
+     * @param seasonId 季 ID
+     * @param userId   用户 ID
+     * @return 剧集条目列表（按集号升序）
+     */
+    List<MediaItemVo> listSeasonEpisodes(String seriesId, String seasonId, String userId);
 }

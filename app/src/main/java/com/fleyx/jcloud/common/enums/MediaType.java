@@ -3,7 +3,7 @@ package com.fleyx.jcloud.common.enums;
 import lombok.Getter;
 
 /**
- * 媒体类型枚举（视频目录分类）。
+ * 媒体类型枚举（媒体库分类）。
  */
 @Getter
 public enum MediaType {

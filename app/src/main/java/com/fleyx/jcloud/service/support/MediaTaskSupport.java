@@ -9,9 +9,9 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * 媒体目录任务互斥支撑组件。
+ * 媒体库任务互斥支撑组件。
  * <p>
- * 同一目录同一时间只允许一个任务（扫描 scan / 削刮 scrape）执行，不同目录互不阻塞。
+ * 同一媒体库同一时间只允许一个任务（扫描 scan / 削刮 scrape）执行，不同媒体库互不阻塞。
  * 基于内存状态实现，服务重启后任务自然终止、锁自然释放。
  */
 @Component
@@ -58,7 +58,7 @@ public class MediaTaskSupport {
         if (!enter(directoryId, taskType)) {
             String running = activeTasks.get(directoryId);
             throw new BusinessException(ResultCode.BUSINESS_ERROR,
-                    TASK_SCRAPE.equals(running) ? "该目录正在削刮中，请稍后重试" : "该目录正在扫描中，请稍后重试");
+                    TASK_SCRAPE.equals(running) ? "该媒体库正在削刮中，请稍后重试" : "该媒体库正在扫描中，请稍后重试");
         }
     }
 

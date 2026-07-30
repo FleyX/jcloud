@@ -7,7 +7,7 @@
  */
 import { computed, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useMenuStore } from '@/store/menu'
+import { useMenuStore, isSidebarHidden } from '@/store/menu'
 import { useUserStore } from '@/store/user'
 
 import {
@@ -66,6 +66,9 @@ function handleMenuClick(item: { key: string; route?: string }) {
 
 const showCapacityWidget = computed(() => menuStore.activePrimary === 'files')
 
+/** 一级模块配置为隐藏二级菜单时不渲染侧边栏，主内容区占满 */
+const sidebarHidden = computed(() => isSidebarHidden(menuStore.activePrimary))
+
 function syncMenuWithRoute(path: string) {
   menuStore.syncWithRoute(path)
 }
@@ -76,6 +79,7 @@ watch(() => route.path, syncMenuWithRoute)
 
 <template>
   <aside
+    v-if="!sidebarHidden"
     class="flex w-64 shrink-0 flex-col border-r border-surface-200 bg-white/60 backdrop-blur-sm"
   >
     <!-- 菜单区域 -->

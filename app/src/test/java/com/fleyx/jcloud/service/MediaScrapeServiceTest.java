@@ -8,6 +8,7 @@ import com.fleyx.jcloud.common.enums.MediaMatchStatus;
 import com.fleyx.jcloud.common.enums.MediaScrapeStatus;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.MediaDirectoryMapper;
+import com.fleyx.jcloud.mapper.MediaDirectorySourceMapper;
 import com.fleyx.jcloud.mapper.MediaItemMapper;
 import com.fleyx.jcloud.mapper.MediaSeasonMapper;
 import com.fleyx.jcloud.mapper.MediaSeriesMapper;
@@ -15,6 +16,7 @@ import com.fleyx.jcloud.model.dto.FileCreateFolderDto;
 import com.fleyx.jcloud.model.dto.StorageSpaceSaveDto;
 import com.fleyx.jcloud.model.dto.UserSaveDto;
 import com.fleyx.jcloud.model.po.MediaDirectory;
+import com.fleyx.jcloud.model.po.MediaDirectorySource;
 import com.fleyx.jcloud.model.po.MediaItem;
 import com.fleyx.jcloud.model.po.MediaMetadata;
 import com.fleyx.jcloud.model.po.MediaSeason;
@@ -72,6 +74,9 @@ class MediaScrapeServiceTest {
 
     @Autowired
     private MediaDirectoryMapper mediaDirectoryMapper;
+
+    @Autowired
+    private MediaDirectorySourceMapper mediaDirectorySourceMapper;
 
     @Autowired
     private MediaItemMapper mediaItemMapper;
@@ -259,10 +264,13 @@ class MediaScrapeServiceTest {
     private MediaDirectory createDirectory(String userId, String folderNodeId, String mediaType) {
         MediaDirectory directory = new MediaDirectory();
         directory.setUserId(userId);
-        directory.setFileNodeId(folderNodeId);
-        directory.setName("测试目录");
+        directory.setName("测试媒体库");
         directory.setMediaType(mediaType);
         mediaDirectoryMapper.insert(directory);
+        MediaDirectorySource source = new MediaDirectorySource();
+        source.setDirectoryId(directory.getId());
+        source.setFileNodeId(folderNodeId);
+        mediaDirectorySourceMapper.insert(source);
         return directory;
     }
 

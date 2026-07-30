@@ -10,10 +10,12 @@ import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.FileMapper;
 import com.fleyx.jcloud.mapper.MediaDirectoryMapper;
+import com.fleyx.jcloud.mapper.MediaDirectorySourceMapper;
 import com.fleyx.jcloud.mapper.MediaItemMapper;
 import com.fleyx.jcloud.mapper.MediaSeriesMapper;
 import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.po.MediaDirectory;
+import com.fleyx.jcloud.model.po.MediaDirectorySource;
 import com.fleyx.jcloud.model.po.MediaItem;
 import com.fleyx.jcloud.model.po.MediaMetadata;
 import com.fleyx.jcloud.model.po.MediaSeries;
@@ -35,7 +37,8 @@ import java.util.List;
  * <p>
  * 电影以条目为单位削刮：先文件名解析结果，失败用直接父目录名兜底；
  * 电视以剧为单位削刮：一次匹配应用到全剧非手动修正的集，并拉取本地存在的季/集元数据。
- * 手动修正的条目与剧永远跳过。与扫描按目录互斥（{@link MediaTaskSupport}），协作式取消。
+ * 手动修正的条目与剧永远跳过。与扫描按媒体库互斥（{@link MediaTaskSupport}），协作式取消。
+ * 削刮处理范围为媒体库全部来源目录下的条目。
  */
 @Slf4j
 @Service
@@ -48,12 +51,13 @@ public class MediaScrapeServiceImpl implements MediaScrapeService {
     private final TmdbService tmdbService;
     private final MediaSeriesSupport mediaSeriesSupport;
     private final MediaTaskSupport mediaTaskSupport;
+    private final MediaDirectorySourceMapper mediaDirectorySourceMapper;
     private final TaskExecutor taskExecutor;
 
     public MediaScrapeServiceImpl(MediaDirectoryMapper mediaDirectoryMapper, MediaItemMapper mediaItemMapper,
                                   MediaSeriesMapper mediaSeriesMapper, FileMapper fileMapper,
                                   TmdbService tmdbService, MediaSeriesSupport mediaSeriesSupport,
-                                  MediaTaskSupport mediaTaskSupport,
+                                  MediaTaskSupport mediaTaskSupport, MediaDirectorySourceMapper mediaDirectorySourceMapper,
                                   @Qualifier("applicationTaskExecutor") TaskExecutor taskExecutor) {
         this.mediaDirectoryMapper = mediaDirectoryMapper;
         this.mediaItemMapper = mediaItemMapper;
@@ -62,6 +66,7 @@ public class MediaScrapeServiceImpl implements MediaScrapeService {
         this.tmdbService = tmdbService;
         this.mediaSeriesSupport = mediaSeriesSupport;
         this.mediaTaskSupport = mediaTaskSupport;
+        this.mediaDirectorySourceMapper = mediaDirectorySourceMapper;
         this.taskExecutor = taskExecutor;
     }
 
@@ -69,7 +74,7 @@ public class MediaScrapeServiceImpl implements MediaScrapeService {
     public void submitScrape(String directoryId, String userId, boolean force) {
         MediaDirectory directory = mediaDirectoryMapper.selectById(directoryId);
         if (directory == null || !userId.equals(directory.getUserId())) {
-            throw new BusinessException(ResultCode.NOT_FOUND, "视频目录不存在");
+            throw new BusinessException(ResultCode.NOT_FOUND, "媒体库不存在");
         }
         mediaTaskSupport.enterOrThrow(directoryId, MediaTaskSupport.TASK_SCRAPE);
         taskExecutor.execute(() -> {
@@ -86,7 +91,7 @@ public class MediaScrapeServiceImpl implements MediaScrapeService {
     public void scrape(String directoryId, String userId, boolean force) {
         MediaDirectory directory = mediaDirectoryMapper.selectById(directoryId);
         if (directory == null || !userId.equals(directory.getUserId())) {
-            throw new BusinessException(ResultCode.NOT_FOUND, "视频目录不存在");
+            throw new BusinessException(ResultCode.NOT_FOUND, "媒体库不存在");
         }
         mediaTaskSupport.enterOrThrow(directoryId, MediaTaskSupport.TASK_SCRAPE);
         try {
@@ -108,7 +113,7 @@ public class MediaScrapeServiceImpl implements MediaScrapeService {
                         partial ? "部分条目削刮失败" : null);
             }
         } catch (Exception e) {
-            log.error("媒体目录削刮失败: {}", directory.getId(), e);
+            log.error("媒体库削刮失败: {}", directory.getId(), e);
             updateScrapeResult(directory, MediaScrapeStatus.FAILED.name(), e.getMessage());
         }
     }
@@ -128,7 +133,7 @@ public class MediaScrapeServiceImpl implements MediaScrapeService {
     }
 
     /**
-     * 电影目录削刮：逐条目匹配，文件名失败时用直接父目录名兜底。
+     * 电影媒体库削刮：逐条目匹配，文件名失败时用直接父目录名兜底。
      */
     private boolean scrapeMovies(MediaDirectory directory, boolean force) {
         boolean partial = false;
@@ -159,8 +164,8 @@ public class MediaScrapeServiceImpl implements MediaScrapeService {
         }
         MediaFileNameParser.ParseResult parsed = MediaFileNameParser.parse(file.getName(), null, null);
         MediaMetadata metadata = tmdbService.autoMatch(MediaType.MOVIE.getCode(), parsed.title(), parsed.year());
-        if (metadata == null && !directory.getFileNodeId().equals(file.getParentId())) {
-            // 直接父目录名兜底（父目录为视频目录本身时不再兜底）
+        if (metadata == null && !isSourceRootParent(item, file)) {
+            // 直接父目录名兜底（父目录为来源目录本身时不再兜底）
             FileNode parent = fileMapper.selectById(file.getParentId());
             String fallback = parent == null ? "" : MediaFileNameParser.cleanTitle(parent.getName());
             if (!fallback.isBlank() && !fallback.equals(parsed.title())) {
@@ -168,6 +173,17 @@ public class MediaScrapeServiceImpl implements MediaScrapeService {
             }
         }
         applyMovieMatch(item, metadata);
+    }
+
+    /**
+     * 文件的直接父目录是否为该条目所属来源目录本身。
+     */
+    private boolean isSourceRootParent(MediaItem item, FileNode file) {
+        if (item.getSourceId() == null) {
+            return false;
+        }
+        MediaDirectorySource source = mediaDirectorySourceMapper.selectById(item.getSourceId());
+        return source != null && source.getFileNodeId().equals(file.getParentId());
     }
 
     private void applyMovieMatch(MediaItem item, MediaMetadata metadata) {
@@ -179,7 +195,7 @@ public class MediaScrapeServiceImpl implements MediaScrapeService {
     }
 
     /**
-     * 电视目录削刮：逐剧匹配，成功则应用到全剧并拉取季/集元数据。
+     * 电视媒体库削刮：逐剧匹配，成功则应用到全剧并拉取季/集元数据。
      */
     private boolean scrapeSeries(MediaDirectory directory, boolean force) {
         boolean partial = false;
