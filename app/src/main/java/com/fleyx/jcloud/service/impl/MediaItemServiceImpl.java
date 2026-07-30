@@ -72,6 +72,7 @@ public class MediaItemServiceImpl implements MediaItemService {
             List<MediaItem> episodes = episodeMap.getOrDefault(series.getId(), List.of());
             MediaMetadata metadata = series.getMetadataId() == null ? null : metadataMap.get(series.getMetadataId());
             MediaSeriesVo vo = new MediaSeriesVo();
+            vo.setId(series.getId());
             vo.setSeriesName(series.getSeriesName());
             vo.setEpisodeCount((long) episodes.size());
             vo.setMatchStatus(series.getMatchStatus());
@@ -103,11 +104,11 @@ public class MediaItemServiceImpl implements MediaItemService {
     }
 
     @Override
-    public List<MediaItemVo> listEpisodes(String seriesName, String userId) {
+    public List<MediaItemVo> listEpisodes(String seriesId, String userId) {
         List<MediaItem> items = mediaItemMapper.selectList(new LambdaQueryWrapper<MediaItem>()
                 .eq(MediaItem::getUserId, userId)
                 .eq(MediaItem::getItemType, MediaItemType.EPISODE.getCode())
-                .eq(MediaItem::getSeriesName, seriesName));
+                .eq(MediaItem::getSeriesId, seriesId));
         items.sort(Comparator.comparing(MediaItem::getSeasonNo, Comparator.nullsLast(Integer::compareTo))
                 .thenComparing(MediaItem::getEpisodeNo, Comparator.nullsLast(Integer::compareTo)));
         return toItemVos(items, true);
@@ -190,6 +191,7 @@ public class MediaItemServiceImpl implements MediaItemService {
         vo.setFileSize(node == null ? null : node.getSize());
         vo.setMatchStatus(item.getMatchStatus());
         vo.setMetadataId(item.getMetadataId());
+        vo.setSeriesId(item.getSeriesId());
         vo.setSeriesName(item.getSeriesName());
         vo.setSeasonNo(item.getSeasonNo());
         vo.setEpisodeNo(item.getEpisodeNo());
@@ -222,21 +224,19 @@ public class MediaItemServiceImpl implements MediaItemService {
     }
 
     @Override
-    public MediaSeriesDetailVo getSeriesDetail(String seriesName, String userId) {
-        List<MediaItemVo> episodes = listEpisodes(seriesName, userId);
-        if (episodes.isEmpty()) {
+    public MediaSeriesDetailVo getSeriesDetail(String seriesId, String userId) {
+        MediaSeries series = mediaSeriesMapper.selectById(seriesId);
+        if (series == null || !userId.equals(series.getUserId())) {
             throw new BusinessException(ResultCode.NOT_FOUND, "电视剧不存在");
         }
-        MediaSeries series = mediaSeriesMapper.selectOne(new LambdaQueryWrapper<MediaSeries>()
-                .eq(MediaSeries::getUserId, userId)
-                .eq(MediaSeries::getSeriesName, seriesName));
-        MediaMetadata metadata = series == null || series.getMetadataId() == null ? null
+        List<MediaItemVo> episodes = listEpisodes(series.getId(), userId);
+        MediaMetadata metadata = series.getMetadataId() == null ? null
                 : mediaMetadataMapper.selectById(series.getMetadataId());
 
         MediaSeriesDetailVo vo = new MediaSeriesDetailVo();
-        vo.setSeriesName(seriesName);
-        vo.setMatchStatus(series == null ? episodes.getFirst().getMatchStatus() : series.getMatchStatus());
-        vo.setMetadataId(series == null ? null : series.getMetadataId());
+        vo.setSeriesName(series.getSeriesName());
+        vo.setMatchStatus(series.getMatchStatus());
+        vo.setMetadataId(series.getMetadataId());
         vo.setEpisodes(episodes);
         if (metadata != null) {
             vo.setTitle(metadata.getTitle());
@@ -250,7 +250,7 @@ public class MediaItemServiceImpl implements MediaItemService {
             vo.setBackdropUrl(backdropUrlOf(metadata));
         }
         if (vo.getTitle() == null) {
-            vo.setTitle(seriesName);
+            vo.setTitle(series.getSeriesName());
         }
         return vo;
     }

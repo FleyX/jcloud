@@ -61,8 +61,8 @@ export function fetchMediaSeries(query: MediaPageQuery): Promise<PageResult<Medi
   return get<PageResult<MediaSeriesVo>>('/media/items/series', query as Record<string, unknown>)
 }
 
-export function fetchMediaEpisodes(seriesName: string): Promise<MediaItemVo[]> {
-  return get<MediaItemVo[]>('/media/items/series/episodes', { seriesName })
+export function fetchMediaEpisodes(seriesId: string): Promise<MediaItemVo[]> {
+  return get<MediaItemVo[]>(`/media/items/series/${seriesId}/episodes`)
 }
 
 export function fetchMediaOthers(query: MediaPageQuery): Promise<PageResult<MediaItemVo>> {
@@ -113,8 +113,8 @@ export function fetchItemDetail(id: string): Promise<MediaItemDetailVo> {
   return get<MediaItemDetailVo>(`/media/items/${id}/detail`)
 }
 
-export function fetchSeriesDetail(seriesName: string): Promise<MediaSeriesDetailVo> {
-  return get<MediaSeriesDetailVo>('/media/series/detail', { seriesName })
+export function fetchSeriesDetail(id: string): Promise<MediaSeriesDetailVo> {
+  return get<MediaSeriesDetailVo>(`/media/series/${id}/detail`)
 }
 
 export function refreshMetadata(id: string): Promise<void> {

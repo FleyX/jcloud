@@ -37,7 +37,7 @@ const {
 const searchOpen = ref(false)
 
 function openDetail(series: MediaSeriesVo) {
-  router.push({ name: 'MediaSeriesDetail', params: { seriesName: series.seriesName } })
+  router.push({ name: 'MediaSeriesDetail', params: { id: series.id } })
 }
 
 function resultSubtitle(series: MediaSeriesVo): string {

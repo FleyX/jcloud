@@ -74,8 +74,8 @@ async function init(id: string) {
   try {
     detail.value = await fetchItemDetail(id)
     if (destroyed) return
-    if (detail.value.itemType === 'episode' && detail.value.seriesName) {
-      fetchMediaEpisodes(detail.value.seriesName)
+    if (detail.value.itemType === 'episode' && detail.value.seriesId) {
+      fetchMediaEpisodes(detail.value.seriesId)
         .then((list) => {
           if (!destroyed) episodes.value = list
         })
@@ -175,8 +175,10 @@ function stopProgressTimer() {
 
 function reportProgress() {
   const video = videoRef.value
-  if (!video || video.currentTime <= 0) return
-  updateMediaProgress(itemId.value, Math.floor(video.currentTime * 1000)).catch(() => {})
+  // 卸载/切集时路由参数已变化，必须使用已加载条目的 id
+  const id = detail.value?.id
+  if (!video || !id || video.currentTime <= 0) return
+  updateMediaProgress(id, Math.floor(video.currentTime * 1000)).catch(() => {})
 }
 
 function handleAudioTrackChange() {
