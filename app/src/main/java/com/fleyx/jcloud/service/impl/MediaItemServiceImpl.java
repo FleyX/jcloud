@@ -24,6 +24,7 @@ import com.fleyx.jcloud.model.vo.MediaSeriesDetailVo;
 import com.fleyx.jcloud.model.vo.MediaSeriesVo;
 import com.fleyx.jcloud.service.MediaItemService;
 import com.fleyx.jcloud.service.TmdbService;
+import com.fleyx.jcloud.service.support.MediaSeriesSupport;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -48,6 +49,7 @@ public class MediaItemServiceImpl implements MediaItemService {
     private final MediaSeriesMapper mediaSeriesMapper;
     private final FileMapper fileMapper;
     private final TmdbService tmdbService;
+    private final MediaSeriesSupport mediaSeriesSupport;
 
     @Override
     public IPage<MediaItemVo> listMovies(String userId, MediaPageQueryDto query) {
@@ -149,26 +151,19 @@ public class MediaItemServiceImpl implements MediaItemService {
     @Transactional(rollbackFor = Exception.class)
     public void updateSeriesMatch(String seriesName, MediaMatchUpdateDto dto, String userId) {
         MediaMetadata metadata = tmdbService.getOrFetch(dto.getTmdbId(), "tv");
-        List<MediaItem> items = mediaItemMapper.selectList(new LambdaQueryWrapper<MediaItem>()
-                .eq(MediaItem::getUserId, userId)
-                .eq(MediaItem::getItemType, MediaItemType.EPISODE.getCode())
-                .eq(MediaItem::getSeriesName, seriesName));
-        for (MediaItem item : items) {
-            item.setMetadataId(metadata.getId());
-            item.setMatchStatus(MediaMatchStatus.MANUAL.getCode());
-            mediaItemMapper.updateById(item);
-        }
-        // 同步剧表的匹配结果
         MediaSeries series = mediaSeriesMapper.selectOne(new LambdaQueryWrapper<MediaSeries>()
                 .eq(MediaSeries::getUserId, userId)
                 .eq(MediaSeries::getSeriesName, seriesName));
-        if (series != null) {
-            MediaSeries update = new MediaSeries();
-            update.setId(series.getId());
-            update.setMetadataId(metadata.getId());
-            update.setMatchStatus(MediaMatchStatus.MANUAL.getCode());
-            mediaSeriesMapper.updateById(update);
+        if (series == null) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "电视剧不存在");
         }
+        MediaSeries update = new MediaSeries();
+        update.setId(series.getId());
+        update.setMetadataId(metadata.getId());
+        update.setMatchStatus(MediaMatchStatus.MANUAL.getCode());
+        mediaSeriesMapper.updateById(update);
+        // 复用削刮管线补齐季/集元数据（已单独手动修正的集不覆盖）
+        mediaSeriesSupport.applySeriesMetadata(series, metadata, MediaMatchStatus.MANUAL.getCode());
     }
 
     @Override
@@ -200,6 +195,12 @@ public class MediaItemServiceImpl implements MediaItemService {
         vo.setEpisodeNo(item.getEpisodeNo());
         vo.setDurationMs(item.getDurationMs());
         vo.setProgressMs(item.getProgressMs());
+        if (item.getSeriesId() != null) {
+            MediaSeries series = mediaSeriesMapper.selectById(item.getSeriesId());
+            if (series != null) {
+                vo.setSeriesMetadataId(series.getMetadataId());
+            }
+        }
         vo.setWidth(item.getWidth());
         vo.setHeight(item.getHeight());
         vo.setVideoCodec(item.getVideoCodec());
@@ -226,15 +227,16 @@ public class MediaItemServiceImpl implements MediaItemService {
         if (episodes.isEmpty()) {
             throw new BusinessException(ResultCode.NOT_FOUND, "电视剧不存在");
         }
-        MediaItemVo first = episodes.stream()
-                .filter(e -> e.getMetadataId() != null).findFirst().orElse(episodes.getFirst());
-        MediaMetadata metadata = first.getMetadataId() == null ? null
-                : mediaMetadataMapper.selectById(first.getMetadataId());
+        MediaSeries series = mediaSeriesMapper.selectOne(new LambdaQueryWrapper<MediaSeries>()
+                .eq(MediaSeries::getUserId, userId)
+                .eq(MediaSeries::getSeriesName, seriesName));
+        MediaMetadata metadata = series == null || series.getMetadataId() == null ? null
+                : mediaMetadataMapper.selectById(series.getMetadataId());
 
         MediaSeriesDetailVo vo = new MediaSeriesDetailVo();
         vo.setSeriesName(seriesName);
-        vo.setMatchStatus(first.getMatchStatus());
-        vo.setMetadataId(first.getMetadataId());
+        vo.setMatchStatus(series == null ? episodes.getFirst().getMatchStatus() : series.getMatchStatus());
+        vo.setMetadataId(series == null ? null : series.getMetadataId());
         vo.setEpisodes(episodes);
         if (metadata != null) {
             vo.setTitle(metadata.getTitle());

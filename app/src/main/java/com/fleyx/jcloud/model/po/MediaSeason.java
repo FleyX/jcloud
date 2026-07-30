@@ -26,4 +26,9 @@ public class MediaSeason extends BaseEntity {
      * 季号，为空表示未识别季。
      */
     private Integer seasonNo;
+
+    /**
+     * 季元数据 ID。
+     */
+    private String metadataId;
 }

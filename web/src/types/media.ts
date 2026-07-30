@@ -27,6 +27,9 @@ export interface MediaDirectoryVo {
   lastScanTime: string | null
   lastScanStatus: string | null
   lastScanError: string | null
+  lastScrapeTime: string | null
+  lastScrapeStatus: string | null
+  lastScrapeError: string | null
   itemCount: number
 }
 

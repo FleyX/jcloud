@@ -3,13 +3,14 @@
  * 视频目录管理面板（PC/移动端共用）
  */
 import { onBeforeUnmount, onMounted, ref } from 'vue'
-import { Plus, RefreshCw, Pencil, Trash2, FolderOpen } from '@lucide/vue'
+import { Plus, RefreshCw, Pencil, Trash2, FolderOpen, Sparkles } from '@lucide/vue'
 import type { MediaDirectorySaveDto, MediaDirectoryVo, MediaType } from '@/types/media'
 import {
   createMediaDirectory,
   deleteMediaDirectory,
   fetchMediaDirectories,
   scanMediaDirectory,
+  scrapeMediaDirectory,
   updateMediaDirectory,
 } from '@/api/media'
 import DirectoryFormModal from './DirectoryFormModal.vue'
@@ -22,6 +23,7 @@ const loading = ref(true)
 const formOpen = ref(false)
 const editingDirectory = ref<MediaDirectoryVo | null>(null)
 const scanningIds = ref<Set<string>>(new Set())
+const scrapingIds = ref<Set<string>>(new Set())
 
 let pollTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -42,14 +44,22 @@ async function load() {
   } finally {
     loading.value = false
   }
-  // 存在扫描中的目录时轮询刷新状态
-  if (directories.value.some((d) => d.lastScanStatus === 'SCANNING')) {
+  // 存在扫描中/削刮中的目录时轮询刷新状态
+  if (directories.value.some((d) => d.lastScanStatus === 'SCANNING' || d.lastScrapeStatus === 'SCRAPING')) {
     pollTimer = setTimeout(load, 3000)
   }
 }
 
 function isScanning(directory: MediaDirectoryVo): boolean {
   return directory.lastScanStatus === 'SCANNING' || scanningIds.value.has(directory.id)
+}
+
+function isScraping(directory: MediaDirectoryVo): boolean {
+  return directory.lastScrapeStatus === 'SCRAPING' || scrapingIds.value.has(directory.id)
+}
+
+function isBusy(directory: MediaDirectoryVo): boolean {
+  return isScanning(directory) || isScraping(directory)
 }
 
 function handleAdd() {
@@ -93,6 +103,16 @@ async function handleScan(directory: MediaDirectoryVo) {
   }
 }
 
+async function handleScrape(directory: MediaDirectoryVo) {
+  scrapingIds.value.add(directory.id)
+  try {
+    await scrapeMediaDirectory(directory.id)
+    setTimeout(load, 3000)
+  } finally {
+    scrapingIds.value.delete(directory.id)
+  }
+}
+
 function typeLabel(type: MediaType): string {
   return { movie: '电影', tv: '电视', other: '其他' }[type]
 }
@@ -102,6 +122,13 @@ function scanStatusLabel(directory: MediaDirectoryVo): string {
   return { SCANNING: '扫描中', COMPLETED: '扫描完成', FAILED: '扫描失败', PARTIAL: '部分失败' }[
     directory.lastScanStatus
   ] ?? directory.lastScanStatus
+}
+
+function scrapeStatusLabel(directory: MediaDirectoryVo): string {
+  if (!directory.lastScrapeStatus) return '未削刮'
+  return { SCRAPING: '削刮中', COMPLETED: '削刮完成', FAILED: '削刮失败', PARTIAL: '部分失败' }[
+    directory.lastScrapeStatus
+  ] ?? directory.lastScrapeStatus
 }
 
 function formatScanTime(time: string | null): string {
@@ -168,23 +195,41 @@ function formatScanTime(time: string | null): string {
             >扫描中…</span>
             <template v-else>{{ scanStatusLabel(directory) }}</template>
             <span v-if="directory.lastScanTime">· {{ formatScanTime(directory.lastScanTime) }}</span>
+            <template v-if="directory.mediaType !== 'other'">
+              ·
+              <span
+                v-if="directory.lastScrapeStatus === 'SCRAPING'"
+                class="text-primary-500"
+              >削刮中…</span>
+              <template v-else>{{ scrapeStatusLabel(directory) }}</template>
+              <span v-if="directory.lastScrapeTime">· {{ formatScanTime(directory.lastScrapeTime) }}</span>
+            </template>
             <span v-if="directory.scanCron">· 定时：{{ directory.scanCron }}</span>
           </p>
           <p
-            v-if="directory.lastScanError"
+            v-if="directory.lastScanError || directory.lastScrapeError"
             class="mt-0.5 truncate text-xs text-red-400"
           >
-            {{ directory.lastScanError }}
+            {{ directory.lastScanError || directory.lastScrapeError }}
           </p>
         </div>
         <div class="flex shrink-0 items-center gap-1">
           <button
             class="rounded-lg p-2 text-surface-400 hover:bg-surface-100 hover:text-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
             title="刷新扫描"
-            :disabled="isScanning(directory)"
+            :disabled="isBusy(directory)"
             @click="handleScan(directory)"
           >
             <RefreshCw :class="['h-4 w-4', isScanning(directory) && 'animate-spin']" />
+          </button>
+          <button
+            v-if="directory.mediaType !== 'other'"
+            class="rounded-lg p-2 text-surface-400 hover:bg-surface-100 hover:text-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
+            title="削刮元数据"
+            :disabled="isBusy(directory)"
+            @click="handleScrape(directory)"
+          >
+            <Sparkles :class="['h-4 w-4', isScraping(directory) && 'animate-pulse text-primary-500']" />
           </button>
           <button
             class="rounded-lg p-2 text-surface-400 hover:bg-surface-100 hover:text-primary-600"

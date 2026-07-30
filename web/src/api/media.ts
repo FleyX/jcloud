@@ -47,6 +47,10 @@ export function scanMediaDirectory(id: string): Promise<void> {
   return post<void>(`/media/directories/${id}/scan`)
 }
 
+export function scrapeMediaDirectory(id: string, force = false): Promise<void> {
+  return post<void>(`/media/directories/${id}/scrape?force=${force}`)
+}
+
 // ---------- 海报墙 ----------
 
 export function fetchMediaMovies(query: MediaPageQuery): Promise<PageResult<MediaItemVo>> {

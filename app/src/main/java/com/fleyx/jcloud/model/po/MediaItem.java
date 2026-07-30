@@ -114,6 +114,11 @@ public class MediaItem extends BaseEntity {
     private Long fileLastModified;
 
     /**
+     * 相对路径（相对视频目录）+文件名+文件大小的哈希，用于增量扫描 diff，为空视为已变化。
+     */
+    private String fileHash;
+
+    /**
      * 播放进度（毫秒）。
      */
     private Long progressMs;

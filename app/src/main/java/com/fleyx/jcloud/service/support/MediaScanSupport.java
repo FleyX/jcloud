@@ -1,5 +1,6 @@
 package com.fleyx.jcloud.service.support;
 
+import cn.hutool.crypto.digest.DigestUtil;
 import com.fleyx.jcloud.common.constant.FileNodeConstants;
 import com.fleyx.jcloud.mapper.FileMapper;
 import com.fleyx.jcloud.mapper.StorageSpaceMapper;
@@ -16,12 +17,14 @@ import org.springframework.stereotype.Component;
 
 import java.io.InputStream;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
 /**
- * 媒体库扫描辅助组件：ffprobe 探测填充、剧名/目录名解析等。
+ * 媒体库扫描辅助组件：ffprobe 探测填充、文件变更哈希、电视三层结构解析等。
  */
 @Slf4j
 @Component
@@ -64,38 +67,79 @@ public class MediaScanSupport {
     }
 
     /**
-     * 解析剧名：优先取目录下的一级子文件夹名，其次用文件名解析结果。
+     * 计算文件变更哈希：相对路径（相对视频目录的名称路径）+ 文件名 + 文件大小。
+     * 文件名、移动（含祖先目录改名）、大小任一变化都会改变哈希。
+     *
+     * @param file             文件节点
+     * @param folderFullIdPath 视频目录的完整物化路径
+     * @param idToName         节点 ID → 名称缓存
+     * @return MD5 哈希
      */
-    public String resolveSeriesName(FileNode file, String folderFullIdPath,
-                                    MediaFileNameParser.ParseResult parsed, Map<String, String> idToName) {
-        String path = file.getPath() == null ? "" : file.getPath();
-        if (path.startsWith(folderFullIdPath + FileNodeConstants.PATH_SEPARATOR)) {
-            String remain = path.substring(folderFullIdPath.length() + 1);
-            String topFolderId = remain.split("\\.")[0];
-            String topFolderName = idToName.get(topFolderId);
-            if (topFolderName != null) {
-                String cleaned = MediaFileNameParser.cleanTitle(topFolderName);
-                if (!cleaned.isBlank()) {
-                    return cleaned;
-                }
+    public String computeFileHash(FileNode file, String folderFullIdPath, Map<String, String> idToName) {
+        StringBuilder relative = new StringBuilder();
+        for (String folderId : relativeFolderIds(file, folderFullIdPath)) {
+            String name = idToName.get(folderId);
+            if (name != null) {
+                relative.append(name).append('/');
             }
         }
-        return parsed.title().isBlank() ? null : parsed.title();
+        relative.append(file.getName()).append(':').append(file.getSize());
+        return DigestUtil.md5Hex(relative.toString());
     }
 
     /**
-     * 解析祖父目录名（父目录不能是视频目录本身）。
+     * 电视三层结构归属结果。
+     *
+     * @param seriesName 剧名（一级子文件夹名清洗结果）
+     * @param seasonNo   季号（二级子文件夹名解析，无法解析或无季文件夹归第一季）
      */
-    public String findGrandParentDirName(FileNode file, String folderId, Map<String, String> idToName) {
-        String path = file.getPath();
-        if (path == null) {
-            return null;
+    public record TvLocation(String seriesName, Integer seasonNo) {
+    }
+
+    /**
+     * 按固定三层结构（视频目录/剧/季/集）解析剧集归属。
+     * <p>
+     * 根下散文件（深度 1）与超过三层的文件返回 null 表示忽略；
+     * 剧文件夹下散文件（深度 2）归第一季。
+     *
+     * @param file             文件节点
+     * @param folderFullIdPath 视频目录的完整物化路径
+     * @param idToName         节点 ID → 名称缓存
+     * @return 归属结果，忽略返回 null
+     */
+    public TvLocation resolveTvLocation(FileNode file, String folderFullIdPath, Map<String, String> idToName) {
+        List<String> folderIds = relativeFolderIds(file, folderFullIdPath);
+        if (folderIds.size() == 1) {
+            String seriesName = MediaFileNameParser.cleanTitle(idToName.get(folderIds.getFirst()));
+            return seriesName.isBlank() ? null : new TvLocation(seriesName, 1);
         }
-        String[] ids = path.split("\\.");
-        if (ids.length >= 2 && !ids[ids.length - 1].equals(folderId)) {
-            return idToName.get(ids[ids.length - 1]);
+        if (folderIds.size() == 2) {
+            String seriesName = MediaFileNameParser.cleanTitle(idToName.get(folderIds.getFirst()));
+            if (seriesName.isBlank()) {
+                return null;
+            }
+            Integer seasonNo = MediaFileNameParser.parseSeasonNo(idToName.get(folderIds.get(1)));
+            return new TvLocation(seriesName, seasonNo == null ? 1 : seasonNo);
         }
         return null;
+    }
+
+    /**
+     * 文件相对视频目录的祖先文件夹 ID 列表（不含视频目录本身与文件自身）。
+     */
+    private List<String> relativeFolderIds(FileNode file, String folderFullIdPath) {
+        List<String> result = new ArrayList<>();
+        String path = file.getPath() == null ? "" : file.getPath();
+        String prefix = folderFullIdPath + FileNodeConstants.PATH_SEPARATOR;
+        if (!path.startsWith(prefix)) {
+            return result;
+        }
+        for (String id : path.substring(prefix.length()).split("\\" + FileNodeConstants.PATH_SEPARATOR)) {
+            if (!id.isBlank()) {
+                result.add(id);
+            }
+        }
+        return result;
     }
 
     /**
@@ -121,10 +165,9 @@ public class MediaScanSupport {
     }
 
     /**
-     * 判断文件与已扫描条目相比是否未变化（size + mtime）。
+     * 判断文件与已扫描条目相比是否未变化（文件变更哈希）。
      */
-    public boolean unchanged(MediaItem item, FileNode file) {
-        return Objects.equals(item.getFileSize(), file.getSize())
-                && Objects.equals(item.getFileLastModified(), file.getLastModified());
+    public boolean unchanged(MediaItem item, String fileHash) {
+        return Objects.equals(item.getFileHash(), fileHash);
     }
 }

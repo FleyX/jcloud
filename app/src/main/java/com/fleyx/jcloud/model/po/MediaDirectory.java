@@ -62,4 +62,19 @@ public class MediaDirectory extends BaseEntity {
      * 上次扫描错误信息。
      */
     private String lastScanError;
+
+    /**
+     * 上次削刮完成时间。
+     */
+    private LocalDateTime lastScrapeTime;
+
+    /**
+     * 上次削刮状态：SCRAPING / COMPLETED / FAILED / PARTIAL。
+     */
+    private String lastScrapeStatus;
+
+    /**
+     * 上次削刮错误信息。
+     */
+    private String lastScrapeError;
 }

@@ -99,6 +99,7 @@ permissions:
       - { code: "PUT:/jcloud/api/media/directories/{id}", name: "编辑视频目录" }
       - { code: "DELETE:/jcloud/api/media/directories/{id}", name: "删除视频目录" }
       - { code: "POST:/jcloud/api/media/directories/{id}/scan", name: "刷新视频目录" }
+      - { code: "POST:/jcloud/api/media/directories/{id}/scrape", name: "削刮视频目录" }
       - { code: "GET:/jcloud/api/media/items/movies", name: "查询电影海报墙" }
       - { code: "GET:/jcloud/api/media/items/series", name: "查询电视剧海报墙" }
       - { code: "GET:/jcloud/api/media/items/series/episodes", name: "查询剧集列表" }

@@ -68,7 +68,7 @@ class MediaScanServiceTest {
     Path tempDir;
 
     /**
-     * 文件移入剧文件夹后重扫：size/mtime 未变，但剧名应按新路径重新解析并清理旧剧。
+     * 根下散文件忽略不产生条目；移入“剧/季”三层结构后重扫归剧。
      */
     @Test
     void shouldRegroupEpisodeAfterMoveToSeriesFolder() throws Exception {
@@ -78,12 +78,12 @@ class MediaScanServiceTest {
                 user.getId(), tvFolder.getId(), null);
         MediaDirectory directory = createTvDirectory(user.getId(), tvFolder.getId());
 
-        // 首次扫描：文件直接位于视频目录下，剧名来自文件名解析
+        // 首次扫描：文件直接位于视频目录根下，按固定三层结构规则忽略
         mediaScanService.scan(directory.getId());
-        MediaItem item = queryItem(directory.getId());
-        assertEquals("Test", item.getSeriesName());
+        assertEquals(0, mediaItemMapper.selectCount(
+                new LambdaQueryWrapper<MediaItem>().eq(MediaItem::getDirectoryId, directory.getId())));
 
-        // 移入“剧/季”目录结构后重扫，文件大小与修改时间均未变化
+        // 移入“剧/季”目录结构后重扫
         FileNodeVo seriesFolder = createFolder(user.getId(), tvFolder.getId(), "白鹿原 (2017)");
         FileNodeVo seasonFolder = createFolder(user.getId(), seriesFolder.getId(), "s01");
         moveFileToFolder(user.getId(), episode.getId(), seasonFolder.getId());
@@ -91,6 +91,8 @@ class MediaScanServiceTest {
 
         MediaItem moved = queryItem(directory.getId());
         assertEquals("白鹿原", moved.getSeriesName());
+        assertEquals(1, moved.getSeasonNo());
+        assertEquals(1, moved.getEpisodeNo());
         List<MediaSeries> seriesList = mediaSeriesMapper.selectList(
                 new LambdaQueryWrapper<MediaSeries>().eq(MediaSeries::getUserId, user.getId()));
         assertEquals(1, seriesList.size());
@@ -112,6 +114,8 @@ class MediaScanServiceTest {
         mediaScanService.scan(directory.getId());
         MediaItem item = queryItem(directory.getId());
         assertEquals("白鹿原", item.getSeriesName());
+        // 剧文件夹下散文件统一归第一季
+        assertEquals(1, item.getSeasonNo());
 
         mediaScanService.scan(directory.getId());
         MediaItem again = queryItem(directory.getId());
@@ -119,6 +123,24 @@ class MediaScanServiceTest {
         assertEquals(item.getSeriesId(), again.getSeriesId());
         assertEquals(1, mediaSeriesMapper.selectCount(
                 new LambdaQueryWrapper<MediaSeries>().eq(MediaSeries::getUserId, user.getId())));
+    }
+
+    /**
+     * 超过三层深度的文件忽略，不产生条目。
+     */
+    @Test
+    void shouldIgnoreFilesDeeperThanThreeLevels() throws Exception {
+        UserVo user = prepareUserWithStorageSpace();
+        FileNodeVo tvFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "tv");
+        FileNodeVo seriesFolder = createFolder(user.getId(), tvFolder.getId(), "亮剑");
+        FileNodeVo seasonFolder = createFolder(user.getId(), seriesFolder.getId(), "Season 1");
+        FileNodeVo extraFolder = createFolder(user.getId(), seasonFolder.getId(), "特典");
+        fileService.upload(buildFile("HEVC.Test.S01E01.1080p.mkv", "video"), user.getId(), extraFolder.getId(), null);
+        MediaDirectory directory = createTvDirectory(user.getId(), tvFolder.getId());
+
+        mediaScanService.scan(directory.getId());
+        assertEquals(0, mediaItemMapper.selectCount(
+                new LambdaQueryWrapper<MediaItem>().eq(MediaItem::getDirectoryId, directory.getId())));
     }
 
     private MediaItem queryItem(String directoryId) {
