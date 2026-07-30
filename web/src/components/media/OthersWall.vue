@@ -2,7 +2,8 @@
 /**
  * 其他视频网格（PC/移动端共用）
  * - 不获取元数据，使用视频截图作为封面
- * - 分页加载（滚动到底自动加载）、搜索、排序
+ * - 分页加载（滚动到底自动加载）、排序
+ * - 搜索在 MediaSearchModal 内展示结果，点击结果直接播放
  */
 import { ref } from 'vue'
 import type { MediaItemVo } from '@/types/media'
@@ -11,6 +12,7 @@ import PosterCard from './PosterCard.vue'
 import MediaPlayerModal from './MediaPlayerModal.vue'
 import MediaWallToolbar from './MediaWallToolbar.vue'
 import MediaSearchModal from './MediaSearchModal.vue'
+import MediaSearchResultRow from './MediaSearchResultRow.vue'
 import { useMediaWall } from './useMediaWall'
 import { cn } from '@/utils/cn'
 
@@ -25,16 +27,14 @@ const {
   loading,
   loadingMore,
   finished,
-  keyword,
-  searchOpen,
   sortField,
   sortOrder,
   setSentinel,
   reload,
   toggleSort,
-  applySearch,
 } = useMediaWall<MediaItemVo>('others', fetchMediaOthers)
 
+const searchOpen = ref(false)
 const playerOpen = ref(false)
 const playingItem = ref<MediaItemVo | null>(null)
 
@@ -64,11 +64,9 @@ function formatDuration(ms: number | null): string | null {
 <template>
   <div class="p-4 md:p-6">
     <MediaWallToolbar
-      :keyword="keyword"
       :sort-field="sortField"
       :sort-order="sortOrder"
       @open-search="searchOpen = true"
-      @clear-search="applySearch('')"
       @sort="toggleSort"
     />
 
@@ -82,7 +80,7 @@ function formatDuration(ms: number | null): string | null {
       v-else-if="items.length === 0"
       class="py-16 text-center text-sm text-surface-400"
     >
-      {{ keyword ? '未找到匹配的视频' : '暂无视频，请先在目录管理中添加其他类型目录' }}
+      暂无视频，请先在目录管理中添加其他类型目录
     </p>
     <template v-else>
       <div
@@ -125,10 +123,18 @@ function formatDuration(ms: number | null): string | null {
 
     <MediaSearchModal
       :open="searchOpen"
-      :initial-keyword="keyword"
       placeholder="搜索文件名"
+      :fetcher="fetchMediaOthers"
       @close="searchOpen = false"
-      @search="applySearch"
-    />
+      @select="handlePlay"
+    >
+      <template #row="{ item }">
+        <MediaSearchResultRow
+          :title="item.fileName"
+          :poster-url="thumbUrl(item)"
+          :subtitle="formatDuration(item.durationMs)"
+        />
+      </template>
+    </MediaSearchModal>
   </div>
 </template>

@@ -2,14 +2,17 @@
 /**
  * 电视剧海报墙（PC/移动端共用）
  * - 点击卡片进入电视剧详情页
- * - 分页加载（滚动到底自动加载）、搜索、排序
+ * - 分页加载（滚动到底自动加载）、排序
+ * - 搜索在 MediaSearchModal 内展示结果，点击结果进入详情页
  */
+import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import type { MediaSeriesVo } from '@/types/media'
 import { fetchMediaSeries } from '@/api/media'
 import PosterCard from './PosterCard.vue'
 import MediaWallToolbar from './MediaWallToolbar.vue'
 import MediaSearchModal from './MediaSearchModal.vue'
+import MediaSearchResultRow from './MediaSearchResultRow.vue'
 import { useMediaWall } from './useMediaWall'
 import { cn } from '@/utils/cn'
 
@@ -25,28 +28,33 @@ const {
   loading,
   loadingMore,
   finished,
-  keyword,
-  searchOpen,
   sortField,
   sortOrder,
   setSentinel,
   toggleSort,
-  applySearch,
 } = useMediaWall<MediaSeriesVo>('series', fetchMediaSeries)
+
+const searchOpen = ref(false)
 
 function openDetail(series: MediaSeriesVo) {
   router.push({ name: 'MediaSeriesDetail', params: { seriesName: series.seriesName } })
+}
+
+function resultSubtitle(series: MediaSeriesVo): string {
+  const parts: string[] = []
+  if (series.releaseDate) parts.push(series.releaseDate.slice(0, 4))
+  if (series.voteAverage != null && series.voteAverage > 0) parts.push(`评分 ${series.voteAverage.toFixed(1)}`)
+  parts.push(`共 ${series.episodeCount} 集`)
+  return parts.join(' · ')
 }
 </script>
 
 <template>
   <div class="p-4 md:p-6">
     <MediaWallToolbar
-      :keyword="keyword"
       :sort-field="sortField"
       :sort-order="sortOrder"
       @open-search="searchOpen = true"
-      @clear-search="applySearch('')"
       @sort="toggleSort"
     />
 
@@ -60,7 +68,7 @@ function openDetail(series: MediaSeriesVo) {
       v-else-if="seriesList.length === 0"
       class="py-16 text-center text-sm text-surface-400"
     >
-      {{ keyword ? '未找到匹配的电视剧' : '暂无电视剧，请先在目录管理中添加电视目录' }}
+      暂无电视剧，请先在目录管理中添加电视目录
     </p>
     <template v-else>
       <div
@@ -97,10 +105,18 @@ function openDetail(series: MediaSeriesVo) {
 
     <MediaSearchModal
       :open="searchOpen"
-      :initial-keyword="keyword"
       placeholder="搜索剧名、简介"
+      :fetcher="fetchMediaSeries"
       @close="searchOpen = false"
-      @search="applySearch"
-    />
+      @select="openDetail"
+    >
+      <template #row="{ item }">
+        <MediaSearchResultRow
+          :title="item.title"
+          :poster-url="item.posterUrl"
+          :subtitle="resultSubtitle(item)"
+        />
+      </template>
+    </MediaSearchModal>
   </div>
 </template>

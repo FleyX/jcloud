@@ -2,14 +2,17 @@
 /**
  * 电影海报墙（PC/移动端共用）
  * - 点击卡片进入电影详情页
- * - 分页加载（滚动到底自动加载）、搜索、排序
+ * - 分页加载（滚动到底自动加载）、排序
+ * - 搜索在 MediaSearchModal 内展示结果，点击结果进入详情页
  */
+import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import type { MediaItemVo } from '@/types/media'
 import { fetchMediaMovies } from '@/api/media'
 import PosterCard from './PosterCard.vue'
 import MediaWallToolbar from './MediaWallToolbar.vue'
 import MediaSearchModal from './MediaSearchModal.vue'
+import MediaSearchResultRow from './MediaSearchResultRow.vue'
 import { useMediaWall } from './useMediaWall'
 import { cn } from '@/utils/cn'
 
@@ -25,28 +28,32 @@ const {
   loading,
   loadingMore,
   finished,
-  keyword,
-  searchOpen,
   sortField,
   sortOrder,
   setSentinel,
   toggleSort,
-  applySearch,
 } = useMediaWall<MediaItemVo>('movies', fetchMediaMovies)
+
+const searchOpen = ref(false)
 
 function openDetail(item: MediaItemVo) {
   router.push({ name: 'MediaMovieDetail', params: { id: item.id } })
+}
+
+function resultSubtitle(item: MediaItemVo): string {
+  const parts: string[] = []
+  if (item.releaseDate) parts.push(item.releaseDate.slice(0, 4))
+  if (item.voteAverage != null && item.voteAverage > 0) parts.push(`评分 ${item.voteAverage.toFixed(1)}`)
+  return parts.join(' · ')
 }
 </script>
 
 <template>
   <div class="p-4 md:p-6">
     <MediaWallToolbar
-      :keyword="keyword"
       :sort-field="sortField"
       :sort-order="sortOrder"
       @open-search="searchOpen = true"
-      @clear-search="applySearch('')"
       @sort="toggleSort"
     />
 
@@ -60,7 +67,7 @@ function openDetail(item: MediaItemVo) {
       v-else-if="movies.length === 0"
       class="py-16 text-center text-sm text-surface-400"
     >
-      {{ keyword ? '未找到匹配的电影' : '暂无电影，请先在目录管理中添加电影目录' }}
+      暂无电影，请先在目录管理中添加电影目录
     </p>
     <template v-else>
       <div
@@ -99,9 +106,18 @@ function openDetail(item: MediaItemVo) {
 
     <MediaSearchModal
       :open="searchOpen"
-      :initial-keyword="keyword"
+      placeholder="搜索电影名、简介"
+      :fetcher="fetchMediaMovies"
       @close="searchOpen = false"
-      @search="applySearch"
-    />
+      @select="openDetail"
+    >
+      <template #row="{ item }">
+        <MediaSearchResultRow
+          :title="item.title"
+          :poster-url="item.posterUrl"
+          :subtitle="resultSubtitle(item)"
+        />
+      </template>
+    </MediaSearchModal>
   </div>
 </template>
