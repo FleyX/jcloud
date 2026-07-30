@@ -145,6 +145,20 @@ public final class MediaFileNameParser {
     }
 
     /**
+     * 从文本中解析年份（1900-2099）。
+     *
+     * @param text 文件名或目录名
+     * @return 年份，未解析出返回 null
+     */
+    public static Integer parseYear(String text) {
+        if (text == null) {
+            return null;
+        }
+        Matcher yearMatcher = YEAR_PATTERN.matcher(text);
+        return yearMatcher.find() ? Integer.valueOf(yearMatcher.group(1)) : null;
+    }
+
+    /**
      * 从季文件夹名解析季号。
      *
      * @param folderName 文件夹名

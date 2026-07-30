@@ -90,10 +90,11 @@ public class MediaScanSupport {
     /**
      * 电视三层结构归属结果。
      *
-     * @param seriesName 剧名（一级子文件夹名清洗结果）
-     * @param seasonNo   季号（二级子文件夹名解析，无法解析或无季文件夹归第一季）
+     * @param seriesName  剧名（一级子文件夹名清洗结果）
+     * @param seasonNo    季号（二级子文件夹名解析，无法解析或无季文件夹归第一季）
+     * @param releaseYear 首播年份（一级子文件夹名解析，未解析出为 null）
      */
-    public record TvLocation(String seriesName, Integer seasonNo) {
+    public record TvLocation(String seriesName, Integer seasonNo, Integer releaseYear) {
     }
 
     /**
@@ -110,16 +111,20 @@ public class MediaScanSupport {
     public TvLocation resolveTvLocation(FileNode file, String folderFullIdPath, Map<String, String> idToName) {
         List<String> folderIds = relativeFolderIds(file, folderFullIdPath);
         if (folderIds.size() == 1) {
-            String seriesName = MediaFileNameParser.cleanTitle(idToName.get(folderIds.getFirst()));
-            return seriesName.isBlank() ? null : new TvLocation(seriesName, 1);
+            String folderName = idToName.get(folderIds.getFirst());
+            String seriesName = MediaFileNameParser.cleanTitle(folderName);
+            return seriesName.isBlank() ? null
+                    : new TvLocation(seriesName, 1, MediaFileNameParser.parseYear(folderName));
         }
         if (folderIds.size() == 2) {
-            String seriesName = MediaFileNameParser.cleanTitle(idToName.get(folderIds.getFirst()));
+            String folderName = idToName.get(folderIds.getFirst());
+            String seriesName = MediaFileNameParser.cleanTitle(folderName);
             if (seriesName.isBlank()) {
                 return null;
             }
             Integer seasonNo = MediaFileNameParser.parseSeasonNo(idToName.get(folderIds.get(1)));
-            return new TvLocation(seriesName, seasonNo == null ? 1 : seasonNo);
+            return new TvLocation(seriesName, seasonNo == null ? 1 : seasonNo,
+                    MediaFileNameParser.parseYear(folderName));
         }
         return null;
     }

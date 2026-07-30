@@ -1,6 +1,7 @@
 package com.fleyx.jcloud.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.fleyx.jcloud.common.enums.MediaItemType;
 import com.fleyx.jcloud.common.enums.MediaMatchStatus;
 import com.fleyx.jcloud.common.enums.MediaScanStatus;
@@ -15,6 +16,7 @@ import com.fleyx.jcloud.model.po.MediaItem;
 import com.fleyx.jcloud.model.po.MediaSeason;
 import com.fleyx.jcloud.model.po.MediaSeries;
 import com.fleyx.jcloud.service.MediaScanService;
+import com.fleyx.jcloud.service.MediaScrapeService;
 import com.fleyx.jcloud.service.support.MediaScanSupport;
 import com.fleyx.jcloud.service.support.MediaSeriesSupport;
 import com.fleyx.jcloud.service.support.MediaTaskSupport;
@@ -38,8 +40,9 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * 媒体库扫描服务实现。
  * <p>
- * 扫描只负责文件事实：按文件变更哈希 diff 存量条目、ffprobe 探测、维护剧/季归属，
- * 不访问 TMDB（元数据匹配由削刮服务负责）。变化条目的非手动匹配状态会被重置为未匹配。
+ * 扫描只负责文件事实：按文件变更哈希 diff 存量条目、ffprobe 探测、维护剧/季归属（含首播年份回填），
+ * 不访问 TMDB。变化条目的非手动匹配状态会被重置为未匹配，所属剧的匹配状态同步重置；
+ * 扫描完成后自动提交一次非强制削刮（削刮仍是独立任务，扫描本身不访问 TMDB）。
  * <p>
  * 并发模型：扫描与削刮按目录互斥（{@link MediaTaskSupport}），协作式取消，
  * 同一目录的多次扫描请求通过 {@link #pendingScans} 合并，由单线程循环拾取。
@@ -55,12 +58,13 @@ public class MediaScanServiceImpl implements MediaScanService {
     private final MediaSeriesSupport mediaSeriesSupport;
     private final MediaScanSupport mediaScanSupport;
     private final MediaTaskSupport mediaTaskSupport;
+    private final MediaScrapeService mediaScrapeService;
     private final TaskExecutor taskExecutor;
 
     public MediaScanServiceImpl(MediaDirectoryMapper mediaDirectoryMapper, MediaItemMapper mediaItemMapper,
                                 FileMapper fileMapper, UserMapper userMapper,
                                 MediaSeriesSupport mediaSeriesSupport, MediaScanSupport mediaScanSupport,
-                                MediaTaskSupport mediaTaskSupport,
+                                MediaTaskSupport mediaTaskSupport, MediaScrapeService mediaScrapeService,
                                 @Qualifier("applicationTaskExecutor") TaskExecutor taskExecutor) {
         this.mediaDirectoryMapper = mediaDirectoryMapper;
         this.mediaItemMapper = mediaItemMapper;
@@ -69,6 +73,7 @@ public class MediaScanServiceImpl implements MediaScanService {
         this.mediaSeriesSupport = mediaSeriesSupport;
         this.mediaScanSupport = mediaScanSupport;
         this.mediaTaskSupport = mediaTaskSupport;
+        this.mediaScrapeService = mediaScrapeService;
         this.taskExecutor = taskExecutor;
     }
 
@@ -101,7 +106,7 @@ public class MediaScanServiceImpl implements MediaScanService {
 
     /**
      * 扫描主循环：同一目录只跑一个线程，循环拾取待扫描请求直至清空。
-     * 目录被削刮任务占用时延迟重试。
+     * 目录被削刮任务占用时延迟重试。扫描成功完成后自动提交一次非强制削刮。
      */
     private void runLoop(String directoryId) {
         if (!mediaTaskSupport.enter(directoryId, MediaTaskSupport.TASK_SCAN)) {
@@ -119,21 +124,43 @@ public class MediaScanServiceImpl implements MediaScanService {
             }
             return;
         }
+        boolean completed = false;
         try {
             Boolean force;
             while ((force = pendingScans.remove(directoryId)) != null) {
                 mediaTaskSupport.clearCancel(directoryId);
-                scanOnce(directoryId, force);
+                completed |= scanOnce(directoryId, force);
             }
         } finally {
             mediaTaskSupport.exit(directoryId, MediaTaskSupport.TASK_SCAN);
         }
+        if (completed) {
+            submitScrapeAfterScan(directoryId);
+        }
     }
 
-    private void scanOnce(String directoryId, boolean force) {
+    /**
+     * 扫描完成后自动提交非强制削刮（只处理未匹配内容）。提交失败仅记日志。
+     */
+    private void submitScrapeAfterScan(String directoryId) {
         MediaDirectory directory = mediaDirectoryMapper.selectById(directoryId);
         if (directory == null) {
             return;
+        }
+        try {
+            mediaScrapeService.submitScrape(directoryId, directory.getUserId(), false);
+        } catch (Exception e) {
+            log.info("扫描后自动削刮提交失败: {}, {}", directoryId, e.getMessage());
+        }
+    }
+
+    /**
+     * @return 扫描是否成功完成（完成或部分完成；中断、异常视为未完成）
+     */
+    private boolean scanOnce(String directoryId, boolean force) {
+        MediaDirectory directory = mediaDirectoryMapper.selectById(directoryId);
+        if (directory == null) {
+            return false;
         }
         markScanning(directory);
         try {
@@ -143,9 +170,11 @@ public class MediaScanServiceImpl implements MediaScanService {
                 case PARTIAL -> updateScanResult(directory, MediaScanStatus.PARTIAL.name(), "部分文件扫描失败");
                 case CANCELLED -> updateScanResult(directory, MediaScanStatus.FAILED.name(), "扫描已中断");
             }
+            return outcome != ScanOutcome.CANCELLED;
         } catch (Exception e) {
             log.error("媒体目录扫描失败: {}", directoryId, e);
             updateScanResult(directory, MediaScanStatus.FAILED.name(), e.getMessage());
+            return false;
         }
     }
 
@@ -182,6 +211,7 @@ public class MediaScanServiceImpl implements MediaScanService {
         MediaType mediaType = MediaType.of(directory.getMediaType());
         Map<String, MediaSeries> seriesCache = new HashMap<>();
         Map<String, MediaSeason> seasonCache = new HashMap<>();
+        Map<String, Integer> seriesYears = new HashMap<>();
         Set<String> touchedSeriesIds = new HashSet<>();
         boolean partial = false;
         Set<String> seenFileNodeIds = new HashSet<>();
@@ -197,6 +227,7 @@ public class MediaScanServiceImpl implements MediaScanService {
                 if (tvLocation == null) {
                     continue;
                 }
+                seriesYears.put(tvLocation.seriesName(), tvLocation.releaseYear());
             }
             seenFileNodeIds.add(file.getId());
             String fileHash = mediaScanSupport.computeFileHash(file, folderFullIdPath, idToName);
@@ -223,7 +254,22 @@ public class MediaScanServiceImpl implements MediaScanService {
         }
         mediaSeriesSupport.recalcMinFileLastModified(touchedSeriesIds);
         mediaSeriesSupport.cleanupOrphans(userId);
+        syncSeriesYears(userId, mediaType, seriesYears, seriesCache);
         return partial ? ScanOutcome.PARTIAL : ScanOutcome.COMPLETED;
+    }
+
+    /**
+     * 回填剧的首播年份（含未变化剧集，覆盖存量数据与剧文件夹改名场景）。
+     */
+    private void syncSeriesYears(String userId, MediaType mediaType, Map<String, Integer> seriesYears,
+                                 Map<String, MediaSeries> seriesCache) {
+        if (mediaType != MediaType.TV || seriesYears.isEmpty()) {
+            return;
+        }
+        for (Map.Entry<String, Integer> entry : seriesYears.entrySet()) {
+            MediaSeries series = mediaSeriesSupport.getOrCreateSeries(userId, entry.getKey(), seriesCache);
+            mediaSeriesSupport.syncReleaseYear(series, entry.getValue());
+        }
     }
 
     private void scanFile(MediaDirectory directory, FileNode file, String fileHash,
@@ -242,29 +288,48 @@ public class MediaScanServiceImpl implements MediaScanService {
             item.setProgressMs(0L);
         }
 
-        fillItemTypeAndSeries(item, mediaType, tvLocation, file, directory.getUserId(), seriesCache, seasonCache,
-                touchedSeriesIds);
+        MediaSeries series = fillItemTypeAndSeries(item, mediaType, tvLocation, file, directory.getUserId(),
+                seriesCache, seasonCache, touchedSeriesIds);
         mediaScanSupport.fillProbeResult(item, file, username, idToName);
-        resetMatchIfNotManual(item, mediaType);
+        boolean matchReset = resetMatchIfNotManual(item, mediaType);
 
         if (existing == null) {
             mediaItemMapper.insert(item);
         } else {
             mediaItemMapper.updateById(item);
+            if (matchReset) {
+                // updateById 忽略 null 字段，条目元数据关联需显式清空
+                clearItemMetadataId(item.getId());
+                if (series != null) {
+                    mediaSeriesSupport.resetMatch(series);
+                }
+            }
         }
     }
 
     /**
-     * 填充条目类型与剧/季归属；返回条目所属的剧（电视目录）。
+     * 显式清空条目的元数据关联（updateById 无法写入 null）。
      */
-    private void fillItemTypeAndSeries(MediaItem item, MediaType mediaType, MediaScanSupport.TvLocation tvLocation,
-                                       FileNode file, String userId,
-                                       Map<String, MediaSeries> seriesCache, Map<String, MediaSeason> seasonCache,
-                                       Set<String> touchedSeriesIds) {
+    private void clearItemMetadataId(String itemId) {
+        mediaItemMapper.update(null, new LambdaUpdateWrapper<MediaItem>()
+                .eq(MediaItem::getId, itemId)
+                .set(MediaItem::getMetadataId, null));
+    }
+
+    /**
+     * 填充条目类型与剧/季归属。
+     *
+     * @return 条目所属的剧（电视目录），其他类型返回 null
+     */
+    private MediaSeries fillItemTypeAndSeries(MediaItem item, MediaType mediaType, MediaScanSupport.TvLocation tvLocation,
+                                              FileNode file, String userId,
+                                              Map<String, MediaSeries> seriesCache, Map<String, MediaSeason> seasonCache,
+                                              Set<String> touchedSeriesIds) {
         switch (mediaType) {
             case MOVIE -> {
                 item.setItemType(MediaItemType.MOVIE.getCode());
                 clearSeriesFields(item);
+                return null;
             }
             case TV -> {
                 item.setItemType(MediaItemType.EPISODE.getCode());
@@ -277,13 +342,16 @@ public class MediaScanServiceImpl implements MediaScanService {
                 item.setSeriesId(series.getId());
                 item.setSeasonId(season.getId());
                 touchedSeriesIds.add(series.getId());
+                return series;
             }
             case OTHER -> {
                 item.setItemType(MediaItemType.OTHER.getCode());
                 clearSeriesFields(item);
                 item.setMatchStatus(MediaMatchStatus.NONE.getCode());
+                return null;
             }
         }
+        return null;
     }
 
     private void clearSeriesFields(MediaItem item) {
@@ -296,16 +364,19 @@ public class MediaScanServiceImpl implements MediaScanService {
 
     /**
      * 变化的条目重置匹配状态：手动修正的保留，其余清空元数据待削刮。
+     *
+     * @return 是否发生了重置
      */
-    private void resetMatchIfNotManual(MediaItem item, MediaType mediaType) {
+    private boolean resetMatchIfNotManual(MediaItem item, MediaType mediaType) {
         if (mediaType == MediaType.OTHER) {
-            return;
+            return false;
         }
         if (MediaMatchStatus.MANUAL.getCode().equals(item.getMatchStatus()) && item.getMetadataId() != null) {
-            return;
+            return false;
         }
         item.setMetadataId(null);
         item.setMatchStatus(MediaMatchStatus.UNMATCHED.getCode());
+        return true;
     }
 
     /**

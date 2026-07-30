@@ -6,6 +6,7 @@ import com.fleyx.jcloud.common.context.CurrentUser;
 import com.fleyx.jcloud.common.context.UserContext;
 import com.fleyx.jcloud.common.enums.MediaMatchStatus;
 import com.fleyx.jcloud.common.enums.MediaScrapeStatus;
+import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.MediaDirectoryMapper;
 import com.fleyx.jcloud.mapper.MediaItemMapper;
 import com.fleyx.jcloud.mapper.MediaSeasonMapper;
@@ -103,7 +104,7 @@ class MediaScrapeServiceTest {
         when(tmdbService.autoMatch(eq("movie"), anyString(), any()))
                 .thenAnswer(inv -> "Iron Man".equals(inv.getArgument(1)) ? metadata : null);
 
-        mediaScrapeService.scrape(directory.getId(), user.getId(), false);
+        scrapeAwaitIdle(directory, user.getId(), false);
 
         MediaItem item = queryItem(directory.getId());
         assertEquals("metamovie0001", item.getMetadataId());
@@ -128,7 +129,7 @@ class MediaScrapeServiceTest {
         item.setMatchStatus(MediaMatchStatus.MANUAL.getCode());
         mediaItemMapper.updateById(item);
 
-        mediaScrapeService.scrape(directory.getId(), user.getId(), true);
+        scrapeAwaitIdle(directory, user.getId(), true);
 
         verify(tmdbService, never()).autoMatch(anyString(), anyString(), any());
         MediaItem after = queryItem(directory.getId());
@@ -156,7 +157,7 @@ class MediaScrapeServiceTest {
         when(tmdbService.getOrFetchSeason(2000L, 1)).thenReturn(seasonMetadata);
         when(tmdbService.findEpisode(2000L, 1, 1)).thenReturn(episodeMetadata);
 
-        mediaScrapeService.scrape(directory.getId(), user.getId(), false);
+        scrapeAwaitIdle(directory, user.getId(), false);
 
         MediaSeries series = mediaSeriesMapper.selectOne(
                 new LambdaQueryWrapper<MediaSeries>().eq(MediaSeries::getUserId, user.getId()));
@@ -186,13 +187,61 @@ class MediaScrapeServiceTest {
 
         when(tmdbService.autoMatch(eq("tv"), anyString(), isNull())).thenReturn(null);
 
-        mediaScrapeService.scrape(directory.getId(), user.getId(), false);
+        scrapeAwaitIdle(directory, user.getId(), false);
 
         MediaSeries series = mediaSeriesMapper.selectOne(
                 new LambdaQueryWrapper<MediaSeries>().eq(MediaSeries::getUserId, user.getId()));
         assertEquals(MediaMatchStatus.UNMATCHED.getCode(), series.getMatchStatus());
         assertNull(series.getMetadataId());
         verify(tmdbService, never()).getOrFetchSeason(any(), any());
+    }
+
+    /**
+     * 电视削刮：使用剧文件夹解析出的首播年份进行匹配。
+     */
+    @Test
+    void shouldScrapeSeriesWithReleaseYear() {
+        UserVo user = prepareUserWithStorageSpace();
+        FileNodeVo tvFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电视");
+        FileNodeVo seriesFolder = createFolder(user.getId(), tvFolder.getId(), "亮剑 (2005)");
+        fileService.upload(buildFile("亮剑.S01E01.mkv"), user.getId(), seriesFolder.getId(), null);
+        MediaDirectory directory = createDirectory(user.getId(), tvFolder.getId(), "tv");
+        mediaScanService.scan(directory.getId());
+
+        MediaSeries series = mediaSeriesMapper.selectOne(
+                new LambdaQueryWrapper<MediaSeries>().eq(MediaSeries::getUserId, user.getId()));
+        assertEquals(2005, series.getReleaseYear());
+
+        MediaMetadata seriesMetadata = buildMetadata("metatv0000002", 3000L);
+        when(tmdbService.autoMatch(eq("tv"), eq("亮剑"), eq(2005))).thenReturn(seriesMetadata);
+
+        scrapeAwaitIdle(directory, user.getId(), false);
+
+        verify(tmdbService).autoMatch("tv", "亮剑", 2005);
+        MediaSeries after = mediaSeriesMapper.selectById(series.getId());
+        assertEquals("metatv0000002", after.getMetadataId());
+        assertEquals(MediaMatchStatus.MATCHED.getCode(), after.getMatchStatus());
+    }
+
+    /**
+     * 扫描完成后会自动提交一次削刮（异步，测试事务内不可见、很快退出），
+     * 显式削刮需等待其释放目录任务锁。
+     */
+    private void scrapeAwaitIdle(MediaDirectory directory, String userId, boolean force) {
+        for (int i = 0; i < 50; i++) {
+            try {
+                mediaScrapeService.scrape(directory.getId(), userId, force);
+                return;
+            } catch (BusinessException e) {
+                try {
+                    Thread.sleep(100);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+            }
+        }
+        mediaScrapeService.scrape(directory.getId(), userId, force);
     }
 
     private MediaMetadata buildMetadata(String id, Long tmdbId) {
