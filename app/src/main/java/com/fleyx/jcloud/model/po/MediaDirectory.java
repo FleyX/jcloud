@@ -8,7 +8,7 @@ import java.io.Serial;
 import java.time.LocalDateTime;
 
 /**
- * 视频媒体库目录实体。
+ * 媒体库实体。
  */
 @Data
 @EqualsAndHashCode(callSuper = true)
@@ -22,11 +22,6 @@ public class MediaDirectory extends BaseEntity {
      * 所属用户 ID。
      */
     private String userId;
-
-    /**
-     * 虚拟文件树文件夹节点 ID。
-     */
-    private String fileNodeId;
 
     /**
      * 显示名。

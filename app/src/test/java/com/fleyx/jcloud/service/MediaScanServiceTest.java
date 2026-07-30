@@ -6,6 +6,7 @@ import com.fleyx.jcloud.common.context.CurrentUser;
 import com.fleyx.jcloud.common.context.UserContext;
 import com.fleyx.jcloud.common.enums.MediaMatchStatus;
 import com.fleyx.jcloud.mapper.MediaDirectoryMapper;
+import com.fleyx.jcloud.mapper.MediaDirectorySourceMapper;
 import com.fleyx.jcloud.mapper.MediaItemMapper;
 import com.fleyx.jcloud.mapper.MediaSeriesMapper;
 import com.fleyx.jcloud.model.dto.FileCreateFolderDto;
@@ -13,6 +14,7 @@ import com.fleyx.jcloud.model.dto.FileRenameDto;
 import com.fleyx.jcloud.model.dto.StorageSpaceSaveDto;
 import com.fleyx.jcloud.model.dto.UserSaveDto;
 import com.fleyx.jcloud.model.po.MediaDirectory;
+import com.fleyx.jcloud.model.po.MediaDirectorySource;
 import com.fleyx.jcloud.model.po.MediaItem;
 import com.fleyx.jcloud.model.po.MediaSeries;
 import com.fleyx.jcloud.model.vo.FileNodeVo;
@@ -29,8 +31,10 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.nio.file.Path;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -60,6 +64,9 @@ class MediaScanServiceTest {
 
     @Autowired
     private MediaDirectoryMapper mediaDirectoryMapper;
+
+    @Autowired
+    private MediaDirectorySourceMapper mediaDirectorySourceMapper;
 
     @Autowired
     private MediaItemMapper mediaItemMapper;
@@ -155,6 +162,46 @@ class MediaScanServiceTest {
         assertEquals(2018, afterSeries.getReleaseYear());
     }
 
+    /**
+     * 多来源目录扫描：两个来源下的文件分别记录所属来源目录；
+     * 同名剧跨来源按用户+剧名唯一合并；相同相对路径与文件名的文件在不同来源下哈希不同。
+     */
+    @Test
+    void shouldScanMultiSourcesAndMergeSameNameSeries() {
+        UserVo user = prepareUserWithStorageSpace();
+        FileNodeVo tvFolderA = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电视A");
+        FileNodeVo seriesFolderA = createFolder(user.getId(), tvFolderA.getId(), "火星生活");
+        FileNodeVo seasonFolderA = createFolder(user.getId(), seriesFolderA.getId(), "s01");
+        fileService.upload(buildFile("火星生活.s01e01.mp4"), user.getId(), seasonFolderA.getId(), null);
+        FileNodeVo tvFolderB = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电视B");
+        FileNodeVo seriesFolderB = createFolder(user.getId(), tvFolderB.getId(), "火星生活");
+        FileNodeVo seasonFolderB = createFolder(user.getId(), seriesFolderB.getId(), "s01");
+        fileService.upload(buildFile("火星生活.s01e01.mp4"), user.getId(), seasonFolderB.getId(), null);
+
+        MediaDirectory directory = createDirectory(user.getId(), tvFolderA.getId());
+        addSource(directory.getId(), tvFolderB.getId());
+        mediaScanService.scan(directory.getId());
+
+        List<MediaItem> items = mediaItemMapper.selectList(new LambdaQueryWrapper<MediaItem>()
+                .eq(MediaItem::getDirectoryId, directory.getId()));
+        assertEquals(2, items.size());
+        // 条目分别归属两个来源目录
+        assertEquals(2, items.stream().map(MediaItem::getSourceId).distinct().count());
+        // 同名剧跨来源合并为一部剧
+        MediaSeries series = querySeries(user.getId());
+        assertEquals("火星生活", series.getSeriesName());
+        assertEquals(2, items.stream().filter(i -> series.getId().equals(i.getSeriesId())).count());
+        // 文件变更哈希带来源目录维度：同相对路径同名的文件在不同来源下哈希不同
+        assertNotEquals(items.get(0).getFileHash(), items.get(1).getFileHash());
+    }
+
+    private void addSource(String directoryId, String folderNodeId) {
+        MediaDirectorySource source = new MediaDirectorySource();
+        source.setDirectoryId(directoryId);
+        source.setFileNodeId(folderNodeId);
+        mediaDirectorySourceMapper.insert(source);
+    }
+
     private MediaSeries querySeries(String userId) {
         return mediaSeriesMapper.selectOne(
                 new LambdaQueryWrapper<MediaSeries>().eq(MediaSeries::getUserId, userId));
@@ -168,10 +215,13 @@ class MediaScanServiceTest {
     private MediaDirectory createDirectory(String userId, String folderNodeId) {
         MediaDirectory directory = new MediaDirectory();
         directory.setUserId(userId);
-        directory.setFileNodeId(folderNodeId);
-        directory.setName("测试目录");
+        directory.setName("测试媒体库");
         directory.setMediaType("tv");
         mediaDirectoryMapper.insert(directory);
+        MediaDirectorySource source = new MediaDirectorySource();
+        source.setDirectoryId(directory.getId());
+        source.setFileNodeId(folderNodeId);
+        mediaDirectorySourceMapper.insert(source);
         return directory;
     }
 

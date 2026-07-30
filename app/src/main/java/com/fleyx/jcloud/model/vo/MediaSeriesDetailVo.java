@@ -71,7 +71,7 @@ public class MediaSeriesDetailVo {
     private String backdropUrl;
 
     /**
-     * 剧集列表（按季集排序）。
+     * 季列表（按季号升序，未知季排最后）。
      */
-    private List<MediaItemVo> episodes;
+    private List<MediaSeriesSeasonVo> seasons;
 }

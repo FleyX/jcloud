@@ -1,7 +1,7 @@
 package com.fleyx.jcloud.common.enums;
 
 /**
- * 媒体目录削刮状态。
+ * 媒体库削刮状态。
  */
 public enum MediaScrapeStatus {
 

@@ -5,7 +5,7 @@
  * - 分页加载（滚动到底自动加载）、排序
  * - 搜索在 MediaSearchModal 内展示结果，点击结果直接播放
  */
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import type { MediaItemVo } from '@/types/media'
 import { fetchMediaOthers } from '@/api/media'
 import PosterCard from './PosterCard.vue'
@@ -13,14 +13,19 @@ import MediaPlayerModal from './MediaPlayerModal.vue'
 import MediaWallToolbar from './MediaWallToolbar.vue'
 import MediaSearchModal from './MediaSearchModal.vue'
 import MediaSearchResultRow from './MediaSearchResultRow.vue'
-import { useMediaWall } from './useMediaWall'
+import { useMediaWall, type MediaWallFetcher } from './useMediaWall'
 import { cn } from '@/utils/cn'
 
 interface Props {
   dense?: boolean
+  /** 限定单个媒体库，为空表示跨库 */
+  directoryId?: string
 }
 
-defineProps<Props>()
+const props = defineProps<Props>()
+
+const fetcher: MediaWallFetcher<MediaItemVo> = (query) =>
+  fetchMediaOthers({ ...query, directoryId: props.directoryId })
 
 const {
   items,
@@ -32,7 +37,14 @@ const {
   setSentinel,
   reload,
   toggleSort,
-} = useMediaWall<MediaItemVo>('others', fetchMediaOthers)
+} = useMediaWall<MediaItemVo>(props.directoryId ? `others:${props.directoryId}` : 'others', fetcher)
+
+watch(
+  () => props.directoryId,
+  (id, prev) => {
+    if (id !== prev) reload()
+  },
+)
 
 const searchOpen = ref(false)
 const playerOpen = ref(false)
@@ -80,7 +92,7 @@ function formatDuration(ms: number | null): string | null {
       v-else-if="items.length === 0"
       class="py-16 text-center text-sm text-surface-400"
     >
-      暂无视频，请先在目录管理中添加其他类型目录
+      暂无视频，请先在目录管理中添加其他类型媒体库并扫描
     </p>
     <template v-else>
       <div
@@ -124,7 +136,7 @@ function formatDuration(ms: number | null): string | null {
     <MediaSearchModal
       :open="searchOpen"
       placeholder="搜索文件名"
-      :fetcher="fetchMediaOthers"
+      :fetcher="fetcher"
       @close="searchOpen = false"
       @select="handlePlay"
     >

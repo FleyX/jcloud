@@ -8,6 +8,12 @@
         FROM t_media_series s
         LEFT JOIN t_media_metadata m ON m.id = s.metadata_id
         WHERE s.user_id = #{userId}
+        <if test="directoryId != null and directoryId != ''">
+          AND EXISTS (
+              SELECT 1 FROM t_media_item i
+              WHERE i.series_id = s.id AND i.directory_id = #{directoryId}
+          )
+        </if>
         <if test="keyword != null and keyword != ''">
           AND (
               s.series_name ILIKE CONCAT('%', #{keyword}, '%')

@@ -15,8 +15,36 @@ export interface SecondaryMenuItem {
 }
 
 /**
+ * 一级模块级布局配置
+ * - routePrefix：模块路由前缀，二级菜单为空时用于路由反查与模块入口跳转
+ * - hideSidebar：隐藏二级菜单（PC 端不渲染左侧边栏，移动端抽屉不展示菜单列表）
+ * - resource：无二级菜单时判断模块可见性所需的权限资源
+ */
+export interface PrimaryModuleOptions {
+  routePrefix?: string
+  hideSidebar?: boolean
+  resource?: string
+}
+
+/**
+ * 一级模块布局配置表（按模块维度配置，不做模块硬编码特例）
+ * 影视模块为 Jellyfin 风单页导航，启用 hideSidebar
+ */
+const primaryModuleOptions: Partial<Record<PrimaryModule, PrimaryModuleOptions>> = {
+  media: { routePrefix: '/media', hideSidebar: true, resource: 'VIEW:/media' },
+}
+
+/**
+ * 指定一级模块是否隐藏二级菜单
+ */
+export function isSidebarHidden(primary: PrimaryModule): boolean {
+  return primaryModuleOptions[primary]?.hideSidebar === true
+}
+
+/**
  * 根据当前路由反查其所属的一级模块
  * - 优先精确匹配，其次匹配以该路由为前缀的子路径
+ * - 无二级菜单匹配时按模块 routePrefix 兜底（如影视模块）
  * - 不匹配不属于任何已知路由的情况
  */
 export function resolvePrimaryModuleByRoute(
@@ -30,6 +58,12 @@ export function resolvePrimaryModuleByRoute(
       if (routePath === route || routePath.startsWith(`${route}/`)) {
         return primary
       }
+    }
+  }
+  for (const [primary, options] of Object.entries(primaryModuleOptions) as [PrimaryModule, PrimaryModuleOptions][]) {
+    const prefix = options.routePrefix
+    if (prefix && (routePath === prefix || routePath.startsWith(`${prefix}/`))) {
+      return primary
     }
   }
   return null
@@ -63,15 +97,8 @@ export const useMenuStore = defineStore('menu', () => {
           { key: 'trash', label: '回收站', route: '/files/trash' },
         ]
       case 'media':
-        if (!userStore.isAdmin && !userStore.hasResource('VIEW:/media')) {
-          return []
-        }
-        return [
-          { key: 'movies', label: '电影', route: '/media/movies' },
-          { key: 'series', label: '电视剧', route: '/media/series' },
-          { key: 'others', label: '其他', route: '/media/others' },
-          { key: 'directories', label: '目录管理', route: '/media/directories' },
-        ]
+        // 影视模块启用 hideSidebar，不再提供二级菜单；可见性由 getPrimaryHomeRoute 的 resource 校验
+        return []
       case 'notes':
         if (!userStore.isAdmin && !userStore.hasResource('VIEW:/notes')) {
           return []
@@ -116,6 +143,27 @@ export const useMenuStore = defineStore('menu', () => {
       menus.push({ key: 'media', label: '影视', route: '/admin/media' })
     }
     return menus
+  }
+
+  /**
+   * 获取一级模块的入口路由
+   * - 优先取第一个二级菜单路由
+   * - 无二级菜单（hideSidebar 模块）时取 routePrefix，并按 resource 校验可见性
+   * - 无权限或未配置时返回 undefined
+   */
+  function getPrimaryHomeRoute(primary: PrimaryModule): string | undefined {
+    const menuRoute = getSecondaryMenusByPrimary(primary)[0]?.route
+    if (menuRoute) {
+      return menuRoute
+    }
+    const options = primaryModuleOptions[primary]
+    if (!options?.routePrefix) {
+      return undefined
+    }
+    if (options.resource && !userStore.isAdmin && !userStore.hasResource(options.resource)) {
+      return undefined
+    }
+    return options.routePrefix
   }
 
   function setPrimary(module: PrimaryModule) {
@@ -168,6 +216,7 @@ export const useMenuStore = defineStore('menu', () => {
     activeSecondary,
     secondaryMenus,
     getSecondaryMenusByPrimary,
+    getPrimaryHomeRoute,
     setPrimary,
     setSecondary,
     syncWithRoute,

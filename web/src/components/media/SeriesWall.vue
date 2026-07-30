@@ -5,7 +5,7 @@
  * - 分页加载（滚动到底自动加载）、排序
  * - 搜索在 MediaSearchModal 内展示结果，点击结果进入详情页
  */
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import type { MediaSeriesVo } from '@/types/media'
 import { fetchMediaSeries } from '@/api/media'
@@ -13,16 +13,22 @@ import PosterCard from './PosterCard.vue'
 import MediaWallToolbar from './MediaWallToolbar.vue'
 import MediaSearchModal from './MediaSearchModal.vue'
 import MediaSearchResultRow from './MediaSearchResultRow.vue'
-import { useMediaWall } from './useMediaWall'
+import { useMediaWall, type MediaWallFetcher } from './useMediaWall'
 import { cn } from '@/utils/cn'
 
 interface Props {
   dense?: boolean
+  /** 限定单个媒体库，为空表示跨库 */
+  directoryId?: string
 }
 
-defineProps<Props>()
+const props = defineProps<Props>()
 
 const router = useRouter()
+
+const fetcher: MediaWallFetcher<MediaSeriesVo> = (query) =>
+  fetchMediaSeries({ ...query, directoryId: props.directoryId })
+
 const {
   items: seriesList,
   loading,
@@ -31,8 +37,16 @@ const {
   sortField,
   sortOrder,
   setSentinel,
+  reload,
   toggleSort,
-} = useMediaWall<MediaSeriesVo>('series', fetchMediaSeries)
+} = useMediaWall<MediaSeriesVo>(props.directoryId ? `series:${props.directoryId}` : 'series', fetcher)
+
+watch(
+  () => props.directoryId,
+  (id, prev) => {
+    if (id !== prev) reload()
+  },
+)
 
 const searchOpen = ref(false)
 
@@ -68,7 +82,7 @@ function resultSubtitle(series: MediaSeriesVo): string {
       v-else-if="seriesList.length === 0"
       class="py-16 text-center text-sm text-surface-400"
     >
-      暂无电视剧，请先在目录管理中添加电视目录
+      暂无电视剧，请先在目录管理中添加电视媒体库并扫描
     </p>
     <template v-else>
       <div
@@ -106,7 +120,7 @@ function resultSubtitle(series: MediaSeriesVo): string {
     <MediaSearchModal
       :open="searchOpen"
       placeholder="搜索剧名、简介"
-      :fetcher="fetchMediaSeries"
+      :fetcher="fetcher"
       @close="searchOpen = false"
       @select="openDetail"
     >

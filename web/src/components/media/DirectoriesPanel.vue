@@ -79,7 +79,7 @@ async function handleConfirm(dto: MediaDirectorySaveDto) {
 
 async function handleDelete(directory: MediaDirectoryVo) {
   const confirmed = await confirmStore.open({
-    title: '删除视频目录',
+    title: '删除媒体库',
     message: `删除「${directory.name}」后其媒体条目将被清空，但不会删除文件。`,
     type: 'danger',
   })
@@ -102,6 +102,10 @@ function typeLabel(type: MediaType): string {
   return { movie: '电影', tv: '电视', other: '其他' }[type]
 }
 
+function sourceNames(directory: MediaDirectoryVo): string {
+  return directory.sources.map((source) => source.folderName).join('、')
+}
+
 function scanStatusLabel(directory: MediaDirectoryVo): string {
   if (!directory.lastScanStatus) return '未扫描'
   return { SCANNING: '扫描中', COMPLETED: '扫描完成', FAILED: '扫描失败', PARTIAL: '部分失败' }[
@@ -122,14 +126,14 @@ function formatScanTime(time: string | null): string {
   <div class="p-4 md:p-6">
     <div class="mb-4 flex items-center justify-between">
       <p class="text-sm text-surface-500">
-        共 {{ directories.length }} 个目录
+        共 {{ directories.length }} 个媒体库
       </p>
       <button
         class="flex items-center gap-1.5 rounded-xl bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700"
         @click="handleAdd"
       >
         <Plus class="h-4 w-4" />
-        新增目录
+        新增媒体库
       </button>
     </div>
 
@@ -143,7 +147,7 @@ function formatScanTime(time: string | null): string {
       v-else-if="directories.length === 0"
       class="py-16 text-center text-sm text-surface-400"
     >
-      尚未添加视频目录
+      尚未添加媒体库
     </p>
 
     <div
@@ -164,6 +168,9 @@ function formatScanTime(time: string | null): string {
             <span class="ml-1 rounded-md bg-surface-100 px-1.5 py-0.5 text-xs text-surface-500">
               {{ typeLabel(directory.mediaType) }}
             </span>
+          </p>
+          <p class="mt-0.5 truncate text-xs text-surface-400">
+            {{ directory.sources.length }} 个来源目录：{{ sourceNames(directory) }}
           </p>
           <p class="mt-0.5 truncate text-xs text-surface-400">
             {{ directory.itemCount }} 个条目 ·

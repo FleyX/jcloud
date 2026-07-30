@@ -16,6 +16,7 @@ import com.fleyx.jcloud.model.dto.MediaProgressUpdateDto;
 import com.fleyx.jcloud.model.po.MediaMetadata;
 import com.fleyx.jcloud.model.po.StorageSpace;
 import com.fleyx.jcloud.model.vo.MediaDirectoryVo;
+import com.fleyx.jcloud.model.vo.MediaHomeVo;
 import com.fleyx.jcloud.model.vo.MediaItemDetailVo;
 import com.fleyx.jcloud.model.vo.MediaItemVo;
 import com.fleyx.jcloud.model.vo.MediaPlaybackInfoVo;
@@ -23,6 +24,7 @@ import com.fleyx.jcloud.model.vo.MediaSeriesDetailVo;
 import com.fleyx.jcloud.model.vo.MediaSeriesVo;
 import com.fleyx.jcloud.model.vo.TmdbSearchResultVo;
 import com.fleyx.jcloud.service.MediaDirectoryService;
+import com.fleyx.jcloud.service.MediaHomeService;
 import com.fleyx.jcloud.service.MediaItemService;
 import com.fleyx.jcloud.service.MediaPlaybackService;
 import com.fleyx.jcloud.service.MediaScanService;
@@ -68,6 +70,7 @@ public class MediaController {
     private final MediaScanService mediaScanService;
     private final MediaScrapeService mediaScrapeService;
     private final MediaItemService mediaItemService;
+    private final MediaHomeService mediaHomeService;
     private final MediaPlaybackService mediaPlaybackService;
     private final TmdbService tmdbService;
     private final MediaMetadataMapper mediaMetadataMapper;
@@ -114,6 +117,11 @@ public class MediaController {
 
     // ---------- 海报墙 ----------
 
+    @GetMapping("/home")
+    public R<MediaHomeVo> home() {
+        return R.ok(mediaHomeService.getHome(UserContext.get().id()));
+    }
+
     @GetMapping("/items/movies")
     public R<IPage<MediaItemVo>> listMovies(MediaPageQueryDto query) {
         return R.ok(mediaItemService.listMovies(UserContext.get().id(), query));
@@ -142,6 +150,11 @@ public class MediaController {
     @GetMapping("/series/{id}/detail")
     public R<MediaSeriesDetailVo> seriesDetail(@PathVariable String id) {
         return R.ok(mediaItemService.getSeriesDetail(id, UserContext.get().id()));
+    }
+
+    @GetMapping("/series/{id}/seasons/{seasonId}/episodes")
+    public R<List<MediaItemVo>> listSeasonEpisodes(@PathVariable String id, @PathVariable String seasonId) {
+        return R.ok(mediaItemService.listSeasonEpisodes(id, seasonId, UserContext.get().id()));
     }
 
     @PutMapping("/items/{id}/match")
