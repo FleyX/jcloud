@@ -26,6 +26,7 @@ import com.fleyx.jcloud.service.MediaDirectoryService;
 import com.fleyx.jcloud.service.MediaItemService;
 import com.fleyx.jcloud.service.MediaPlaybackService;
 import com.fleyx.jcloud.service.MediaScanService;
+import com.fleyx.jcloud.service.MediaScrapeService;
 import com.fleyx.jcloud.service.SystemStorageSpaceProvider;
 import com.fleyx.jcloud.service.TmdbService;
 import com.fleyx.jcloud.service.support.TranscodeSessionManager;
@@ -65,6 +66,7 @@ public class MediaController {
 
     private final MediaDirectoryService mediaDirectoryService;
     private final MediaScanService mediaScanService;
+    private final MediaScrapeService mediaScrapeService;
     private final MediaItemService mediaItemService;
     private final MediaPlaybackService mediaPlaybackService;
     private final TmdbService tmdbService;
@@ -100,6 +102,13 @@ public class MediaController {
     @PostMapping("/directories/{id}/scan")
     public R<Void> scanDirectory(@PathVariable String id) {
         mediaScanService.submitScan(id, UserContext.get().id());
+        return R.ok();
+    }
+
+    @PostMapping("/directories/{id}/scrape")
+    public R<Void> scrapeDirectory(@PathVariable String id,
+                                   @RequestParam(defaultValue = "false") boolean force) {
+        mediaScrapeService.submitScrape(id, UserContext.get().id(), force);
         return R.ok();
     }
 

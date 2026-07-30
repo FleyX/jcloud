@@ -51,6 +51,21 @@ public class MediaDirectoryVo {
     private String lastScanError;
 
     /**
+     * 上次削刮完成时间。
+     */
+    private LocalDateTime lastScrapeTime;
+
+    /**
+     * 上次削刮状态。
+     */
+    private String lastScrapeStatus;
+
+    /**
+     * 上次削刮错误信息。
+     */
+    private String lastScrapeError;
+
+    /**
      * 条目数量。
      */
     private Long itemCount;

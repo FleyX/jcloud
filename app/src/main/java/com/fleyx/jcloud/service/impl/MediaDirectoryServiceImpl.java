@@ -198,6 +198,9 @@ public class MediaDirectoryServiceImpl implements MediaDirectoryService {
         vo.setLastScanTime(directory.getLastScanTime());
         vo.setLastScanStatus(directory.getLastScanStatus());
         vo.setLastScanError(directory.getLastScanError());
+        vo.setLastScrapeTime(directory.getLastScrapeTime());
+        vo.setLastScrapeStatus(directory.getLastScrapeStatus());
+        vo.setLastScrapeError(directory.getLastScrapeError());
         vo.setItemCount(itemCount);
         return vo;
     }

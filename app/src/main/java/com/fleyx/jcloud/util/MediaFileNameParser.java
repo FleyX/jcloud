@@ -145,6 +145,27 @@ public final class MediaFileNameParser {
     }
 
     /**
+     * 从季文件夹名解析季号。
+     *
+     * @param folderName 文件夹名
+     * @return 季号，无法解析返回 null
+     */
+    public static Integer parseSeasonNo(String folderName) {
+        if (folderName == null) {
+            return null;
+        }
+        Matcher seasonMatcher = SEASON_FOLDER_PATTERN.matcher(folderName);
+        if (seasonMatcher.find()) {
+            for (int i = 1; i <= 3; i++) {
+                if (seasonMatcher.group(i) != null) {
+                    return parseNumber(seasonMatcher.group(i));
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
      * 解析数字，支持阿拉伯数字与中文数字（一到九十九）。
      *
      * @param text 数字文本

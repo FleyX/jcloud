@@ -12,13 +12,12 @@ import com.fleyx.jcloud.mapper.UserMapper;
 import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.po.MediaDirectory;
 import com.fleyx.jcloud.model.po.MediaItem;
-import com.fleyx.jcloud.model.po.MediaMetadata;
 import com.fleyx.jcloud.model.po.MediaSeason;
 import com.fleyx.jcloud.model.po.MediaSeries;
 import com.fleyx.jcloud.service.MediaScanService;
-import com.fleyx.jcloud.service.TmdbService;
 import com.fleyx.jcloud.service.support.MediaScanSupport;
 import com.fleyx.jcloud.service.support.MediaSeriesSupport;
+import com.fleyx.jcloud.service.support.MediaTaskSupport;
 import com.fleyx.jcloud.util.FilePathUtil;
 import com.fleyx.jcloud.util.MediaFileNameParser;
 import lombok.extern.slf4j.Slf4j;
@@ -33,15 +32,17 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 媒体库扫描服务实现。
  * <p>
- * 扫描为协作式取消模型：{@link #requestCancel(String)} 仅标记取消，扫描循环逐文件检查；
- * 取消后如存在新的待扫描请求（目录修改触发的重扫），由同一线程接续执行。
+ * 扫描只负责文件事实：按文件变更哈希 diff 存量条目、ffprobe 探测、维护剧/季归属，
+ * 不访问 TMDB（元数据匹配由削刮服务负责）。变化条目的非手动匹配状态会被重置为未匹配。
+ * <p>
+ * 并发模型：扫描与削刮按目录互斥（{@link MediaTaskSupport}），协作式取消，
+ * 同一目录的多次扫描请求通过 {@link #pendingScans} 合并，由单线程循环拾取。
  */
 @Slf4j
 @Service
@@ -51,35 +52,25 @@ public class MediaScanServiceImpl implements MediaScanService {
     private final MediaItemMapper mediaItemMapper;
     private final FileMapper fileMapper;
     private final UserMapper userMapper;
-    private final TmdbService tmdbService;
     private final MediaSeriesSupport mediaSeriesSupport;
     private final MediaScanSupport mediaScanSupport;
+    private final MediaTaskSupport mediaTaskSupport;
     private final TaskExecutor taskExecutor;
 
     public MediaScanServiceImpl(MediaDirectoryMapper mediaDirectoryMapper, MediaItemMapper mediaItemMapper,
                                 FileMapper fileMapper, UserMapper userMapper,
-                                TmdbService tmdbService, MediaSeriesSupport mediaSeriesSupport,
-                                MediaScanSupport mediaScanSupport,
+                                MediaSeriesSupport mediaSeriesSupport, MediaScanSupport mediaScanSupport,
+                                MediaTaskSupport mediaTaskSupport,
                                 @Qualifier("applicationTaskExecutor") TaskExecutor taskExecutor) {
         this.mediaDirectoryMapper = mediaDirectoryMapper;
         this.mediaItemMapper = mediaItemMapper;
         this.fileMapper = fileMapper;
         this.userMapper = userMapper;
-        this.tmdbService = tmdbService;
         this.mediaSeriesSupport = mediaSeriesSupport;
         this.mediaScanSupport = mediaScanSupport;
+        this.mediaTaskSupport = mediaTaskSupport;
         this.taskExecutor = taskExecutor;
     }
-
-    /**
-     * 正在执行扫描循环的目录 ID 集合。
-     */
-    private final Set<String> activeScans = ConcurrentHashMap.newKeySet();
-
-    /**
-     * 已请求取消的目录 ID 集合。
-     */
-    private final Set<String> cancelledScans = ConcurrentHashMap.newKeySet();
 
     /**
      * 待执行的扫描请求（directoryId → 是否强制全量），同目录多次触发会合并。
@@ -105,24 +96,37 @@ public class MediaScanServiceImpl implements MediaScanService {
 
     @Override
     public void requestCancel(String directoryId) {
-        cancelledScans.add(directoryId);
+        mediaTaskSupport.requestCancel(directoryId);
     }
 
     /**
      * 扫描主循环：同一目录只跑一个线程，循环拾取待扫描请求直至清空。
+     * 目录被削刮任务占用时延迟重试。
      */
     private void runLoop(String directoryId) {
-        if (!activeScans.add(directoryId)) {
+        if (!mediaTaskSupport.enter(directoryId, MediaTaskSupport.TASK_SCAN)) {
+            if (pendingScans.containsKey(directoryId)) {
+                log.info("目录任务被占用，延迟重试扫描: {}", directoryId);
+                taskExecutor.execute(() -> {
+                    try {
+                        Thread.sleep(2000);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        return;
+                    }
+                    runLoop(directoryId);
+                });
+            }
             return;
         }
         try {
             Boolean force;
             while ((force = pendingScans.remove(directoryId)) != null) {
-                cancelledScans.remove(directoryId);
+                mediaTaskSupport.clearCancel(directoryId);
                 scanOnce(directoryId, force);
             }
         } finally {
-            activeScans.remove(directoryId);
+            mediaTaskSupport.exit(directoryId, MediaTaskSupport.TASK_SCAN);
         }
     }
 
@@ -176,33 +180,39 @@ public class MediaScanServiceImpl implements MediaScanService {
         }
 
         MediaType mediaType = MediaType.of(directory.getMediaType());
-        Map<String, String> seriesMatchCache = new HashMap<>();
         Map<String, MediaSeries> seriesCache = new HashMap<>();
         Map<String, MediaSeason> seasonCache = new HashMap<>();
         Set<String> touchedSeriesIds = new HashSet<>();
         boolean partial = false;
         Set<String> seenFileNodeIds = new HashSet<>();
         for (FileNode file : videoFiles) {
-            if (cancelledScans.contains(directory.getId())) {
+            if (mediaTaskSupport.isCancelled(directory.getId())) {
                 log.info("目录扫描被中断: {}", directory.getId());
                 return ScanOutcome.CANCELLED;
             }
+            // 电视目录：不符合固定三层结构的文件忽略（存量条目在清理阶段删除）
+            MediaScanSupport.TvLocation tvLocation = null;
+            if (mediaType == MediaType.TV) {
+                tvLocation = mediaScanSupport.resolveTvLocation(file, folderFullIdPath, idToName);
+                if (tvLocation == null) {
+                    continue;
+                }
+            }
             seenFileNodeIds.add(file.getId());
+            String fileHash = mediaScanSupport.computeFileHash(file, folderFullIdPath, idToName);
             MediaItem existing = existingMap.get(file.getId());
-            if (existing != null && !force && mediaScanSupport.unchanged(existing, file)
-                    && seriesLinked(existing, mediaType)
-                    && seriesNameUpToDate(existing, file, folder.getId(), folderFullIdPath, mediaType, idToName)) {
+            if (existing != null && !force && mediaScanSupport.unchanged(existing, fileHash)) {
                 continue;
             }
             try {
-                scanFile(directory, folder.getId(), folderFullIdPath, file, existing, mediaType, idToName,
-                        username, seriesMatchCache, seriesCache, seasonCache, touchedSeriesIds);
+                scanFile(directory, file, fileHash, existing, mediaType, tvLocation, idToName,
+                        username, seriesCache, seasonCache, touchedSeriesIds);
             } catch (Exception e) {
                 log.warn("扫描文件失败: {}, {}", file.getName(), e.getMessage());
                 partial = true;
             }
         }
-        // 清理已消失文件的条目
+        // 清理已消失或被忽略文件的条目
         for (MediaItem item : existingMap.values()) {
             if (!seenFileNodeIds.contains(item.getFileNodeId())) {
                 mediaItemMapper.deleteById(item.getId());
@@ -216,56 +226,26 @@ public class MediaScanServiceImpl implements MediaScanService {
         return partial ? ScanOutcome.PARTIAL : ScanOutcome.COMPLETED;
     }
 
-    /**
-     * 增量跳过的前提：剧集条目必须已挂到剧/季（兼容旧数据）。
-     */
-    private boolean seriesLinked(MediaItem item, MediaType mediaType) {
-        return mediaType != MediaType.TV || item.getSeriesId() != null;
-    }
-
-    /**
-     * 增量跳过的前提：剧集解析出的剧名与条目一致。
-     * 文件移动/重命名不会改变 size 和 mtime，需重新解析剧名兜底，防止剧分组过期。
-     */
-    private boolean seriesNameUpToDate(MediaItem item, FileNode file, String folderId, String folderFullIdPath,
-                                       MediaType mediaType, Map<String, String> idToName) {
-        if (mediaType != MediaType.TV) {
-            return true;
-        }
-        String parentDirName = idToName.get(file.getParentId());
-        String grandParentDirName = mediaScanSupport.findGrandParentDirName(file, folderId, idToName);
-        MediaFileNameParser.ParseResult parsed = MediaFileNameParser.parse(file.getName(), parentDirName, grandParentDirName);
-        String resolved = mediaScanSupport.resolveSeriesName(file, folderFullIdPath, parsed, idToName);
-        return Objects.equals(item.getSeriesName(), resolved);
-    }
-
-    private void scanFile(MediaDirectory directory, String folderId, String folderFullIdPath, FileNode file,
-                          MediaItem existing, MediaType mediaType, Map<String, String> idToName,
-                          String username, Map<String, String> seriesMatchCache,
+    private void scanFile(MediaDirectory directory, FileNode file, String fileHash,
+                          MediaItem existing, MediaType mediaType, MediaScanSupport.TvLocation tvLocation,
+                          Map<String, String> idToName, String username,
                           Map<String, MediaSeries> seriesCache, Map<String, MediaSeason> seasonCache,
                           Set<String> touchedSeriesIds) {
-        String parentDirName = idToName.get(file.getParentId());
-        String grandParentDirName = mediaScanSupport.findGrandParentDirName(file, folderId, idToName);
-        MediaFileNameParser.ParseResult parsed = MediaFileNameParser.parse(file.getName(), parentDirName, grandParentDirName);
-
         MediaItem item = existing == null ? new MediaItem() : existing;
         item.setUserId(directory.getUserId());
         item.setDirectoryId(directory.getId());
         item.setFileNodeId(file.getId());
         item.setFileSize(file.getSize());
         item.setFileLastModified(file.getLastModified());
+        item.setFileHash(fileHash);
         if (item.getProgressMs() == null) {
             item.setProgressMs(0L);
         }
 
-        MediaSeries series = fillItemTypeAndSeries(item, file, folderFullIdPath, mediaType, parsed,
-                idToName, directory.getUserId(), seriesCache, seasonCache);
+        fillItemTypeAndSeries(item, mediaType, tvLocation, file, directory.getUserId(), seriesCache, seasonCache,
+                touchedSeriesIds);
         mediaScanSupport.fillProbeResult(item, file, username, idToName);
-        fillMetadata(item, mediaType, parsed, seriesMatchCache);
-        if (series != null) {
-            mediaSeriesSupport.applySeriesMatch(series, item.getMetadataId());
-            touchedSeriesIds.add(series.getId());
-        }
+        resetMatchIfNotManual(item, mediaType);
 
         if (existing == null) {
             mediaItemMapper.insert(item);
@@ -274,41 +254,36 @@ public class MediaScanServiceImpl implements MediaScanService {
         }
     }
 
-    private MediaSeries fillItemTypeAndSeries(MediaItem item, FileNode file, String folderFullIdPath, MediaType mediaType,
-                                              MediaFileNameParser.ParseResult parsed, Map<String, String> idToName,
-                                              String userId, Map<String, MediaSeries> seriesCache,
-                                              Map<String, MediaSeason> seasonCache) {
+    /**
+     * 填充条目类型与剧/季归属；返回条目所属的剧（电视目录）。
+     */
+    private void fillItemTypeAndSeries(MediaItem item, MediaType mediaType, MediaScanSupport.TvLocation tvLocation,
+                                       FileNode file, String userId,
+                                       Map<String, MediaSeries> seriesCache, Map<String, MediaSeason> seasonCache,
+                                       Set<String> touchedSeriesIds) {
         switch (mediaType) {
             case MOVIE -> {
                 item.setItemType(MediaItemType.MOVIE.getCode());
                 clearSeriesFields(item);
-                return null;
             }
             case TV -> {
                 item.setItemType(MediaItemType.EPISODE.getCode());
-                item.setSeasonNo(parsed.seasonNo());
-                item.setEpisodeNo(parsed.episodeNo());
-                String seriesName = mediaScanSupport.resolveSeriesName(file, folderFullIdPath, parsed, idToName);
-                item.setSeriesName(seriesName);
-                if (seriesName == null) {
-                    item.setSeriesId(null);
-                    item.setSeasonId(null);
-                    return null;
-                }
-                MediaSeries series = mediaSeriesSupport.getOrCreateSeries(userId, seriesName, seriesCache);
-                MediaSeason season = mediaSeriesSupport.getOrCreateSeason(series.getId(), parsed.seasonNo(), seasonCache);
+                Integer episodeNo = MediaFileNameParser.parse(file.getName(), null, null).episodeNo();
+                item.setEpisodeNo(episodeNo);
+                item.setSeasonNo(tvLocation.seasonNo());
+                item.setSeriesName(tvLocation.seriesName());
+                MediaSeries series = mediaSeriesSupport.getOrCreateSeries(userId, tvLocation.seriesName(), seriesCache);
+                MediaSeason season = mediaSeriesSupport.getOrCreateSeason(series.getId(), tvLocation.seasonNo(), seasonCache);
                 item.setSeriesId(series.getId());
                 item.setSeasonId(season.getId());
-                return series;
+                touchedSeriesIds.add(series.getId());
             }
             case OTHER -> {
                 item.setItemType(MediaItemType.OTHER.getCode());
                 clearSeriesFields(item);
                 item.setMatchStatus(MediaMatchStatus.NONE.getCode());
-                return null;
             }
         }
-        return null;
     }
 
     private void clearSeriesFields(MediaItem item) {
@@ -319,33 +294,18 @@ public class MediaScanServiceImpl implements MediaScanService {
         item.setEpisodeNo(null);
     }
 
-    private void fillMetadata(MediaItem item, MediaType mediaType, MediaFileNameParser.ParseResult parsed,
-                              Map<String, String> seriesMatchCache) {
+    /**
+     * 变化的条目重置匹配状态：手动修正的保留，其余清空元数据待削刮。
+     */
+    private void resetMatchIfNotManual(MediaItem item, MediaType mediaType) {
         if (mediaType == MediaType.OTHER) {
             return;
         }
-        // 手动修正的条目保留原匹配
         if (MediaMatchStatus.MANUAL.getCode().equals(item.getMatchStatus()) && item.getMetadataId() != null) {
             return;
         }
-        String title = mediaType == MediaType.TV ? item.getSeriesName() : parsed.title();
-        // 同一部剧在一次扫描内只搜索一次 TMDB
-        String cacheKey = mediaType.getCode() + ":" + title;
-        if (seriesMatchCache.containsKey(cacheKey)) {
-            String metadataId = seriesMatchCache.get(cacheKey);
-            item.setMetadataId(metadataId);
-            item.setMatchStatus(metadataId == null ? MediaMatchStatus.UNMATCHED.getCode() : MediaMatchStatus.MATCHED.getCode());
-            return;
-        }
-        MediaMetadata metadata = tmdbService.autoMatch(mediaType.getCode(), title, parsed.year());
-        if (metadata != null) {
-            item.setMetadataId(metadata.getId());
-            item.setMatchStatus(MediaMatchStatus.MATCHED.getCode());
-        } else {
-            item.setMetadataId(null);
-            item.setMatchStatus(MediaMatchStatus.UNMATCHED.getCode());
-        }
-        seriesMatchCache.put(cacheKey, item.getMetadataId());
+        item.setMetadataId(null);
+        item.setMatchStatus(MediaMatchStatus.UNMATCHED.getCode());
     }
 
     /**
