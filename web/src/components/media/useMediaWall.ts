@@ -1,7 +1,8 @@
 /**
- * 媒体海报墙分页/搜索/排序组合式函数
+ * 媒体海报墙分页/排序组合式函数
  * - 滚动到底自动加载下一页（IntersectionObserver 哨兵）
  * - 排序选择记忆到 localStorage
+ * - 搜索由 MediaSearchModal 独立完成，不再作用于海报墙
  */
 import { onBeforeUnmount, onMounted, ref, watch, type Ref } from 'vue'
 import type { PageResult } from '@/types/auth'
@@ -17,8 +18,6 @@ export function useMediaWall<T>(storageKey: string, fetcher: MediaWallFetcher<T>
   const loading = ref(true)
   const loadingMore = ref(false)
   const finished = ref(false)
-  const keyword = ref('')
-  const searchOpen = ref(false)
   const sortField = ref<MediaWallSortField>('added')
   const sortOrder = ref<'asc' | 'desc'>('desc')
   const sentinel = ref<HTMLElement | null>(null)
@@ -80,7 +79,6 @@ export function useMediaWall<T>(storageKey: string, fetcher: MediaWallFetcher<T>
     return fetcher({
       pageNum: page,
       pageSize: PAGE_SIZE,
-      keyword: keyword.value.trim() || undefined,
       sortField: sortField.value,
       sortOrder: sortOrder.value,
     })
@@ -94,11 +92,6 @@ export function useMediaWall<T>(storageKey: string, fetcher: MediaWallFetcher<T>
       sortOrder.value = 'desc'
     }
     persistSort()
-    reload()
-  }
-
-  function applySearch(value: string) {
-    keyword.value = value.trim()
     reload()
   }
 
@@ -135,14 +128,11 @@ export function useMediaWall<T>(storageKey: string, fetcher: MediaWallFetcher<T>
     loading,
     loadingMore,
     finished,
-    keyword,
-    searchOpen,
     sortField,
     sortOrder,
     sentinel,
     setSentinel,
     reload,
     toggleSort,
-    applySearch,
   }
 }
