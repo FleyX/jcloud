@@ -8,7 +8,7 @@ import java.io.Serial;
 import java.time.LocalDateTime;
 
 /**
- * 视频媒体库目录实体。
+ * 媒体库实体。
  */
 @Data
 @EqualsAndHashCode(callSuper = true)
@@ -22,11 +22,6 @@ public class MediaDirectory extends BaseEntity {
      * 所属用户 ID。
      */
     private String userId;
-
-    /**
-     * 虚拟文件树文件夹节点 ID。
-     */
-    private String fileNodeId;
 
     /**
      * 显示名。
@@ -62,4 +57,19 @@ public class MediaDirectory extends BaseEntity {
      * 上次扫描错误信息。
      */
     private String lastScanError;
+
+    /**
+     * 上次削刮完成时间。
+     */
+    private LocalDateTime lastScrapeTime;
+
+    /**
+     * 上次削刮状态：SCRAPING / COMPLETED / FAILED / PARTIAL。
+     */
+    private String lastScrapeStatus;
+
+    /**
+     * 上次削刮错误信息。
+     */
+    private String lastScrapeError;
 }

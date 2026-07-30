@@ -13,6 +13,7 @@ import com.fleyx.jcloud.model.vo.TmdbSearchResultVo;
 import com.fleyx.jcloud.service.SystemConfigService;
 import com.fleyx.jcloud.service.SystemStorageSpaceProvider;
 import com.fleyx.jcloud.service.TmdbService;
+import com.fleyx.jcloud.util.TmdbMatchScorer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -114,10 +115,94 @@ public class TmdbServiceImpl implements TmdbService {
             if (results.isEmpty()) {
                 return null;
             }
-            return getOrFetch(results.getFirst().getTmdbId(), mediaType);
+            // 对齐 Jellyfin：候选打分选最优，不再盲取第一条
+            TmdbSearchResultVo best = TmdbMatchScorer.pickBest(results, title, year);
+            if (best == null) {
+                log.info("TMDB 候选均低于匹配阈值: title={}, year={}", title, year);
+                return null;
+            }
+            return getOrFetch(best.getTmdbId(), mediaType);
         } catch (Exception e) {
             log.warn("TMDB 自动匹配失败: title={}, year={}, error={}", title, year, e.getMessage());
             return null;
+        }
+    }
+
+    @Override
+    public MediaMetadata getOrFetchSeason(Long seriesTmdbId, Integer seasonNo) {
+        MediaMetadata cached = selectSeasonOrEpisode("season", seriesTmdbId, seasonNo, null);
+        if (cached != null) {
+            return cached;
+        }
+        JsonNode node = requestJson(API_BASE + "/tv/" + seriesTmdbId + "/season/" + seasonNo
+                + "?api_key=" + requireApiKey() + "&language=" + LANGUAGE);
+        MediaMetadata season = new MediaMetadata();
+        season.setMediaType("season");
+        season.setSeriesTmdbId(seriesTmdbId);
+        season.setSeasonNo(seasonNo);
+        season.setTitle(text(node, "name"));
+        season.setOverview(text(node, "overview"));
+        season.setReleaseDate(text(node, "air_date"));
+        season.setVoteAverage(node.path("vote_average").isNumber() ? node.path("vote_average").asDouble() : null);
+        season.setRawJson(node.toString());
+        mediaMetadataMapper.insert(season);
+        season.setPosterPath(downloadImage(text(node, "poster_path"), season.getId(), "poster"));
+        mediaMetadataMapper.updateById(season);
+        upsertEpisodes(seriesTmdbId, seasonNo, node.path("episodes"));
+        return season;
+    }
+
+    @Override
+    public MediaMetadata findEpisode(Long seriesTmdbId, Integer seasonNo, Integer episodeNo) {
+        return selectSeasonOrEpisode("episode", seriesTmdbId, seasonNo, episodeNo);
+    }
+
+    /**
+     * 按季/集键查询元数据缓存。
+     */
+    private MediaMetadata selectSeasonOrEpisode(String mediaType, Long seriesTmdbId, Integer seasonNo, Integer episodeNo) {
+        LambdaQueryWrapper<MediaMetadata> wrapper = new LambdaQueryWrapper<MediaMetadata>()
+                .eq(MediaMetadata::getMediaType, mediaType)
+                .eq(MediaMetadata::getSeriesTmdbId, seriesTmdbId)
+                .eq(MediaMetadata::getSeasonNo, seasonNo);
+        if (episodeNo == null) {
+            wrapper.isNull(MediaMetadata::getEpisodeNo);
+        } else {
+            wrapper.eq(MediaMetadata::getEpisodeNo, episodeNo);
+        }
+        return mediaMetadataMapper.selectOne(wrapper);
+    }
+
+    /**
+     * upsert 一季的所有集元数据（剧照存 poster_path，已有图片不重复下载）。
+     */
+    private void upsertEpisodes(Long seriesTmdbId, Integer seasonNo, JsonNode episodes) {
+        for (JsonNode ep : episodes) {
+            if (!ep.path("episode_number").isInt()) {
+                continue;
+            }
+            int episodeNo = ep.path("episode_number").asInt();
+            MediaMetadata episode = selectSeasonOrEpisode("episode", seriesTmdbId, seasonNo, episodeNo);
+            boolean isNew = episode == null;
+            if (isNew) {
+                episode = new MediaMetadata();
+                episode.setMediaType("episode");
+                episode.setSeriesTmdbId(seriesTmdbId);
+                episode.setSeasonNo(seasonNo);
+                episode.setEpisodeNo(episodeNo);
+            }
+            episode.setTitle(text(ep, "name"));
+            episode.setOverview(text(ep, "overview"));
+            episode.setReleaseDate(text(ep, "air_date"));
+            episode.setVoteAverage(ep.path("vote_average").isNumber() ? ep.path("vote_average").asDouble() : null);
+            episode.setRawJson(ep.toString());
+            if (isNew) {
+                mediaMetadataMapper.insert(episode);
+            }
+            if (episode.getPosterPath() == null) {
+                episode.setPosterPath(downloadImage(text(ep, "still_path"), episode.getId(), "poster"));
+            }
+            mediaMetadataMapper.updateById(episode);
         }
     }
 
@@ -164,6 +249,7 @@ public class TmdbServiceImpl implements TmdbService {
             return;
         }
         List<MediaMetadata> missing = mediaMetadataMapper.selectList(new LambdaQueryWrapper<MediaMetadata>()
+                .in(MediaMetadata::getMediaType, "movie", "tv")
                 .isNull(MediaMetadata::getBackdropPath));
         if (missing.isEmpty()) {
             return;

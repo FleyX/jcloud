@@ -40,6 +40,25 @@ public interface TmdbService {
     MediaMetadata autoMatch(String mediaType, String title, Integer year);
 
     /**
+     * 获取或拉取指定剧某一季的季元数据（全局缓存），并顺带 upsert 该季所有集的元数据。
+     *
+     * @param seriesTmdbId 剧 TMDB ID
+     * @param seasonNo     季号
+     * @return 季元数据
+     */
+    MediaMetadata getOrFetchSeason(Long seriesTmdbId, Integer seasonNo);
+
+    /**
+     * 查找指定集的全局缓存元数据，未削刮过返回 null。
+     *
+     * @param seriesTmdbId 剧 TMDB ID
+     * @param seasonNo     季号
+     * @param episodeNo    集号
+     * @return 集元数据或 null
+     */
+    MediaMetadata findEpisode(Long seriesTmdbId, Integer seasonNo, Integer episodeNo);
+
+    /**
      * 按元数据 ID 重新从 TMDB 拉取并覆盖缓存（含海报与背景图）。
      *
      * @param metadataId 元数据 ID

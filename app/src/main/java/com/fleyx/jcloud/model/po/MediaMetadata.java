@@ -18,14 +18,29 @@ public class MediaMetadata extends BaseEntity {
     private static final long serialVersionUID = 1L;
 
     /**
-     * TMDB 条目 ID。
+     * TMDB 条目 ID，season/episode 类型为空。
      */
     private Long tmdbId;
 
     /**
-     * 类型：movie / tv。
+     * 类型：movie / tv / season / episode。
      */
     private String mediaType;
+
+    /**
+     * 所属剧 TMDB ID，仅 season/episode 类型有效。
+     */
+    private Long seriesTmdbId;
+
+    /**
+     * 季号，仅 season/episode 类型有效。
+     */
+    private Integer seasonNo;
+
+    /**
+     * 集号，仅 episode 类型有效。
+     */
+    private Integer episodeNo;
 
     /**
      * 标题（中文）。

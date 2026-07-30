@@ -29,7 +29,7 @@ const primaryModules: PrimaryModuleItem[] = [
 ]
 
 const availablePrimaryModules = computed(() =>
-  primaryModules.filter((module) => menuStore.getSecondaryMenusByPrimary(module.key).length > 0),
+  primaryModules.filter((module) => menuStore.getPrimaryHomeRoute(module.key) !== undefined),
 )
 
 function handleLogout() {
@@ -39,7 +39,7 @@ function handleLogout() {
 
 function handlePrimaryClick(module: PrimaryModule) {
   menuStore.setPrimary(module)
-  const targetRoute = menuStore.secondaryMenus[0]?.route
+  const targetRoute = menuStore.getPrimaryHomeRoute(module)
   if (targetRoute) {
     router.push(targetRoute)
   }

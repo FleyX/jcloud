@@ -1,6 +1,8 @@
 package com.fleyx.jcloud.service;
 
+import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.fleyx.jcloud.model.dto.MediaMatchUpdateDto;
+import com.fleyx.jcloud.model.dto.MediaPageQueryDto;
 import com.fleyx.jcloud.model.dto.MediaProgressUpdateDto;
 import com.fleyx.jcloud.model.vo.MediaItemDetailVo;
 import com.fleyx.jcloud.model.vo.MediaItemVo;
@@ -15,37 +17,40 @@ import java.util.List;
 public interface MediaItemService {
 
     /**
-     * 查询电影条目（海报墙）。
+     * 分页查询电影条目（海报墙）。
      *
      * @param userId 用户 ID
-     * @return 电影条目列表
+     * @param query  分页/搜索/排序参数
+     * @return 电影条目分页
      */
-    List<MediaItemVo> listMovies(String userId);
+    IPage<MediaItemVo> listMovies(String userId, MediaPageQueryDto query);
 
     /**
-     * 查询电视剧聚合列表（海报墙）。
+     * 分页查询电视剧列表（海报墙，按剧）。
      *
      * @param userId 用户 ID
-     * @return 剧集列表
+     * @param query  分页/搜索/排序参数
+     * @return 电视剧分页
      */
-    List<MediaSeriesVo> listSeries(String userId);
+    IPage<MediaSeriesVo> listSeries(String userId, MediaPageQueryDto query);
 
     /**
      * 查询某部剧的所有剧集。
      *
-     * @param seriesName 剧名
-     * @param userId     用户 ID
+     * @param seriesId 电视剧 ID
+     * @param userId   用户 ID
      * @return 剧集条目列表
      */
-    List<MediaItemVo> listEpisodes(String seriesName, String userId);
+    List<MediaItemVo> listEpisodes(String seriesId, String userId);
 
     /**
-     * 查询其他类型条目。
+     * 分页查询其他类型条目。
      *
      * @param userId 用户 ID
-     * @return 条目列表
+     * @param query  分页/搜索/排序参数
+     * @return 条目分页
      */
-    List<MediaItemVo> listOthers(String userId);
+    IPage<MediaItemVo> listOthers(String userId, MediaPageQueryDto query);
 
     /**
      * 手动修正条目匹配。
@@ -85,11 +90,21 @@ public interface MediaItemService {
     MediaItemDetailVo getItemDetail(String itemId, String userId);
 
     /**
-     * 查询电视剧详情（详情页，含剧集列表）。
+     * 查询电视剧详情（详情页，含季卡片列表，不含全量剧集）。
      *
-     * @param seriesName 剧名
-     * @param userId     用户 ID
+     * @param seriesId 电视剧 ID
+     * @param userId   用户 ID
      * @return 电视剧详情
      */
-    MediaSeriesDetailVo getSeriesDetail(String seriesName, String userId);
+    MediaSeriesDetailVo getSeriesDetail(String seriesId, String userId);
+
+    /**
+     * 查询某部剧指定季的剧集列表（详情页按季懒加载）。
+     *
+     * @param seriesId 电视剧 ID
+     * @param seasonId 季 ID
+     * @param userId   用户 ID
+     * @return 剧集条目列表（按集号升序）
+     */
+    List<MediaItemVo> listSeasonEpisodes(String seriesId, String seasonId, String userId);
 }

@@ -3,7 +3,7 @@ import type { RouteRecordRaw } from 'vue-router'
 import { useUserStore } from '@/store/user'
 import { deviceView } from '@/utils/device'
 
-type RouteName = 'Login' | 'Register' | 'NotFound' | 'Forbidden' | 'Init' | 'Files' | 'Trash' | 'Share' | 'RemoteMount' | 'UserManagement' | 'RoleManagement' | 'StorageSpaceManagement' | 'AdminMediaSettings' | 'PersonProfile' | 'PersonWebDav' | 'MediaMovies' | 'MediaSeries' | 'MediaOthers' | 'MediaDirectories' | 'MediaMovieDetail' | 'MediaSeriesDetail' | 'MediaPlay'
+type RouteName = 'Login' | 'Register' | 'NotFound' | 'Forbidden' | 'Init' | 'Files' | 'Trash' | 'Share' | 'RemoteMount' | 'UserManagement' | 'RoleManagement' | 'StorageSpaceManagement' | 'AdminMediaSettings' | 'PersonProfile' | 'PersonWebDav' | 'MediaHome' | 'MediaLibrary' | 'MediaDirectories' | 'MediaMovieDetail' | 'MediaSeriesDetail' | 'MediaPlay'
 
 /**
  * 公开静态路由
@@ -103,22 +103,16 @@ const dynamicRoutes: RouteRecordRaw[] = [
     redirect: '/person/remote-mounts',
   },
   {
-    path: '/media/movies',
-    name: 'MediaMovies' as RouteName,
-    component: deviceView('media/movies'),
-    meta: { resource: 'VIEW:/media', title: '电影' },
+    path: '/media',
+    name: 'MediaHome' as RouteName,
+    component: deviceView('media/home'),
+    meta: { resource: 'VIEW:/media', title: '影视' },
   },
   {
-    path: '/media/series',
-    name: 'MediaSeries' as RouteName,
-    component: deviceView('media/series'),
-    meta: { resource: 'VIEW:/media', title: '电视剧' },
-  },
-  {
-    path: '/media/others',
-    name: 'MediaOthers' as RouteName,
-    component: deviceView('media/others'),
-    meta: { resource: 'VIEW:/media', title: '其他视频' },
+    path: '/media/libraries/:id',
+    name: 'MediaLibrary' as RouteName,
+    component: deviceView('media/library'),
+    meta: { resource: 'VIEW:/media', title: '媒体库' },
   },
   {
     path: '/media/directories',
@@ -133,7 +127,7 @@ const dynamicRoutes: RouteRecordRaw[] = [
     meta: { resource: 'VIEW:/media', title: '电影详情' },
   },
   {
-    path: '/media/series/:seriesName',
+    path: '/media/series/:id',
     name: 'MediaSeriesDetail' as RouteName,
     component: deviceView('media/series-detail'),
     meta: { resource: 'VIEW:/media', title: '电视剧详情' },
@@ -144,9 +138,18 @@ const dynamicRoutes: RouteRecordRaw[] = [
     component: deviceView('media/play'),
     meta: { resource: 'VIEW:/media', title: '播放', standalone: true },
   },
+  // 旧路径重定向，保持兼容
   {
-    path: '/media',
-    redirect: '/media/movies',
+    path: '/media/movies',
+    redirect: '/media',
+  },
+  {
+    path: '/media/series',
+    redirect: '/media',
+  },
+  {
+    path: '/media/others',
+    redirect: '/media',
   },
   {
     path: '/admin/users',

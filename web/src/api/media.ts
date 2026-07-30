@@ -1,9 +1,12 @@
 import { del, get, post, put } from './request'
+import type { PageResult } from '@/types/auth'
 import type {
   MediaDirectorySaveDto,
   MediaDirectoryVo,
+  MediaHomeVo,
   MediaItemDetailVo,
   MediaItemVo,
+  MediaPageQuery,
   MediaPlaybackInfoVo,
   MediaSeriesDetailVo,
   MediaSeriesVo,
@@ -45,22 +48,30 @@ export function scanMediaDirectory(id: string): Promise<void> {
   return post<void>(`/media/directories/${id}/scan`)
 }
 
+export function scrapeMediaDirectory(id: string, force = false): Promise<void> {
+  return post<void>(`/media/directories/${id}/scrape?force=${force}`)
+}
+
 // ---------- 海报墙 ----------
 
-export function fetchMediaMovies(): Promise<MediaItemVo[]> {
-  return get<MediaItemVo[]>('/media/items/movies')
+export function fetchMediaHome(): Promise<MediaHomeVo> {
+  return get<MediaHomeVo>('/media/home')
 }
 
-export function fetchMediaSeries(): Promise<MediaSeriesVo[]> {
-  return get<MediaSeriesVo[]>('/media/items/series')
+export function fetchMediaMovies(query: MediaPageQuery): Promise<PageResult<MediaItemVo>> {
+  return get<PageResult<MediaItemVo>>('/media/items/movies', query as Record<string, unknown>)
 }
 
-export function fetchMediaEpisodes(seriesName: string): Promise<MediaItemVo[]> {
-  return get<MediaItemVo[]>('/media/items/series/episodes', { seriesName })
+export function fetchMediaSeries(query: MediaPageQuery): Promise<PageResult<MediaSeriesVo>> {
+  return get<PageResult<MediaSeriesVo>>('/media/items/series', query as Record<string, unknown>)
 }
 
-export function fetchMediaOthers(): Promise<MediaItemVo[]> {
-  return get<MediaItemVo[]>('/media/items/others')
+export function fetchMediaEpisodes(seriesId: string): Promise<MediaItemVo[]> {
+  return get<MediaItemVo[]>(`/media/items/series/${seriesId}/episodes`)
+}
+
+export function fetchMediaOthers(query: MediaPageQuery): Promise<PageResult<MediaItemVo>> {
+  return get<PageResult<MediaItemVo>>('/media/items/others', query as Record<string, unknown>)
 }
 
 // ---------- 匹配与进度 ----------
@@ -107,8 +118,12 @@ export function fetchItemDetail(id: string): Promise<MediaItemDetailVo> {
   return get<MediaItemDetailVo>(`/media/items/${id}/detail`)
 }
 
-export function fetchSeriesDetail(seriesName: string): Promise<MediaSeriesDetailVo> {
-  return get<MediaSeriesDetailVo>('/media/series/detail', { seriesName })
+export function fetchSeriesDetail(id: string): Promise<MediaSeriesDetailVo> {
+  return get<MediaSeriesDetailVo>(`/media/series/${id}/detail`)
+}
+
+export function fetchSeasonEpisodes(seriesId: string, seasonId: string): Promise<MediaItemVo[]> {
+  return get<MediaItemVo[]>(`/media/series/${seriesId}/seasons/${seasonId}/episodes`)
 }
 
 export function refreshMetadata(id: string): Promise<void> {

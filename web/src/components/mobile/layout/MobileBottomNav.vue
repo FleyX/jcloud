@@ -37,8 +37,7 @@ const primaryModules: Array<{ key: PrimaryModule; label: string; icon: Component
 const tabs = computed<TabItem[]>(() =>
   primaryModules
     .map((module) => {
-      const menus = menuStore.getSecondaryMenusByPrimary(module.key)
-      const targetRoute = menus[0]?.route
+      const targetRoute = menuStore.getPrimaryHomeRoute(module.key)
       return targetRoute ? { ...module, route: targetRoute } : null
     })
     .filter((item): item is TabItem => item !== null),

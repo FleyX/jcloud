@@ -4,7 +4,8 @@
  * PC/移动端共用
  */
 import { computed } from 'vue'
-import { Film, Pencil, Play, RotateCcw, RefreshCw, Star } from '@lucide/vue'
+import { useRouter } from 'vue-router'
+import { ArrowLeft, Film, Pencil, Play, RotateCcw, RefreshCw, Star } from '@lucide/vue'
 import { withToken } from '@/api/media'
 import { formatDurationText, formatPosition } from './format'
 
@@ -44,6 +45,17 @@ const durationText = computed(() => formatDurationText(props.durationMs))
 const ratingText = computed(() =>
   props.voteAverage != null && props.voteAverage > 0 ? props.voteAverage.toFixed(1) : null,
 )
+
+const router = useRouter()
+
+/** 返回上一页，无历史时回影视首页 */
+function goBack() {
+  if (window.history.state?.back) {
+    router.back()
+  } else {
+    router.push('/media')
+  }
+}
 </script>
 
 <template>
@@ -59,6 +71,15 @@ const ratingText = computed(() =>
         >
         <div class="absolute inset-0 bg-gradient-to-t from-surface-950 via-surface-950/60 to-surface-950/20" />
       </div>
+
+      <!-- 返回按钮 -->
+      <button
+        class="absolute left-4 top-4 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-black/30 text-white backdrop-blur-sm transition-colors hover:bg-black/50 md:left-6 md:top-6"
+        title="返回"
+        @click="goBack"
+      >
+        <ArrowLeft class="h-5 w-5" />
+      </button>
 
       <div class="relative flex flex-col gap-4 px-4 pb-6 pt-16 md:flex-row md:items-end md:gap-8 md:px-10 md:pt-32">
         <!-- 海报 -->

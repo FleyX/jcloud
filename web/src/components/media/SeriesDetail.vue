@@ -1,14 +1,15 @@
 <script setup lang="ts">
 /**
  * 电视剧详情页（PC/移动端共用）
- * - 头部播放按钮定位到「下一集待看」
- * - 剧集列表点击即播
+ * - 默认季卡片网格；点击季卡片进入该季剧集列表态，顶部可返回季列表
+ * - 页内状态用路由 query ?season={seasonId} 保持（兼容首页「接下来」传入的 seasonNo）
+ * - 季剧集按季懒加载并缓存；头部播放按钮定位到「下一集待看」
  */
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { LoaderCircle } from '@lucide/vue'
-import type { MediaItemVo, MediaSeriesDetailVo, TmdbSearchResultVo } from '@/types/media'
-import { fetchSeriesDetail, refreshMetadata, updateSeriesMatch } from '@/api/media'
+import { ArrowLeft, LoaderCircle, Tv } from '@lucide/vue'
+import type { MediaItemVo, MediaSeriesDetailVo, MediaSeriesSeasonVo, TmdbSearchResultVo } from '@/types/media'
+import { fetchSeasonEpisodes, fetchSeriesDetail, refreshMetadata, updateSeriesMatch, withToken } from '@/api/media'
 import { useNotificationStore } from '@/store/notification'
 import { formatDurationText } from './format'
 import MediaDetailHero from './MediaDetailHero.vue'
@@ -18,17 +19,27 @@ const route = useRoute()
 const router = useRouter()
 const notificationStore = useNotificationStore()
 
-const seriesName = route.params.seriesName as string
+const seriesId = route.params.id as string
 const detail = ref<MediaSeriesDetailVo | null>(null)
 const loading = ref(true)
 const matchOpen = ref(false)
+
+/** 当前处于剧集态的季（null = 季网格态） */
+const activeSeason = ref<MediaSeriesSeasonVo | null>(null)
+/** 各季剧集缓存：seasonId -> episodes */
+const episodesCache = new Map<string, MediaItemVo[]>()
+const episodes = ref<MediaItemVo[]>([])
+const episodesLoading = ref(false)
+const heroPlaying = ref(false)
 
 onMounted(load)
 
 async function load() {
   loading.value = true
   try {
-    detail.value = await fetchSeriesDetail(seriesName)
+    detail.value = await fetchSeriesDetail(seriesId)
+    episodesCache.clear()
+    syncSeasonFromQuery()
   } finally {
     loading.value = false
   }
@@ -37,17 +48,93 @@ async function load() {
 const unmatched = computed(() => detail.value?.matchStatus === 'unmatched')
 
 /**
+ * 解析 ?season= 查询：优先按 seasonId 精确匹配，
+ * 兼容首页「接下来」跳转传入的 seasonNo（详情页会规范化为 seasonId）
+ */
+function resolveSeason(query: unknown): MediaSeriesSeasonVo | null {
+  const raw = Array.isArray(query) ? query[0] : query
+  if (raw == null || raw === '') return null
+  const seasons = detail.value?.seasons ?? []
+  const byId = seasons.find((season) => season.seasonId === raw)
+  if (byId) return byId
+  const seasonNo = Number(raw)
+  if (Number.isInteger(seasonNo)) {
+    return seasons.find((season) => season.seasonNo === seasonNo) ?? null
+  }
+  return null
+}
+
+/** 路由 query 变化（刷新/回退/外部跳转）时同步季状态 */
+watch(() => route.query.season, syncSeasonFromQuery)
+
+function syncSeasonFromQuery() {
+  if (!detail.value) return
+  const season = resolveSeason(route.query.season)
+  activeSeason.value = season
+  if (season) {
+    // 规范化为 seasonId，刷新后状态稳定
+    if (route.query.season !== season.seasonId) {
+      router.replace({ query: { ...route.query, season: season.seasonId } })
+    }
+    void loadEpisodes(season)
+  } else {
+    episodes.value = []
+  }
+}
+
+async function loadEpisodes(season: MediaSeriesSeasonVo, force = false) {
+  if (!force && episodesCache.has(season.seasonId)) {
+    episodes.value = episodesCache.get(season.seasonId) ?? []
+    return
+  }
+  episodesLoading.value = true
+  try {
+    const list = await ensureEpisodes(season)
+    if (activeSeason.value?.seasonId === season.seasonId) {
+      episodes.value = list
+    }
+  } finally {
+    episodesLoading.value = false
+  }
+}
+
+async function ensureEpisodes(season: MediaSeriesSeasonVo): Promise<MediaItemVo[]> {
+  const cached = episodesCache.get(season.seasonId)
+  if (cached) return cached
+  const list = await fetchSeasonEpisodes(seriesId, season.seasonId)
+  episodesCache.set(season.seasonId, list)
+  return list
+}
+
+function openSeason(season: MediaSeriesSeasonVo) {
+  router.replace({ query: { ...route.query, season: season.seasonId } })
+}
+
+function backToSeasons() {
+  const query = { ...route.query }
+  delete query.season
+  router.replace({ query })
+}
+
+function seasonTitle(season: MediaSeriesSeasonVo): string {
+  return season.seasonNo != null ? `第 ${season.seasonNo} 季` : '未知季'
+}
+
+/**
  * 下一集待看：第一集未看到 95% 的集，全部看完则为第一集
  */
-const nextUp = computed<MediaItemVo | null>(() => {
-  const episodes = detail.value?.episodes ?? []
-  if (episodes.length === 0) return null
-  return episodes.find((e) => {
-    if (!e.progressMs || e.progressMs <= 0) return true
-    if (!e.durationMs || e.durationMs <= 0) return false
-    return e.progressMs < e.durationMs * 0.95
-  }) ?? episodes[0]
-})
+function findNextUp(list: MediaItemVo[]): MediaItemVo | null {
+  if (list.length === 0) return null
+  return list.find((episode) => {
+    if (!episode.progressMs || episode.progressMs <= 0) return true
+    if (!episode.durationMs || episode.durationMs <= 0) return false
+    return episode.progressMs < episode.durationMs * 0.95
+  }) ?? list[0]
+}
+
+/** 季剧集态下的下一集待看（驱动 Hero 续播显示） */
+const seasonNextUp = computed(() => (activeSeason.value ? findNextUp(episodes.value) : null))
+const continueMs = computed(() => seasonNextUp.value?.progressMs ?? 0)
 
 function episodeLabel(episode: MediaItemVo): string {
   if (episode.seasonNo != null && episode.episodeNo != null) {
@@ -61,9 +148,27 @@ function progressPercent(episode: MediaItemVo): number {
   return Math.min(100, Math.round((episode.progressMs / episode.durationMs) * 100))
 }
 
-function handleHeroPlay(startMs: number) {
-  if (nextUp.value) {
-    playEpisode(nextUp.value, startMs)
+/**
+ * Hero 播放：季剧集态播放当前季 nextUp；
+ * 季网格态取首个有观看进度的季（无则第一季），懒加载其剧集后定位 nextUp
+ */
+async function handleHeroPlay(startMs: number) {
+  const seasons = detail.value?.seasons ?? []
+  if (seasons.length === 0 || heroPlaying.value) return
+  heroPlaying.value = true
+  try {
+    let target: MediaItemVo | null
+    if (activeSeason.value) {
+      target = findNextUp(episodes.value)
+    } else {
+      const season = seasons.find((s) => s.hasProgress) ?? seasons[0]
+      target = findNextUp(await ensureEpisodes(season))
+    }
+    if (target) {
+      playEpisode(target, startMs)
+    }
+  } finally {
+    heroPlaying.value = false
   }
 }
 
@@ -77,7 +182,8 @@ function playEpisode(episode: MediaItemVo, startMs?: number) {
 }
 
 async function handleMatched(result: TmdbSearchResultVo) {
-  await updateSeriesMatch(seriesName, result.tmdbId)
+  if (!detail.value) return
+  await updateSeriesMatch(detail.value.seriesName, result.tmdbId)
   matchOpen.value = false
   await load()
 }
@@ -109,52 +215,133 @@ async function handleRefresh() {
         :genres="detail.genres"
         :overview="detail.overview"
         :unmatched="unmatched"
-        :continue-ms="nextUp?.progressMs ?? 0"
+        :continue-ms="continueMs"
         :show-refresh="!!detail.metadataId"
         @play="handleHeroPlay"
         @rematch="matchOpen = true"
         @refresh="handleRefresh"
       />
 
-      <!-- 剧集列表 -->
       <div class="mt-6 px-4 pb-8 md:px-10">
-        <h2 class="mb-3 text-base font-semibold text-surface-900">
-          剧集（{{ detail.episodes.length }}）
-        </h2>
-        <div class="divide-y divide-surface-100 rounded-2xl border border-surface-100">
-          <button
-            v-for="episode in detail.episodes"
-            :key="episode.id"
-            class="flex w-full items-center gap-4 px-4 py-3 text-left transition-colors hover:bg-surface-50"
-            @click="playEpisode(episode)"
-          >
-            <span class="w-16 shrink-0 rounded-lg bg-surface-100 px-2 py-1 text-center text-xs font-semibold text-surface-600">
-              {{ episodeLabel(episode) }}
-            </span>
-            <div class="min-w-0 flex-1">
-              <p class="truncate text-sm font-medium text-surface-800">
-                {{ episode.fileName }}
+        <!-- 季卡片网格 -->
+        <template v-if="!activeSeason">
+          <h2 class="mb-3 text-base font-semibold text-surface-900">
+            季（{{ detail.seasons.length }}）
+          </h2>
+          <div class="grid grid-cols-3 gap-3 md:grid-cols-5 md:gap-4 xl:grid-cols-6">
+            <button
+              v-for="season in detail.seasons"
+              :key="season.seasonId"
+              class="group text-left"
+              @click="openSeason(season)"
+            >
+              <div class="relative aspect-[2/3] w-full overflow-hidden rounded-2xl bg-surface-100 shadow-soft transition-transform group-hover:scale-[1.02]">
+                <img
+                  v-if="season.posterUrl"
+                  :src="withToken(season.posterUrl)"
+                  :alt="seasonTitle(season)"
+                  loading="lazy"
+                  class="h-full w-full object-cover"
+                >
+                <div
+                  v-else
+                  class="flex h-full w-full flex-col items-center justify-center gap-1 text-surface-300"
+                >
+                  <Tv class="h-10 w-10" />
+                  <span class="text-xs text-surface-400">{{ seasonTitle(season) }}</span>
+                </div>
+                <span
+                  v-if="season.hasProgress"
+                  class="absolute left-2 top-2 rounded-lg bg-primary-600/90 px-1.5 py-0.5 text-xs font-medium text-white"
+                >
+                  在看
+                </span>
+              </div>
+              <p class="mt-2 px-0.5 text-sm font-medium text-surface-800">
+                {{ seasonTitle(season) }}
               </p>
-              <div class="mt-1 flex items-center gap-2">
+              <p class="px-0.5 text-xs text-surface-400">
+                共 {{ season.episodeCount }} 集
+              </p>
+            </button>
+          </div>
+        </template>
+
+        <!-- 季剧集列表 -->
+        <template v-else>
+          <div class="mb-3 flex items-center gap-2">
+            <button
+              class="flex items-center gap-1 rounded-xl border border-surface-200 bg-white px-3 py-1.5 text-sm font-medium text-surface-600 shadow-sm hover:bg-surface-50 hover:text-primary-600"
+              @click="backToSeasons"
+            >
+              <ArrowLeft class="h-4 w-4" />
+              返回季列表
+            </button>
+            <h2 class="text-base font-semibold text-surface-900">
+              {{ seasonTitle(activeSeason) }}（{{ activeSeason.episodeCount }} 集）
+            </h2>
+          </div>
+
+          <p
+            v-if="episodesLoading"
+            class="flex items-center justify-center gap-2 py-12 text-sm text-surface-400"
+          >
+            <LoaderCircle class="h-4 w-4 animate-spin" />加载中…
+          </p>
+          <div
+            v-else
+            class="divide-y divide-surface-100 rounded-2xl border border-surface-100"
+          >
+            <button
+              v-for="episode in episodes"
+              :key="episode.id"
+              class="flex w-full items-center gap-3 px-3 py-3 text-left transition-colors hover:bg-surface-50 md:gap-4 md:px-4"
+              @click="playEpisode(episode)"
+            >
+              <div class="relative aspect-video w-24 shrink-0 overflow-hidden rounded-xl bg-surface-100 md:w-32">
+                <img
+                  v-if="episode.posterUrl"
+                  :src="withToken(episode.posterUrl)"
+                  :alt="episode.title"
+                  loading="lazy"
+                  class="h-full w-full object-cover"
+                >
+                <span
+                  v-else
+                  class="flex h-full w-full items-center justify-center text-xs font-semibold text-surface-500"
+                >
+                  {{ episodeLabel(episode) }}
+                </span>
+                <span
+                  v-if="episode.posterUrl"
+                  class="absolute bottom-1 left-1 rounded bg-black/60 px-1 py-0.5 text-[10px] font-semibold text-white"
+                >
+                  {{ episodeLabel(episode) }}
+                </span>
                 <div
                   v-if="progressPercent(episode) > 0"
-                  class="h-1 w-24 overflow-hidden rounded-full bg-surface-100"
+                  class="absolute bottom-0 left-0 h-0.5 w-full bg-black/40"
                 >
                   <div
                     class="h-full bg-primary-500"
                     :style="{ width: `${progressPercent(episode)}%` }"
                   />
                 </div>
+              </div>
+              <div class="min-w-0 flex-1">
+                <p class="truncate text-sm font-medium text-surface-800">
+                  {{ episode.title }}
+                </p>
                 <span
                   v-if="formatDurationText(episode.durationMs)"
-                  class="text-xs text-surface-400"
+                  class="mt-1 inline-block text-xs text-surface-400"
                 >
                   {{ formatDurationText(episode.durationMs) }}
                 </span>
               </div>
-            </div>
-          </button>
-        </div>
+            </button>
+          </div>
+        </template>
       </div>
     </template>
 

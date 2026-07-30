@@ -160,8 +160,6 @@ const className = cn('base-class', isActive && 'active-class')
 
 **全程使用中文交互**
 
-**禁止使用subagent**
-
 ### Issue tracker
 
 使用 GitHub Issues，通过 `gh` CLI 操作。详见 `docs/agents/issue-tracker.md`。
