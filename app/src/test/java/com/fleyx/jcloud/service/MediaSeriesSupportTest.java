@@ -123,6 +123,45 @@ class MediaSeriesSupportTest {
         assertNull(mediaSeasonMapper.selectById(orphanSeason.getId()));
     }
 
+    @Test
+    void testSyncReleaseYear() {
+        MediaSeries series = mediaSeriesSupport.getOrCreateSeries(USER_ID, "年份剧", null);
+        assertNull(series.getReleaseYear());
+
+        mediaSeriesSupport.syncReleaseYear(series, 2018);
+        assertEquals(2018, mediaSeriesMapper.selectById(series.getId()).getReleaseYear());
+
+        // 可回写 null（文件夹名去掉年份）
+        mediaSeriesSupport.syncReleaseYear(series, null);
+        assertNull(mediaSeriesMapper.selectById(series.getId()).getReleaseYear());
+    }
+
+    @Test
+    void testResetMatch() {
+        MediaSeries series = mediaSeriesSupport.getOrCreateSeries(USER_ID, "重置剧", null);
+        mediaSeriesSupport.applySeriesMatch(series, "meta-reset-1");
+
+        mediaSeriesSupport.resetMatch(series);
+
+        MediaSeries after = mediaSeriesMapper.selectById(series.getId());
+        assertEquals(MediaMatchStatus.UNMATCHED.getCode(), after.getMatchStatus());
+        assertNull(after.getMetadataId());
+    }
+
+    @Test
+    void testResetMatchKeepsManual() {
+        MediaSeries series = mediaSeriesSupport.getOrCreateSeries(USER_ID, "手动重置剧", null);
+        mediaSeriesSupport.applySeriesMatch(series, "meta-reset-2");
+        series.setMatchStatus(MediaMatchStatus.MANUAL.getCode());
+        mediaSeriesMapper.updateById(series);
+
+        mediaSeriesSupport.resetMatch(series);
+
+        MediaSeries after = mediaSeriesMapper.selectById(series.getId());
+        assertEquals(MediaMatchStatus.MANUAL.getCode(), after.getMatchStatus());
+        assertEquals("meta-reset-2", after.getMetadataId());
+    }
+
     private void insertEpisode(String seriesId, String fileNodeId, long fileLastModified) {
         MediaItem item = new MediaItem();
         item.setUserId(USER_ID);

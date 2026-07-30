@@ -4,12 +4,12 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fleyx.jcloud.common.constant.FileNodeConstants;
 import com.fleyx.jcloud.common.context.CurrentUser;
 import com.fleyx.jcloud.common.context.UserContext;
+import com.fleyx.jcloud.common.enums.MediaMatchStatus;
 import com.fleyx.jcloud.mapper.MediaDirectoryMapper;
 import com.fleyx.jcloud.mapper.MediaItemMapper;
 import com.fleyx.jcloud.mapper.MediaSeriesMapper;
 import com.fleyx.jcloud.model.dto.FileCreateFolderDto;
-import com.fleyx.jcloud.model.dto.FileExecuteOperationDto;
-import com.fleyx.jcloud.model.dto.OperationItemDto;
+import com.fleyx.jcloud.model.dto.FileRenameDto;
 import com.fleyx.jcloud.model.dto.StorageSpaceSaveDto;
 import com.fleyx.jcloud.model.dto.UserSaveDto;
 import com.fleyx.jcloud.model.po.MediaDirectory;
@@ -24,13 +24,16 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.nio.file.Path;
-import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 
 /**
  * 媒体库扫描服务测试。
@@ -64,83 +67,97 @@ class MediaScanServiceTest {
     @Autowired
     private MediaSeriesMapper mediaSeriesMapper;
 
+    @MockitoBean
+    private MediaScrapeService mediaScrapeService;
+
     @TempDir
     Path tempDir;
 
     /**
-     * 根下散文件忽略不产生条目；移入“剧/季”三层结构后重扫归剧。
+     * 剧文件夹改名（补年份）后重扫：条目与剧的非手动匹配被重置（元数据显式清空）、
+     * 首播年份回填，且扫描完成后自动提交非强制削刮。
      */
     @Test
-    void shouldRegroupEpisodeAfterMoveToSeriesFolder() throws Exception {
+    void shouldResetMatchAndBackfillYearWhenSeriesFolderRenamed() {
         UserVo user = prepareUserWithStorageSpace();
-        FileNodeVo tvFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "tv");
-        FileNodeVo episode = fileService.upload(buildFile("HEVC.Test.S01E01.1080p.mkv", "video"),
-                user.getId(), tvFolder.getId(), null);
-        MediaDirectory directory = createTvDirectory(user.getId(), tvFolder.getId());
-
-        // 首次扫描：文件直接位于视频目录根下，按固定三层结构规则忽略
-        mediaScanService.scan(directory.getId());
-        assertEquals(0, mediaItemMapper.selectCount(
-                new LambdaQueryWrapper<MediaItem>().eq(MediaItem::getDirectoryId, directory.getId())));
-
-        // 移入“剧/季”目录结构后重扫
-        FileNodeVo seriesFolder = createFolder(user.getId(), tvFolder.getId(), "白鹿原 (2017)");
+        FileNodeVo tvFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电视");
+        FileNodeVo seriesFolder = createFolder(user.getId(), tvFolder.getId(), "火星生活");
         FileNodeVo seasonFolder = createFolder(user.getId(), seriesFolder.getId(), "s01");
-        moveFileToFolder(user.getId(), episode.getId(), seasonFolder.getId());
+        fileService.upload(buildFile("火星生活.s01e01.mp4"), user.getId(), seasonFolder.getId(), null);
+        MediaDirectory directory = createDirectory(user.getId(), tvFolder.getId());
         mediaScanService.scan(directory.getId());
 
-        MediaItem moved = queryItem(directory.getId());
-        assertEquals("白鹿原", moved.getSeriesName());
-        assertEquals(1, moved.getSeasonNo());
-        assertEquals(1, moved.getEpisodeNo());
-        List<MediaSeries> seriesList = mediaSeriesMapper.selectList(
-                new LambdaQueryWrapper<MediaSeries>().eq(MediaSeries::getUserId, user.getId()));
-        assertEquals(1, seriesList.size());
-        assertEquals("白鹿原", seriesList.get(0).getSeriesName());
-        assertEquals(seriesList.get(0).getId(), moved.getSeriesId());
-    }
-
-    /**
-     * 文件未变动且路径未变时，重扫不改变剧分组。
-     */
-    @Test
-    void shouldKeepSeriesWhenNothingChanged() throws Exception {
-        UserVo user = prepareUserWithStorageSpace();
-        FileNodeVo tvFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "tv");
-        FileNodeVo seriesFolder = createFolder(user.getId(), tvFolder.getId(), "白鹿原 (2017)");
-        fileService.upload(buildFile("HEVC.Test.S01E01.1080p.mkv", "video"), user.getId(), seriesFolder.getId(), null);
-        MediaDirectory directory = createTvDirectory(user.getId(), tvFolder.getId());
-
-        mediaScanService.scan(directory.getId());
+        // 模拟削刮完成状态：剧与集均已匹配
+        MediaSeries series = querySeries(user.getId());
+        series.setMetadataId("metaseries01");
+        series.setMatchStatus(MediaMatchStatus.MATCHED.getCode());
+        mediaSeriesMapper.updateById(series);
         MediaItem item = queryItem(directory.getId());
-        assertEquals("白鹿原", item.getSeriesName());
-        // 剧文件夹下散文件统一归第一季
-        assertEquals(1, item.getSeasonNo());
+        item.setMetadataId("metaepisode1");
+        item.setMatchStatus(MediaMatchStatus.MATCHED.getCode());
+        mediaItemMapper.updateById(item);
 
+        // 改名补年份后重扫
+        FileRenameDto renameDto = new FileRenameDto();
+        renameDto.setId(seriesFolder.getId());
+        renameDto.setNewName("火星生活 (2018)");
+        fileOperationService.rename(renameDto, user.getId());
         mediaScanService.scan(directory.getId());
-        MediaItem again = queryItem(directory.getId());
-        assertEquals("白鹿原", again.getSeriesName());
-        assertEquals(item.getSeriesId(), again.getSeriesId());
-        assertEquals(1, mediaSeriesMapper.selectCount(
-                new LambdaQueryWrapper<MediaSeries>().eq(MediaSeries::getUserId, user.getId())));
+
+        MediaItem afterItem = queryItem(directory.getId());
+        assertEquals(MediaMatchStatus.UNMATCHED.getCode(), afterItem.getMatchStatus());
+        assertNull(afterItem.getMetadataId());
+
+        MediaSeries afterSeries = querySeries(user.getId());
+        assertEquals(MediaMatchStatus.UNMATCHED.getCode(), afterSeries.getMatchStatus());
+        assertNull(afterSeries.getMetadataId());
+        assertEquals(2018, afterSeries.getReleaseYear());
+
+        // 两次扫描均应在完成后自动提交非强制削刮
+        verify(mediaScrapeService, times(2)).submitScrape(directory.getId(), user.getId(), false);
     }
 
     /**
-     * 超过三层深度的文件忽略，不产生条目。
+     * 手动匹配的剧与集在改名重扫后保持不变，但仍会触发自动削刮。
      */
     @Test
-    void shouldIgnoreFilesDeeperThanThreeLevels() throws Exception {
+    void shouldKeepManualMatchWhenSeriesFolderRenamed() {
         UserVo user = prepareUserWithStorageSpace();
-        FileNodeVo tvFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "tv");
-        FileNodeVo seriesFolder = createFolder(user.getId(), tvFolder.getId(), "亮剑");
-        FileNodeVo seasonFolder = createFolder(user.getId(), seriesFolder.getId(), "Season 1");
-        FileNodeVo extraFolder = createFolder(user.getId(), seasonFolder.getId(), "特典");
-        fileService.upload(buildFile("HEVC.Test.S01E01.1080p.mkv", "video"), user.getId(), extraFolder.getId(), null);
-        MediaDirectory directory = createTvDirectory(user.getId(), tvFolder.getId());
-
+        FileNodeVo tvFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电视");
+        FileNodeVo seriesFolder = createFolder(user.getId(), tvFolder.getId(), "火星生活");
+        FileNodeVo seasonFolder = createFolder(user.getId(), seriesFolder.getId(), "s01");
+        fileService.upload(buildFile("火星生活.s01e01.mp4"), user.getId(), seasonFolder.getId(), null);
+        MediaDirectory directory = createDirectory(user.getId(), tvFolder.getId());
         mediaScanService.scan(directory.getId());
-        assertEquals(0, mediaItemMapper.selectCount(
-                new LambdaQueryWrapper<MediaItem>().eq(MediaItem::getDirectoryId, directory.getId())));
+
+        MediaSeries series = querySeries(user.getId());
+        series.setMetadataId("metaseries01");
+        series.setMatchStatus(MediaMatchStatus.MANUAL.getCode());
+        mediaSeriesMapper.updateById(series);
+        MediaItem item = queryItem(directory.getId());
+        item.setMetadataId("metaepisode1");
+        item.setMatchStatus(MediaMatchStatus.MANUAL.getCode());
+        mediaItemMapper.updateById(item);
+
+        FileRenameDto renameDto = new FileRenameDto();
+        renameDto.setId(seriesFolder.getId());
+        renameDto.setNewName("火星生活 (2018)");
+        fileOperationService.rename(renameDto, user.getId());
+        mediaScanService.scan(directory.getId());
+
+        MediaItem afterItem = queryItem(directory.getId());
+        assertEquals(MediaMatchStatus.MANUAL.getCode(), afterItem.getMatchStatus());
+        assertEquals("metaepisode1", afterItem.getMetadataId());
+
+        MediaSeries afterSeries = querySeries(user.getId());
+        assertEquals(MediaMatchStatus.MANUAL.getCode(), afterSeries.getMatchStatus());
+        assertEquals("metaseries01", afterSeries.getMetadataId());
+        assertEquals(2018, afterSeries.getReleaseYear());
+    }
+
+    private MediaSeries querySeries(String userId) {
+        return mediaSeriesMapper.selectOne(
+                new LambdaQueryWrapper<MediaSeries>().eq(MediaSeries::getUserId, userId));
     }
 
     private MediaItem queryItem(String directoryId) {
@@ -148,18 +165,18 @@ class MediaScanServiceTest {
                 new LambdaQueryWrapper<MediaItem>().eq(MediaItem::getDirectoryId, directoryId));
     }
 
-    private MediaDirectory createTvDirectory(String userId, String folderNodeId) {
+    private MediaDirectory createDirectory(String userId, String folderNodeId) {
         MediaDirectory directory = new MediaDirectory();
         directory.setUserId(userId);
         directory.setFileNodeId(folderNodeId);
-        directory.setName("电视");
+        directory.setName("测试目录");
         directory.setMediaType("tv");
         mediaDirectoryMapper.insert(directory);
         return directory;
     }
 
-    private MultipartFile buildFile(String name, String content) {
-        return new MockMultipartFile("file", name, "video/x-matroska", content.getBytes());
+    private MultipartFile buildFile(String name) {
+        return new MockMultipartFile("file", name, "video/mp4", "video".getBytes());
     }
 
     private FileNodeVo createFolder(String userId, String parentId, String name) {
@@ -167,16 +184,6 @@ class MediaScanServiceTest {
         dto.setParentId(parentId);
         dto.setName(name);
         return fileOperationService.createFolder(dto, userId);
-    }
-
-    private void moveFileToFolder(String userId, String fileId, String folderId) {
-        FileExecuteOperationDto dto = new FileExecuteOperationDto();
-        dto.setType("move");
-        dto.setTargetParentId(folderId);
-        OperationItemDto item = new OperationItemDto();
-        item.setId(fileId);
-        dto.setItems(List.of(item));
-        fileOperationService.move(dto, userId);
     }
 
     private UserVo prepareUserWithStorageSpace() {

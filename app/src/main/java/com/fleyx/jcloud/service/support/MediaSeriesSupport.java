@@ -1,6 +1,7 @@
 package com.fleyx.jcloud.service.support;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.fleyx.jcloud.common.enums.MediaMatchStatus;
 import com.fleyx.jcloud.mapper.MediaItemMapper;
 import com.fleyx.jcloud.mapper.MediaSeasonMapper;
@@ -148,13 +149,50 @@ public class MediaSeriesSupport {
         if (MediaMatchStatus.MANUAL.getCode().equals(series.getMatchStatus())) {
             return;
         }
-        MediaSeries update = new MediaSeries();
-        update.setId(series.getId());
-        update.setMetadataId(metadataId);
-        update.setMatchStatus(metadataId == null ? MediaMatchStatus.UNMATCHED.getCode() : MediaMatchStatus.MATCHED.getCode());
-        mediaSeriesMapper.updateById(update);
+        String matchStatus = metadataId == null ? MediaMatchStatus.UNMATCHED.getCode() : MediaMatchStatus.MATCHED.getCode();
+        mediaSeriesMapper.update(null, new LambdaUpdateWrapper<MediaSeries>()
+                .eq(MediaSeries::getId, series.getId())
+                .set(MediaSeries::getMetadataId, metadataId)
+                .set(MediaSeries::getMatchStatus, matchStatus));
         series.setMetadataId(metadataId);
-        series.setMatchStatus(update.getMatchStatus());
+        series.setMatchStatus(matchStatus);
+    }
+
+    /**
+     * 同步剧的首播年份（剧文件夹改名后由扫描回填），可写入 null。
+     *
+     * @param series 剧记录
+     * @param year   解析出的年份，可为 null
+     */
+    public void syncReleaseYear(MediaSeries series, Integer year) {
+        if (Objects.equals(series.getReleaseYear(), year)) {
+            return;
+        }
+        mediaSeriesMapper.update(null, new LambdaUpdateWrapper<MediaSeries>()
+                .eq(MediaSeries::getId, series.getId())
+                .set(MediaSeries::getReleaseYear, year));
+        series.setReleaseYear(year);
+    }
+
+    /**
+     * 重置剧的匹配状态（条目变化时由扫描调用）：手动修正的保留，
+     * 其余置为未匹配并清空元数据，等待削刮重新匹配。
+     *
+     * @param series 剧记录
+     */
+    public void resetMatch(MediaSeries series) {
+        if (MediaMatchStatus.MANUAL.getCode().equals(series.getMatchStatus())) {
+            return;
+        }
+        if (MediaMatchStatus.UNMATCHED.getCode().equals(series.getMatchStatus()) && series.getMetadataId() == null) {
+            return;
+        }
+        mediaSeriesMapper.update(null, new LambdaUpdateWrapper<MediaSeries>()
+                .eq(MediaSeries::getId, series.getId())
+                .set(MediaSeries::getMetadataId, null)
+                .set(MediaSeries::getMatchStatus, MediaMatchStatus.UNMATCHED.getCode()));
+        series.setMetadataId(null);
+        series.setMatchStatus(MediaMatchStatus.UNMATCHED.getCode());
     }
 
     /**

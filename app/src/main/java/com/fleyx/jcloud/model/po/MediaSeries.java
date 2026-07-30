@@ -38,6 +38,11 @@ public class MediaSeries extends BaseEntity {
     private String matchStatus;
 
     /**
+     * 剧文件夹名解析出的首播年份，用于 TMDB 匹配消歧。
+     */
+    private Integer releaseYear;
+
+    /**
      * 剧内最早一集的文件修改时间（毫秒），用于添加时间排序。
      */
     private Long minFileLastModified;

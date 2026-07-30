@@ -1,6 +1,7 @@
 package com.fleyx.jcloud.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.fleyx.jcloud.common.enums.MediaItemType;
 import com.fleyx.jcloud.common.enums.MediaMatchStatus;
 import com.fleyx.jcloud.common.enums.MediaScrapeStatus;
@@ -170,11 +171,11 @@ public class MediaScrapeServiceImpl implements MediaScrapeService {
     }
 
     private void applyMovieMatch(MediaItem item, MediaMetadata metadata) {
-        MediaItem update = new MediaItem();
-        update.setId(item.getId());
-        update.setMetadataId(metadata == null ? null : metadata.getId());
-        update.setMatchStatus(metadata == null ? MediaMatchStatus.UNMATCHED.getCode() : MediaMatchStatus.MATCHED.getCode());
-        mediaItemMapper.updateById(update);
+        mediaItemMapper.update(null, new LambdaUpdateWrapper<MediaItem>()
+                .eq(MediaItem::getId, item.getId())
+                .set(MediaItem::getMetadataId, metadata == null ? null : metadata.getId())
+                .set(MediaItem::getMatchStatus,
+                        metadata == null ? MediaMatchStatus.UNMATCHED.getCode() : MediaMatchStatus.MATCHED.getCode()));
     }
 
     /**
@@ -197,7 +198,8 @@ public class MediaScrapeServiceImpl implements MediaScrapeService {
                 continue;
             }
             try {
-                MediaMetadata metadata = tmdbService.autoMatch(MediaType.TV.getCode(), series.getSeriesName(), null);
+                MediaMetadata metadata = tmdbService.autoMatch(MediaType.TV.getCode(), series.getSeriesName(),
+                        series.getReleaseYear());
                 if (metadata == null) {
                     mediaSeriesSupport.applySeriesMatch(series, null);
                     continue;
