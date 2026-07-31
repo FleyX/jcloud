@@ -103,10 +103,11 @@ public class MediaProbeSupport {
         }
     }
 
-    private MediaProbeResult parse(String json) throws Exception {
+    MediaProbeResult parse(String json) throws Exception {
         JsonNode root = objectMapper.readTree(json);
         Long durationMs = null;
         String container = null;
+        Long bitRate = null;
         JsonNode format = root.path("format");
         if (format.isObject()) {
             container = textOrNull(format.path("format_name"));
@@ -116,6 +117,14 @@ public class MediaProbeSupport {
             String duration = textOrNull(format.path("duration"));
             if (duration != null) {
                 durationMs = (long) (Double.parseDouble(duration) * 1000);
+            }
+            String bitRateText = textOrNull(format.path("bit_rate"));
+            if (bitRateText != null) {
+                try {
+                    bitRate = Long.parseLong(bitRateText);
+                } catch (NumberFormatException ignored) {
+                    // bit_rate 可能为 N/A 等无法解析的值，忽略
+                }
             }
         }
 
@@ -139,15 +148,25 @@ public class MediaProbeSupport {
                 audioTracks.add(new MediaProbeResult.Track(
                         audioTracks.size(), codec,
                         textOrNull(stream.path("tags").path("language")),
-                        textOrNull(stream.path("tags").path("title"))));
+                        textOrNull(stream.path("tags").path("title")),
+                        isDefault(stream)));
             } else if ("subtitle".equals(codecType)) {
                 subtitleTracks.add(new MediaProbeResult.Track(
                         subtitleTracks.size(), codec,
                         textOrNull(stream.path("tags").path("language")),
-                        textOrNull(stream.path("tags").path("title"))));
+                        textOrNull(stream.path("tags").path("title")),
+                        isDefault(stream)));
             }
         }
-        return new MediaProbeResult(durationMs, container, videoCodec, audioCodec, width, height, audioTracks, subtitleTracks);
+        return new MediaProbeResult(durationMs, container, videoCodec, audioCodec, width, height, bitRate,
+                audioTracks, subtitleTracks);
+    }
+
+    /**
+     * 判断流是否被 ffprobe 标记为默认轨（disposition.default == 1）。
+     */
+    private boolean isDefault(JsonNode stream) {
+        return stream.path("disposition").path("default").asInt(0) == 1;
     }
 
     private String textOrNull(JsonNode node) {

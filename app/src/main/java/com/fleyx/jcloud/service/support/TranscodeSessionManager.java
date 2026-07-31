@@ -17,12 +17,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Semaphore;
-import java.util.function.Supplier;
 
 /**
  * HLS 实时转码会话管理器。
@@ -55,13 +53,15 @@ public class TranscodeSessionManager {
     private final MediaProperties mediaProperties;
     private final SystemStorageSpaceProvider systemStorageSpaceProvider;
     private final SystemConfigService systemConfigService;
+    private final TranscodeCommandBuilder commandBuilder;
     private final Semaphore concurrencyPermits;
 
     public TranscodeSessionManager(MediaProperties mediaProperties, SystemStorageSpaceProvider systemStorageSpaceProvider,
-                                   SystemConfigService systemConfigService) {
+                                   SystemConfigService systemConfigService, TranscodeCommandBuilder commandBuilder) {
         this.mediaProperties = mediaProperties;
         this.systemStorageSpaceProvider = systemStorageSpaceProvider;
         this.systemConfigService = systemConfigService;
+        this.commandBuilder = commandBuilder;
         this.concurrencyPermits = new Semaphore(Math.max(1, mediaProperties.getTranscodeConcurrency()));
     }
 
@@ -128,16 +128,14 @@ public class TranscodeSessionManager {
 
     /**
      * 创建转码会话并启动 ffmpeg。
+     * <p>
+     * 视频流满足转封装条件（白名单编码、未降码率、未强制转码）时按 -c:v copy 转封装，不做硬解探测。
      *
-     * @param userId        用户 ID
-     * @param startMs       起始播放位置（毫秒）
-     * @param audioIndex    音轨序号，null 表示默认音轨
-     * @param localPath     本地物理路径，远程文件为 null
-     * @param remoteStream  远程文件输入流提供者，本地文件为 null
+     * @param userId  用户 ID
+     * @param request 会话请求（含 probe 出的视频/音轨编码与码率档位参数）
      * @return 会话
      */
-    public TranscodeSession createSession(String userId, long startMs, Integer audioIndex,
-                                          Path localPath, Supplier<InputStream> remoteStream) {
+    public TranscodeSession createSession(String userId, TranscodeCommandBuilder.TranscodeRequest request) {
         if (!concurrencyPermits.tryAcquire()) {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "转码并发数已达上限，请稍后再试");
         }
@@ -146,13 +144,15 @@ public class TranscodeSessionManager {
         boolean started = false;
         try {
             Files.createDirectories(outputDir);
+            boolean videoCopy = commandBuilder.isVideoCopyEligible(request.videoCodec(),
+                    request.forceVideoTranscode(), request.targetBitrateKbps());
             String hwaccel = resolveHwaccel();
-            boolean autoMode = hwaccel == null || hwaccel.isBlank() || "auto".equalsIgnoreCase(hwaccel);
-            String encoder = selectEncoder(hwaccel);
-            Process process = startFfmpeg(outputDir, startMs, audioIndex, localPath, remoteStream, encoder);
+            boolean autoMode = !videoCopy && (hwaccel == null || hwaccel.isBlank() || "auto".equalsIgnoreCase(hwaccel));
+            String encoder = videoCopy ? TranscodeCommandBuilder.ENCODER_COPY : commandBuilder.selectEncoder(hwaccel);
+            Process process = startFfmpeg(outputDir, request, encoder);
             TranscodeSession session = new TranscodeSession(sessionId, userId, outputDir, process, encoder, Instant.now());
             sessions.put(sessionId, session);
-            watchEarlyFailure(session, autoMode, startMs, audioIndex, localPath, remoteStream);
+            watchEarlyFailure(session, autoMode, request);
             started = true;
             return session;
         } catch (IOException e) {
@@ -191,13 +191,62 @@ public class TranscodeSessionManager {
     }
 
     /**
+     * 给 HLS 播放列表中的相对切片/初始化段 URI 追加 token 查询参数。
+     * <p>
+     * 播放列表 URL 携带的 ?token= 在切片相对地址解析时会丢失，导致切片请求 401；
+     * 服务端返回 m3u8 前重写其中的相对 URI（含 #EXT-X-MAP 的 URI 属性），
+     * 使 hls.js 与 Safari 原生 HLS 的切片请求都能携带凭证。
+     *
+     * @param content 播放列表文本
+     * @param token   访问令牌，为空时原样返回
+     * @return 重写后的播放列表文本
+     */
+    public static String appendTokenToPlaylist(String content, String token) {
+        if (content == null || token == null || token.isBlank()) {
+            return content;
+        }
+        String encoded = java.net.URLEncoder.encode(token, java.nio.charset.StandardCharsets.UTF_8);
+        String[] lines = content.split("\n", -1);
+        for (int i = 0; i < lines.length; i++) {
+            lines[i] = rewritePlaylistLine(lines[i], encoded);
+        }
+        return String.join("\n", lines);
+    }
+
+    private static String rewritePlaylistLine(String line, String encodedToken) {
+        String trimmed = line.trim();
+        if (trimmed.isEmpty()) {
+            return line;
+        }
+        if (trimmed.startsWith("#")) {
+            int uriStart = line.indexOf("URI=\"");
+            if (!trimmed.startsWith("#EXT-X-MAP:") || uriStart < 0) {
+                return line;
+            }
+            int start = uriStart + 5;
+            int end = line.indexOf('"', start);
+            if (end < 0) {
+                return line;
+            }
+            String uri = line.substring(start, end);
+            if (uri.contains("://") || uri.contains("?")) {
+                return line;
+            }
+            return line.substring(0, start) + uri + "?token=" + encodedToken + line.substring(end);
+        }
+        if (trimmed.contains("://") || trimmed.contains("?")) {
+            return line;
+        }
+        return line + "?token=" + encodedToken;
+    }
+
+    /**
      * 关闭会话并清理资源。
      *
      * @param sessionId 会话 ID
      */
     public void closeSession(String sessionId) {
-        TranscodeSession session = sessions.remove(sessionId);
-        if (session != null) {
+        TranscodeSession session = sessions.remove(sessionId);        if (session != null) {
             destroy(session);
         }
     }
@@ -240,9 +289,10 @@ public class TranscodeSessionManager {
 
     /**
      * 监控 ffmpeg 早期失败：auto 模式自动回退软解；显式指定的硬解方式失败则标记失败并提示用户修改配置。
+     * 软解与转封装会话无硬解回退诉求，直接跳过监控。
      */
-    private void watchEarlyFailure(TranscodeSession session, boolean autoMode, long startMs, Integer audioIndex,
-                                   Path localPath, Supplier<InputStream> remoteStream) {
+    private void watchEarlyFailure(TranscodeSession session, boolean autoMode,
+                                   TranscodeCommandBuilder.TranscodeRequest request) {
         Thread.startVirtualThread(() -> {
             try {
                 Thread.sleep(3000);
@@ -258,7 +308,8 @@ public class TranscodeSessionManager {
                 producedOutput = false;
             }
             if (process.isAlive() || producedOutput || !sessions.containsKey(session.id())
-                    || "libx264".equals(session.encoder())) {
+                    || "libx264".equals(session.encoder())
+                    || TranscodeCommandBuilder.ENCODER_COPY.equals(session.encoder())) {
                 return;
             }
             if (!autoMode) {
@@ -269,7 +320,7 @@ public class TranscodeSessionManager {
             }
             log.warn("硬件加速转码启动失败，回退软解: session={}", session.id());
             try {
-                Process fallback = startFfmpeg(session.outputDir(), startMs, audioIndex, localPath, remoteStream, "libx264");
+                Process fallback = startFfmpeg(session.outputDir(), request, "libx264");
                 sessions.put(session.id(), new TranscodeSession(session.id(), session.userId(),
                         session.outputDir(), fallback, "libx264", Instant.now()));
             } catch (IOException e) {
@@ -309,98 +360,9 @@ public class TranscodeSessionManager {
         }
     }
 
-    private String selectEncoder(String configured) {
-        if (configured == null || configured.isBlank() || "none".equalsIgnoreCase(configured)) {
-            return "libx264";
-        }
-        if (!"auto".equalsIgnoreCase(configured)) {
-            return switch (configured.toLowerCase()) {
-                case "vaapi" -> "h264_vaapi";
-                case "qsv" -> "h264_qsv";
-                case "nvenc" -> "h264_nvenc";
-                default -> "libx264";
-            };
-        }
-        // auto：按可用性探测
-        for (String candidate : List.of("h264_vaapi", "h264_qsv", "h264_nvenc")) {
-            if (encoderAvailable(candidate)) {
-                return candidate;
-            }
-        }
-        return "libx264";
-    }
-
-    private volatile List<String> availableEncoders;
-
-    private boolean encoderAvailable(String encoder) {
-        if (availableEncoders == null) {
-            synchronized (this) {
-                if (availableEncoders == null) {
-                    availableEncoders = detectEncoders();
-                }
-            }
-        }
-        return availableEncoders.contains(encoder);
-    }
-
-    private List<String> detectEncoders() {
-        try {
-            Process process = new ProcessBuilder(mediaProperties.getFfmpegPath(), "-hide_banner", "-encoders").start();
-            String output = new String(process.getInputStream().readAllBytes());
-            process.waitFor(10, java.util.concurrent.TimeUnit.SECONDS);
-            List<String> result = new ArrayList<>();
-            for (String encoder : List.of("h264_vaapi", "h264_qsv", "h264_nvenc")) {
-                if (output.contains(encoder)) {
-                    result.add(encoder);
-                }
-            }
-            log.info("可用硬件编码器: {}", result);
-            return result;
-        } catch (Exception e) {
-            log.warn("ffmpeg 编码器探测失败: {}", e.getMessage());
-            return List.of();
-        }
-    }
-
-    private Process startFfmpeg(Path outputDir, long startMs, Integer audioIndex,
-                                Path localPath, Supplier<InputStream> remoteStream, String encoder) throws IOException {
-        List<String> command = new ArrayList<>();
-        command.add(mediaProperties.getFfmpegPath());
-        command.add("-hide_banner");
-        command.add("-loglevel");
-        command.add("warning");
-        if ("h264_vaapi".equals(encoder)) {
-            command.addAll(List.of("-vaapi_device", resolveDevice()));
-        }
-        if (startMs > 0) {
-            command.addAll(List.of("-ss", String.format(java.util.Locale.ROOT, "%.3f", startMs / 1000.0)));
-        }
-        command.addAll(List.of("-i", localPath != null ? localPath.toAbsolutePath().toString() : "pipe:0"));
-        command.addAll(List.of("-map", "0:v:0"));
-        if (audioIndex != null) {
-            command.addAll(List.of("-map", "0:a:" + audioIndex));
-        } else {
-            command.addAll(List.of("-map", "0:a:0?"));
-        }
-        command.addAll(List.of("-c:v", encoder));
-        switch (encoder) {
-            case "h264_vaapi" -> command.addAll(List.of("-vf", "format=nv12,hwupload"));
-            case "h264_qsv" -> command.addAll(List.of("-vf", "format=nv12", "-preset", "veryfast", "-global_quality", "23"));
-            case "h264_nvenc" -> command.addAll(List.of("-preset", "p4", "-cq", "23"));
-            default -> command.addAll(List.of("-preset", "veryfast", "-crf", "23"));
-        }
-        int threads = resolveThreads();
-        if (threads > 0) {
-            command.addAll(List.of("-threads", String.valueOf(threads)));
-        }
-        command.addAll(List.of("-c:a", "aac", "-b:a", "128k", "-ac", "2"));
-        command.addAll(List.of("-f", "hls",
-                "-hls_time", String.valueOf(mediaProperties.getHlsSegmentSeconds()),
-                "-hls_segment_type", "fmp4",
-                "-hls_flags", "independent_segments",
-                "-hls_segment_filename", outputDir.resolve("seg_%05d.m4s").toString(),
-                outputDir.resolve("index.m3u8").toString()));
-
+    private Process startFfmpeg(Path outputDir, TranscodeCommandBuilder.TranscodeRequest request,
+                                String encoder) throws IOException {
+        List<String> command = commandBuilder.buildCommand(request, encoder, resolveDevice(), resolveThreads(), outputDir);
         ProcessBuilder builder = new ProcessBuilder(command);
         builder.redirectErrorStream(false);
         Process process = builder.start();
@@ -410,9 +372,9 @@ public class TranscodeSessionManager {
             } catch (IOException ignored) {
             }
         });
-        if (remoteStream != null) {
+        if (request.remoteStream() != null) {
             Thread.startVirtualThread(() -> {
-                try (InputStream in = remoteStream.get(); var out = process.getOutputStream()) {
+                try (InputStream in = request.remoteStream().get(); var out = process.getOutputStream()) {
                     in.transferTo(out);
                 } catch (Exception ignored) {
                     // ffmpeg 提前退出导致管道关闭，忽略

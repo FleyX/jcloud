@@ -11,6 +11,7 @@ import java.util.List;
  * @param audioCodec 首个音频编码
  * @param width      视频宽度
  * @param height     视频高度
+ * @param bitRate    码率（bps），ffprobe format.bit_rate，未知为 null
  * @param audioTracks 音轨列表
  * @param subtitleTracks 字幕轨列表
  */
@@ -21,17 +22,19 @@ public record MediaProbeResult(
         String audioCodec,
         Integer width,
         Integer height,
+        Long bitRate,
         List<Track> audioTracks,
         List<Track> subtitleTracks) {
 
     /**
      * 音视频/字幕轨信息。
      *
-     * @param index    在该类型流中的序号（从 0 开始）
-     * @param codec    编码
-     * @param language 语言，未知为 null
-     * @param title    轨道标题，未知为 null
+     * @param index     在该类型流中的序号（从 0 开始）
+     * @param codec     编码
+     * @param language  语言，未知为 null
+     * @param title     轨道标题，未知为 null
+     * @param defaulted 是否默认轨（ffprobe disposition.default）
      */
-    public record Track(int index, String codec, String language, String title) {
+    public record Track(int index, String codec, String language, String title, boolean defaulted) {
     }
 }

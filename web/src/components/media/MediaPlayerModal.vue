@@ -1,20 +1,13 @@
 <script setup lang="ts">
 /**
  * 媒体播放器弹窗
- * - 支持直放（原生 video + Range）与 HLS 转码播放（hls.js）
- * - 支持续播、进度上报、音轨选择、文本字幕
+ * - 播放逻辑（直放/转码/续播/进度上报/音轨/字幕/码率）由 useMediaPlayback 承载
  */
 import { onBeforeUnmount, ref, watch } from 'vue'
-import Hls from 'hls.js'
 import { X, LoaderCircle } from '@lucide/vue'
-import type { MediaItemVo, MediaPlaybackInfoVo } from '@/types/media'
-import {
-  createTranscodeSession,
-  fetchPlaybackInfo,
-  subtitleUrl,
-  updateMediaProgress,
-  withToken,
-} from '@/api/media'
+import type { MediaItemVo } from '@/types/media'
+import { useMediaPlayback } from '@/composables/useMediaPlayback'
+import PlayerSettingsMenu from '@/components/media/PlayerSettingsMenu.vue'
 
 interface Props {
   open: boolean
@@ -27,161 +20,43 @@ const emit = defineEmits<{
 }>()
 
 const videoRef = ref<HTMLVideoElement | null>(null)
-const loading = ref(true)
-const errorMsg = ref('')
-const playbackInfo = ref<MediaPlaybackInfoVo | null>(null)
-const audioIndex = ref<number | null>(null)
-const subtitleIndex = ref<number | null>(null)
 
-let hls: Hls | null = null
-let progressTimer: ReturnType<typeof setInterval> | null = null
-let destroyed = false
+const {
+  loading,
+  errorMsg,
+  playbackInfo,
+  audioIndex,
+  subtitleKey,
+  bitrateTierKey,
+  activeSubtitle,
+  sourceEpoch,
+  start,
+  stop,
+  handleSeeking,
+  reportProgress,
+  handleTrackLoad,
+  selectAudioTrack,
+  selectSubtitle,
+  selectBitrateTier,
+} = useMediaPlayback(videoRef)
 
 watch(
   () => props.open,
   async (open) => {
     if (open && props.item) {
-      destroyed = false
-      await startPlayback()
+      await start(props.item.id)
     } else {
-      teardown()
+      stop()
     }
   },
 )
 
 onBeforeUnmount(() => {
-  destroyed = true
-  teardown()
+  stop()
 })
 
-async function startPlayback(startMs?: number) {
-  if (!props.item) return
-  loading.value = true
-  errorMsg.value = ''
-  try {
-    if (!playbackInfo.value) {
-      playbackInfo.value = await fetchPlaybackInfo(props.item.id)
-    }
-    const info = playbackInfo.value
-    const resumeMs = startMs ?? info.progressMs ?? 0
-    if (info.mode === 'direct') {
-      setupDirect(info.directUrl!, resumeMs)
-    } else {
-      await setupTranscode(resumeMs)
-    }
-    startProgressTimer()
-  } catch (e) {
-    errorMsg.value = e instanceof Error ? e.message : '播放初始化失败'
-  } finally {
-    loading.value = false
-  }
-}
-
-function setupDirect(url: string, startMs: number) {
-  destroyHls()
-  const video = videoRef.value
-  if (!video) return
-  video.src = withToken(url)
-  video.currentTime = startMs / 1000
-  video.play().catch(() => {})
-}
-
-async function setupTranscode(startMs: number) {
-  if (!props.item) return
-  destroyHls()
-  const session = await createTranscodeSession(props.item.id, startMs, audioIndex.value ?? undefined)
-  const video = videoRef.value
-  if (!video || destroyed) return
-  const url = withToken(session.playlistUrl)
-  if (Hls.isSupported()) {
-    hls = new Hls({ maxBufferLength: 30 })
-    hls.loadSource(url)
-    hls.attachMedia(video)
-    hls.on(Hls.Events.MANIFEST_PARSED, () => {
-      video.currentTime = 0
-      video.play().catch(() => {})
-    })
-  } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-    // Safari 原生 HLS
-    video.src = url
-    video.play().catch(() => {})
-  } else {
-    throw new Error('当前浏览器不支持 HLS 播放')
-  }
-}
-
-/**
- * 转码模式下 seek 超出已缓冲范围时，从目标位置重建转码会话
- */
-async function handleSeeking() {
-  const video = videoRef.value
-  const info = playbackInfo.value
-  if (!video || !info || info.mode !== 'transcode' || !hls) return
-  const target = video.currentTime
-  let bufferedEnd = 0
-  if (video.buffered.length > 0) {
-    bufferedEnd = video.buffered.end(video.buffered.length - 1)
-  }
-  if (target > bufferedEnd + 5) {
-    destroyHls()
-    await setupTranscode(target * 1000)
-  }
-}
-
-function startProgressTimer() {
-  stopProgressTimer()
-  progressTimer = setInterval(() => {
-    reportProgress()
-  }, 10_000)
-}
-
-function stopProgressTimer() {
-  if (progressTimer) {
-    clearInterval(progressTimer)
-    progressTimer = null
-  }
-}
-
-function reportProgress() {
-  const video = videoRef.value
-  if (!props.item || !video || video.currentTime <= 0) return
-  updateMediaProgress(props.item.id, Math.floor(video.currentTime * 1000)).catch(() => {})
-}
-
-function handleAudioTrackChange() {
-  // 切换音轨需要重建转码会话
-  const video = videoRef.value
-  const currentMs = video ? video.currentTime * 1000 : 0
-  if (playbackInfo.value?.mode === 'transcode') {
-    setupTranscode(currentMs).catch(() => {})
-  }
-}
-
-function destroyHls() {
-  if (hls) {
-    hls.destroy()
-    hls = null
-  }
-}
-
-function teardown() {
-  stopProgressTimer()
-  reportProgress()
-  destroyHls()
-  if (videoRef.value) {
-    videoRef.value.pause()
-    videoRef.value.removeAttribute('src')
-    videoRef.value.load()
-  }
-  playbackInfo.value = null
-  audioIndex.value = null
-  subtitleIndex.value = null
-  loading.value = true
-  errorMsg.value = ''
-}
-
 function handleClose() {
-  teardown()
+  stop()
   emit('close')
 }
 </script>
@@ -199,6 +74,20 @@ function handleClose() {
       >
         <X class="h-5 w-5" />
       </button>
+      <div
+        v-if="playbackInfo"
+        class="absolute right-16 top-4 z-10"
+      >
+        <PlayerSettingsMenu
+          :playback-info="playbackInfo"
+          :audio-index="audioIndex"
+          :subtitle-key="subtitleKey"
+          :bitrate-tier-key="bitrateTierKey"
+          @select-audio="selectAudioTrack"
+          @select-subtitle="selectSubtitle"
+          @select-bitrate="selectBitrateTier"
+        />
+      </div>
 
       <div
         v-if="loading"
@@ -223,58 +112,15 @@ function handleClose() {
         @pause="reportProgress"
       >
         <track
-          v-if="subtitleIndex !== null && item"
+          v-if="activeSubtitle"
+          :key="`${activeSubtitle.key}:${sourceEpoch}`"
           kind="subtitles"
-          :src="subtitleUrl(item.id, subtitleIndex)"
+          :src="activeSubtitle.src"
+          :label="activeSubtitle.label"
           default
+          @load="handleTrackLoad"
         >
       </video>
-
-      <div
-        v-if="playbackInfo && (playbackInfo.audioTracks.length > 1 || playbackInfo.subtitleTracks.length > 0)"
-        class="mt-3 flex items-center gap-4 text-sm text-white"
-      >
-        <label
-          v-if="playbackInfo.audioTracks.length > 1"
-          class="flex items-center gap-2"
-        >
-          音轨
-          <select
-            v-model="audioIndex"
-            class="rounded-lg bg-surface-800 px-2 py-1 text-white"
-            @change="handleAudioTrackChange"
-          >
-            <option
-              v-for="track in playbackInfo.audioTracks"
-              :key="track.index"
-              :value="track.index"
-            >
-              {{ track.title || track.language || `音轨 ${track.index + 1}` }}（{{ track.codec }}）
-            </option>
-          </select>
-        </label>
-        <label
-          v-if="playbackInfo.subtitleTracks.length > 0"
-          class="flex items-center gap-2"
-        >
-          字幕
-          <select
-            v-model="subtitleIndex"
-            class="rounded-lg bg-surface-800 px-2 py-1 text-white"
-          >
-            <option :value="null">
-              关闭
-            </option>
-            <option
-              v-for="track in playbackInfo.subtitleTracks"
-              :key="track.index"
-              :value="track.index"
-            >
-              {{ track.title || track.language || `字幕 ${track.index + 1}` }}
-            </option>
-          </select>
-        </label>
-      </div>
     </div>
   </div>
 </template>

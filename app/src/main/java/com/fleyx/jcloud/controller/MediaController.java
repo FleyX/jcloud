@@ -50,6 +50,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.io.ByteArrayInputStream;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -213,12 +214,25 @@ public class MediaController {
                 .body(new InputStreamResource(Files.newInputStream(path)));
     }
 
+    @GetMapping("/items/{id}/subtitles/external/{subtitleId}")
+    public ResponseEntity<InputStreamResource> externalSubtitle(@PathVariable String id,
+                                                                @PathVariable String subtitleId) throws Exception {
+        Path path = mediaPlaybackService.extractExternalSubtitle(id, subtitleId, UserContext.get().id());
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType("text/vtt"))
+                .contentLength(Files.size(path))
+                .body(new InputStreamResource(Files.newInputStream(path)));
+    }
+
     @PostMapping("/items/{id}/transcode")
     public R<Map<String, String>> createTranscode(@PathVariable String id,
                                                   @RequestParam(defaultValue = "0") long startMs,
-                                                  @RequestParam(required = false) Integer audioIndex) {
-        TranscodeSessionManager.TranscodeSession session =
-                mediaPlaybackService.createTranscodeSession(id, startMs, audioIndex, UserContext.get().id());
+                                                  @RequestParam(required = false) Integer audioIndex,
+                                                  @RequestParam(required = false) Long targetBitrateKbps,
+                                                  @RequestParam(required = false) Integer maxHeight,
+                                                  @RequestParam(defaultValue = "false") boolean forceVideoTranscode) {
+        TranscodeSessionManager.TranscodeSession session = mediaPlaybackService.createTranscodeSession(
+                id, startMs, audioIndex, targetBitrateKbps, maxHeight, forceVideoTranscode, UserContext.get().id());
         Map<String, String> result = new HashMap<>();
         result.put("sessionId", session.id());
         result.put("playlistUrl", "/jcloud/api/media/transcode/" + session.id() + "/index.m3u8");
@@ -227,7 +241,8 @@ public class MediaController {
 
     @GetMapping("/transcode/{sessionId}/{fileName}")
     public ResponseEntity<InputStreamResource> transcodeFile(@PathVariable String sessionId,
-                                                             @PathVariable String fileName) throws Exception {
+                                                             @PathVariable String fileName,
+                                                             @RequestParam(required = false) String token) throws Exception {
         String userId = UserContext.get().id();
         // 播放列表可能需要等待 ffmpeg 生成首个切片
         Path path = transcodeSessionManager.touchAndResolve(sessionId, userId, fileName);
@@ -243,6 +258,16 @@ public class MediaController {
         MediaType contentType = fileName.endsWith(".m3u8")
                 ? MediaType.parseMediaType("application/vnd.apple.mpegurl")
                 : MediaType.parseMediaType("video/mp4");
+        if (fileName.endsWith(".m3u8") && token != null && !token.isBlank()) {
+            // 切片相对地址会丢失播放列表 URL 上的 token 查询参数，重写 m3u8 使切片请求携带凭证
+            byte[] content = TranscodeSessionManager.appendTokenToPlaylist(
+                    Files.readString(path, StandardCharsets.UTF_8), token).getBytes(StandardCharsets.UTF_8);
+            return ResponseEntity.ok()
+                    .header(HttpHeaders.CACHE_CONTROL, "no-store")
+                    .contentType(contentType)
+                    .contentLength(content.length)
+                    .body(new InputStreamResource(new ByteArrayInputStream(content)));
+        }
         return ResponseEntity.ok()
                 .header(HttpHeaders.CACHE_CONTROL, "no-store")
                 .contentType(contentType)

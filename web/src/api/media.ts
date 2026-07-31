@@ -94,16 +94,34 @@ export function fetchPlaybackInfo(id: string): Promise<MediaPlaybackInfoVo> {
   return get<MediaPlaybackInfoVo>(`/media/items/${id}/playback`)
 }
 
+/**
+ * 转码会话可选参数
+ */
+export interface TranscodeSessionOptions {
+  /** 音轨序号（转码时选择音轨） */
+  audioIndex?: number
+  /** 目标码率 kbps，传入则转码并限码率 */
+  targetBitrateKbps?: number
+  /** 最大高度（仅允许 2160/1080/720/480/360），不放大降分辨率 */
+  maxHeight?: number
+  /** 视频流不支持 MSE 转封装时强制视频转码 */
+  forceVideoTranscode?: boolean
+}
+
 export function createTranscodeSession(
   id: string,
   startMs: number,
-  audioIndex?: number,
+  options: TranscodeSessionOptions = {},
 ): Promise<MediaTranscodeSessionVo> {
-  return post<MediaTranscodeSessionVo>(`/media/items/${id}/transcode`, undefined, { startMs, audioIndex })
+  return post<MediaTranscodeSessionVo>(`/media/items/${id}/transcode`, undefined, { startMs, ...options })
 }
 
 export function subtitleUrl(id: string, index: number): string {
   return withToken(`/jcloud/api/media/items/${id}/subtitles/${index}`)
+}
+
+export function externalSubtitleUrl(id: string, subtitleId: string): string {
+  return withToken(`/jcloud/api/media/items/${id}/subtitles/external/${subtitleId}`)
 }
 
 // ---------- 元数据 ----------
