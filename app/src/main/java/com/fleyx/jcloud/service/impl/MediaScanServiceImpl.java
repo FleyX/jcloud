@@ -18,6 +18,7 @@ import com.fleyx.jcloud.service.MediaScrapeService;
 import com.fleyx.jcloud.service.support.MediaDirectorySourceSupport;
 import com.fleyx.jcloud.service.support.MediaScanSupport;
 import com.fleyx.jcloud.service.support.MediaSeriesSupport;
+import com.fleyx.jcloud.service.support.MediaSubtitleSupport;
 import com.fleyx.jcloud.service.support.MediaTaskSupport;
 import com.fleyx.jcloud.util.FilePathUtil;
 import com.fleyx.jcloud.util.MediaFileNameParser;
@@ -56,6 +57,7 @@ public class MediaScanServiceImpl implements MediaScanService {
     private final UserMapper userMapper;
     private final MediaSeriesSupport mediaSeriesSupport;
     private final MediaScanSupport mediaScanSupport;
+    private final MediaSubtitleSupport mediaSubtitleSupport;
     private final MediaTaskSupport mediaTaskSupport;
     private final MediaScrapeService mediaScrapeService;
     private final MediaDirectorySourceSupport sourceSupport;
@@ -64,6 +66,7 @@ public class MediaScanServiceImpl implements MediaScanService {
     public MediaScanServiceImpl(MediaDirectoryMapper mediaDirectoryMapper, MediaItemMapper mediaItemMapper,
                                 FileMapper fileMapper, UserMapper userMapper,
                                 MediaSeriesSupport mediaSeriesSupport, MediaScanSupport mediaScanSupport,
+                                MediaSubtitleSupport mediaSubtitleSupport,
                                 MediaTaskSupport mediaTaskSupport, MediaScrapeService mediaScrapeService,
                                 MediaDirectorySourceSupport sourceSupport,
                                 @Qualifier("applicationTaskExecutor") TaskExecutor taskExecutor) {
@@ -73,6 +76,7 @@ public class MediaScanServiceImpl implements MediaScanService {
         this.userMapper = userMapper;
         this.mediaSeriesSupport = mediaSeriesSupport;
         this.mediaScanSupport = mediaScanSupport;
+        this.mediaSubtitleSupport = mediaSubtitleSupport;
         this.mediaTaskSupport = mediaTaskSupport;
         this.mediaScrapeService = mediaScrapeService;
         this.sourceSupport = sourceSupport;
@@ -283,14 +287,22 @@ public class MediaScanServiceImpl implements MediaScanService {
             }
         }
         // 清理该来源目录下已消失或被忽略文件的条目
+        List<String> removedItemIds = new ArrayList<>();
         for (MediaItem item : existingMap.values()) {
             if (!seenFileNodeIds.contains(item.getFileNodeId())) {
                 mediaItemMapper.deleteById(item.getId());
+                removedItemIds.add(item.getId());
                 if (item.getSeriesId() != null) {
                     touchedSeriesIds.add(item.getSeriesId());
                 }
             }
         }
+        mediaSubtitleSupport.deleteByItemIds(removedItemIds);
+        // 重建该来源目录下各媒体条目的外部字幕关联（后加/删除的字幕在重扫后正确）
+        List<MediaItem> currentItems = mediaItemMapper.selectList(new LambdaQueryWrapper<MediaItem>()
+                .eq(MediaItem::getDirectoryId, directory.getId())
+                .eq(MediaItem::getSourceId, source.getId()));
+        mediaSubtitleSupport.rebuildForSource(currentItems, nodes);
         return partial;
     }
 
