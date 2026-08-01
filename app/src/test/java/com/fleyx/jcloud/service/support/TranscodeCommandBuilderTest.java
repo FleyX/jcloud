@@ -68,6 +68,7 @@ class TranscodeCommandBuilderTest {
         assertFalse(joined.contains("-global_quality"));
         assertFalse(joined.contains("-b:v"));
         assertFalse(joined.contains("-threads"));
+        assertTrue(joined.contains("-hls_list_size 0"));
         assertTrue(joined.contains("-hls_segment_type fmp4"));
         assertTrue(joined.contains("index.m3u8"));
     }
@@ -134,6 +135,62 @@ class TranscodeCommandBuilderTest {
         assertTrue(joined.contains("-ss 90.500"));
         assertTrue(joined.contains("-i pipe:0"));
         assertTrue(joined.contains("-map 0:a:1"));
+    }
+
+    @Test
+    void shouldReencodeAudioWhenVideoTranscodeWithSeek() {
+        // 视频转码 + seek：精确 seek 只裁剪解码流，音频 copy 会停留在 seek 点前关键帧导致音画错位数秒，
+        // 必须重编码音频随视频一起裁剪到 seek 点
+        TranscodeCommandBuilder.TranscodeRequest request = new TranscodeCommandBuilder.TranscodeRequest(
+                1_717_501, null, Path.of("/data/movie.mp4"), null, "hevc", "aac", 1000L, 480, false);
+        List<String> command = builder.buildCommand(request, "libx264",
+                "/dev/dri/renderD128", 0, Path.of("/out/session7"));
+        String joined = String.join(" ", command);
+
+        assertTrue(joined.contains("-ss 1717.501"));
+        assertTrue(joined.contains("-c:a aac -b:a 128k -ac 2"));
+        assertFalse(joined.contains("-c:a copy"));
+    }
+
+    @Test
+    void shouldDisableAccurateSeekWhenVideoCopyWithSeek() {
+        // 视频转封装 + seek：视频停留在关键帧，关闭精确 seek 让（可能重编码的）音频同样从关键帧起步，保持对齐
+        TranscodeCommandBuilder.TranscodeRequest request = new TranscodeCommandBuilder.TranscodeRequest(
+                1_717_501, null, Path.of("/data/movie.mkv"), null, "h264", "ac3", null, null, false);
+        List<String> command = builder.buildCommand(request, TranscodeCommandBuilder.ENCODER_COPY,
+                "/dev/dri/renderD128", 0, Path.of("/out/session8"));
+        String joined = String.join(" ", command);
+
+        assertTrue(joined.contains("-ss 1717.501 -noaccurate_seek -i"));
+        // ac3 不在 copy 白名单，仍转 AAC（起步点由 -noaccurate_seek 保证与视频一致）
+        assertTrue(joined.contains("-c:a aac -b:a 128k -ac 2"));
+    }
+
+    @Test
+    void shouldKeepAudioCopyWhenVideoCopyWithSeek() {
+        // 视频转封装 + seek + 可 copy 音频：两条流均不参与精确裁剪，保持 copy 即对齐
+        TranscodeCommandBuilder.TranscodeRequest request = new TranscodeCommandBuilder.TranscodeRequest(
+                90_500, null, Path.of("/data/movie.mp4"), null, "h264", "aac", null, null, false);
+        List<String> command = builder.buildCommand(request, TranscodeCommandBuilder.ENCODER_COPY,
+                "/dev/dri/renderD128", 0, Path.of("/out/session9"));
+        String joined = String.join(" ", command);
+
+        assertTrue(joined.contains("-c:a copy"));
+        assertTrue(joined.contains("-noaccurate_seek"));
+    }
+
+    @Test
+    void shouldNotTouchAudioCopyOrAccurateSeekWithoutSeek() {
+        // 从头播放：无 seek 错位问题，音频照常 copy，也不加 -noaccurate_seek
+        List<String> transcode = builder.buildCommand(request("hevc", "aac", 1000L, 480, false),
+                "libx264", "/dev/dri/renderD128", 0, Path.of("/out/session10"));
+        String transcodeJoined = String.join(" ", transcode);
+        assertTrue(transcodeJoined.contains("-c:a copy"));
+        assertFalse(transcodeJoined.contains("-noaccurate_seek"));
+
+        List<String> remux = builder.buildCommand(request("h264", "aac", null, null, false),
+                TranscodeCommandBuilder.ENCODER_COPY, "/dev/dri/renderD128", 0, Path.of("/out/session11"));
+        assertFalse(String.join(" ", remux).contains("-noaccurate_seek"));
     }
 
     @Test

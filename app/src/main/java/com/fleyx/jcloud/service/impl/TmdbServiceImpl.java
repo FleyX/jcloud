@@ -285,6 +285,14 @@ public class TmdbServiceImpl implements TmdbService {
         metadata.setRawJson(node.toString());
     }
 
+    /**
+     * 根据图片用途解析 TMDB 图片宽度前缀。
+     * backdrop 使用 w1280，poster/still 等保持 w500。
+     */
+    String resolveImageWidth(String kind) {
+        return "backdrop".equals(kind) ? "w1280" : "w500";
+    }
+
     private String downloadImage(String tmdbPath, String metadataId, String kind) {
         if (tmdbPath == null) {
             return null;
@@ -294,7 +302,7 @@ public class TmdbServiceImpl implements TmdbService {
             StorageSpace space = systemStorageSpaceProvider.getSystemSpace();
             Path target = Path.of(space.getPath(), "system", relative);
             Files.createDirectories(target.getParent());
-            HttpRequest request = HttpRequest.newBuilder(URI.create(IMAGE_BASE + "/w500" + tmdbPath))
+            HttpRequest request = HttpRequest.newBuilder(URI.create(IMAGE_BASE + "/" + resolveImageWidth(kind) + tmdbPath))
                     .timeout(Duration.ofSeconds(30)).GET().build();
             try (InputStream in = buildClient().send(request, HttpResponse.BodyHandlers.ofInputStream()).body()) {
                 Files.copy(in, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);

@@ -107,4 +107,14 @@ public interface MediaItemService {
      * @return 剧集条目列表（按集号升序）
      */
     List<MediaItemVo> listSeasonEpisodes(String seriesId, String seasonId, String userId);
+
+    /**
+     * 按文件节点 ID 反查媒体条目 ID。
+     *
+     * @param fileNodeId 文件节点 ID
+     * @param userId     用户 ID
+     * @return 媒体条目 ID
+     * @throws BusinessException 未找到时抛出
+     */
+    String getItemIdByFileNodeId(String fileNodeId, String userId);
 }

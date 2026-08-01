@@ -3,13 +3,13 @@
  * 其他视频网格（PC/移动端共用）
  * - 不获取元数据，使用视频截图作为封面
  * - 分页加载（滚动到底自动加载）、排序
- * - 搜索在 MediaSearchModal 内展示结果，点击结果直接播放
+ * - 搜索在 MediaSearchModal 内展示结果，点击结果进入全屏播放页
  */
 import { ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import type { MediaItemVo } from '@/types/media'
 import { fetchMediaOthers } from '@/api/media'
 import PosterCard from './PosterCard.vue'
-import MediaPlayerModal from './MediaPlayerModal.vue'
 import MediaWallToolbar from './MediaWallToolbar.vue'
 import MediaSearchModal from './MediaSearchModal.vue'
 import MediaSearchResultRow from './MediaSearchResultRow.vue'
@@ -23,6 +23,8 @@ interface Props {
 }
 
 const props = defineProps<Props>()
+
+const router = useRouter()
 
 const fetcher: MediaWallFetcher<MediaItemVo> = (query) =>
   fetchMediaOthers({ ...query, directoryId: props.directoryId })
@@ -47,17 +49,9 @@ watch(
 )
 
 const searchOpen = ref(false)
-const playerOpen = ref(false)
-const playingItem = ref<MediaItemVo | null>(null)
 
 function handlePlay(item: MediaItemVo) {
-  playingItem.value = item
-  playerOpen.value = true
-}
-
-function handlePlayerClose() {
-  playerOpen.value = false
-  reload()
+  router.push({ name: 'MediaPlay', params: { id: item.id } })
 }
 
 function thumbUrl(item: MediaItemVo): string {
@@ -96,7 +90,7 @@ function formatDuration(ms: number | null): string | null {
     </p>
     <template v-else>
       <div
-        :class="cn('grid gap-4', dense ? 'grid-cols-2' : 'grid-cols-3 lg:grid-cols-5 xl:grid-cols-6')"
+        :class="cn('grid gap-4', dense ? 'grid-cols-2' : 'grid-cols-3 sm:grid-cols-4 lg:grid-cols-7 xl:grid-cols-9')"
       >
         <PosterCard
           v-for="item in items"
@@ -126,12 +120,6 @@ function formatDuration(ms: number | null): string | null {
         已加载全部
       </p>
     </template>
-
-    <MediaPlayerModal
-      :open="playerOpen"
-      :item="playingItem"
-      @close="handlePlayerClose"
-    />
 
     <MediaSearchModal
       :open="searchOpen"
