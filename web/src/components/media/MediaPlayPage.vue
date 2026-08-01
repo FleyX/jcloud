@@ -2,15 +2,18 @@
 /**
  * 独立媒体播放页（无顶栏/侧栏，PC/移动端共用）
  * - 播放逻辑（直放/转码/续播/进度上报/音轨/字幕/码率）由 useMediaPlayback 承载
+ * - 控制栏状态与交互（播放/进度/音量/倍速/画中画/全屏/自动隐藏/快捷键）由 usePlayerControls 承载
+ * - 视频区域从首帧起即撑满全屏，加载中为纯黑 + 居中加载圈
  * - 电视剧显示选集列表，播完自动连播下一集
  */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, ListVideo, LoaderCircle } from '@lucide/vue'
+import { ArrowLeft, LoaderCircle } from '@lucide/vue'
 import type { MediaItemDetailVo, MediaItemVo } from '@/types/media'
 import { fetchItemDetail, fetchMediaEpisodes } from '@/api/media'
 import { useMediaPlayback } from '@/composables/useMediaPlayback'
-import PlayerSettingsMenu from '@/components/media/PlayerSettingsMenu.vue'
+import { usePlayerControls, type PlayerTimeline } from '@/composables/usePlayerControls'
+import PlayerControlBar from '@/components/media/PlayerControlBar.vue'
 import { cn } from '@/utils/cn'
 
 const route = useRoute()
@@ -30,15 +33,31 @@ const {
   bitrateTierKey,
   activeSubtitle,
   sourceEpoch,
+  transcodeActive,
+  transcodeBaseMs,
   start,
   stop,
   handleSeeking,
+  seekToAbsolute,
   reportProgress,
   handleTrackLoad,
   selectAudioTrack,
   selectSubtitle,
   selectBitrateTier,
 } = useMediaPlayback(videoRef)
+
+// 选集面板打开时钉住控制栏，不自动隐藏
+const pinned = computed(() => episodePanelOpen.value)
+
+/** 绝对时间轴：转码时纠正控制栏的当前时间/时长/缓冲显示（video.duration 随分片增长不可信） */
+const timeline = computed<PlayerTimeline>(() => ({
+  transcodeActive: transcodeActive.value,
+  baseMs: transcodeBaseMs.value,
+  durationMs: playbackInfo.value?.durationMs != null ? Number(playbackInfo.value.durationMs) : null,
+}))
+
+const controls = usePlayerControls(videoRef, pinned, timeline)
+const { controlsVisible, wake, toggleControls } = controls
 
 const itemId = computed(() => route.params.id as string)
 const isEpisode = computed(() => detail.value?.itemType === 'episode')
@@ -116,15 +135,70 @@ function handleEnded() {
   }
 }
 
+/** 进度条拖拽跳转：绝对秒数，转码超缓冲时由 seekToAbsolute 重建会话 */
+function handleSeek(seconds: number) {
+  seekToAbsolute(seconds).catch((e) => {
+    errorMsg.value = e instanceof Error ? e.message : '跳转失败'
+  })
+}
+
 function handleBack() {
   router.back()
 }
 </script>
 
 <template>
-  <div class="flex h-screen w-screen flex-col bg-black">
-    <!-- 顶栏：返回 + 标题 + 设置 + 选集 -->
-    <div class="flex shrink-0 items-center gap-3 px-4 py-3 text-white">
+  <div
+    :class="cn(
+      'relative h-screen w-screen select-none overflow-hidden bg-black',
+      !controlsVisible && 'cursor-none'
+    )"
+    @mousemove="wake"
+    @touchstart="wake"
+  >
+    <!-- 视频：从首帧起撑满全屏，object-contain 保持比例居中 -->
+    <video
+      ref="videoRef"
+      class="absolute inset-0 h-full w-full object-contain"
+      playsinline
+      crossorigin="use-credentials"
+      @click="toggleControls"
+      @seeking="handleSeeking"
+      @pause="reportProgress"
+      @ended="handleEnded"
+    >
+      <track
+        v-if="activeSubtitle"
+        :key="`${activeSubtitle.key}:${sourceEpoch}`"
+        kind="subtitles"
+        :src="activeSubtitle.src"
+        :label="activeSubtitle.label"
+        default
+        @load="handleTrackLoad"
+      >
+    </video>
+
+    <!-- 加载中：纯黑全屏 + 居中加载圈 -->
+    <div
+      v-if="loading"
+      class="pointer-events-none absolute inset-0 z-10 flex items-center justify-center text-white"
+    >
+      <LoaderCircle class="h-10 w-10 animate-spin" />
+    </div>
+    <div
+      v-if="errorMsg"
+      class="absolute inset-0 z-10 flex items-center justify-center px-8 text-center text-sm text-red-300"
+    >
+      {{ errorMsg }}
+    </div>
+
+    <!-- 顶栏：返回 + 标题 -->
+    <div
+      :class="cn(
+        'absolute inset-x-0 top-0 z-20 flex items-center gap-3 bg-gradient-to-b from-black/70 to-transparent px-4 pb-8 pt-3 text-white transition-opacity duration-300',
+        controlsVisible ? 'opacity-100' : 'pointer-events-none opacity-0'
+      )"
+    >
       <button
         class="rounded-full bg-white/10 p-2 hover:bg-white/20"
         title="返回"
@@ -135,87 +209,46 @@ function handleBack() {
       <p class="min-w-0 flex-1 truncate text-sm font-medium">
         {{ title }}
       </p>
-      <PlayerSettingsMenu
-        v-if="playbackInfo"
-        :playback-info="playbackInfo"
-        :audio-index="audioIndex"
-        :subtitle-key="subtitleKey"
-        :bitrate-tier-key="bitrateTierKey"
-        @select-audio="selectAudioTrack"
-        @select-subtitle="selectSubtitle"
-        @select-bitrate="selectBitrateTier"
-      />
-      <button
-        v-if="isEpisode"
-        :class="cn('rounded-full p-2 hover:bg-white/20', episodePanelOpen ? 'bg-white/25' : 'bg-white/10')"
-        title="选集"
-        @click="episodePanelOpen = !episodePanelOpen"
-      >
-        <ListVideo class="h-5 w-5" />
-      </button>
     </div>
 
-    <div class="flex min-h-0 flex-1">
-      <!-- 播放区 -->
-      <div class="relative flex min-w-0 flex-1 flex-col items-center justify-center">
-        <div
-          v-if="loading"
-          class="absolute inset-0 z-10 flex items-center justify-center text-white"
-        >
-          <LoaderCircle class="h-10 w-10 animate-spin" />
-        </div>
-        <div
-          v-if="errorMsg"
-          class="absolute inset-0 z-10 flex items-center justify-center px-8 text-center text-sm text-red-300"
-        >
-          {{ errorMsg }}
-        </div>
+    <!-- 底部控制栏 -->
+    <PlayerControlBar
+      :controls="controls"
+      :playback-info="playbackInfo"
+      :audio-index="audioIndex"
+      :subtitle-key="subtitleKey"
+      :bitrate-tier-key="bitrateTierKey"
+      :is-episode="isEpisode"
+      :episode-panel-open="episodePanelOpen"
+      @select-audio="selectAudioTrack"
+      @select-subtitle="selectSubtitle"
+      @select-bitrate="selectBitrateTier"
+      @toggle-episode-panel="episodePanelOpen = !episodePanelOpen"
+      @seek="handleSeek"
+    />
 
-        <video
-          ref="videoRef"
-          class="max-h-full w-full bg-black"
-          controls
-          playsinline
-          crossorigin="use-credentials"
-          @seeking="handleSeeking"
-          @pause="reportProgress"
-          @ended="handleEnded"
-        >
-          <track
-            v-if="activeSubtitle"
-            :key="`${activeSubtitle.key}:${sourceEpoch}`"
-            kind="subtitles"
-            :src="activeSubtitle.src"
-            :label="activeSubtitle.label"
-            default
-            @load="handleTrackLoad"
-          >
-        </video>
-      </div>
-
-      <!-- 选集面板 -->
-      <div
-        v-if="isEpisode && episodePanelOpen"
-        class="w-56 shrink-0 overflow-y-auto border-l border-white/10 bg-surface-950 md:w-64"
+    <!-- 选集面板 -->
+    <div
+      v-if="isEpisode && episodePanelOpen"
+      class="absolute inset-y-0 right-0 z-30 w-56 overflow-y-auto border-l border-white/10 bg-surface-950/95 backdrop-blur md:w-64"
+    >
+      <p class="px-4 py-3 text-xs font-semibold text-surface-400">
+        选集（{{ episodes.length }}）
+      </p>
+      <button
+        v-for="episode in episodes"
+        :key="episode.id"
+        :class="cn(
+          'flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm transition-colors',
+          episode.id === itemId ? 'bg-primary-600/20 text-primary-300' : 'text-surface-300 hover:bg-white/5'
+        )"
+        @click="switchEpisode(episode)"
       >
-        <p class="px-4 py-3 text-xs font-semibold text-surface-400">
-          选集（{{ episodes.length }}）
-        </p>
-        <button
-          v-for="episode in episodes"
-          :key="episode.id"
-          :class="cn(
-            'flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm transition-colors',
-            episode.id === itemId ? 'bg-primary-600/20 text-primary-300' : 'text-surface-300 hover:bg-white/5'
-          )"
-          @click="switchEpisode(episode)"
-        >
-          <span class="shrink-0 rounded bg-white/10 px-1.5 py-0.5 text-xs font-semibold">
-            {{ episodeLabel(episode) }}
-          </span>
-          <span class="truncate">{{ episode.fileName }}</span>
-        </button>
-      </div>
+        <span class="shrink-0 rounded bg-white/10 px-1.5 py-0.5 text-xs font-semibold">
+          {{ episodeLabel(episode) }}
+        </span>
+        <span class="truncate">{{ episode.fileName }}</span>
+      </button>
     </div>
   </div>
 </template>

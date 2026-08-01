@@ -31,6 +31,7 @@ import com.fleyx.jcloud.service.MediaScanService;
 import com.fleyx.jcloud.service.MediaScrapeService;
 import com.fleyx.jcloud.service.SystemStorageSpaceProvider;
 import com.fleyx.jcloud.service.TmdbService;
+import com.fleyx.jcloud.service.support.TranscodeSession;
 import com.fleyx.jcloud.service.support.TranscodeSessionManager;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -143,6 +144,11 @@ public class MediaController {
         return R.ok(mediaItemService.listOthers(UserContext.get().id(), query));
     }
 
+    @GetMapping("/items/by-file-node/{fileNodeId}")
+    public R<String> getItemIdByFileNodeId(@PathVariable String fileNodeId) {
+        return R.ok(mediaItemService.getItemIdByFileNodeId(fileNodeId, UserContext.get().id()));
+    }
+
     @GetMapping("/items/{id}/detail")
     public R<MediaItemDetailVo> itemDetail(@PathVariable String id) {
         return R.ok(mediaItemService.getItemDetail(id, UserContext.get().id()));
@@ -231,7 +237,7 @@ public class MediaController {
                                                   @RequestParam(required = false) Long targetBitrateKbps,
                                                   @RequestParam(required = false) Integer maxHeight,
                                                   @RequestParam(defaultValue = "false") boolean forceVideoTranscode) {
-        TranscodeSessionManager.TranscodeSession session = mediaPlaybackService.createTranscodeSession(
+        TranscodeSession session = mediaPlaybackService.createTranscodeSession(
                 id, startMs, audioIndex, targetBitrateKbps, maxHeight, forceVideoTranscode, UserContext.get().id());
         Map<String, String> result = new HashMap<>();
         result.put("sessionId", session.id());
@@ -239,15 +245,34 @@ public class MediaController {
         return R.ok(result);
     }
 
+    /**
+     * 播放页心跳：播放页打开期间每 5s 调用一次。超时未收到心跳的会话会被自动回收。
+     */
+    @PostMapping("/transcode/{sessionId}/heartbeat")
+    public R<Void> transcodeHeartbeat(@PathVariable String sessionId) {
+        transcodeSessionManager.heartbeat(sessionId, UserContext.get().id());
+        return R.ok();
+    }
+
+    /**
+     * 主动关闭转码会话：播放页正常退出时调用（含 sendBeacon 场景，token 走查询参数），即时回收。
+     */
+    @PostMapping("/transcode/{sessionId}/close")
+    public R<Void> closeTranscode(@PathVariable String sessionId) {
+        transcodeSessionManager.closeSession(sessionId, UserContext.get().id());
+        return R.ok();
+    }
+
     @GetMapping("/transcode/{sessionId}/{fileName}")
     public ResponseEntity<InputStreamResource> transcodeFile(@PathVariable String sessionId,
                                                              @PathVariable String fileName,
                                                              @RequestParam(required = false) String token) throws Exception {
         String userId = UserContext.get().id();
-        // 播放列表可能需要等待 ffmpeg 生成首个切片
+        // 播放列表、分片、初始化段都可能需要等待 ffmpeg 生成
         Path path = transcodeSessionManager.touchAndResolve(sessionId, userId, fileName);
-        if (path == null && fileName.endsWith(".m3u8")) {
-            for (int i = 0; i < 60 && path == null; i++) {
+        if (path == null && isWaitableTranscodeFile(fileName)) {
+            int maxRetries = fileName.endsWith(".m3u8") ? 60 : 30;
+            for (int i = 0; i < maxRetries && path == null; i++) {
                 Thread.sleep(500);
                 path = transcodeSessionManager.touchAndResolve(sessionId, userId, fileName);
             }
@@ -273,6 +298,10 @@ public class MediaController {
                 .contentType(contentType)
                 .contentLength(Files.size(path))
                 .body(new InputStreamResource(Files.newInputStream(path)));
+    }
+
+    private boolean isWaitableTranscodeFile(String fileName) {
+        return fileName.endsWith(".m3u8") || fileName.endsWith(".m4s") || "init.mp4".equals(fileName);
     }
 
     // ---------- 元数据 ----------

@@ -21,11 +21,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 
 /**
- * HLS 实时转码会话管理器。
- * <p>
- * 每个播放会话对应一个 ffmpeg 进程与独立输出目录，空闲超时自动回收。
+ * HLS 实时转码会话管理器：每个会话一个 ffmpeg 进程，空闲/未完成时回收，支持 Jellyfin 式节流。
  */
 @Slf4j
 @Component
@@ -54,74 +53,18 @@ public class TranscodeSessionManager {
     private final SystemStorageSpaceProvider systemStorageSpaceProvider;
     private final SystemConfigService systemConfigService;
     private final TranscodeCommandBuilder commandBuilder;
+    private final TranscodeThrottleSupport throttleSupport;
     private final Semaphore concurrencyPermits;
 
     public TranscodeSessionManager(MediaProperties mediaProperties, SystemStorageSpaceProvider systemStorageSpaceProvider,
-                                   SystemConfigService systemConfigService, TranscodeCommandBuilder commandBuilder) {
+                                   SystemConfigService systemConfigService, TranscodeCommandBuilder commandBuilder,
+                                   TranscodeThrottleSupport throttleSupport) {
         this.mediaProperties = mediaProperties;
         this.systemStorageSpaceProvider = systemStorageSpaceProvider;
         this.systemConfigService = systemConfigService;
         this.commandBuilder = commandBuilder;
+        this.throttleSupport = throttleSupport;
         this.concurrencyPermits = new Semaphore(Math.max(1, mediaProperties.getTranscodeConcurrency()));
-    }
-
-    /**
-     * 转码会话。
-     */
-    public static final class TranscodeSession {
-        private final String id;
-        private final String userId;
-        private final Path outputDir;
-        private final Process process;
-        private final String encoder;
-        private volatile Instant lastAccess;
-        private volatile boolean failed;
-
-        public TranscodeSession(String id, String userId, Path outputDir, Process process,
-                                String encoder, Instant lastAccess) {
-            this.id = id;
-            this.userId = userId;
-            this.outputDir = outputDir;
-            this.process = process;
-            this.encoder = encoder;
-            this.lastAccess = lastAccess;
-        }
-
-        public String id() {
-            return id;
-        }
-
-        public String userId() {
-            return userId;
-        }
-
-        public Path outputDir() {
-            return outputDir;
-        }
-
-        public Process process() {
-            return process;
-        }
-
-        public String encoder() {
-            return encoder;
-        }
-
-        public Instant lastAccess() {
-            return lastAccess;
-        }
-
-        public void lastAccess(Instant lastAccess) {
-            this.lastAccess = lastAccess;
-        }
-
-        public boolean failed() {
-            return failed;
-        }
-
-        public void failed(boolean failed) {
-            this.failed = failed;
-        }
     }
 
     private final Map<String, TranscodeSession> sessions = new ConcurrentHashMap<>();
@@ -187,7 +130,20 @@ public class TranscodeSessionManager {
             throw new BusinessException(ResultCode.PARAM_ERROR, "非法文件名");
         }
         Path path = session.outputDir().resolve(fileName);
-        return Files.exists(path) ? path : null;
+        // ffmpeg 会先创建 0 字节占位文件再写入内容，0 字节同样视为尚未生成
+        if (!Files.exists(path) || isZeroByte(path)) {
+            return null;
+        }
+        throttleSupport.updateMaxRequestedSegment(session, fileName);
+        return path;
+    }
+
+    private boolean isZeroByte(Path path) {
+        try {
+            return Files.size(path) == 0;
+        } catch (IOException e) {
+            return true;
+        }
     }
 
     /**
@@ -241,30 +197,116 @@ public class TranscodeSessionManager {
     }
 
     /**
-     * 关闭会话并清理资源。
+     * 播放页心跳：刷新会话心跳时间。心跳会话超过配置时间无新心跳将被回收（见 {@link #cleanupIdleSessions}）。
+     *
+     * @param sessionId 会话 ID
+     * @param userId    用户 ID（校验会话归属）
+     */
+    public void heartbeat(String sessionId, String userId) {
+        TranscodeSession session = sessions.get(sessionId);
+        if (session == null || !session.userId().equals(userId)) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "转码会话不存在");
+        }
+        Instant now = Instant.now();
+        session.lastHeartbeatAt(now);
+        session.lastAccess(now);
+    }
+
+    /**
+     * 关闭会话并清理资源（杀 ffmpeg、删缓存目录、释放并发许可）。
      *
      * @param sessionId 会话 ID
      */
     public void closeSession(String sessionId) {
-        TranscodeSession session = sessions.remove(sessionId);        if (session != null) {
+        TranscodeSession session = sessions.remove(sessionId);
+        if (session != null) {
             destroy(session);
         }
     }
 
     /**
-     * 定时回收空闲会话。
+     * 关闭会话并清理资源，校验会话归属。会话不存在时静默返回（播放页退出时会话可能已被回收）。
+     *
+     * @param sessionId 会话 ID
+     * @param userId    用户 ID
      */
-    @Scheduled(fixedRate = 60_000)
+    public void closeSession(String sessionId, String userId) {
+        TranscodeSession session = sessions.get(sessionId);
+        if (session == null) {
+            return;
+        }
+        if (!session.userId().equals(userId)) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "转码会话不存在");
+        }
+        closeSession(sessionId);
+    }
+
+    /**
+     * 定时回收空闲会话，双轨规则：
+     * 收到过播放页心跳的会话按心跳超时（默认 90s）回收——播放页已退出或崩溃；
+     * 从未收到心跳的会话（API 客户端等）沿用空闲超时规则（无切片请求超过配置分钟数）。
+     */
+    @Scheduled(fixedRate = 30_000)
     public void cleanupIdleSessions() {
-        Instant deadline = Instant.now().minus(mediaProperties.getSessionIdleTimeoutMinutes(), ChronoUnit.MINUTES);
+        Instant now = Instant.now();
+        Instant idleDeadline = now.minus(mediaProperties.getSessionIdleTimeoutMinutes(), ChronoUnit.MINUTES);
+        Instant heartbeatDeadline = now.minus(mediaProperties.getSessionHeartbeatTimeoutSeconds(), ChronoUnit.SECONDS);
         sessions.entrySet().removeIf(entry -> {
             TranscodeSession session = entry.getValue();
-            boolean idle = session.lastAccess().isBefore(deadline) || !session.process().isAlive();
+            boolean idle = isSessionExpired(session, idleDeadline, heartbeatDeadline);
             if (idle) {
                 destroy(session);
             }
             return idle;
         });
+    }
+
+    private boolean isSessionExpired(TranscodeSession session, Instant idleDeadline, Instant heartbeatDeadline) {
+        Instant lastHeartbeat = session.lastHeartbeatAt();
+        if (lastHeartbeat != null) {
+            return lastHeartbeat.isBefore(heartbeatDeadline);
+        }
+        return throttleSupport.isSessionIdle(session, idleDeadline);
+    }
+
+    /**
+     * 定时转码节流：根据客户端请求进度与 ffmpeg 已生成时长差距，暂停或继续进程。
+     */
+    @Scheduled(fixedRate = 5_000)
+    public void throttleSessions() {
+        if (!throttleSupport.isLinux()) {
+            log.debug("非 Linux 系统，跳过转码节流调度");
+            return;
+        }
+        int aheadSeconds = mediaProperties.getTranscodeThrottleAheadSeconds();
+        int resumeSeconds = mediaProperties.getTranscodeThrottleResumeSeconds();
+        for (TranscodeSession session : sessions.values()) {
+            if (!session.process().isAlive()) {
+                continue;
+            }
+            String m3u8Content = throttleSupport.readM3u8Content(session.outputDir().resolve("index.m3u8"));
+            double generated = throttleSupport.sumExtinfSeconds(m3u8Content);
+            int maxIndex = session.maxRequestedSegmentIndex().get();
+            double consumed = throttleSupport.sumExtinfSeconds(m3u8Content, Math.max(0, maxIndex + 1));
+            double ahead = generated - consumed;
+            TranscodeThrottleSupport.ThrottleDecision decision = throttleSupport.decideThrottle(
+                    generated, consumed, aheadSeconds, resumeSeconds);
+            if (decision == TranscodeThrottleSupport.ThrottleDecision.PAUSE
+                    && session.pauseState() != TranscodeSession.PauseState.PAUSED) {
+                log.info("转码进程领先过多，准备暂停: session={}, ahead={}s", session.id(), ahead);
+                throttleSupport.sendSignal(session, "STOP", "暂停");
+                if (session.pauseState() != TranscodeSession.PauseState.UNKNOWN) {
+                    session.pauseState(TranscodeSession.PauseState.PAUSED);
+                }
+            } else if (decision == TranscodeThrottleSupport.ThrottleDecision.RESUME
+                    && session.pauseState() == TranscodeSession.PauseState.PAUSED) {
+                log.info("转码进程已追近，准备继续: session={}, ahead={}s", session.id(), ahead);
+                throttleSupport.sendSignal(session, "CONT", "继续");
+                if (session.pauseState() != TranscodeSession.PauseState.UNKNOWN) {
+                    session.pauseState(TranscodeSession.PauseState.RUNNING);
+                }
+            }
+        }
     }
 
     @PreDestroy
@@ -274,9 +316,12 @@ public class TranscodeSessionManager {
     }
 
     private void destroy(TranscodeSession session) {
+        if (throttleSupport.isLinux() && session.pauseState() == TranscodeSession.PauseState.PAUSED) {
+            throttleSupport.sendSignal(session, "CONT", "恢复");
+        }
         session.process().destroy();
         try {
-            if (!session.process().waitFor(5, java.util.concurrent.TimeUnit.SECONDS)) {
+            if (!session.process().waitFor(5, TimeUnit.SECONDS)) {
                 session.process().destroyForcibly();
             }
         } catch (InterruptedException e) {
@@ -368,7 +413,7 @@ public class TranscodeSessionManager {
         Process process = builder.start();
         Thread.startVirtualThread(() -> {
             try {
-                process.getErrorStream().transferTo(OutputStreamNull.INSTANCE);
+                process.getErrorStream().transferTo(java.io.OutputStream.nullOutputStream());
             } catch (IOException ignored) {
             }
         });
@@ -404,15 +449,4 @@ public class TranscodeSessionManager {
         }
     }
 
-    private static final class OutputStreamNull extends java.io.OutputStream {
-        private static final OutputStreamNull INSTANCE = new OutputStreamNull();
-
-        @Override
-        public void write(int b) {
-        }
-
-        @Override
-        public void write(byte[] b, int off, int len) {
-        }
-    }
 }

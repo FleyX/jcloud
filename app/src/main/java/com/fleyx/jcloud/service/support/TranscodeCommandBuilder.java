@@ -19,7 +19,9 @@ import java.util.function.Supplier;
  * <p>
  * 按流决策：视频编码在直放白名单（h264/hevc/vp9/av1）且未要求降码率、未强制转码时 -c:v copy 转封装，
  * 否则按现有硬解探测路径转码（crf 23 原质量；降码率时叠加 -b:v/-maxrate/-bufsize 与不放大 scale）；
- * 所选音轨编码为 aac/mp3 时 -c:a copy，否则统一转 AAC 128k。
+ * 所选音轨编码为 aac/mp3 且（转封装或从头播放）时 -c:a copy，否则统一转 AAC 128k。
+ * seek 对齐规则：视频转码时精确 seek 仅裁剪解码流，音频 copy 会停留在关键帧导致音画错位，故转码 + seek 音频必须重编码；
+ * 转封装 + seek 时视频停留在关键帧，附加 -noaccurate_seek 保证重编码音频同样从关键帧起步。
  */
 @Slf4j
 @Component
@@ -170,6 +172,11 @@ public class TranscodeCommandBuilder {
         }
         if (request.startMs() > 0) {
             command.addAll(List.of("-ss", String.format(Locale.ROOT, "%.3f", request.startMs() / 1000.0)));
+            if (videoCopy) {
+                // 转封装视频停留在 seek 点前关键帧；关闭精确 seek，让需要重编码的音频同样从关键帧起步，
+                // 否则音频被裁到 seek 点而视频早数秒，音画错位
+                command.add("-noaccurate_seek");
+            }
         }
         command.addAll(List.of("-i",
                 request.localPath() != null ? request.localPath().toAbsolutePath().toString() : "pipe:0"));
@@ -184,13 +191,17 @@ public class TranscodeCommandBuilder {
         } else {
             appendVideoTranscodeArgs(command, request, encoder, threads);
         }
-        if (isAudioCopyEligible(request.audioCodec())) {
+        // 视频转码 + seek 时精确 seek 只裁剪解码流（视频），音频 copy 不参与裁剪会停留在 seek 点前关键帧，
+        // 音画错位可达数秒，故此时音频必须重编码随视频一起裁到 seek 点；转封装或从头播放时 copy 即对齐
+        boolean audioCopy = isAudioCopyEligible(request.audioCodec()) && (videoCopy || request.startMs() == 0);
+        if (audioCopy) {
             command.addAll(List.of("-c:a", "copy"));
         } else {
             command.addAll(List.of("-c:a", "aac", "-b:a", "128k", "-ac", "2"));
         }
         command.addAll(List.of("-f", "hls",
                 "-hls_time", String.valueOf(mediaProperties.getHlsSegmentSeconds()),
+                "-hls_list_size", "0",
                 "-hls_segment_type", "fmp4",
                 "-hls_flags", "independent_segments",
                 "-hls_segment_filename", outputDir.resolve("seg_%05d.m4s").toString(),

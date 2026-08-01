@@ -22,6 +22,7 @@ import com.fleyx.jcloud.service.RemoteFileService;
 import com.fleyx.jcloud.service.support.MediaProbeSupport;
 import com.fleyx.jcloud.service.support.MediaSubtitleSupport;
 import com.fleyx.jcloud.service.support.TranscodeCommandBuilder;
+import com.fleyx.jcloud.service.support.TranscodeSession;
 import com.fleyx.jcloud.service.support.TranscodeSessionManager;
 import com.fleyx.jcloud.util.FilePathUtil;
 import lombok.RequiredArgsConstructor;
@@ -215,10 +216,10 @@ public class MediaPlaybackServiceImpl implements MediaPlaybackService {
     }
 
     @Override
-    public TranscodeSessionManager.TranscodeSession createTranscodeSession(String itemId, long startMs,
-                                                                           Integer audioIndex, Long targetBitrateKbps,
-                                                                           Integer maxHeight, boolean forceVideoTranscode,
-                                                                           String userId) {
+    public TranscodeSession createTranscodeSession(String itemId, long startMs,
+                                                   Integer audioIndex, Long targetBitrateKbps,
+                                                   Integer maxHeight, boolean forceVideoTranscode,
+                                                   String userId) {
         TranscodeCommandBuilder.validateParams(targetBitrateKbps, maxHeight);
         MediaItem item = requireOwnedItem(itemId, userId);
         FileNode node = requireFileNode(item);

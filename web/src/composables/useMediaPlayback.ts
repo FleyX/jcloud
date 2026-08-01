@@ -7,10 +7,13 @@ import { computed, ref, type Ref } from 'vue'
 import Hls from 'hls.js'
 import type { MediaPlaybackInfoVo, MediaSubtitleItem } from '@/types/media'
 import {
+  closeTranscodeSession,
   createTranscodeSession,
   externalSubtitleUrl,
   fetchPlaybackInfo,
   subtitleUrl,
+  transcodeCloseBeaconUrl,
+  transcodeHeartbeat,
   updateMediaProgress,
   withToken,
 } from '@/api/media'
@@ -90,7 +93,41 @@ export function useMediaPlayback(videoRef: Ref<HTMLVideoElement | null>) {
   let progressTimer: ReturnType<typeof setInterval> | null = null
   let destroyed = false
   /** 转码会话的起始偏移：转码流时间轴从 0 开始，绝对进度 = base + currentTime */
-  let transcodeBaseMs = 0
+  const transcodeBaseMs = ref(0)
+  /** 当前转码会话 id 与心跳定时器：播放页打开期间每 5s 心跳一次，后端 90s 无心跳回收会话 */
+  let transcodeSessionId: string | null = null
+  let heartbeatTimer: ReturnType<typeof setInterval> | null = null
+
+  /** 页面卸载（关标签页/刷新）时用 sendBeacon 主动关闭会话，即时回收 ffmpeg 与缓存 */
+  function handlePageHide() {
+    if (transcodeSessionId) {
+      navigator.sendBeacon(transcodeCloseBeaconUrl(transcodeSessionId))
+      transcodeSessionId = null
+    }
+  }
+  window.addEventListener('pagehide', handlePageHide)
+
+  function startHeartbeat(sessionId: string) {
+    stopHeartbeat()
+    transcodeSessionId = sessionId
+    heartbeatTimer = setInterval(() => transcodeHeartbeat(sessionId), 5_000)
+  }
+
+  function stopHeartbeat() {
+    if (heartbeatTimer) {
+      clearInterval(heartbeatTimer)
+      heartbeatTimer = null
+    }
+  }
+
+  /** 停止心跳并主动关闭当前转码会话（重建会话/切回直放/退出播放时调用） */
+  function stopTranscodeSession() {
+    stopHeartbeat()
+    if (transcodeSessionId) {
+      closeTranscodeSession(transcodeSessionId)
+      transcodeSessionId = null
+    }
+  }
 
   const subtitles = computed(() => playbackInfo.value?.subtitles ?? [])
   const showAudioGroup = computed(() => (playbackInfo.value?.audioTracks.length ?? 0) > 1)
@@ -139,7 +176,7 @@ export function useMediaPlayback(videoRef: Ref<HTMLVideoElement | null>) {
     const video = videoRef.value
     if (!video) return
     transcodeActive.value = false
-    transcodeBaseMs = 0
+    transcodeBaseMs.value = 0
     video.src = withToken(url)
     video.currentTime = startMs / 1000
     sourceEpoch.value += 1
@@ -154,11 +191,13 @@ export function useMediaPlayback(videoRef: Ref<HTMLVideoElement | null>) {
     const session = await createTranscodeSession(id, Math.floor(startMs), buildTranscodeOptions(info))
     const video = videoRef.value
     if (!video || destroyed) return
+    startHeartbeat(session.sessionId)
     transcodeActive.value = true
-    transcodeBaseMs = startMs
+    transcodeBaseMs.value = startMs
     const url = withToken(session.playlistUrl)
     if (Hls.isSupported()) {
-      hls = new Hls({ maxBufferLength: 30 })
+      // 转码播放缓冲调大到 120s，吸收转码速度波动，避免播放追上分片产出导致卡顿
+      hls = new Hls({ maxBufferLength: 120 })
       hls.loadSource(url)
       hls.attachMedia(video)
       sourceEpoch.value += 1
@@ -186,7 +225,7 @@ export function useMediaPlayback(videoRef: Ref<HTMLVideoElement | null>) {
   function currentAbsoluteMs(): number {
     const video = videoRef.value
     if (!video) return 0
-    return transcodeBaseMs + video.currentTime * 1000
+    return transcodeBaseMs.value + video.currentTime * 1000
   }
 
   /**
@@ -247,6 +286,7 @@ export function useMediaPlayback(videoRef: Ref<HTMLVideoElement | null>) {
   /** 停止播放并释放资源（组件卸载/关闭时调用） */
   function stop() {
     destroyed = true
+    window.removeEventListener('pagehide', handlePageHide)
     teardown()
     loading.value = true
     errorMsg.value = ''
@@ -291,7 +331,39 @@ export function useMediaPlayback(videoRef: Ref<HTMLVideoElement | null>) {
     }
     if (target > bufferedEnd + 5) {
       destroyHls()
-      await setupTranscode(transcodeBaseMs + target * 1000)
+      await setupTranscode(transcodeBaseMs.value + target * 1000)
+    }
+  }
+
+  /**
+   * 按绝对秒数跳转。转码流时间轴从 0 开始，入参为含 transcodeBaseMs 偏移的绝对时间：
+   * 目标在已缓冲范围内直接设置 currentTime（走原生 seeking，handleSeeking 兜底），
+   * 否则销毁当前 HLS 会话并从目标位置重建转码会话；直放模式直接设置 currentTime。
+   */
+  async function seekToAbsolute(absoluteSec: number) {
+    const video = videoRef.value
+    if (!video) return
+    if (!transcodeActive.value) {
+      const max = Number.isFinite(video.duration) ? video.duration : Number.MAX_SAFE_INTEGER
+      video.currentTime = Math.min(Math.max(absoluteSec, 0), max)
+      return
+    }
+    const durationMs = Number(playbackInfo.value?.durationMs ?? 0)
+    const target = durationMs > 0
+      ? Math.min(Math.max(absoluteSec, 0), durationMs / 1000)
+      : Math.max(absoluteSec, 0)
+    // 转码流时间轴从 0 开始（对应绝对 baseSec），currentTime/buffered 均为流内相对秒，
+    // 比较与赋值前必须把绝对目标换算为流内时间；目标早于当前会话起点则只能重建
+    const streamTarget = target - transcodeBaseMs.value / 1000
+    let bufferedEnd = 0
+    if (video.buffered.length > 0) {
+      bufferedEnd = video.buffered.end(video.buffered.length - 1)
+    }
+    if (streamTarget >= 0 && streamTarget <= bufferedEnd) {
+      video.currentTime = streamTarget
+    } else {
+      destroyHls()
+      await setupTranscode(target * 1000)
     }
   }
 
@@ -352,6 +424,8 @@ export function useMediaPlayback(videoRef: Ref<HTMLVideoElement | null>) {
       hls.destroy()
       hls = null
     }
+    // 销毁 HLS 客户端即放弃当前转码会话（重建/切直放/退出均走这里）
+    stopTranscodeSession()
   }
 
   function teardown() {
@@ -368,7 +442,7 @@ export function useMediaPlayback(videoRef: Ref<HTMLVideoElement | null>) {
     audioIndex.value = null
     subtitleKey.value = null
     transcodeActive.value = false
-    transcodeBaseMs = 0
+    transcodeBaseMs.value = 0
   }
 
   return {
@@ -382,9 +456,12 @@ export function useMediaPlayback(videoRef: Ref<HTMLVideoElement | null>) {
     activeSubtitle,
     showAudioGroup,
     showSubtitleGroup,
+    transcodeActive,
+    transcodeBaseMs,
     start,
     stop,
     handleSeeking,
+    seekToAbsolute,
     reportProgress,
     handleTrackLoad,
     selectAudioTrack,

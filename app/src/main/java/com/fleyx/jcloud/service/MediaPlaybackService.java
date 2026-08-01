@@ -2,6 +2,7 @@ package com.fleyx.jcloud.service;
 
 import com.fleyx.jcloud.model.bo.FileDownloadResult;
 import com.fleyx.jcloud.model.vo.MediaPlaybackInfoVo;
+import com.fleyx.jcloud.service.support.TranscodeSession;
 import com.fleyx.jcloud.service.support.TranscodeSessionManager;
 
 import java.nio.file.Path;
@@ -62,9 +63,9 @@ public interface MediaPlaybackService {
      * @param userId              用户 ID
      * @return 转码会话
      */
-    TranscodeSessionManager.TranscodeSession createTranscodeSession(String itemId, long startMs, Integer audioIndex,
-                                                                    Long targetBitrateKbps, Integer maxHeight,
-                                                                    boolean forceVideoTranscode, String userId);
+    TranscodeSession createTranscodeSession(String itemId, long startMs, Integer audioIndex,
+                                            Long targetBitrateKbps, Integer maxHeight,
+                                            boolean forceVideoTranscode, String userId);
 
     /**
      * 媒体流结果。

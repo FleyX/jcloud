@@ -280,6 +280,17 @@ public class MediaItemServiceImpl implements MediaItemService {
         return mediaItemVoSupport.toItemVos(items, true);
     }
 
+    @Override
+    public String getItemIdByFileNodeId(String fileNodeId, String userId) {
+        MediaItem item = mediaItemMapper.selectOne(new LambdaQueryWrapper<MediaItem>()
+                .eq(MediaItem::getFileNodeId, fileNodeId)
+                .eq(MediaItem::getUserId, userId));
+        if (item == null) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "媒体条目不存在");
+        }
+        return item.getId();
+    }
+
     /**
      * 组装剧详情页的季卡片列表：按季号升序（未知季排最后），含集数与观看进度标记。
      */
