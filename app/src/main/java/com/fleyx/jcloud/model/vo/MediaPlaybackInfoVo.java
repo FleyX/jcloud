@@ -62,9 +62,20 @@ public class MediaPlaybackInfoVo {
     private List<MediaProbeResult.Track> audioTracks;
 
     /**
-     * 字幕轨列表。
+     * 字幕轨列表（内嵌，实时 ffprobe 探测）。
      */
     private List<MediaProbeResult.Track> subtitleTracks;
+
+    /**
+     * 统一字幕列表（内嵌轨在前按 index，外部字幕在后按默认优先、标签排序），
+     * 前端据此渲染「无 + 全部字幕」选择列表。
+     */
+    private List<MediaSubtitleItemVo> subtitles;
+
+    /**
+     * 实际码率（bps）：优先 ffprobe bit_rate，缺失时按文件大小与时长估算，均缺失为 null。
+     */
+    private Long effectiveBitRate;
 
     /**
      * 播放进度（毫秒）。

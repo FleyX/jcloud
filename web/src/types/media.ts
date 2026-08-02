@@ -103,6 +103,24 @@ export interface MediaTrack {
   title: string | null
 }
 
+/**
+ * 统一字幕项（内嵌字幕轨与外部字幕统一渲染选择列表）
+ */
+export interface MediaSubtitleItem {
+  /** 字幕类型：embedded 内嵌轨 / external 外部字幕文件 */
+  type: 'embedded' | 'external'
+  /** 内嵌字幕轨序号（type=embedded 有效） */
+  index: number | null
+  /** 外部字幕记录 ID（type=external 有效） */
+  subtitleId: string | null
+  /** 展示名 */
+  label: string
+  /** 语言，未知为 null */
+  language: string | null
+  /** 是否默认字幕 */
+  defaulted: boolean
+}
+
 export interface MediaPlaybackInfoVo {
   mode: 'direct' | 'transcode'
   directUrl: string | null
@@ -115,6 +133,10 @@ export interface MediaPlaybackInfoVo {
   height: number | null
   audioTracks: MediaTrack[]
   subtitleTracks: MediaTrack[]
+  /** 统一字幕列表（内嵌在前按 index，外部在后按默认优先、标签排序） */
+  subtitles: MediaSubtitleItem[]
+  /** 实际码率 bps（Long 序列化为 string），缺失为 null */
+  effectiveBitRate: string | null
   progressMs: number
 }
 

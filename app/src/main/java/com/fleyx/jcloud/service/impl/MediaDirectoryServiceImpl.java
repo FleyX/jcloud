@@ -18,6 +18,7 @@ import com.fleyx.jcloud.service.MediaScanService;
 import com.fleyx.jcloud.service.support.MediaDirectorySourceSupport;
 import com.fleyx.jcloud.service.support.MediaItemVoSupport;
 import com.fleyx.jcloud.service.support.MediaSeriesSupport;
+import com.fleyx.jcloud.service.support.MediaSubtitleSupport;
 import lombok.RequiredArgsConstructor;
 import org.springframework.scheduling.support.CronExpression;
 import org.springframework.stereotype.Service;
@@ -46,6 +47,7 @@ public class MediaDirectoryServiceImpl implements MediaDirectoryService {
     private final MediaSeriesSupport mediaSeriesSupport;
     private final MediaDirectorySourceSupport sourceSupport;
     private final MediaItemVoSupport mediaItemVoSupport;
+    private final MediaSubtitleSupport mediaSubtitleSupport;
 
     @Override
     public List<MediaDirectoryVo> list(String userId) {
@@ -113,9 +115,14 @@ public class MediaDirectoryServiceImpl implements MediaDirectoryService {
             mediaScanService.requestCancel(directory.getId());
             if (!removed.isEmpty()) {
                 // 被移除来源目录下的条目（含播放进度）全部删除
+                List<String> removedItemIds = mediaItemMapper.selectList(new LambdaQueryWrapper<MediaItem>()
+                                .eq(MediaItem::getDirectoryId, directory.getId())
+                                .in(MediaItem::getSourceId, removed.stream().map(MediaDirectorySource::getId).toList()))
+                        .stream().map(MediaItem::getId).toList();
                 mediaItemMapper.delete(new LambdaQueryWrapper<MediaItem>()
                         .eq(MediaItem::getDirectoryId, directory.getId())
                         .in(MediaItem::getSourceId, removed.stream().map(MediaDirectorySource::getId).toList()));
+                mediaSubtitleSupport.deleteByItemIds(removedItemIds);
                 mediaSeriesSupport.cleanupOrphans(userId);
             }
             submitForceScanAfterCommit(directory.getId(), userId);
@@ -130,7 +137,11 @@ public class MediaDirectoryServiceImpl implements MediaDirectoryService {
     public void delete(String id, String userId) {
         requireOwned(id, userId);
         mediaScanService.requestCancel(id);
+        List<String> itemIds = mediaItemMapper.selectList(new LambdaQueryWrapper<MediaItem>()
+                        .eq(MediaItem::getDirectoryId, id))
+                .stream().map(MediaItem::getId).toList();
         mediaItemMapper.delete(new LambdaQueryWrapper<MediaItem>().eq(MediaItem::getDirectoryId, id));
+        mediaSubtitleSupport.deleteByItemIds(itemIds);
         sourceSupport.deleteByDirectoryId(id);
         mediaSeriesSupport.cleanupOrphans(userId);
         mediaDirectoryMapper.deleteById(id);

@@ -138,9 +138,12 @@ class MediaHomeServiceTest {
         MediaDirectory movieDir = insertDirectory("电影库", "movie");
         MediaMetadata metadata = new MediaMetadata();
         metadata.setId("metaposter001");
+        metadata.setUserId(USER_ID);
         metadata.setMediaType("movie");
+        metadata.setSource("tmdb");
+        metadata.setCompleteStatus("complete");
         metadata.setTitle("电影");
-        metadata.setPosterPath("poster/a.jpg");
+        metadata.setPosterFileNodeId("fnposter00001");
         mediaMetadataMapper.insert(metadata);
         MediaItem movieItem = insertItem(MediaItemType.MOVIE.getCode(), 0L, null, null);
         movieItem.setDirectoryId(movieDir.getId());

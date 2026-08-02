@@ -21,6 +21,9 @@ import com.fleyx.jcloud.model.po.MediaMetadata;
 import com.fleyx.jcloud.model.po.MediaSeries;
 import com.fleyx.jcloud.service.MediaScrapeService;
 import com.fleyx.jcloud.service.TmdbService;
+import com.fleyx.jcloud.service.support.MediaArtworkPersistSupport;
+import com.fleyx.jcloud.service.support.MediaLocalNfoScrapeSupport;
+import com.fleyx.jcloud.service.support.MediaNfoSupport;
 import com.fleyx.jcloud.service.support.MediaSeriesSupport;
 import com.fleyx.jcloud.service.support.MediaTaskSupport;
 import com.fleyx.jcloud.util.MediaFileNameParser;
@@ -29,14 +32,17 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.task.TaskExecutor;
 import org.springframework.stereotype.Service;
 
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.List;
 
 /**
  * 媒体库削刮服务实现。
  * <p>
- * 电影以条目为单位削刮：先文件名解析结果，失败用直接父目录名兜底；
- * 电视以剧为单位削刮：一次匹配应用到全剧非手动修正的集，并拉取本地存在的季/集元数据。
+ * 削刮为本地优先（ADR 0020）：视频同目录存在 NFO 或本地媒体图片时完全信任本地内容、不请求 TMDB；
+ * 本地缺失时电影以条目为单位（先文件名解析结果，失败用直接父目录名兜底）、
+ * 电视以剧为单位（一次匹配应用到全剧非手动修正的集，并拉取本地存在的季/集元数据）。
+ * 削刮成功后立即把元数据写回视频目录的 NFO 与图片，落盘失败不影响元数据入库。
  * 手动修正的条目与剧永远跳过。与扫描按媒体库互斥（{@link MediaTaskSupport}），协作式取消。
  * 削刮处理范围为媒体库全部来源目录下的条目。
  */
@@ -52,12 +58,17 @@ public class MediaScrapeServiceImpl implements MediaScrapeService {
     private final MediaSeriesSupport mediaSeriesSupport;
     private final MediaTaskSupport mediaTaskSupport;
     private final MediaDirectorySourceMapper mediaDirectorySourceMapper;
+    private final MediaNfoSupport mediaNfoSupport;
+    private final MediaArtworkPersistSupport mediaArtworkPersistSupport;
+    private final MediaLocalNfoScrapeSupport mediaLocalNfoScrapeSupport;
     private final TaskExecutor taskExecutor;
 
     public MediaScrapeServiceImpl(MediaDirectoryMapper mediaDirectoryMapper, MediaItemMapper mediaItemMapper,
                                   MediaSeriesMapper mediaSeriesMapper, FileMapper fileMapper,
                                   TmdbService tmdbService, MediaSeriesSupport mediaSeriesSupport,
                                   MediaTaskSupport mediaTaskSupport, MediaDirectorySourceMapper mediaDirectorySourceMapper,
+                                  MediaNfoSupport mediaNfoSupport, MediaArtworkPersistSupport mediaArtworkPersistSupport,
+                                  MediaLocalNfoScrapeSupport mediaLocalNfoScrapeSupport,
                                   @Qualifier("applicationTaskExecutor") TaskExecutor taskExecutor) {
         this.mediaDirectoryMapper = mediaDirectoryMapper;
         this.mediaItemMapper = mediaItemMapper;
@@ -67,6 +78,9 @@ public class MediaScrapeServiceImpl implements MediaScrapeService {
         this.mediaSeriesSupport = mediaSeriesSupport;
         this.mediaTaskSupport = mediaTaskSupport;
         this.mediaDirectorySourceMapper = mediaDirectorySourceMapper;
+        this.mediaNfoSupport = mediaNfoSupport;
+        this.mediaArtworkPersistSupport = mediaArtworkPersistSupport;
+        this.mediaLocalNfoScrapeSupport = mediaLocalNfoScrapeSupport;
         this.taskExecutor = taskExecutor;
     }
 
@@ -162,17 +176,53 @@ public class MediaScrapeServiceImpl implements MediaScrapeService {
         if (file == null) {
             return;
         }
-        MediaFileNameParser.ParseResult parsed = MediaFileNameParser.parse(file.getName(), null, null);
-        MediaMetadata metadata = tmdbService.autoMatch(MediaType.MOVIE.getCode(), parsed.title(), parsed.year());
-        if (metadata == null && !isSourceRootParent(item, file)) {
-            // 直接父目录名兜底（父目录为来源目录本身时不再兜底）
-            FileNode parent = fileMapper.selectById(file.getParentId());
-            String fallback = parent == null ? "" : MediaFileNameParser.cleanTitle(parent.getName());
-            if (!fallback.isBlank() && !fallback.equals(parsed.title())) {
-                metadata = tmdbService.autoMatch(MediaType.MOVIE.getCode(), fallback, parsed.year());
+        MediaMetadata metadata = scrapeMovieLocalNfo(directory, item, file);
+        if (metadata == null) {
+            MediaFileNameParser.ParseResult parsed = MediaFileNameParser.parse(file.getName(), null, null);
+            metadata = tmdbService.autoMatch(directory.getUserId(), MediaType.MOVIE.getCode(),
+                    parsed.title(), parsed.year());
+            if (metadata == null && !isSourceRootParent(item, file)) {
+                // 直接父目录名兜底（父目录为来源目录本身时不再兜底）
+                FileNode parent = fileMapper.selectById(file.getParentId());
+                String fallback = parent == null ? "" : MediaFileNameParser.cleanTitle(parent.getName());
+                if (!fallback.isBlank() && !fallback.equals(parsed.title())) {
+                    metadata = tmdbService.autoMatch(directory.getUserId(), MediaType.MOVIE.getCode(),
+                            fallback, parsed.year());
+                }
             }
         }
         applyMovieMatch(item, metadata);
+        if (metadata != null) {
+            mediaArtworkPersistSupport.persistItem(item, metadata);
+        }
+    }
+
+    /**
+     * 电影本地优先削刮：视频同目录存在与视频同名的 .nfo 时完全信任本地内容，不请求 TMDB；
+     * 无 NFO 但存在本地图片（poster.jpg/fanart.jpg）时同样本地优先，构建缺失文本字段的
+     * local_nfo 元数据（标记不完整），图片绑定本地文件。
+     *
+     * @return 本地 NFO/图片构建的元数据，无 NFO 且无本地图片时返回 null
+     */
+    private MediaMetadata scrapeMovieLocalNfo(MediaDirectory directory, MediaItem item, FileNode file) {
+        String userId = directory.getUserId();
+        FileNode nfoNode = mediaArtworkPersistSupport.findChildFile(userId, file.getParentId(),
+                mediaNfoSupport.nfoNameOf(file.getName()));
+        MediaNfoSupport.NfoData data = null;
+        if (nfoNode != null) {
+            byte[] bytes = mediaArtworkPersistSupport.readFileBytes(nfoNode);
+            data = bytes == null ? null : mediaNfoSupport.parse(new String(bytes, StandardCharsets.UTF_8));
+        }
+        FileNode poster = mediaArtworkPersistSupport.findChildFile(userId, file.getParentId(),
+                MediaNfoSupport.POSTER_JPG);
+        FileNode fanart = mediaArtworkPersistSupport.findChildFile(userId, file.getParentId(),
+                MediaNfoSupport.FANART_JPG);
+        if (data == null && poster == null && fanart == null) {
+            return null;
+        }
+        return mediaNfoSupport.upsertLocalMetadata(item.getMetadataId(), userId, MediaType.MOVIE.getCode(),
+                data == null ? MediaNfoSupport.emptyData(MediaType.MOVIE.getCode()) : data,
+                poster == null ? null : poster.getId(), fanart == null ? null : fanart.getId());
     }
 
     /**
@@ -214,14 +264,21 @@ public class MediaScrapeServiceImpl implements MediaScrapeService {
                 continue;
             }
             try {
-                MediaMetadata metadata = tmdbService.autoMatch(MediaType.TV.getCode(), series.getSeriesName(),
-                        series.getReleaseYear());
+                // 本地优先：剧文件夹存在 tvshow.nfo 时完全信任本地内容，不请求 TMDB
+                MediaMetadata localMetadata = mediaLocalNfoScrapeSupport.scrapeSeriesLocalNfo(series);
+                if (localMetadata != null) {
+                    mediaSeriesSupport.applySeriesMatch(series, localMetadata.getId());
+                    continue;
+                }
+                MediaMetadata metadata = tmdbService.autoMatch(directory.getUserId(), MediaType.TV.getCode(),
+                        series.getSeriesName(), series.getReleaseYear());
                 if (metadata == null) {
                     mediaSeriesSupport.applySeriesMatch(series, null);
                     continue;
                 }
                 mediaSeriesSupport.applySeriesMatch(series, metadata.getId());
                 mediaSeriesSupport.applySeriesMetadata(series, metadata, MediaMatchStatus.MATCHED.getCode());
+                mediaArtworkPersistSupport.persistSeries(series, metadata);
             } catch (Exception e) {
                 log.warn("剧集削刮失败: series={}, error={}", series.getSeriesName(), e.getMessage());
                 partial = true;

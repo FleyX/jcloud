@@ -38,6 +38,12 @@ public class MediaProperties {
     private long sessionIdleTimeoutMinutes = 5;
 
     /**
+     * 心跳会话超时时间（秒）：收到过播放页心跳的会话，超过该时间无新心跳视为播放已结束，立即回收。
+     * 需大于前端心跳间隔（5s），并容忍浏览器后台标签页定时器节流（最差约 60s 一次）。
+     */
+    private long sessionHeartbeatTimeoutSeconds = 90;
+
+    /**
      * HLS 切片时长（秒）。
      */
     private int hlsSegmentSeconds = 4;
@@ -46,4 +52,14 @@ public class MediaProperties {
      * ffprobe 探测超时时间（秒）。
      */
     private long probeTimeoutSeconds = 60;
+
+    /**
+     * 转码节流：ffmpeg 已生成时长领先客户端请求时长大于等于该值时暂停进程（秒）。
+     */
+    private int transcodeThrottleAheadSeconds = 600;
+
+    /**
+     * 转码节流：暂停后领先量回落到小于等于该值时继续进程（秒）。
+     */
+    private int transcodeThrottleResumeSeconds = 300;
 }

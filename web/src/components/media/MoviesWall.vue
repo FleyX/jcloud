@@ -85,7 +85,7 @@ function resultSubtitle(item: MediaItemVo): string {
     </p>
     <template v-else>
       <div
-        :class="cn('grid gap-4', dense ? 'grid-cols-2' : 'grid-cols-3 lg:grid-cols-5 xl:grid-cols-6')"
+        :class="cn('grid gap-4', dense ? 'grid-cols-2' : 'grid-cols-3 sm:grid-cols-4 lg:grid-cols-7 xl:grid-cols-9')"
       >
         <PosterCard
           v-for="item in movies"

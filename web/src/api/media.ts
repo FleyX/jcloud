@@ -94,16 +94,61 @@ export function fetchPlaybackInfo(id: string): Promise<MediaPlaybackInfoVo> {
   return get<MediaPlaybackInfoVo>(`/media/items/${id}/playback`)
 }
 
+/**
+ * 转码会话可选参数
+ */
+export interface TranscodeSessionOptions {
+  /** 音轨序号（转码时选择音轨） */
+  audioIndex?: number
+  /** 目标码率 kbps，传入则转码并限码率 */
+  targetBitrateKbps?: number
+  /** 最大高度（仅允许 2160/1080/720/480/360），不放大降分辨率 */
+  maxHeight?: number
+  /** 视频流不支持 MSE 转封装时强制视频转码 */
+  forceVideoTranscode?: boolean
+}
+
 export function createTranscodeSession(
   id: string,
   startMs: number,
-  audioIndex?: number,
+  options: TranscodeSessionOptions = {},
 ): Promise<MediaTranscodeSessionVo> {
-  return post<MediaTranscodeSessionVo>(`/media/items/${id}/transcode`, undefined, { startMs, audioIndex })
+  return post<MediaTranscodeSessionVo>(`/media/items/${id}/transcode`, undefined, { startMs, ...options })
+}
+
+/**
+ * 转码会话心跳：播放页打开期间每 5s 一次，超时未心跳后端自动回收会话。
+ * 原生 fetch 静默失败（如服务重启会话已回收属正常），不走统一异常提示。
+ */
+export function transcodeHeartbeat(sessionId: string): void {
+  const token = localStorage.getItem('jcloud_token') || ''
+  fetch(`/jcloud/api/media/transcode/${sessionId}/heartbeat`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+  }).catch(() => {})
+}
+
+/** 主动关闭转码会话（播放页退出），即时回收 ffmpeg 与缓存。原生 fetch 静默失败。 */
+export function closeTranscodeSession(sessionId: string): void {
+  const token = localStorage.getItem('jcloud_token') || ''
+  fetch(`/jcloud/api/media/transcode/${sessionId}/close`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    keepalive: true,
+  }).catch(() => {})
+}
+
+/** sendBeacon 用关闭地址：页面卸载时无法带 Header，token 走查询参数（与分片请求一致） */
+export function transcodeCloseBeaconUrl(sessionId: string): string {
+  return withToken(`/jcloud/api/media/transcode/${sessionId}/close`)
 }
 
 export function subtitleUrl(id: string, index: number): string {
   return withToken(`/jcloud/api/media/items/${id}/subtitles/${index}`)
+}
+
+export function externalSubtitleUrl(id: string, subtitleId: string): string {
+  return withToken(`/jcloud/api/media/items/${id}/subtitles/external/${subtitleId}`)
 }
 
 // ---------- 元数据 ----------
