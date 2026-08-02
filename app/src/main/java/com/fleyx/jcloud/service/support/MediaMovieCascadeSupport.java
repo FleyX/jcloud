@@ -35,10 +35,12 @@ public class MediaMovieCascadeSupport {
     private final MediaMovieMapper mediaMovieMapper;
     private final MediaMovieFileMapper mediaMovieFileMapper;
     private final MediaMetadataV2Mapper mediaMetadataV2Mapper;
+    private final MediaSubtitleSupport mediaSubtitleSupport;
     private final FileMapper fileMapper;
 
     /**
-     * 级联删除若干部电影：电影文件明细 → 电影行，各级连带其 owner 指向的 t_media_metadata_v2 行。
+     * 级联删除若干部电影：电影文件明细 → 电影行，各级连带其 owner 指向的 t_media_metadata_v2 行；
+     * 电影文件明细的外部字幕记录一并删除（issue #19）。
      *
      * @param movieIds 电影 ID 集合
      */
@@ -51,6 +53,7 @@ public class MediaMovieCascadeSupport {
             List<MediaMovieFile> files = mediaMovieFileMapper.selectList(
                     new LambdaQueryWrapper<MediaMovieFile>().eq(MediaMovieFile::getMovieId, movieId));
             if (!files.isEmpty()) {
+                mediaSubtitleSupport.deleteByFileIds(files.stream().map(MediaMovieFile::getId).toList());
                 mediaMovieFileMapper.deleteBatchIds(files.stream().map(MediaMovieFile::getId).toList());
             }
             deleteMetadata(MediaMetadataOwnerType.MOVIE.getCode(), movieId);
@@ -109,6 +112,7 @@ public class MediaMovieCascadeSupport {
             removedFileIds.add(file.getId());
         }
         if (!removedFileIds.isEmpty()) {
+            mediaSubtitleSupport.deleteByFileIds(removedFileIds);
             mediaMovieFileMapper.deleteBatchIds(removedFileIds);
             log.info("即时删除消失的电影文件明细 {} 条: ids={}", removedFileIds.size(), removedFileIds);
         }

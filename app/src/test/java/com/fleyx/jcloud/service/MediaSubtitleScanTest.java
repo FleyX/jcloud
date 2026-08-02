@@ -7,7 +7,11 @@ import com.fleyx.jcloud.common.context.UserContext;
 import com.fleyx.jcloud.mapper.FileMapper;
 import com.fleyx.jcloud.mapper.MediaDirectoryMapper;
 import com.fleyx.jcloud.mapper.MediaDirectorySourceMapper;
-import com.fleyx.jcloud.mapper.MediaItemMapper;
+import com.fleyx.jcloud.mapper.MediaEpisodeFileMapper;
+import com.fleyx.jcloud.mapper.MediaEpisodeMapper;
+import com.fleyx.jcloud.mapper.MediaMovieFileMapper;
+import com.fleyx.jcloud.mapper.MediaMovieMapper;
+import com.fleyx.jcloud.mapper.MediaOtherMapper;
 import com.fleyx.jcloud.mapper.MediaSubtitleMapper;
 import com.fleyx.jcloud.model.dto.FileCreateFolderDto;
 import com.fleyx.jcloud.model.dto.StorageSpaceSaveDto;
@@ -15,7 +19,8 @@ import com.fleyx.jcloud.model.dto.UserSaveDto;
 import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.po.MediaDirectory;
 import com.fleyx.jcloud.model.po.MediaDirectorySource;
-import com.fleyx.jcloud.model.po.MediaItem;
+import com.fleyx.jcloud.model.po.MediaEpisode;
+import com.fleyx.jcloud.model.po.MediaMovie;
 import com.fleyx.jcloud.model.po.MediaSubtitle;
 import com.fleyx.jcloud.model.vo.FileNodeVo;
 import com.fleyx.jcloud.model.vo.StorageSpaceVo;
@@ -41,7 +46,9 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * 外部字幕扫描关联测试：同目录前缀匹配关联、重扫重建（后加/删除字幕）、条目清理联动删除。
+ * 外部字幕扫描关联测试（issue #19 起按文件明细行关联，file_id 指向明细行/other 行）：
+ * 同目录前缀匹配关联、重扫重建（后加/删除字幕）、文件清理联动删除；
+ * 覆盖其他库（other 行）、电影库（电影文件明细行）、电视库（集文件明细行）。
  */
 @SpringBootTest
 @ActiveProfiles("test")
@@ -73,7 +80,19 @@ class MediaSubtitleScanTest {
     private MediaDirectorySourceMapper mediaDirectorySourceMapper;
 
     @Autowired
-    private MediaItemMapper mediaItemMapper;
+    private MediaOtherMapper mediaOtherMapper;
+
+    @Autowired
+    private MediaMovieMapper mediaMovieMapper;
+
+    @Autowired
+    private MediaMovieFileMapper mediaMovieFileMapper;
+
+    @Autowired
+    private MediaEpisodeMapper mediaEpisodeMapper;
+
+    @Autowired
+    private MediaEpisodeFileMapper mediaEpisodeFileMapper;
 
     @Autowired
     private MediaSubtitleMapper mediaSubtitleMapper;
@@ -88,13 +107,14 @@ class MediaSubtitleScanTest {
     Path tempDir;
 
     /**
-     * 同目录前缀匹配关联：Movie.chs.srt、Movie.eng.default.srt 关联到 Movie.mkv，
-     * Movie2.srt 不误配，子目录中的同名字幕不关联；重扫后后加/删除的字幕关联正确重建。
+     * 其他库：同目录前缀匹配关联到 other 行（file_id = other 行 ID），
+     * Movie.chs.srt、Movie.eng.default.srt 关联到 Movie.mkv，Movie2.srt 不误配，
+     * 子目录中的同名字幕不关联；重扫后后加/删除的字幕关联正确重建。
      */
     @Test
     void shouldLinkAndRebuildExternalSubtitles() {
         UserVo user = prepareUserWithStorageSpace();
-        FileNodeVo folder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
+        FileNodeVo folder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "其他");
         fileService.upload(buildFile("Movie.mkv"), user.getId(), folder.getId(), null);
         FileNodeVo chs = fileService.upload(buildFile("Movie.chs.srt"), user.getId(), folder.getId(), null);
         fileService.upload(buildFile("Movie.eng.default.srt"), user.getId(), folder.getId(), null);
@@ -102,7 +122,7 @@ class MediaSubtitleScanTest {
         FileNodeVo subFolder = createFolder(user.getId(), folder.getId(), "子目录");
         fileService.upload(buildFile("Movie.jpn.srt"), user.getId(), subFolder.getId(), null);
 
-        MediaDirectory directory = createDirectory(user.getId(), folder.getId());
+        MediaDirectory directory = createDirectory(user.getId(), folder.getId(), "other");
         mediaScanService.scan(directory.getId());
 
         Map<String, MediaSubtitle> byLabel = subtitlesOf(directory.getId()).stream()
@@ -113,6 +133,9 @@ class MediaSubtitleScanTest {
         assertEquals("srt", byLabel.get("简体").getFormat());
         assertEquals("English", byLabel.get("English").getLabel());
         assertTrue(byLabel.get("English").getIsDefault());
+        // 关联对象是 other 行（file_id 指向 other 行 ID）
+        assertTrue(subtitlesOf(directory.getId()).stream()
+                .allMatch(s -> mediaOtherMapper.selectById(s.getFileId()) != null));
 
         // 后加同目录字幕后重扫，关联重建
         fileService.upload(buildFile("Movie.jpn.srt"), user.getId(), folder.getId(), null);
@@ -129,15 +152,82 @@ class MediaSubtitleScanTest {
     }
 
     /**
-     * 视频文件消失后条目被清理，其外部字幕记录一并删除。
+     * 电影库：字幕按电影文件明细行关联（file_id = t_media_movie_file 明细行 ID），
+     * 多版本各挂各的明细行。
+     */
+    @Test
+    void shouldLinkSubtitlesToMovieFileRows() {
+        UserVo user = prepareUserWithStorageSpace();
+        FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
+        FileNodeVo dune = createFolder(user.getId(), movieFolder.getId(), "沙丘");
+        fileService.upload(buildFile("沙丘.1080p.mkv"), user.getId(), dune.getId(), null);
+        fileService.upload(buildFile("沙丘.1080p.chs.srt"), user.getId(), dune.getId(), null);
+        fileService.upload(buildFile("沙丘.4K.mkv"), user.getId(), dune.getId(), null);
+        fileService.upload(buildFile("沙丘.4K.eng.srt"), user.getId(), dune.getId(), null);
+
+        MediaDirectory directory = createDirectory(user.getId(), movieFolder.getId(), "movie");
+        mediaScanService.scan(directory.getId());
+
+        MediaMovie movie = mediaMovieMapper.selectOne(new LambdaQueryWrapper<MediaMovie>()
+                .eq(MediaMovie::getDirectoryId, directory.getId()));
+        List<MediaSubtitle> subtitles = mediaSubtitleMapper.selectList(new LambdaQueryWrapper<MediaSubtitle>()
+                .in(MediaSubtitle::getFileId, mediaMovieFileMapper.selectList(
+                                new LambdaQueryWrapper<com.fleyx.jcloud.model.po.MediaMovieFile>()
+                                        .eq(com.fleyx.jcloud.model.po.MediaMovieFile::getMovieId, movie.getId()))
+                        .stream().map(com.fleyx.jcloud.model.po.MediaMovieFile::getId).toList()));
+        assertEquals(2, subtitles.size());
+        // 每个字幕记录挂在对应版本的明细行上
+        for (MediaSubtitle subtitle : subtitles) {
+            assertTrue(mediaMovieFileMapper.selectById(subtitle.getFileId()) != null);
+        }
+        assertTrue(subtitles.stream().anyMatch(s -> "简体".equals(s.getLabel())));
+        assertTrue(subtitles.stream().anyMatch(s -> "English".equals(s.getLabel())));
+    }
+
+    /**
+     * 电视库：字幕按集文件明细行关联（file_id = t_media_episode_file 明细行 ID）。
+     */
+    @Test
+    void shouldLinkSubtitlesToEpisodeFileRows() {
+        UserVo user = prepareUserWithStorageSpace();
+        FileNodeVo tvRoot = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电视");
+        FileNodeVo series = createFolder(user.getId(), tvRoot.getId(), "剧甲");
+        FileNodeVo season = createFolder(user.getId(), series.getId(), "Season 1");
+        fileService.upload(buildFile("剧甲.S01E01.mkv"), user.getId(), season.getId(), null);
+        fileService.upload(buildFile("剧甲.S01E01.chs.srt"), user.getId(), season.getId(), null);
+        fileService.upload(buildFile("剧甲.S01E02.mkv"), user.getId(), season.getId(), null);
+        fileService.upload(buildFile("剧甲.S01E02.jpn.srt"), user.getId(), season.getId(), null);
+
+        MediaDirectory directory = createDirectory(user.getId(), tvRoot.getId(), "tv");
+        mediaScanService.scan(directory.getId());
+
+        List<MediaEpisode> episodes = mediaEpisodeMapper.selectList(null);
+        assertEquals(2, episodes.size());
+        List<String> episodeFileIds = mediaEpisodeFileMapper.selectList(
+                        new LambdaQueryWrapper<com.fleyx.jcloud.model.po.MediaEpisodeFile>()
+                                .in(com.fleyx.jcloud.model.po.MediaEpisodeFile::getEpisodeId,
+                                        episodes.stream().map(MediaEpisode::getId).toList()))
+                .stream().map(com.fleyx.jcloud.model.po.MediaEpisodeFile::getId).toList();
+        List<MediaSubtitle> subtitles = mediaSubtitleMapper.selectList(new LambdaQueryWrapper<MediaSubtitle>()
+                .in(MediaSubtitle::getFileId, episodeFileIds));
+        assertEquals(2, subtitles.size());
+        for (MediaSubtitle subtitle : subtitles) {
+            assertTrue(mediaEpisodeFileMapper.selectById(subtitle.getFileId()) != null);
+        }
+        assertTrue(subtitles.stream().anyMatch(s -> "简体".equals(s.getLabel())));
+        assertTrue(subtitles.stream().anyMatch(s -> "日语".equals(s.getLabel())));
+    }
+
+    /**
+     * 视频文件消失后 other 行被清理，其外部字幕记录一并删除。
      */
     @Test
     void shouldDeleteSubtitlesWhenItemFileRemoved() {
         UserVo user = prepareUserWithStorageSpace();
-        FileNodeVo folder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
+        FileNodeVo folder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "其他");
         FileNodeVo video = fileService.upload(buildFile("Movie.mkv"), user.getId(), folder.getId(), null);
         fileService.upload(buildFile("Movie.srt"), user.getId(), folder.getId(), null);
-        MediaDirectory directory = createDirectory(user.getId(), folder.getId());
+        MediaDirectory directory = createDirectory(user.getId(), folder.getId(), "other");
         mediaScanService.scan(directory.getId());
         assertEquals(1, subtitlesOf(directory.getId()).size());
 
@@ -147,15 +237,15 @@ class MediaSubtitleScanTest {
     }
 
     /**
-     * 媒体库删除时，其条目的外部字幕记录一并删除。
+     * 媒体库删除时，其文件明细行的外部字幕记录一并删除。
      */
     @Test
     void shouldDeleteSubtitlesWhenDirectoryDeleted() {
         UserVo user = prepareUserWithStorageSpace();
-        FileNodeVo folder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
+        FileNodeVo folder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "其他");
         fileService.upload(buildFile("Movie.mkv"), user.getId(), folder.getId(), null);
         fileService.upload(buildFile("Movie.srt"), user.getId(), folder.getId(), null);
-        MediaDirectory directory = createDirectory(user.getId(), folder.getId());
+        MediaDirectory directory = createDirectory(user.getId(), folder.getId(), "other");
         mediaScanService.scan(directory.getId());
         assertEquals(1, subtitlesOf(directory.getId()).size());
 
@@ -164,23 +254,21 @@ class MediaSubtitleScanTest {
     }
 
     private List<MediaSubtitle> subtitlesOf(String directoryId) {
-        List<String> itemIds = mediaItemMapper.selectList(new LambdaQueryWrapper<MediaItem>()
-                        .eq(MediaItem::getDirectoryId, directoryId))
-                .stream().map(MediaItem::getId).toList();
-        if (itemIds.isEmpty()) {
+        List<String> fileRowIds = mediaOtherMapper.selectList(new LambdaQueryWrapper<com.fleyx.jcloud.model.po.MediaOther>()
+                        .eq(com.fleyx.jcloud.model.po.MediaOther::getDirectoryId, directoryId))
+                .stream().map(com.fleyx.jcloud.model.po.MediaOther::getId).toList();
+        if (fileRowIds.isEmpty()) {
             return List.of();
         }
         return mediaSubtitleMapper.selectList(
-                new LambdaQueryWrapper<MediaSubtitle>().in(MediaSubtitle::getItemId, itemIds));
+                new LambdaQueryWrapper<MediaSubtitle>().in(MediaSubtitle::getFileId, fileRowIds));
     }
 
-    private MediaDirectory createDirectory(String userId, String folderNodeId) {
+    private MediaDirectory createDirectory(String userId, String folderNodeId, String mediaType) {
         MediaDirectory directory = new MediaDirectory();
         directory.setUserId(userId);
         directory.setName("测试媒体库");
-        // 电影库扫描已切换到新模型（issue #18，新路径暂不承载外部字幕关联），
-        // 字幕关联行为由其他类型库的旧路径覆盖，这里用 other 库回归验证
-        directory.setMediaType("other");
+        directory.setMediaType(mediaType);
         mediaDirectoryMapper.insert(directory);
         MediaDirectorySource source = new MediaDirectorySource();
         source.setDirectoryId(directory.getId());

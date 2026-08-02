@@ -6,18 +6,21 @@ import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.MediaDirectoryMapper;
 import com.fleyx.jcloud.mapper.MediaItemMapper;
+import com.fleyx.jcloud.mapper.MediaOtherMapper;
 import com.fleyx.jcloud.model.dto.MediaDirectorySaveDto;
 import com.fleyx.jcloud.model.dto.MediaDirectoryUpdateDto;
 import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.po.MediaDirectory;
 import com.fleyx.jcloud.model.po.MediaDirectorySource;
 import com.fleyx.jcloud.model.po.MediaItem;
+import com.fleyx.jcloud.model.po.MediaOther;
 import com.fleyx.jcloud.model.vo.MediaDirectoryVo;
 import com.fleyx.jcloud.service.MediaDirectoryService;
 import com.fleyx.jcloud.service.MediaScanService;
 import com.fleyx.jcloud.service.support.MediaDirectorySourceSupport;
 import com.fleyx.jcloud.service.support.MediaItemVoSupport;
 import com.fleyx.jcloud.service.support.MediaMovieCascadeSupport;
+import com.fleyx.jcloud.service.support.MediaOtherCascadeSupport;
 import com.fleyx.jcloud.service.support.MediaSeriesSupport;
 import com.fleyx.jcloud.service.support.MediaSubtitleSupport;
 import com.fleyx.jcloud.service.support.MediaTvCascadeSupport;
@@ -45,6 +48,7 @@ public class MediaDirectoryServiceImpl implements MediaDirectoryService {
 
     private final MediaDirectoryMapper mediaDirectoryMapper;
     private final MediaItemMapper mediaItemMapper;
+    private final MediaOtherMapper mediaOtherMapper;
     private final MediaScanService mediaScanService;
     private final MediaSeriesSupport mediaSeriesSupport;
     private final MediaDirectorySourceSupport sourceSupport;
@@ -52,6 +56,7 @@ public class MediaDirectoryServiceImpl implements MediaDirectoryService {
     private final MediaSubtitleSupport mediaSubtitleSupport;
     private final MediaTvCascadeSupport mediaTvCascadeSupport;
     private final MediaMovieCascadeSupport mediaMovieCascadeSupport;
+    private final MediaOtherCascadeSupport mediaOtherCascadeSupport;
 
     @Override
     public List<MediaDirectoryVo> list(String userId) {
@@ -62,6 +67,11 @@ public class MediaDirectoryServiceImpl implements MediaDirectoryService {
         Map<String, Long> countMap = mediaItemMapper.selectList(
                         new LambdaQueryWrapper<MediaItem>().eq(MediaItem::getUserId, userId))
                 .stream().collect(Collectors.groupingBy(MediaItem::getDirectoryId, Collectors.counting()));
+        // 其他库条目数走新表（issue #19：文件级 other 行）
+        for (MediaOther other : mediaOtherMapper.selectList(new LambdaQueryWrapper<MediaOther>()
+                .eq(MediaOther::getUserId, userId))) {
+            countMap.merge(other.getDirectoryId(), 1L, Long::sum);
+        }
         Map<String, List<MediaDirectorySource>> sourceMap = sourceSupport.mapByDirectoryIds(
                 directories.stream().map(MediaDirectory::getId).toList());
         return directories.stream()
@@ -126,7 +136,7 @@ public class MediaDirectoryServiceImpl implements MediaDirectoryService {
                 mediaItemMapper.delete(new LambdaQueryWrapper<MediaItem>()
                         .eq(MediaItem::getDirectoryId, directory.getId())
                         .in(MediaItem::getSourceId, removed.stream().map(MediaDirectorySource::getId).toList()));
-                mediaSubtitleSupport.deleteByItemIds(removedItemIds);
+                mediaSubtitleSupport.deleteByFileIds(removedItemIds);
                 mediaSeriesSupport.cleanupOrphans(userId);
                 if (MediaType.TV.getCode().equals(directory.getMediaType())) {
                     // 电视库新模型：被移除来源目录下的剧级联删除（issue #17）
@@ -136,12 +146,21 @@ public class MediaDirectoryServiceImpl implements MediaDirectoryService {
                     // 电影库新模型：被移除来源目录下的电影级联删除（issue #18）
                     mediaMovieCascadeSupport.deleteByDirectoryAndSourceIds(directory.getId(),
                             removed.stream().map(MediaDirectorySource::getId).toList());
+                } else if (MediaType.OTHER.getCode().equals(directory.getMediaType())) {
+                    // 其他库新模型：被移除来源目录下的 other 行级联删除（issue #19）
+                    mediaOtherCascadeSupport.deleteByDirectoryAndSourceIds(directory.getId(),
+                            removed.stream().map(MediaDirectorySource::getId).toList());
                 }
             }
             submitForceScanAfterCommit(directory.getId(), userId);
         }
         Long count = mediaItemMapper.selectCount(
                 new LambdaQueryWrapper<MediaItem>().eq(MediaItem::getDirectoryId, directory.getId()));
+        // 其他库条目数走新表（issue #19：文件级 other 行）
+        if (MediaType.OTHER.getCode().equals(directory.getMediaType())) {
+            count += mediaOtherMapper.selectCount(new LambdaQueryWrapper<MediaOther>()
+                    .eq(MediaOther::getDirectoryId, directory.getId()));
+        }
         return toVo(directory, count, sourceSupport.listByDirectoryId(directory.getId()));
     }
 
@@ -154,13 +173,15 @@ public class MediaDirectoryServiceImpl implements MediaDirectoryService {
                         .eq(MediaItem::getDirectoryId, id))
                 .stream().map(MediaItem::getId).toList();
         mediaItemMapper.delete(new LambdaQueryWrapper<MediaItem>().eq(MediaItem::getDirectoryId, id));
-        mediaSubtitleSupport.deleteByItemIds(itemIds);
+        mediaSubtitleSupport.deleteByFileIds(itemIds);
         sourceSupport.deleteByDirectoryId(id);
         mediaSeriesSupport.cleanupOrphans(userId);
         // 电视库新模型：库内剧集全部级联删除（issue #17）
         mediaTvCascadeSupport.deleteByDirectoryId(id);
         // 电影库新模型：库内电影全部级联删除（issue #18）
         mediaMovieCascadeSupport.deleteByDirectoryId(id);
+        // 其他库新模型：库内 other 行全部级联删除（issue #19）
+        mediaOtherCascadeSupport.deleteByDirectoryId(id);
         mediaDirectoryMapper.deleteById(id);
     }
 
@@ -237,7 +258,7 @@ public class MediaDirectoryServiceImpl implements MediaDirectoryService {
 
     /**
      * 解析媒体库封面：库内最新添加且元数据有海报的条目；
-     * 其他类型库无海报条目时用最新条目的预览缩略图兜底。
+     * 其他类型库无海报条目时用最新 other 行（新表，issue #19）的预览缩略图兜底。
      */
     private String resolveCoverPosterUrl(MediaDirectory directory) {
         MediaItem posterItem = mediaItemMapper.selectLatestPosterItem(directory.getId());
@@ -247,9 +268,9 @@ public class MediaDirectoryServiceImpl implements MediaDirectoryService {
         if (!MediaType.OTHER.getCode().equals(directory.getMediaType())) {
             return null;
         }
-        MediaItem latest = mediaItemMapper.selectOne(new LambdaQueryWrapper<MediaItem>()
-                .eq(MediaItem::getDirectoryId, directory.getId())
-                .orderByDesc(MediaItem::getFileLastModified)
+        MediaOther latest = mediaOtherMapper.selectOne(new LambdaQueryWrapper<MediaOther>()
+                .eq(MediaOther::getDirectoryId, directory.getId())
+                .orderByDesc(MediaOther::getCreateTime)
                 .last("limit 1"));
         return latest == null ? null : mediaItemVoSupport.filePreviewPosterUrl(latest.getFileNodeId());
     }

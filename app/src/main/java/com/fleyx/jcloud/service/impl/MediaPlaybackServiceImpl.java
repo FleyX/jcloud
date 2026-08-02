@@ -1,24 +1,25 @@
 package com.fleyx.jcloud.service.impl;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fleyx.jcloud.common.constant.FileNodeConstants;
 import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.common.exception.SystemException;
 import com.fleyx.jcloud.config.MediaProperties;
 import com.fleyx.jcloud.mapper.FileMapper;
-import com.fleyx.jcloud.mapper.MediaItemMapper;
 import com.fleyx.jcloud.mapper.MediaSubtitleMapper;
 import com.fleyx.jcloud.mapper.StorageSpaceMapper;
 import com.fleyx.jcloud.mapper.UserMapper;
 import com.fleyx.jcloud.model.bo.FileDownloadResult;
 import com.fleyx.jcloud.model.bo.MediaProbeResult;
 import com.fleyx.jcloud.model.po.FileNode;
-import com.fleyx.jcloud.model.po.MediaItem;
 import com.fleyx.jcloud.model.po.MediaSubtitle;
 import com.fleyx.jcloud.model.po.StorageSpace;
 import com.fleyx.jcloud.model.vo.MediaPlaybackInfoVo;
 import com.fleyx.jcloud.service.MediaPlaybackService;
 import com.fleyx.jcloud.service.RemoteFileService;
+import com.fleyx.jcloud.service.support.MediaPlaybackResolveSupport;
+import com.fleyx.jcloud.service.support.MediaPlaybackResolveSupport.Playable;
 import com.fleyx.jcloud.service.support.MediaProbeSupport;
 import com.fleyx.jcloud.service.support.MediaSubtitleSupport;
 import com.fleyx.jcloud.service.support.TranscodeCommandBuilder;
@@ -43,7 +44,11 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 /**
- * 媒体播放服务实现。
+ * 媒体播放服务实现（issue #19 起播放链路切换到新模型）。
+ * <p>
+ * 播放入参 ID 为标题级行 ID：电影 → t_media_movie、集 → t_media_episode、其他 → t_media_other；
+ * 播放进度记录到标题级行（一部电影多版本共享），续播通过 last_play_file_id 定位具体版本文件，
+ * 直放/实时转码/字幕提取均从文件明细行取文件事实（ffprobe 结果、文件节点）。
  */
 @Slf4j
 @Service
@@ -55,7 +60,7 @@ public class MediaPlaybackServiceImpl implements MediaPlaybackService {
     private static final Set<String> DIRECT_AUDIO_CODECS = Set.of("aac", "mp3", "opus", "vorbis", "flac");
     private static final String SUBTITLE_CACHE_DIR = "media/subtitles";
 
-    private final MediaItemMapper mediaItemMapper;
+    private final MediaPlaybackResolveSupport mediaPlaybackResolveSupport;
     private final FileMapper fileMapper;
     private final StorageSpaceMapper storageSpaceMapper;
     private final UserMapper userMapper;
@@ -68,37 +73,38 @@ public class MediaPlaybackServiceImpl implements MediaPlaybackService {
     private final com.fleyx.jcloud.service.SystemStorageSpaceProvider systemStorageSpaceProvider;
 
     @Override
-    public MediaPlaybackInfoVo getPlaybackInfo(String itemId, String userId) {
-        MediaItem item = requireOwnedItem(itemId, userId);
-        MediaProbeResult probe = probeItemFile(item, userId);
+    public MediaPlaybackInfoVo getPlaybackInfo(String id, String userId) {
+        Playable playable = mediaPlaybackResolveSupport.resolve(id, userId);
+        FileNode node = requireFileNode(playable.fileNodeId(), userId);
+        MediaProbeResult probe = probePlayableFile(node, playable, userId);
 
         MediaPlaybackInfoVo vo = new MediaPlaybackInfoVo();
-        vo.setDurationMs(probe.durationMs() != null ? probe.durationMs() : item.getDurationMs());
-        vo.setContainer(firstNonNull(probe.container(), item.getContainer()));
-        vo.setVideoCodec(firstNonNull(probe.videoCodec(), item.getVideoCodec()));
-        vo.setAudioCodec(firstNonNull(probe.audioCodec(), item.getAudioCodec()));
-        vo.setWidth(firstNonNull(probe.width(), item.getWidth()));
-        vo.setHeight(firstNonNull(probe.height(), item.getHeight()));
+        vo.setDurationMs(probe.durationMs() != null ? probe.durationMs() : playable.durationMs());
+        vo.setContainer(firstNonNull(probe.container(), playable.container()));
+        vo.setVideoCodec(firstNonNull(probe.videoCodec(), playable.videoCodec()));
+        vo.setAudioCodec(firstNonNull(probe.audioCodec(), playable.audioCodec()));
+        vo.setWidth(firstNonNull(probe.width(), playable.width()));
+        vo.setHeight(firstNonNull(probe.height(), playable.height()));
         vo.setAudioTracks(probe.audioTracks());
         vo.setSubtitleTracks(probe.subtitleTracks());
-        vo.setSubtitles(mediaSubtitleSupport.buildSubtitleList(probe.subtitleTracks(), itemId));
-        vo.setEffectiveBitRate(resolveEffectiveBitRate(probe, item, vo.getDurationMs()));
-        vo.setProgressMs(item.getProgressMs());
+        vo.setSubtitles(mediaSubtitleSupport.buildSubtitleList(probe.subtitleTracks(), playable.fileRowId()));
+        vo.setEffectiveBitRate(resolveEffectiveBitRate(probe, playable, vo.getDurationMs()));
+        vo.setProgressMs(playable.progressMs());
 
         if (canDirectPlay(vo.getContainer(), vo.getVideoCodec(), vo.getAudioCodec())) {
             vo.setMode("direct");
-            vo.setDirectUrl("/jcloud/api/media/items/" + itemId + "/stream");
+            vo.setDirectUrl("/jcloud/api/media/items/" + id + "/stream");
         } else {
             vo.setMode("transcode");
-            vo.setTranscodeUrl("/jcloud/api/media/items/" + itemId + "/transcode");
+            vo.setTranscodeUrl("/jcloud/api/media/items/" + id + "/transcode");
         }
         return vo;
     }
 
     @Override
-    public MediaStreamResult stream(String itemId, String userId, String rangeHeader) {
-        MediaItem item = requireOwnedItem(itemId, userId);
-        FileNode node = requireFileNode(item);
+    public MediaStreamResult stream(String id, String userId, String rangeHeader) {
+        Playable playable = mediaPlaybackResolveSupport.resolve(id, userId);
+        FileNode node = requireFileNode(playable.fileNodeId(), userId);
         long total = node.getSize() == null ? 0L : node.getSize();
         String contentType = resolveVideoContentType(node);
 
@@ -138,14 +144,14 @@ public class MediaPlaybackServiceImpl implements MediaPlaybackService {
     }
 
     @Override
-    public Path extractSubtitle(String itemId, int index, String userId) {
-        MediaItem item = requireOwnedItem(itemId, userId);
+    public Path extractSubtitle(String id, int index, String userId) {
+        Playable playable = mediaPlaybackResolveSupport.resolve(id, userId);
         StorageSpace space = systemStorageSpaceProvider.getSystemSpace();
-        Path target = Path.of(space.getPath(), "system", SUBTITLE_CACHE_DIR, itemId + "_" + index + ".vtt");
+        Path target = Path.of(space.getPath(), "system", SUBTITLE_CACHE_DIR, playable.fileRowId() + "_" + index + ".vtt");
         if (Files.exists(target)) {
             return target;
         }
-        FileNode node = requireFileNode(item);
+        FileNode node = requireFileNode(playable.fileNodeId(), userId);
         Path tempInput = null;
         try {
             Files.createDirectories(target.getParent());
@@ -186,14 +192,14 @@ public class MediaPlaybackServiceImpl implements MediaPlaybackService {
     }
 
     @Override
-    public Path extractExternalSubtitle(String itemId, String subtitleId, String userId) {
-        MediaItem item = requireOwnedItem(itemId, userId);
+    public Path extractExternalSubtitle(String id, String subtitleId, String userId) {
+        Playable playable = mediaPlaybackResolveSupport.resolve(id, userId);
         MediaSubtitle subtitle = mediaSubtitleMapper.selectById(subtitleId);
-        if (subtitle == null || !itemId.equals(subtitle.getItemId())) {
+        if (subtitle == null || !playable.fileRowId().equals(subtitle.getFileId())) {
             throw new BusinessException(ResultCode.NOT_FOUND, "字幕不存在");
         }
         FileNode node = fileMapper.selectById(subtitle.getFileNodeId());
-        if (node == null || !item.getUserId().equals(node.getUserId())) {
+        if (node == null || !userId.equals(node.getUserId())) {
             throw new BusinessException(ResultCode.NOT_FOUND, "字幕文件不存在");
         }
         Path localPath = FileNodeConstants.SOURCE_REMOTE.equals(node.getSourceType())
@@ -204,11 +210,11 @@ public class MediaPlaybackServiceImpl implements MediaPlaybackService {
     /**
      * 计算实际码率：优先 ffprobe bit_rate，缺失时按文件大小与时长估算，均缺失为 null。
      */
-    private Long resolveEffectiveBitRate(MediaProbeResult probe, MediaItem item, Long durationMs) {
+    private Long resolveEffectiveBitRate(MediaProbeResult probe, Playable playable, Long durationMs) {
         if (probe.bitRate() != null) {
             return probe.bitRate();
         }
-        Long size = item.getFileSize();
+        Long size = playable.fileSize();
         if (size == null || durationMs == null || durationMs <= 0) {
             return null;
         }
@@ -216,16 +222,16 @@ public class MediaPlaybackServiceImpl implements MediaPlaybackService {
     }
 
     @Override
-    public TranscodeSession createTranscodeSession(String itemId, long startMs,
+    public TranscodeSession createTranscodeSession(String id, long startMs,
                                                    Integer audioIndex, Long targetBitrateKbps,
                                                    Integer maxHeight, boolean forceVideoTranscode,
                                                    String userId) {
         TranscodeCommandBuilder.validateParams(targetBitrateKbps, maxHeight);
-        MediaItem item = requireOwnedItem(itemId, userId);
-        FileNode node = requireFileNode(item);
-        MediaProbeResult probe = probeItemFile(item, userId);
-        String videoCodec = firstNonNull(probe.videoCodec(), item.getVideoCodec());
-        String audioCodec = resolveSelectedAudioCodec(probe, audioIndex, item);
+        Playable playable = mediaPlaybackResolveSupport.resolve(id, userId);
+        FileNode node = requireFileNode(playable.fileNodeId(), userId);
+        MediaProbeResult probe = probePlayableFile(node, playable, userId);
+        String videoCodec = firstNonNull(probe.videoCodec(), playable.videoCodec());
+        String audioCodec = resolveSelectedAudioCodec(probe, audioIndex, playable);
         TranscodeCommandBuilder.TranscodeRequest request;
         if (FileNodeConstants.SOURCE_REMOTE.equals(node.getSourceType())) {
             request = new TranscodeCommandBuilder.TranscodeRequest(startMs, audioIndex, null,
@@ -240,9 +246,9 @@ public class MediaPlaybackServiceImpl implements MediaPlaybackService {
     }
 
     /**
-     * 解析所选音轨的编码：指定音轨取 probe 对应轨，缺省取首个音轨，probe 缺失回退扫描数据。
+     * 解析所选音轨的编码：指定音轨取 probe 对应轨，缺省取首个音轨，probe 缺失回退明细行事实。
      */
-    private String resolveSelectedAudioCodec(MediaProbeResult probe, Integer audioIndex, MediaItem item) {
+    private String resolveSelectedAudioCodec(MediaProbeResult probe, Integer audioIndex, Playable playable) {
         if (audioIndex != null) {
             for (MediaProbeResult.Track track : probe.audioTracks()) {
                 if (track.index() == audioIndex) {
@@ -250,7 +256,7 @@ public class MediaPlaybackServiceImpl implements MediaPlaybackService {
                 }
             }
         }
-        return firstNonNull(probe.audioCodec(), item.getAudioCodec());
+        return firstNonNull(probe.audioCodec(), playable.audioCodec());
     }
 
     /**
@@ -273,8 +279,7 @@ public class MediaPlaybackServiceImpl implements MediaPlaybackService {
         };
     }
 
-    private MediaProbeResult probeItemFile(MediaItem item, String userId) {
-        FileNode node = requireFileNode(item);
+    private MediaProbeResult probePlayableFile(FileNode node, Playable playable, String userId) {
         try {
             if (FileNodeConstants.SOURCE_REMOTE.equals(node.getSourceType())) {
                 try (InputStream in = remoteFileService.download(node, userId).getInputStream()) {
@@ -284,8 +289,8 @@ public class MediaPlaybackServiceImpl implements MediaPlaybackService {
             return mediaProbeSupport.probe(resolveLocalPath(node, userId));
         } catch (Exception e) {
             log.warn("播放探测失败，回退到扫描数据: {}", e.getMessage());
-            return new MediaProbeResult(item.getDurationMs(), item.getContainer(), item.getVideoCodec(),
-                    item.getAudioCodec(), item.getWidth(), item.getHeight(), null, List.of(), List.of());
+            return new MediaProbeResult(playable.durationMs(), playable.container(), playable.videoCodec(),
+                    playable.audioCodec(), playable.width(), playable.height(), null, List.of(), List.of());
         }
     }
 
@@ -325,17 +330,9 @@ public class MediaPlaybackServiceImpl implements MediaPlaybackService {
         return path;
     }
 
-    private MediaItem requireOwnedItem(String itemId, String userId) {
-        MediaItem item = mediaItemMapper.selectById(itemId);
-        if (item == null || !userId.equals(item.getUserId())) {
-            throw new BusinessException(ResultCode.NOT_FOUND, "媒体条目不存在");
-        }
-        return item;
-    }
-
-    private FileNode requireFileNode(MediaItem item) {
-        FileNode node = fileMapper.selectById(item.getFileNodeId());
-        if (node == null || !item.getUserId().equals(node.getUserId())) {
+    private FileNode requireFileNode(String fileNodeId, String userId) {
+        FileNode node = fileMapper.selectById(fileNodeId);
+        if (node == null || !userId.equals(node.getUserId())) {
             throw new BusinessException(ResultCode.NOT_FOUND, "文件不存在");
         }
         return node;

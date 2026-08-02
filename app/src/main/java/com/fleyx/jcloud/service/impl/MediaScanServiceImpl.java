@@ -17,6 +17,7 @@ import com.fleyx.jcloud.model.po.MediaSeries;
 import com.fleyx.jcloud.service.MediaScanService;
 import com.fleyx.jcloud.service.MediaScrapeService;
 import com.fleyx.jcloud.service.support.MediaDirectorySourceSupport;
+import com.fleyx.jcloud.service.support.MediaOtherScanSupport;
 import com.fleyx.jcloud.service.support.MediaScanSupport;
 import com.fleyx.jcloud.service.support.MediaSeriesSupport;
 import com.fleyx.jcloud.service.support.MediaSubtitleSupport;
@@ -43,9 +44,10 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * 媒体库扫描服务实现。
  * <p>
- * 扫描只负责文件事实：遍历媒体库各来源目录子树，按文件变更哈希 diff 存量条目（按来源目录维度）、
- * ffprobe 探测、维护剧/季归属（含首播年份回填），不访问 TMDB。变化条目的非手动匹配状态会被重置为未匹配，
- * 所属剧的匹配状态同步重置；扫描完成后自动提交一次非强制削刮（削刮仍是独立任务，扫描本身不访问 TMDB）。
+ * 扫描只负责文件事实：三种媒体库均走新模型端到端扫描（电视 issue #17 / 电影 issue #18 /
+ * 其他 issue #19），按来源目录子树遍历、文件变更哈希 diff、ffprobe 探测与按锚 reconcile，
+ * 不访问 TMDB；变化条目的非手动匹配状态会被重置为未匹配，所属剧的匹配状态同步重置；
+ * 扫描完成后自动提交一次非强制削刮（削刮仍是独立任务，扫描本身不访问 TMDB）。
  * <p>
  * 并发模型：扫描与削刮按媒体库互斥（{@link MediaTaskSupport}），协作式取消，
  * 同一媒体库的多次扫描请求通过 {@link #pendingScans} 合并，由单线程循环拾取。
@@ -60,21 +62,21 @@ public class MediaScanServiceImpl implements MediaScanService {
     private final UserMapper userMapper;
     private final MediaSeriesSupport mediaSeriesSupport;
     private final MediaScanSupport mediaScanSupport;
-    private final MediaSubtitleSupport mediaSubtitleSupport;
     private final MediaTaskSupport mediaTaskSupport;
     private final MediaScrapeService mediaScrapeService;
     private final MediaDirectorySourceSupport sourceSupport;
     private final MediaTvScanSupport mediaTvScanSupport;
     private final MediaMovieScanSupport mediaMovieScanSupport;
+    private final MediaOtherScanSupport mediaOtherScanSupport;
     private final TaskExecutor taskExecutor;
 
     public MediaScanServiceImpl(MediaDirectoryMapper mediaDirectoryMapper, MediaItemMapper mediaItemMapper,
                                 FileMapper fileMapper, UserMapper userMapper,
                                 MediaSeriesSupport mediaSeriesSupport, MediaScanSupport mediaScanSupport,
-                                MediaSubtitleSupport mediaSubtitleSupport,
                                 MediaTaskSupport mediaTaskSupport, MediaScrapeService mediaScrapeService,
                                 MediaDirectorySourceSupport sourceSupport, MediaTvScanSupport mediaTvScanSupport,
                                 MediaMovieScanSupport mediaMovieScanSupport,
+                                MediaOtherScanSupport mediaOtherScanSupport,
                                 @Qualifier("applicationTaskExecutor") TaskExecutor taskExecutor) {
         this.mediaDirectoryMapper = mediaDirectoryMapper;
         this.mediaItemMapper = mediaItemMapper;
@@ -82,12 +84,12 @@ public class MediaScanServiceImpl implements MediaScanService {
         this.userMapper = userMapper;
         this.mediaSeriesSupport = mediaSeriesSupport;
         this.mediaScanSupport = mediaScanSupport;
-        this.mediaSubtitleSupport = mediaSubtitleSupport;
         this.mediaTaskSupport = mediaTaskSupport;
         this.mediaScrapeService = mediaScrapeService;
         this.sourceSupport = sourceSupport;
         this.mediaTvScanSupport = mediaTvScanSupport;
         this.mediaMovieScanSupport = mediaMovieScanSupport;
+        this.mediaOtherScanSupport = mediaOtherScanSupport;
         this.taskExecutor = taskExecutor;
     }
 
@@ -206,27 +208,9 @@ public class MediaScanServiceImpl implements MediaScanService {
             // 电影库：新模型端到端扫描（issue #18），含按电影即时 reconcile 与三道闸批次清理
             return mediaMovieScanSupport.scanDirectory(directory, sources, force, username);
         }
-        Map<String, MediaSeries> seriesCache = new HashMap<>();
-        Map<String, MediaSeason> seasonCache = new HashMap<>();
-        Map<String, Integer> seriesYears = new HashMap<>();
-        Set<String> touchedSeriesIds = new HashSet<>();
-        boolean partial = false;
-        for (MediaDirectorySource source : sources) {
-            if (mediaTaskSupport.isCancelled(directory.getId())) {
-                log.info("媒体库扫描被中断: {}", directory.getId());
-                return MediaScanOutcome.CANCELLED;
-            }
-            try {
-                partial |= scanSource(directory, source, force, mediaType, username,
-                        seriesCache, seasonCache, seriesYears, touchedSeriesIds);
-            } catch (ScanCancelledException e) {
-                return MediaScanOutcome.CANCELLED;
-            }
-        }
-        mediaSeriesSupport.recalcMinFileLastModified(touchedSeriesIds);
-        mediaSeriesSupport.cleanupOrphans(userId);
-        syncSeriesYears(userId, mediaType, seriesYears, seriesCache);
-        return partial ? MediaScanOutcome.PARTIAL : MediaScanOutcome.COMPLETED;
+        // 其他库：新模型端到端扫描（issue #19），文件级 reconcile 与三道闸批次清理；
+        // 下方 scanSource 旧路径自此无调用方（旧代码保留，issue #21 移除）
+        return mediaOtherScanSupport.scanDirectory(directory, sources, force, username);
     }
 
     /**
@@ -299,22 +283,15 @@ public class MediaScanServiceImpl implements MediaScanService {
             }
         }
         // 清理该来源目录下已消失或被忽略文件的条目
-        List<String> removedItemIds = new ArrayList<>();
+        // 注：外部字幕关联已由新模型扫描路径（issue #19）重建，旧路径无调用方，字幕逻辑在此移除
         for (MediaItem item : existingMap.values()) {
             if (!seenFileNodeIds.contains(item.getFileNodeId())) {
                 mediaItemMapper.deleteById(item.getId());
-                removedItemIds.add(item.getId());
                 if (item.getSeriesId() != null) {
                     touchedSeriesIds.add(item.getSeriesId());
                 }
             }
         }
-        mediaSubtitleSupport.deleteByItemIds(removedItemIds);
-        // 重建该来源目录下各媒体条目的外部字幕关联（后加/删除的字幕在重扫后正确）
-        List<MediaItem> currentItems = mediaItemMapper.selectList(new LambdaQueryWrapper<MediaItem>()
-                .eq(MediaItem::getDirectoryId, directory.getId())
-                .eq(MediaItem::getSourceId, source.getId()));
-        mediaSubtitleSupport.rebuildForSource(currentItems, nodes);
         return partial;
     }
 
