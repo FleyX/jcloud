@@ -62,7 +62,10 @@ public class MediaScanSupport {
         }
     }
 
-    private MediaProbeResult probeFile(FileNode file, String username, Map<String, String> idToName) {
+    /**
+     * ffprobe 探测单个文件（本地物理路径或远程输入流），供电视新模型扫描复用。
+     */
+    public MediaProbeResult probeFile(FileNode file, String username, Map<String, String> idToName) {
         if (FileNodeConstants.SOURCE_REMOTE.equals(file.getSourceType())) {
             try (InputStream in = remoteFileService.download(file, file.getUserId()).getInputStream()) {
                 return mediaProbeSupport.probe(in);
@@ -141,8 +144,9 @@ public class MediaScanSupport {
 
     /**
      * 文件相对来源目录的祖先文件夹 ID 列表（不含来源目录本身与文件自身）。
+     * 电视新模型扫描按该列表长度判定三层结构。
      */
-    private List<String> relativeFolderIds(FileNode file, String folderFullIdPath) {
+    public List<String> relativeFolderIds(FileNode file, String folderFullIdPath) {
         List<String> result = new ArrayList<>();
         String path = file.getPath() == null ? "" : file.getPath();
         String prefix = folderFullIdPath + FileNodeConstants.PATH_SEPARATOR;

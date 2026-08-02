@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.fleyx.jcloud.mapper.MediaSeriesV2Mapper">
+
+    <!-- 分页查询电视剧（新模型）：关键词命中剧名或元数据标题/原始标题/简介；发行时间为空的剧始终沉底 -->
+    <select id="selectSeriesPage" resultType="com.fleyx.jcloud.model.po.MediaSeriesV2">
+        SELECT s.*
+        FROM t_media_series_v2 s
+        LEFT JOIN t_media_metadata_v2 m ON m.id = s.metadata_id
+        WHERE s.user_id = #{userId}
+        <if test="directoryId != null and directoryId != ''">
+          AND s.directory_id = #{directoryId}
+        </if>
+        <if test="keyword != null and keyword != ''">
+          AND (
+              s.series_name ILIKE CONCAT('%', #{keyword}, '%')
+              OR m.title ILIKE CONCAT('%', #{keyword}, '%')
+              OR m.original_title ILIKE CONCAT('%', #{keyword}, '%')
+              OR m.overview ILIKE CONCAT('%', #{keyword}, '%')
+          )
+        </if>
+        <choose>
+            <when test="sortField == 'release'">
+                <choose>
+                    <when test="asc">ORDER BY m.release_date ASC NULLS LAST, s.id</when>
+                    <otherwise>ORDER BY m.release_date DESC NULLS LAST, s.id</otherwise>
+                </choose>
+            </when>
+            <otherwise>
+                <choose>
+                    <when test="asc">ORDER BY s.min_file_last_modified ASC NULLS LAST, s.id</when>
+                    <otherwise>ORDER BY s.min_file_last_modified DESC NULLS LAST, s.id</otherwise>
+                </choose>
+            </otherwise>
+        </choose>
+    </select>
+
+</mapper>
