@@ -1,16 +1,15 @@
 package com.fleyx.jcloud.service;
 
 import com.baomidou.mybatisplus.core.metadata.IPage;
-import com.fleyx.jcloud.common.enums.MediaItemType;
 import com.fleyx.jcloud.common.enums.MediaMatchStatus;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.MediaEpisodeMapper;
-import com.fleyx.jcloud.mapper.MediaItemMapper;
+import com.fleyx.jcloud.mapper.MediaMovieMapper;
 import com.fleyx.jcloud.mapper.MediaSeasonV2Mapper;
 import com.fleyx.jcloud.mapper.MediaSeriesV2Mapper;
 import com.fleyx.jcloud.model.dto.MediaPageQueryDto;
 import com.fleyx.jcloud.model.po.MediaEpisode;
-import com.fleyx.jcloud.model.po.MediaItem;
+import com.fleyx.jcloud.model.po.MediaMovie;
 import com.fleyx.jcloud.model.po.MediaSeasonV2;
 import com.fleyx.jcloud.model.po.MediaSeriesV2;
 import com.fleyx.jcloud.model.vo.MediaItemVo;
@@ -54,7 +53,7 @@ class MediaItemServiceTest {
     private MediaEpisodeMapper mediaEpisodeMapper;
 
     @Autowired
-    private MediaItemMapper mediaItemMapper;
+    private MediaMovieMapper mediaMovieMapper;
 
     /**
      * 剧详情返回季卡片：季号升序、未知季排最后，含集数与观看进度标记。
@@ -121,12 +120,12 @@ class MediaItemServiceTest {
     }
 
     /**
-     * 电影海报墙按媒体库过滤。
+     * 电影海报墙按媒体库过滤（新模型 t_media_movie，issue #18）。
      */
     @Test
     void shouldFilterMoviesByDirectoryId() {
-        insertMovie("user-1", "dir-1", 1000L);
-        insertMovie("user-1", "dir-2", 2000L);
+        insertMovie("user-1", "dir-1");
+        insertMovie("user-1", "dir-2");
 
         MediaPageQueryDto query = new MediaPageQueryDto();
         query.setDirectoryId("dir-1");
@@ -180,14 +179,14 @@ class MediaItemServiceTest {
         mediaEpisodeMapper.insert(episode);
     }
 
-    private void insertMovie(String userId, String directoryId, long fileLastModified) {
-        MediaItem item = new MediaItem();
-        item.setUserId(userId);
-        item.setDirectoryId(directoryId);
-        item.setFileNodeId("fm-" + directoryId);
-        item.setItemType(MediaItemType.MOVIE.getCode());
-        item.setFileLastModified(fileLastModified);
-        item.setMatchStatus(MediaMatchStatus.UNMATCHED.getCode());
-        mediaItemMapper.insert(item);
+    private void insertMovie(String userId, String directoryId) {
+        MediaMovie movie = new MediaMovie();
+        movie.setUserId(userId);
+        movie.setDirectoryId(directoryId);
+        movie.setFolderNodeId(IdUtil.nextId());
+        movie.setTitle("测试电影");
+        movie.setMatchStatus(MediaMatchStatus.UNMATCHED.getCode());
+        movie.setMetadataComplete(false);
+        mediaMovieMapper.insert(movie);
     }
 }

@@ -134,4 +134,9 @@ public class MediaItemDetailVo {
      * 背景图 URL。
      */
     private String backdropUrl;
+
+    /**
+     * 电影版本列表（仅电影详情有效，issue #18；其他类型为 null）。
+     */
+    private List<MediaMovieVersionVo> versions;
 }

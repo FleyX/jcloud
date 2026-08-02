@@ -17,6 +17,7 @@ import com.fleyx.jcloud.service.MediaDirectoryService;
 import com.fleyx.jcloud.service.MediaScanService;
 import com.fleyx.jcloud.service.support.MediaDirectorySourceSupport;
 import com.fleyx.jcloud.service.support.MediaItemVoSupport;
+import com.fleyx.jcloud.service.support.MediaMovieCascadeSupport;
 import com.fleyx.jcloud.service.support.MediaSeriesSupport;
 import com.fleyx.jcloud.service.support.MediaSubtitleSupport;
 import com.fleyx.jcloud.service.support.MediaTvCascadeSupport;
@@ -50,6 +51,7 @@ public class MediaDirectoryServiceImpl implements MediaDirectoryService {
     private final MediaItemVoSupport mediaItemVoSupport;
     private final MediaSubtitleSupport mediaSubtitleSupport;
     private final MediaTvCascadeSupport mediaTvCascadeSupport;
+    private final MediaMovieCascadeSupport mediaMovieCascadeSupport;
 
     @Override
     public List<MediaDirectoryVo> list(String userId) {
@@ -130,6 +132,10 @@ public class MediaDirectoryServiceImpl implements MediaDirectoryService {
                     // 电视库新模型：被移除来源目录下的剧级联删除（issue #17）
                     mediaTvCascadeSupport.deleteByDirectoryAndSourceIds(directory.getId(),
                             removed.stream().map(MediaDirectorySource::getId).toList());
+                } else if (MediaType.MOVIE.getCode().equals(directory.getMediaType())) {
+                    // 电影库新模型：被移除来源目录下的电影级联删除（issue #18）
+                    mediaMovieCascadeSupport.deleteByDirectoryAndSourceIds(directory.getId(),
+                            removed.stream().map(MediaDirectorySource::getId).toList());
                 }
             }
             submitForceScanAfterCommit(directory.getId(), userId);
@@ -153,6 +159,8 @@ public class MediaDirectoryServiceImpl implements MediaDirectoryService {
         mediaSeriesSupport.cleanupOrphans(userId);
         // 电视库新模型：库内剧集全部级联删除（issue #17）
         mediaTvCascadeSupport.deleteByDirectoryId(id);
+        // 电影库新模型：库内电影全部级联删除（issue #18）
+        mediaMovieCascadeSupport.deleteByDirectoryId(id);
         mediaDirectoryMapper.deleteById(id);
     }
 

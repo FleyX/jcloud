@@ -178,7 +178,9 @@ class MediaSubtitleScanTest {
         MediaDirectory directory = new MediaDirectory();
         directory.setUserId(userId);
         directory.setName("测试媒体库");
-        directory.setMediaType("movie");
+        // 电影库扫描已切换到新模型（issue #18，新路径暂不承载外部字幕关联），
+        // 字幕关联行为由其他类型库的旧路径覆盖，这里用 other 库回归验证
+        directory.setMediaType("other");
         mediaDirectoryMapper.insert(directory);
         MediaDirectorySource source = new MediaDirectorySource();
         source.setDirectoryId(directory.getId());
