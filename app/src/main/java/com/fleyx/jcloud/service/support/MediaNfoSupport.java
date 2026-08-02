@@ -5,6 +5,7 @@ import com.fleyx.jcloud.common.enums.MediaMetadataSource;
 import com.fleyx.jcloud.common.enums.MediaPersistStatus;
 import com.fleyx.jcloud.mapper.MediaMetadataMapper;
 import com.fleyx.jcloud.model.po.MediaMetadata;
+import com.fleyx.jcloud.model.po.MediaMetadataV2;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -175,7 +176,38 @@ public class MediaNfoSupport {
      * @return NFO XML 字符串
      */
     public String generate(MediaMetadata metadata, Integer seasonNo, Integer episodeNo) {
-        String rootTag = switch (metadata.getMediaType()) {
+        return generateXml(metadata.getMediaType(), metadata.getTmdbId(), metadata.getTitle(),
+                metadata.getOriginalTitle(), metadata.getOverview(), metadata.getReleaseDate(),
+                metadata.getVoteAverage(), metadata.getGenres(), seasonNo, episodeNo);
+    }
+
+    /**
+     * 从新模型元数据生成 Jellyfin/Kodi 兼容 NFO XML（issue #20）。
+     * 根元素按 owner_type 派生：series→tvshow / episode→episodedetails / 其余→movie。
+     *
+     * @param metadata 元数据行（已绑定 owner）
+     * @param seasonNo 季号，仅集有效，可为空
+     * @param episodeNo 集号，仅集有效，可为空
+     * @return NFO XML 字符串
+     */
+    public String generate(MediaMetadataV2 metadata, Integer seasonNo, Integer episodeNo) {
+        String mediaType = switch (metadata.getOwnerType()) {
+            case "series" -> "tv";
+            case "episode" -> "episode";
+            default -> "movie";
+        };
+        return generateXml(mediaType, metadata.getTmdbId(), metadata.getTitle(),
+                metadata.getOriginalTitle(), metadata.getOverview(), metadata.getReleaseDate(),
+                metadata.getVoteAverage(), metadata.getGenres(), seasonNo, episodeNo);
+    }
+
+    /**
+     * 按字段生成 Jellyfin/Kodi 兼容 NFO XML（movie/tvshow/episodedetails 根元素按 mediaType 派生）。
+     */
+    private String generateXml(String mediaType, Long tmdbId, String title, String originalTitle,
+                               String overview, String releaseDate, Double voteAverage, String genres,
+                               Integer seasonNo, Integer episodeNo) {
+        String rootTag = switch (mediaType) {
             case "tv" -> "tvshow";
             case "episode" -> "episodedetails";
             default -> "movie";
@@ -184,22 +216,22 @@ public class MediaNfoSupport {
             Document doc = DocumentBuilderFactory.newInstance().newDocumentBuilder().newDocument();
             Element root = doc.createElement(rootTag);
             doc.appendChild(root);
-            append(doc, root, "tmdbid", metadata.getTmdbId());
-            append(doc, root, "title", metadata.getTitle());
-            append(doc, root, "originaltitle", metadata.getOriginalTitle());
-            append(doc, root, "plot", metadata.getOverview());
-            if (metadata.getReleaseDate() != null) {
-                append(doc, root, "year", metadata.getReleaseDate().length() >= 4
-                        ? metadata.getReleaseDate().substring(0, 4) : metadata.getReleaseDate());
-                append(doc, root, "premiered", metadata.getReleaseDate());
+            append(doc, root, "tmdbid", tmdbId);
+            append(doc, root, "title", title);
+            append(doc, root, "originaltitle", originalTitle);
+            append(doc, root, "plot", overview);
+            if (releaseDate != null) {
+                append(doc, root, "year", releaseDate.length() >= 4
+                        ? releaseDate.substring(0, 4) : releaseDate);
+                append(doc, root, "premiered", releaseDate);
             }
-            append(doc, root, "rating", metadata.getVoteAverage());
-            if (metadata.getGenres() != null && !metadata.getGenres().isBlank()) {
-                for (String genre : metadata.getGenres().split(",")) {
+            append(doc, root, "rating", voteAverage);
+            if (genres != null && !genres.isBlank()) {
+                for (String genre : genres.split(",")) {
                     append(doc, root, "genre", genre.isBlank() ? null : genre.trim());
                 }
             }
-            if ("episode".equals(metadata.getMediaType())) {
+            if ("episode".equals(mediaType)) {
                 append(doc, root, "season", seasonNo);
                 append(doc, root, "episode", episodeNo);
             }

@@ -2,16 +2,20 @@ package com.fleyx.jcloud.service;
 
 import com.fleyx.jcloud.model.po.MediaItem;
 import com.fleyx.jcloud.model.po.MediaMetadata;
+import com.fleyx.jcloud.model.po.MediaMetadataV2;
 import com.fleyx.jcloud.model.po.MediaSeason;
 import com.fleyx.jcloud.model.vo.TmdbSearchResultVo;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * TMDB 元数据服务。
  * <p>
  * 元数据按用户隔离（ADR 0020）：电影/剧按 (user_id, media_type, tmdb_id) 查找，
  * 季/集元数据通过季/集条目已有的 metadata_id 直接绑定。
+ * 新模型（issue #20）：V2 方法返回未绑定 owner 的游离元数据行（t_media_metadata_v2），
+ * 由调用方经 {@code MediaMetadataV2Support} 绑定 owner 后落库。
  */
 public interface TmdbService {
 
@@ -85,4 +89,58 @@ public interface TmdbService {
      * @return 图片字节，路径为空或下载失败返回 null
      */
     byte[] downloadArtwork(String tmdbImagePath, String kind);
+
+    // ---------- 新模型（issue #20，t_media_metadata_v2） ----------
+
+    /**
+     * 季与集派生结果：季元数据 + 季内全部集元数据（按集号索引）。
+     * 均未绑定 owner、未落库，由调用方绑定 owner 后经 MediaMetadataV2Support 落库。
+     *
+     * @param season    季元数据（游离）
+     * @param episodes  集号 → 集元数据（游离）
+     */
+    record SeasonFetchV2(MediaMetadataV2 season, Map<Integer, MediaMetadataV2> episodes) {
+    }
+
+    /**
+     * 按 TMDB ID 拉取详情（新模型），返回未绑定 owner 的游离元数据行，未落库。
+     *
+     * @param userId    用户 ID
+     * @param tmdbId    TMDB 条目 ID
+     * @param mediaType 类型：movie / tv
+     * @return 元数据（游离，source=tmdb）
+     */
+    MediaMetadataV2 fetchDetailV2(String userId, Long tmdbId, String mediaType);
+
+    /**
+     * 自动匹配元数据（新模型）：搜索 + 候选打分选优 + 拉取详情，
+     * 返回未绑定 owner 的游离元数据行，未落库；匹配失败返回 null。
+     *
+     * @param userId    用户 ID
+     * @param mediaType 类型：movie / tv
+     * @param title     标题
+     * @param year      年份，可为 null
+     * @return 匹配到的元数据（游离）或 null
+     */
+    MediaMetadataV2 autoMatchV2(String userId, String mediaType, String title, Integer year);
+
+    /**
+     * 拉取整季数据（新模型）：一次请求返回季元数据与季内全部集元数据，
+     * 均未绑定 owner、未落库；季号为空或拉取失败返回 null。
+     *
+     * @param userId       用户 ID
+     * @param seriesTmdbId 剧 TMDB ID
+     * @param seasonNo     季号
+     * @return 季与集派生结果或 null
+     */
+    SeasonFetchV2 fetchSeasonV2(String userId, Long seriesTmdbId, Integer seasonNo);
+
+    /**
+     * 重新从 TMDB 拉取并覆盖元数据字段（新模型，仅 movie/series 归属可刷新，
+     * local_nfo 来源或 tmdb_id 为空时不刷新、原样返回）。返回待落库的元数据。
+     *
+     * @param metadata 元数据行（已绑定 owner）
+     * @return 刷新后的元数据行
+     */
+    MediaMetadataV2 refreshV2(MediaMetadataV2 metadata);
 }
