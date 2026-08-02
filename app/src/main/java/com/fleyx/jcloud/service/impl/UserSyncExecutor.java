@@ -4,6 +4,7 @@ import com.fleyx.jcloud.common.constant.FileNodeConstants;
 import com.fleyx.jcloud.common.constant.StorageConstant;
 import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.enums.SyncTaskStatus;
+import com.fleyx.jcloud.common.event.SyncCompletedEvent;
 import com.fleyx.jcloud.common.event.UserSyncSubmittedEvent;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.common.exception.SystemException;
@@ -25,6 +26,7 @@ import com.fleyx.jcloud.util.IdUtil;
 import com.fleyx.jcloud.util.UserReadWriteLock;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RLock;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
@@ -58,6 +60,7 @@ public class UserSyncExecutor extends AbstractTreeSyncExecutor<Path, Path> {
     private final UserSpaceSupport userSpaceSupport;
     private final FileNodeSupport fileNodeSupport;
     private final SyncTaskSupport syncTaskSupport;
+    private final ApplicationEventPublisher eventPublisher;
 
     public UserSyncExecutor(FileMapper fileMapper,
                             UserSyncTaskMapper userSyncTaskMapper,
@@ -65,7 +68,8 @@ public class UserSyncExecutor extends AbstractTreeSyncExecutor<Path, Path> {
                             UserReadWriteLock userReadWriteLock,
                             UserSpaceSupport userSpaceSupport,
                             FileNodeSupport fileNodeSupport,
-                            SyncTaskSupport syncTaskSupport) {
+                            SyncTaskSupport syncTaskSupport,
+                            ApplicationEventPublisher eventPublisher) {
         super(fileMapper);
         this.userSyncTaskMapper = userSyncTaskMapper;
         this.storageSpaceMapper = storageSpaceMapper;
@@ -73,6 +77,7 @@ public class UserSyncExecutor extends AbstractTreeSyncExecutor<Path, Path> {
         this.userSpaceSupport = userSpaceSupport;
         this.fileNodeSupport = fileNodeSupport;
         this.syncTaskSupport = syncTaskSupport;
+        this.eventPublisher = eventPublisher;
     }
 
     /**
@@ -147,11 +152,20 @@ public class UserSyncExecutor extends AbstractTreeSyncExecutor<Path, Path> {
             log.info("用户物理文件目录不存在，清空数据库文件树，userId={}", userId);
             clearAllUserNodes(userId);
             syncTaskSupport.completeTask(task, context, userSyncTaskMapper);
+            publishSyncCompleted(userId);
             return;
         }
 
         syncFolder(rootNode, rootDir, context);
         syncTaskSupport.completeTask(task, context, userSyncTaskMapper);
+        publishSyncCompleted(userId);
+    }
+
+    /**
+     * 同步完成（COMPLETED 或 PARTIAL）后发布事件，触发媒体库扫描等后续动作。
+     */
+    private void publishSyncCompleted(String userId) {
+        eventPublisher.publishEvent(new SyncCompletedEvent(this, userId, SyncCompletedEvent.TYPE_USER));
     }
 
     @Override
