@@ -12,6 +12,7 @@ import {
   AudioLines,
   Captions,
   Gauge,
+  Layers,
   ListVideo,
   Maximize,
   Minimize,
@@ -21,7 +22,7 @@ import {
   Volume2,
   VolumeX,
 } from '@lucide/vue'
-import type { MediaPlaybackInfoVo, MediaTrack } from '@/types/media'
+import type { MediaMovieVersionVo, MediaPlaybackInfoVo, MediaTrack } from '@/types/media'
 import type { PlayerControls } from '@/composables/usePlayerControls'
 import { SPEED_OPTIONS } from '@/composables/usePlayerControls'
 import { BITRATE_TIERS, subtitleItemKey } from '@/composables/useMediaPlayback'
@@ -36,13 +37,21 @@ interface Props {
   bitrateTierKey: string
   isEpisode: boolean
   episodePanelOpen: boolean
+  /** 电影版本列表（仅电影有效），多于 1 个时显示版本切换入口 */
+  versions?: MediaMovieVersionVo[]
+  /** 当前播放版本 ID */
+  currentVersionId?: string | null
 }
 
-const props = defineProps<Props>()
+const props = withDefaults(defineProps<Props>(), {
+  versions: () => [],
+  currentVersionId: null,
+})
 const emit = defineEmits<{
   selectAudio: [index: number | null]
   selectSubtitle: [key: string | null]
   selectBitrate: [key: string]
+  selectVersion: [versionId: string]
   toggleEpisodePanel: []
   /** 拖拽/点击进度条跳转，绝对秒数（含转码偏移） */
   seek: [seconds: number]
@@ -62,6 +71,7 @@ const {
   subtitleMenuOpen,
   bitrateMenuOpen,
   audioMenuOpen,
+  versionMenuOpen,
   controlsVisible,
   togglePlay,
   setVolume,
@@ -151,6 +161,12 @@ const audioOptions = computed<MenuOption[]>(() => [
     checked: track.index === props.audioIndex,
   })),
 ])
+
+const versionOptions = computed<MenuOption[]>(() => props.versions.map((version) => ({
+  key: version.id,
+  label: version.fileName ?? '未知版本',
+  checked: version.id === props.currentVersionId,
+})))
 
 function audioTrackLabel(track: MediaTrack): string {
   return `${track.title || track.language || `音轨 ${track.index + 1}`}（${track.codec}）`
@@ -292,6 +308,19 @@ const buttonClass = 'rounded-full p-2 text-white transition-colors hover:bg-whit
       >
         <button :class="buttonClass" title="音轨">
           <AudioLines class="h-5 w-5" />
+        </button>
+      </PlayerOptionMenu>
+
+      <!-- 版本（仅电影多版本时显示） -->
+      <PlayerOptionMenu
+        v-if="!isEpisode && versions.length > 1"
+        v-model:open="versionMenuOpen"
+        title="版本"
+        :options="versionOptions"
+        @select="emit('selectVersion', $event)"
+      >
+        <button :class="buttonClass" title="版本">
+          <Layers class="h-5 w-5" />
         </button>
       </PlayerOptionMenu>
 

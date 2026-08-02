@@ -6,16 +6,16 @@ import com.fleyx.jcloud.common.enums.MediaMatchStatus;
 import com.fleyx.jcloud.common.enums.MediaMetadataOwnerType;
 import com.fleyx.jcloud.mapper.MediaEpisodeFileMapper;
 import com.fleyx.jcloud.mapper.MediaEpisodeMapper;
-import com.fleyx.jcloud.mapper.MediaSeasonV2Mapper;
-import com.fleyx.jcloud.mapper.MediaSeriesV2Mapper;
+import com.fleyx.jcloud.mapper.MediaSeasonMapper;
+import com.fleyx.jcloud.mapper.MediaSeriesMapper;
 import com.fleyx.jcloud.model.bo.MediaProbeResult;
 import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.po.MediaDirectory;
 import com.fleyx.jcloud.model.po.MediaDirectorySource;
 import com.fleyx.jcloud.model.po.MediaEpisode;
 import com.fleyx.jcloud.model.po.MediaEpisodeFile;
-import com.fleyx.jcloud.model.po.MediaSeasonV2;
-import com.fleyx.jcloud.model.po.MediaSeriesV2;
+import com.fleyx.jcloud.model.po.MediaSeason;
+import com.fleyx.jcloud.model.po.MediaSeries;
 import com.fleyx.jcloud.util.MediaFileNameParser;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -45,8 +45,8 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class MediaTvReconcileSupport {
 
-    private final MediaSeriesV2Mapper mediaSeriesV2Mapper;
-    private final MediaSeasonV2Mapper mediaSeasonV2Mapper;
+    private final MediaSeriesMapper mediaSeriesMapper;
+    private final MediaSeasonMapper mediaSeasonMapper;
     private final MediaEpisodeMapper mediaEpisodeMapper;
     private final MediaEpisodeFileMapper mediaEpisodeFileMapper;
     private final MediaTvCascadeSupport mediaTvCascadeSupport;
@@ -71,7 +71,7 @@ public class MediaTvReconcileSupport {
     }
 
     /** 单剧 prepare 结果：存量行、锚映射与探测结果，供事务内 upsert 直接使用。 */
-    public record SeriesPrepare(String seriesId, List<MediaSeasonV2> existingSeasons,
+    public record SeriesPrepare(String seriesId, List<MediaSeason> existingSeasons,
                                 List<MediaEpisode> existingEpisodes, List<MediaEpisodeFile> existingFiles,
                                 Map<String, MediaEpisodeFile> fileByNodeId, Map<String, MediaEpisode> episodeById,
                                 Map<String, FileProbe> probeByFileId) {
@@ -91,12 +91,12 @@ public class MediaTvReconcileSupport {
     @Transactional(rollbackFor = Exception.class)
     public ReconcileResult upsertSeries(TvScanContext ctx, FileNode seriesFolder,
                                         List<SeasonFiles> seasonFilesList, SeriesPrepare prepare) {
-        MediaSeriesV2 series = upsertSeriesRow(ctx, seriesFolder, ctx.batchTime());
+        MediaSeries series = upsertSeriesRow(ctx, seriesFolder, ctx.batchTime());
         Set<String> seenSeasonIds = new HashSet<>();
         Set<String> seenEpisodeIds = new HashSet<>();
         Set<String> seenFileRowIds = new HashSet<>();
         for (SeasonFiles seasonFiles : seasonFilesList) {
-            MediaSeasonV2 season = upsertSeason(series, seasonFiles.seasonFolder(), prepare.existingSeasons());
+            MediaSeason season = upsertSeason(series, seasonFiles.seasonFolder(), prepare.existingSeasons());
             seenSeasonIds.add(season.getId());
             for (FileNode file : seasonFiles.videoFiles()) {
                 reconcileEpisodeFile(ctx, series, season, file, prepare, seenEpisodeIds, seenFileRowIds);
@@ -121,15 +121,15 @@ public class MediaTvReconcileSupport {
      * 剧行锚定 upsert：锚 = 剧文件夹节点。重命名仅更新标题字段（manual 保留、非 manual 重置）；
      * 跨库/跨来源移动时改挂归属；批次扫描时间写入剧行。
      */
-    private MediaSeriesV2 upsertSeriesRow(TvScanContext ctx, FileNode seriesFolder, LocalDateTime batchTime) {
+    private MediaSeries upsertSeriesRow(TvScanContext ctx, FileNode seriesFolder, LocalDateTime batchTime) {
         MediaDirectory directory = ctx.directory();
         MediaDirectorySource source = ctx.source();
         String seriesName = MediaFileNameParser.cleanTitle(seriesFolder.getName());
         Integer releaseYear = MediaFileNameParser.parseYear(seriesFolder.getName());
-        MediaSeriesV2 series = mediaSeriesV2Mapper.selectOne(new LambdaQueryWrapper<MediaSeriesV2>()
-                .eq(MediaSeriesV2::getFolderNodeId, seriesFolder.getId()));
+        MediaSeries series = mediaSeriesMapper.selectOne(new LambdaQueryWrapper<MediaSeries>()
+                .eq(MediaSeries::getFolderNodeId, seriesFolder.getId()));
         if (series == null) {
-            series = new MediaSeriesV2();
+            series = new MediaSeries();
             series.setUserId(directory.getUserId());
             series.setDirectoryId(directory.getId());
             series.setSourceId(source.getId());
@@ -139,7 +139,7 @@ public class MediaTvReconcileSupport {
             series.setMatchStatus(MediaMatchStatus.UNMATCHED.getCode());
             series.setMetadataComplete(false);
             series.setScanTime(batchTime);
-            mediaSeriesV2Mapper.insert(series);
+            mediaSeriesMapper.insert(series);
             return series;
         }
         boolean renamed = !Objects.equals(series.getSeriesName(), seriesName)
@@ -150,16 +150,16 @@ public class MediaTvReconcileSupport {
         if (resetMatch) {
             mediaTvCascadeSupport.deleteMetadata(MediaMetadataOwnerType.SERIES.getCode(), series.getId());
         }
-        mediaSeriesV2Mapper.update(null, new LambdaUpdateWrapper<MediaSeriesV2>()
-                .eq(MediaSeriesV2::getId, series.getId())
-                .set(MediaSeriesV2::getDirectoryId, directory.getId())
-                .set(MediaSeriesV2::getSourceId, source.getId())
-                .set(MediaSeriesV2::getSeriesName, seriesName)
-                .set(MediaSeriesV2::getReleaseYear, releaseYear)
-                .set(MediaSeriesV2::getScanTime, batchTime)
-                .set(resetMatch, MediaSeriesV2::getMetadataId, null)
-                .set(resetMatch, MediaSeriesV2::getMatchStatus, MediaMatchStatus.UNMATCHED.getCode())
-                .set(resetMatch, MediaSeriesV2::getMetadataComplete, false));
+        mediaSeriesMapper.update(null, new LambdaUpdateWrapper<MediaSeries>()
+                .eq(MediaSeries::getId, series.getId())
+                .set(MediaSeries::getDirectoryId, directory.getId())
+                .set(MediaSeries::getSourceId, source.getId())
+                .set(MediaSeries::getSeriesName, seriesName)
+                .set(MediaSeries::getReleaseYear, releaseYear)
+                .set(MediaSeries::getScanTime, batchTime)
+                .set(resetMatch, MediaSeries::getMetadataId, null)
+                .set(resetMatch, MediaSeries::getMatchStatus, MediaMatchStatus.UNMATCHED.getCode())
+                .set(resetMatch, MediaSeries::getMetadataComplete, false));
         series.setDirectoryId(directory.getId());
         series.setSourceId(source.getId());
         series.setSeriesName(seriesName);
@@ -176,35 +176,35 @@ public class MediaTvReconcileSupport {
     /**
      * 季行锚定 upsert：锚 = 季文件夹节点。重命名更新季号；跨剧移动时改挂到新剧（其下集随行）。
      */
-    private MediaSeasonV2 upsertSeason(MediaSeriesV2 series, FileNode seasonFolder,
-                                       List<MediaSeasonV2> existingSeasons) {
+    private MediaSeason upsertSeason(MediaSeries series, FileNode seasonFolder,
+                                       List<MediaSeason> existingSeasons) {
         Integer seasonNo = MediaFileNameParser.parseSeasonNo(seasonFolder.getName());
-        MediaSeasonV2 season = existingSeasons.stream()
+        MediaSeason season = existingSeasons.stream()
                 .filter(s -> s.getFolderNodeId().equals(seasonFolder.getId())).findFirst().orElse(null);
         if (season == null) {
-            season = mediaSeasonV2Mapper.selectOne(new LambdaQueryWrapper<MediaSeasonV2>()
-                    .eq(MediaSeasonV2::getFolderNodeId, seasonFolder.getId()));
+            season = mediaSeasonMapper.selectOne(new LambdaQueryWrapper<MediaSeason>()
+                    .eq(MediaSeason::getFolderNodeId, seasonFolder.getId()));
         }
         if (season == null) {
-            season = new MediaSeasonV2();
+            season = new MediaSeason();
             season.setSeriesId(series.getId());
             season.setFolderNodeId(seasonFolder.getId());
             season.setSeasonNo(seasonNo);
-            mediaSeasonV2Mapper.insert(season);
+            mediaSeasonMapper.insert(season);
             existingSeasons.add(season);
             return season;
         }
-        MediaSeasonV2 anchored = season;
+        MediaSeason anchored = season;
         if (existingSeasons.stream().noneMatch(s -> s.getId().equals(anchored.getId()))) {
             // 锚命中其他剧的季：跨剧移动，改挂到本剧，其下集一并随行
             existingSeasons.add(season);
         }
         boolean seriesChanged = !series.getId().equals(season.getSeriesId());
         if (seriesChanged || !Objects.equals(season.getSeasonNo(), seasonNo)) {
-            mediaSeasonV2Mapper.update(null, new LambdaUpdateWrapper<MediaSeasonV2>()
-                    .eq(MediaSeasonV2::getId, season.getId())
-                    .set(MediaSeasonV2::getSeriesId, series.getId())
-                    .set(MediaSeasonV2::getSeasonNo, seasonNo));
+            mediaSeasonMapper.update(null, new LambdaUpdateWrapper<MediaSeason>()
+                    .eq(MediaSeason::getId, season.getId())
+                    .set(MediaSeason::getSeriesId, series.getId())
+                    .set(MediaSeason::getSeasonNo, seasonNo));
             if (seriesChanged) {
                 mediaEpisodeMapper.update(null, new LambdaUpdateWrapper<MediaEpisode>()
                         .eq(MediaEpisode::getSeasonId, season.getId())
@@ -221,7 +221,7 @@ public class MediaTvReconcileSupport {
      * 锚全局唯一：文件跨剧/跨库移动时，锚命中的行可能属于其他剧的集，此时直接改挂到本剧目标集，
      * 源剧被清空的集由源剧删除阶段（{@link #deleteUnseenSeriesChildren}）删除。
      */
-    private void reconcileEpisodeFile(TvScanContext ctx, MediaSeriesV2 series, MediaSeasonV2 season,
+    private void reconcileEpisodeFile(TvScanContext ctx, MediaSeries series, MediaSeason season,
                                       FileNode file, SeriesPrepare prepare,
                                       Set<String> seenEpisodeIds, Set<String> seenFileRowIds) {
         Integer episodeNo = MediaFileNameParser.parse(file.getName(), null, null).episodeNo();
@@ -291,7 +291,7 @@ public class MediaTvReconcileSupport {
      * 定位集文件应归属的集行：位置未变返回原集；目标季已有同号集返回目标集（明细并入作为版本）；
      * 目标无同号集时，源集（含跨剧锚命中的集行）仅有这一个文件则直接改挂集行（进度保留），否则新建目标集。
      */
-    private MediaEpisode placeEpisodeFile(MediaSeriesV2 series, MediaSeasonV2 season, Integer episodeNo,
+    private MediaEpisode placeEpisodeFile(MediaSeries series, MediaSeason season, Integer episodeNo,
                                           MediaEpisodeFile row, Map<String, MediaEpisode> episodeById,
                                           List<MediaEpisode> existingEpisodes, List<MediaEpisodeFile> existingFiles) {
         MediaEpisode current = row == null ? null : episodeById.get(row.getEpisodeId());
@@ -333,7 +333,7 @@ public class MediaTvReconcileSupport {
         return createEpisode(series, season, episodeNo, existingEpisodes, episodeById);
     }
 
-    private MediaEpisode createEpisode(MediaSeriesV2 series, MediaSeasonV2 season, Integer episodeNo,
+    private MediaEpisode createEpisode(MediaSeries series, MediaSeason season, Integer episodeNo,
                                        List<MediaEpisode> existingEpisodes, Map<String, MediaEpisode> episodeById) {
         MediaEpisode episode = new MediaEpisode();
         episode.setSeriesId(series.getId());
@@ -364,8 +364,8 @@ public class MediaTvReconcileSupport {
                     .stream().map(MediaEpisodeFile::getFileLastModified).filter(Objects::nonNull)
                     .findFirst().orElse(null);
         }
-        mediaSeriesV2Mapper.update(null, new LambdaUpdateWrapper<MediaSeriesV2>()
-                .eq(MediaSeriesV2::getId, seriesId)
-                .set(MediaSeriesV2::getMinFileLastModified, min));
+        mediaSeriesMapper.update(null, new LambdaUpdateWrapper<MediaSeries>()
+                .eq(MediaSeries::getId, seriesId)
+                .set(MediaSeries::getMinFileLastModified, min));
     }
 }

@@ -10,7 +10,7 @@ import com.fleyx.jcloud.common.enums.MediaScanStatus;
 import com.fleyx.jcloud.mapper.FileMapper;
 import com.fleyx.jcloud.mapper.MediaDirectoryMapper;
 import com.fleyx.jcloud.mapper.MediaDirectorySourceMapper;
-import com.fleyx.jcloud.mapper.MediaMetadataV2Mapper;
+import com.fleyx.jcloud.mapper.MediaMetadataMapper;
 import com.fleyx.jcloud.mapper.MediaMovieFileMapper;
 import com.fleyx.jcloud.mapper.MediaMovieMapper;
 import com.fleyx.jcloud.model.bo.MediaProbeResult;
@@ -22,7 +22,7 @@ import com.fleyx.jcloud.model.dto.UserSaveDto;
 import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.po.MediaDirectory;
 import com.fleyx.jcloud.model.po.MediaDirectorySource;
-import com.fleyx.jcloud.model.po.MediaMetadataV2;
+import com.fleyx.jcloud.model.po.MediaMetadata;
 import com.fleyx.jcloud.model.po.MediaMovie;
 import com.fleyx.jcloud.model.po.MediaMovieFile;
 import com.fleyx.jcloud.model.vo.FileNodeVo;
@@ -103,7 +103,7 @@ class MediaMovieScanServiceTest {
     private MediaMovieFileMapper mediaMovieFileMapper;
 
     @Autowired
-    private MediaMetadataV2Mapper mediaMetadataV2Mapper;
+    private MediaMetadataMapper mediaMetadataMapper;
 
     @Autowired
     private FileMapper fileMapper;
@@ -341,7 +341,7 @@ class MediaMovieScanServiceTest {
         assertNull(mediaMovieMapper.selectById(removed.getId()));
         assertEquals(0, mediaMovieFileMapper.selectCount(new LambdaQueryWrapper<MediaMovieFile>()
                 .in(MediaMovieFile::getId, removedFiles.stream().map(MediaMovieFile::getId).toList())));
-        assertEquals(0, mediaMetadataV2Mapper.selectCount(null));
+        assertEquals(0, mediaMetadataMapper.selectCount(null));
         // 另一部电影完好
         assertEquals(1, mediaMovieMapper.selectCount(null));
         assertEquals(1, mediaMovieFileMapper.selectCount(null));
@@ -511,13 +511,13 @@ class MediaMovieScanServiceTest {
     }
 
     private void seedMetadata(String userId, String ownerType, String ownerId) {
-        MediaMetadataV2 metadata = new MediaMetadataV2();
+        MediaMetadata metadata = new MediaMetadata();
         metadata.setUserId(userId);
         metadata.setOwnerType(ownerType);
         metadata.setOwnerId(ownerId);
         metadata.setSource("tmdb");
         metadata.setTitle("测试元数据");
-        mediaMetadataV2Mapper.insert(metadata);
+        mediaMetadataMapper.insert(metadata);
     }
 
     private MediaMovie querySingleMovie(String directoryId) {

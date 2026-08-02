@@ -3,6 +3,7 @@
  * 海报卡片
  * - 展示海报图、标题、评分、进度条
  * - 未识别条目显示角标，可触发手动匹配
+ * - 元数据不完整条目显示弱标识
  */
 import { computed } from 'vue'
 import { Film } from '@lucide/vue'
@@ -16,6 +17,8 @@ interface Props {
   progressMs?: number
   durationMs?: number | null
   unmatched?: boolean
+  /** 元数据不完整弱标识 */
+  incomplete?: boolean
 }
 
 const props = defineProps<Props>()
@@ -61,12 +64,20 @@ const yearText = computed(() => (props.releaseDate ? props.releaseDate.slice(0, 
       >
         {{ ratingText }}
       </span>
-      <span
-        v-if="unmatched"
-        class="absolute left-2 top-2 rounded-lg bg-amber-500/90 px-1.5 py-0.5 text-xs font-medium text-white"
-      >
-        未识别
-      </span>
+      <div class="absolute left-2 top-2 flex flex-col items-start gap-1">
+        <span
+          v-if="unmatched"
+          class="rounded-lg bg-amber-500/90 px-1.5 py-0.5 text-xs font-medium text-white"
+        >
+          未识别
+        </span>
+        <span
+          v-if="incomplete"
+          class="rounded-lg bg-surface-800/90 px-1.5 py-0.5 text-xs font-medium text-white"
+        >
+          不完整
+        </span>
+      </div>
 
       <div
         v-if="progressPercent > 0"

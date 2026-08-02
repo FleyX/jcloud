@@ -8,16 +8,16 @@ import com.fleyx.jcloud.mapper.MediaEpisodeMapper;
 import com.fleyx.jcloud.mapper.MediaMovieFileMapper;
 import com.fleyx.jcloud.mapper.MediaMovieMapper;
 import com.fleyx.jcloud.mapper.MediaOtherMapper;
-import com.fleyx.jcloud.mapper.MediaSeasonV2Mapper;
-import com.fleyx.jcloud.mapper.MediaSeriesV2Mapper;
+import com.fleyx.jcloud.mapper.MediaSeasonMapper;
+import com.fleyx.jcloud.mapper.MediaSeriesMapper;
 import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.po.MediaEpisode;
 import com.fleyx.jcloud.model.po.MediaEpisodeFile;
 import com.fleyx.jcloud.model.po.MediaMovie;
 import com.fleyx.jcloud.model.po.MediaMovieFile;
 import com.fleyx.jcloud.model.po.MediaOther;
-import com.fleyx.jcloud.model.po.MediaSeasonV2;
-import com.fleyx.jcloud.model.po.MediaSeriesV2;
+import com.fleyx.jcloud.model.po.MediaSeason;
+import com.fleyx.jcloud.model.po.MediaSeries;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -52,8 +52,8 @@ public class MediaHomeQuerySupport {
     private final MediaEpisodeMapper mediaEpisodeMapper;
     private final MediaEpisodeFileMapper mediaEpisodeFileMapper;
     private final MediaOtherMapper mediaOtherMapper;
-    private final MediaSeriesV2Mapper mediaSeriesV2Mapper;
-    private final MediaSeasonV2Mapper mediaSeasonV2Mapper;
+    private final MediaSeriesMapper mediaSeriesMapper;
+    private final MediaSeasonMapper mediaSeasonMapper;
     private final FileMapper fileMapper;
 
     /**
@@ -81,30 +81,30 @@ public class MediaHomeQuerySupport {
      * 接下来：每部有观看记录的剧取第一集未观看集，按剧最近播放时间倒序，截取 limit 条。
      */
     public List<HomeItem> listNextUp(String userId, int limit) {
-        List<MediaSeriesV2> seriesList = mediaSeriesV2Mapper.selectList(
-                new LambdaQueryWrapper<MediaSeriesV2>().eq(MediaSeriesV2::getUserId, userId));
+        List<MediaSeries> seriesList = mediaSeriesMapper.selectList(
+                new LambdaQueryWrapper<MediaSeries>().eq(MediaSeries::getUserId, userId));
         if (seriesList.isEmpty()) {
             return List.of();
         }
-        List<String> seriesIds = seriesList.stream().map(MediaSeriesV2::getId).toList();
+        List<String> seriesIds = seriesList.stream().map(MediaSeries::getId).toList();
         List<MediaEpisode> episodes = mediaEpisodeMapper.selectList(
                 new LambdaQueryWrapper<MediaEpisode>().in(MediaEpisode::getSeriesId, seriesIds));
         if (episodes.isEmpty()) {
             return List.of();
         }
         Map<String, MediaEpisodeFile> fileMap = representativeFiles(episodes);
-        Map<String, MediaSeasonV2> seasonMap = mediaSeasonV2Mapper.selectBatchIds(
+        Map<String, MediaSeason> seasonMap = mediaSeasonMapper.selectBatchIds(
                         episodes.stream().map(MediaEpisode::getSeasonId).distinct().toList())
-                .stream().collect(Collectors.toMap(MediaSeasonV2::getId, Function.identity()));
-        Map<String, MediaSeriesV2> seriesById = seriesList.stream()
-                .collect(Collectors.toMap(MediaSeriesV2::getId, Function.identity()));
+                .stream().collect(Collectors.toMap(MediaSeason::getId, Function.identity()));
+        Map<String, MediaSeries> seriesById = seriesList.stream()
+                .collect(Collectors.toMap(MediaSeries::getId, Function.identity()));
         Map<String, String> fileNameMap = loadFileNameMap(
                 fileMap.values().stream().map(MediaEpisodeFile::getFileNodeId).toList());
         Map<String, List<MediaEpisode>> bySeries = episodes.stream()
                 .collect(Collectors.groupingBy(MediaEpisode::getSeriesId));
         List<SeriesNextUp> candidates = new ArrayList<>();
         for (Map.Entry<String, List<MediaEpisode>> entry : bySeries.entrySet()) {
-            MediaSeriesV2 series = seriesById.get(entry.getKey());
+            MediaSeries series = seriesById.get(entry.getKey());
             if (series == null) {
                 continue;
             }
@@ -161,12 +161,12 @@ public class MediaHomeQuerySupport {
      * 集候选行：全部集行（可选仅带进度），时长取代表文件明细，剧名/季号/剧元数据补齐。
      */
     private List<HomeItem> episodeItems(String userId, boolean withProgressOnly) {
-        List<MediaSeriesV2> seriesList = mediaSeriesV2Mapper.selectList(
-                new LambdaQueryWrapper<MediaSeriesV2>().eq(MediaSeriesV2::getUserId, userId));
+        List<MediaSeries> seriesList = mediaSeriesMapper.selectList(
+                new LambdaQueryWrapper<MediaSeries>().eq(MediaSeries::getUserId, userId));
         if (seriesList.isEmpty()) {
             return List.of();
         }
-        List<String> seriesIds = seriesList.stream().map(MediaSeriesV2::getId).toList();
+        List<String> seriesIds = seriesList.stream().map(MediaSeries::getId).toList();
         List<MediaEpisode> episodes = mediaEpisodeMapper.selectList(
                 new LambdaQueryWrapper<MediaEpisode>().in(MediaEpisode::getSeriesId, seriesIds));
         if (withProgressOnly) {
@@ -175,11 +175,11 @@ public class MediaHomeQuerySupport {
         if (episodes.isEmpty()) {
             return List.of();
         }
-        Map<String, MediaSeriesV2> seriesById = seriesList.stream()
-                .collect(Collectors.toMap(MediaSeriesV2::getId, Function.identity()));
-        Map<String, MediaSeasonV2> seasonMap = mediaSeasonV2Mapper.selectBatchIds(
+        Map<String, MediaSeries> seriesById = seriesList.stream()
+                .collect(Collectors.toMap(MediaSeries::getId, Function.identity()));
+        Map<String, MediaSeason> seasonMap = mediaSeasonMapper.selectBatchIds(
                         episodes.stream().map(MediaEpisode::getSeasonId).distinct().toList())
-                .stream().collect(Collectors.toMap(MediaSeasonV2::getId, Function.identity()));
+                .stream().collect(Collectors.toMap(MediaSeason::getId, Function.identity()));
         Map<String, MediaEpisodeFile> fileMap = representativeFiles(episodes);
         Map<String, String> fileNameMap = loadFileNameMap(
                 fileMap.values().stream().map(MediaEpisodeFile::getFileNodeId).toList());
@@ -211,8 +211,8 @@ public class MediaHomeQuerySupport {
                 .toList();
     }
 
-    private HomeItem toItem(MediaSeriesV2 series, MediaEpisode episode, MediaEpisodeFile file,
-                            MediaSeasonV2 season, Map<String, String> fileNameMap) {
+    private HomeItem toItem(MediaSeries series, MediaEpisode episode, MediaEpisodeFile file,
+                            MediaSeason season, Map<String, String> fileNameMap) {
         if (series == null || file == null) {
             return null;
         }
@@ -276,7 +276,7 @@ public class MediaHomeQuerySupport {
         return result;
     }
 
-    private Comparator<MediaEpisode> seasonEpisodeOrder(Map<String, MediaSeasonV2> seasonMap) {
+    private Comparator<MediaEpisode> seasonEpisodeOrder(Map<String, MediaSeason> seasonMap) {
         return Comparator.comparing(
                         (MediaEpisode e) -> seasonMap.get(e.getSeasonId()) == null
                                 ? null : seasonMap.get(e.getSeasonId()).getSeasonNo(),

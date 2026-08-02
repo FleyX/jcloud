@@ -1,7 +1,7 @@
 package com.fleyx.jcloud.service.impl;
 
-import com.fleyx.jcloud.mapper.MediaMetadataV2Mapper;
-import com.fleyx.jcloud.model.po.MediaMetadataV2;
+import com.fleyx.jcloud.mapper.MediaMetadataMapper;
+import com.fleyx.jcloud.model.po.MediaMetadata;
 import com.fleyx.jcloud.model.vo.MediaHomeVo;
 import com.fleyx.jcloud.model.vo.MediaItemVo;
 import com.fleyx.jcloud.service.MediaDirectoryService;
@@ -36,7 +36,7 @@ public class MediaHomeServiceImpl implements MediaHomeService {
 
     private final MediaDirectoryService mediaDirectoryService;
     private final MediaHomeQuerySupport mediaHomeQuerySupport;
-    private final MediaMetadataV2Mapper mediaMetadataV2Mapper;
+    private final MediaMetadataMapper mediaMetadataMapper;
     private final MediaItemVoSupport mediaItemVoSupport;
 
     @Override
@@ -57,8 +57,8 @@ public class MediaHomeServiceImpl implements MediaHomeService {
         }
         List<String> metadataIds = items.stream().map(MediaHomeQuerySupport.HomeItem::metadataId)
                 .filter(Objects::nonNull).distinct().toList();
-        Map<String, MediaMetadataV2> metadataMap = metadataIds.isEmpty() ? Map.of() : loadMetadataMap(metadataIds);
-        Map<String, MediaMetadataV2> seriesMetadataMap = loadSeriesMetadataMap(items);
+        Map<String, MediaMetadata> metadataMap = metadataIds.isEmpty() ? Map.of() : loadMetadataMap(metadataIds);
+        Map<String, MediaMetadata> seriesMetadataMap = loadSeriesMetadataMap(items);
         List<MediaItemVo> result = new ArrayList<>();
         for (MediaHomeQuerySupport.HomeItem item : items) {
             MediaItemVo vo = new MediaItemVo();
@@ -73,10 +73,10 @@ public class MediaHomeServiceImpl implements MediaHomeService {
             vo.setDurationMs(item.durationMs());
             vo.setProgressMs(item.progressMs());
             vo.setLastPlayTime(item.lastPlayTime());
-            MediaMetadataV2 metadata = item.metadataId() == null ? null : metadataMap.get(item.metadataId());
-            MediaMetadataV2 seriesMetadata = item.seriesMetadataId() == null
+            MediaMetadata metadata = item.metadataId() == null ? null : metadataMap.get(item.metadataId());
+            MediaMetadata seriesMetadata = item.seriesMetadataId() == null
                     ? null : seriesMetadataMap.get(item.seriesMetadataId());
-            MediaMetadataV2 posterMetadata = metadata != null && metadata.getPosterFileNodeId() != null
+            MediaMetadata posterMetadata = metadata != null && metadata.getPosterFileNodeId() != null
                     ? metadata : seriesMetadata;
             if (metadata != null) {
                 vo.setTitle(metadata.getTitle());
@@ -94,22 +94,22 @@ public class MediaHomeServiceImpl implements MediaHomeService {
         return result;
     }
 
-    private Map<String, MediaMetadataV2> loadMetadataMap(List<String> metadataIds) {
-        return mediaMetadataV2Mapper.selectBatchIds(metadataIds).stream()
-                .collect(Collectors.toMap(MediaMetadataV2::getId, Function.identity()));
+    private Map<String, MediaMetadata> loadMetadataMap(List<String> metadataIds) {
+        return mediaMetadataMapper.selectBatchIds(metadataIds).stream()
+                .collect(Collectors.toMap(MediaMetadata::getId, Function.identity()));
     }
 
     /**
      * 集卡片用剧级元数据兜底海报（集元数据未派生时海报墙仍可用）。
      */
-    private Map<String, MediaMetadataV2> loadSeriesMetadataMap(List<MediaHomeQuerySupport.HomeItem> items) {
+    private Map<String, MediaMetadata> loadSeriesMetadataMap(List<MediaHomeQuerySupport.HomeItem> items) {
         List<String> seriesMetadataIds = items.stream()
                 .map(MediaHomeQuerySupport.HomeItem::seriesMetadataId)
                 .filter(Objects::nonNull).distinct().toList();
         if (seriesMetadataIds.isEmpty()) {
             return Map.of();
         }
-        return mediaMetadataV2Mapper.selectBatchIds(seriesMetadataIds).stream()
-                .collect(Collectors.toMap(MediaMetadataV2::getId, Function.identity()));
+        return mediaMetadataMapper.selectBatchIds(seriesMetadataIds).stream()
+                .collect(Collectors.toMap(MediaMetadata::getId, Function.identity()));
     }
 }

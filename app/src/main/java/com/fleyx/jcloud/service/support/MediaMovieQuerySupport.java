@@ -7,12 +7,12 @@ import com.fleyx.jcloud.common.enums.MediaItemType;
 import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.FileMapper;
-import com.fleyx.jcloud.mapper.MediaMetadataV2Mapper;
+import com.fleyx.jcloud.mapper.MediaMetadataMapper;
 import com.fleyx.jcloud.mapper.MediaMovieFileMapper;
 import com.fleyx.jcloud.mapper.MediaMovieMapper;
 import com.fleyx.jcloud.model.dto.MediaPageQueryDto;
 import com.fleyx.jcloud.model.po.FileNode;
-import com.fleyx.jcloud.model.po.MediaMetadataV2;
+import com.fleyx.jcloud.model.po.MediaMetadata;
 import com.fleyx.jcloud.model.po.MediaMovie;
 import com.fleyx.jcloud.model.po.MediaMovieFile;
 import com.fleyx.jcloud.model.vo.MediaItemDetailVo;
@@ -32,7 +32,7 @@ import java.util.stream.Collectors;
 
 /**
  * 电影库新模型查询支撑组件（ADR 0021 / issue #18）：电影海报墙与详情查询走新表
- * （t_media_movie / t_media_movie_file / t_media_metadata_v2），视图对象沿用现有 VO 并在
+ * （t_media_movie / t_media_movie_file / t_media_metadata），视图对象沿用现有 VO 并在
  * 详情中附加版本列表，保持响应结构兼容（前端适配在 issue #21）。
  * <p>
  * 海报墙一部电影一行（多版本聚合为一张卡片）：卡片文件事实取代表文件明细
@@ -44,7 +44,7 @@ public class MediaMovieQuerySupport {
 
     private final MediaMovieMapper mediaMovieMapper;
     private final MediaMovieFileMapper mediaMovieFileMapper;
-    private final MediaMetadataV2Mapper mediaMetadataV2Mapper;
+    private final MediaMetadataMapper mediaMetadataMapper;
     private final FileMapper fileMapper;
     private final MediaItemVoSupport mediaItemVoSupport;
 
@@ -58,7 +58,7 @@ public class MediaMovieQuerySupport {
                 query.sortByRelease() ? MediaPageQueryDto.SORT_FIELD_RELEASE : MediaPageQueryDto.SORT_FIELD_ADDED,
                 query.asc());
         List<MediaMovie> movies = result.getRecords();
-        Map<String, MediaMetadataV2> metadataMap = loadMetadataMap(
+        Map<String, MediaMetadata> metadataMap = loadMetadataMap(
                 movies.stream().map(MediaMovie::getMetadataId).toList());
         Map<String, MediaMovieFile> representativeFile = representativeFiles(movies);
         Map<String, String> fileNameMap = loadFileNameMap(
@@ -67,13 +67,14 @@ public class MediaMovieQuerySupport {
         List<MediaItemVo> vos = new ArrayList<>();
         for (MediaMovie movie : movies) {
             MediaMovieFile file = representativeFile.get(movie.getId());
-            MediaMetadataV2 metadata = movie.getMetadataId() == null ? null : metadataMap.get(movie.getMetadataId());
+            MediaMetadata metadata = movie.getMetadataId() == null ? null : metadataMap.get(movie.getMetadataId());
             MediaItemVo vo = new MediaItemVo();
             vo.setId(movie.getId());
             vo.setFileNodeId(file == null ? null : file.getFileNodeId());
             vo.setItemType(MediaItemType.MOVIE.getCode());
             vo.setFileName(file == null ? null : fileNameMap.get(file.getFileNodeId()));
             vo.setMatchStatus(movie.getMatchStatus());
+            vo.setMetadataComplete(movie.getMetadataComplete());
             vo.setMetadataId(movie.getMetadataId());
             vo.setDurationMs(file == null ? null : file.getDurationMs());
             vo.setProgressMs(movie.getProgressMs());
@@ -106,8 +107,8 @@ public class MediaMovieQuerySupport {
                 new LambdaQueryWrapper<MediaMovieFile>().eq(MediaMovieFile::getMovieId, movieId));
         MediaMovieFile representative = pickRepresentative(movie, files);
         FileNode node = representative == null ? null : fileMapper.selectById(representative.getFileNodeId());
-        MediaMetadataV2 metadata = movie.getMetadataId() == null ? null
-                : mediaMetadataV2Mapper.selectById(movie.getMetadataId());
+        MediaMetadata metadata = movie.getMetadataId() == null ? null
+                : mediaMetadataMapper.selectById(movie.getMetadataId());
 
         MediaItemDetailVo vo = new MediaItemDetailVo();
         vo.setId(movie.getId());
@@ -115,6 +116,7 @@ public class MediaMovieQuerySupport {
         vo.setFileName(node == null ? null : node.getName());
         vo.setFileSize(node == null ? null : node.getSize());
         vo.setMatchStatus(movie.getMatchStatus());
+        vo.setMetadataComplete(movie.getMetadataComplete());
         vo.setMetadataId(movie.getMetadataId());
         vo.setDurationMs(representative == null ? null : representative.getDurationMs());
         vo.setProgressMs(movie.getProgressMs());
@@ -139,11 +141,12 @@ public class MediaMovieQuerySupport {
         // 新元数据表无类型标签字段（issue #20 削刮切换时对齐），保持空列表兼容
         vo.setGenres(List.of());
         vo.setVersions(toVersionVos(files));
+        vo.setDefaultVersionId(resolveDefaultVersionId(movie, files));
         return vo;
     }
 
     /**
-     * 明细行列表转版本视图：文件名补齐，其余字段为文件事实。
+     * 明细行列表转版本视图（按 create_time 升序、id 兜底，保证列表顺序确定）：文件名补齐，其余字段为文件事实。
      */
     private List<MediaMovieVersionVo> toVersionVos(List<MediaMovieFile> files) {
         if (files.isEmpty()) {
@@ -152,7 +155,7 @@ public class MediaMovieQuerySupport {
         Map<String, String> nameMap = loadFileNameMap(
                 files.stream().map(MediaMovieFile::getFileNodeId).toList());
         List<MediaMovieVersionVo> result = new ArrayList<>();
-        for (MediaMovieFile file : files) {
+        for (MediaMovieFile file : sortedByCreateTime(files)) {
             MediaMovieVersionVo version = new MediaMovieVersionVo();
             version.setId(file.getId());
             version.setFileNodeId(file.getFileNodeId());
@@ -167,6 +170,31 @@ public class MediaMovieQuerySupport {
             result.add(version);
         }
         return result;
+    }
+
+    /**
+     * 默认播放版本 ID：last_play_file_id 指向的明细行仍存在时取它，否则取最早（create_time 升序）明细行 ID。
+     */
+    private String resolveDefaultVersionId(MediaMovie movie, List<MediaMovieFile> files) {
+        if (files.isEmpty()) {
+            return null;
+        }
+        if (movie.getLastPlayFileId() != null
+                && files.stream().anyMatch(f -> f.getId().equals(movie.getLastPlayFileId()))) {
+            return movie.getLastPlayFileId();
+        }
+        return sortedByCreateTime(files).getFirst().getId();
+    }
+
+    /**
+     * 明细行按 create_time 升序（null 排后）与 id 兜底排序，保证版本列表顺序确定（issue #21 收尾）。
+     */
+    private List<MediaMovieFile> sortedByCreateTime(List<MediaMovieFile> files) {
+        return files.stream()
+                .sorted(Comparator.comparing(MediaMovieFile::getCreateTime,
+                                Comparator.nullsLast(Comparator.naturalOrder()))
+                        .thenComparing(MediaMovieFile::getId))
+                .toList();
     }
 
     /**
@@ -202,13 +230,13 @@ public class MediaMovieQuerySupport {
                         .orElse(files.getFirst()));
     }
 
-    private Map<String, MediaMetadataV2> loadMetadataMap(List<String> metadataIds) {
+    private Map<String, MediaMetadata> loadMetadataMap(List<String> metadataIds) {
         List<String> ids = metadataIds.stream().filter(Objects::nonNull).distinct().toList();
         if (ids.isEmpty()) {
             return Map.of();
         }
-        return mediaMetadataV2Mapper.selectBatchIds(ids).stream()
-                .collect(Collectors.toMap(MediaMetadataV2::getId, Function.identity()));
+        return mediaMetadataMapper.selectBatchIds(ids).stream()
+                .collect(Collectors.toMap(MediaMetadata::getId, Function.identity()));
     }
 
     private Map<String, String> loadFileNameMap(List<String> fileNodeIds) {
@@ -223,7 +251,7 @@ public class MediaMovieQuerySupport {
     /**
      * 元数据海报图 URL，无海报时返回 null。
      */
-    private String posterUrlOf(MediaMetadataV2 metadata) {
+    private String posterUrlOf(MediaMetadata metadata) {
         return metadata == null || metadata.getPosterFileNodeId() == null ? null
                 : mediaItemVoSupport.metadataPosterUrl(metadata.getId());
     }
@@ -231,7 +259,7 @@ public class MediaMovieQuerySupport {
     /**
      * 元数据背景图 URL，无背景图时返回 null。
      */
-    private String backdropUrlOf(MediaMetadataV2 metadata) {
+    private String backdropUrlOf(MediaMetadata metadata) {
         return metadata == null || metadata.getBackdropFileNodeId() == null ? null
                 : mediaItemVoSupport.metadataBackdropUrl(metadata.getId());
     }

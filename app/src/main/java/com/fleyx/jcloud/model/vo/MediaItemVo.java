@@ -21,7 +21,7 @@ public class MediaItemVo {
     private String fileNodeId;
 
     /**
-     * 条目类型：movie / episode / other。
+     * 条目类型：movie / episode / other；剧集行手动修正返回 series。
      */
     private String itemType;
 
@@ -34,6 +34,11 @@ public class MediaItemVo {
      * 匹配状态。
      */
     private String matchStatus;
+
+    /**
+     * 元数据完整性标志（电影/剧集行），未匹配无元数据时为 false。
+     */
+    private Boolean metadataComplete;
 
     /**
      * 元数据 ID。

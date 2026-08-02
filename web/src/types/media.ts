@@ -3,7 +3,7 @@
  */
 
 export type MediaType = 'movie' | 'tv' | 'other'
-export type MediaItemType = 'movie' | 'episode' | 'other'
+export type MediaItemType = 'movie' | 'episode' | 'other' | 'series'
 export type MediaMatchStatus = 'matched' | 'manual' | 'unmatched' | 'none'
 export type MediaScanStatus = 'SCANNING' | 'COMPLETED' | 'FAILED' | 'PARTIAL'
 export type MediaSourceType = 'local' | 'remote'
@@ -81,6 +81,8 @@ export interface MediaItemVo {
   episodeNo: number | null
   progressMs: number
   lastPlayTime: string | null
+  /** 元数据完整性（false 时展示「不完整」弱标识），电影/剧集行有效 */
+  metadataComplete: boolean
 }
 
 export interface MediaSeriesVo {
@@ -94,6 +96,8 @@ export interface MediaSeriesVo {
   episodeCount: number
   matchStatus: MediaMatchStatus
   lastPlayTime: string | null
+  /** 元数据完整性（false 时展示「不完整」弱标识） */
+  metadataComplete: boolean
 }
 
 export interface MediaTrack {
@@ -138,6 +142,8 @@ export interface MediaPlaybackInfoVo {
   /** 实际码率 bps（Long 序列化为 string），缺失为 null */
   effectiveBitRate: string | null
   progressMs: number
+  /** 本次解析使用的文件明细行 ID（电影为版本 ID），播放/进度上报据此定位版本；续播缺省解析时也可能为 null */
+  versionId?: string
 }
 
 export interface TmdbSearchResultVo {
@@ -189,6 +195,32 @@ export interface MediaItemDetailVo {
   voteAverage: number | null
   posterUrl: string | null
   backdropUrl: string | null
+  /** 元数据完整性（false 时展示「不完整」弱标识），电影/剧集详情有效 */
+  metadataComplete: boolean
+  /** 后端缺省播放版本 ID（电影：last_play_file_id 非空时取它，否则最早版本） */
+  defaultVersionId?: string
+  /** 电影版本列表（仅电影详情有效，其他类型为 null），create_time 升序 */
+  versions: MediaMovieVersionVo[] | null
+}
+
+/**
+ * 电影版本视图（电影详情页版本列表，一行一个视频文件明细）。
+ * 后端 Long 字段序列化为 string，故 fileSize/durationMs 为 string。
+ */
+export interface MediaMovieVersionVo {
+  /** 电影文件明细 ID */
+  id: string
+  /** 视频文件节点 ID */
+  fileNodeId: string
+  fileName: string | null
+  fileSize: string | null
+  durationMs: string | null
+  /** 封装格式 */
+  container: string | null
+  videoCodec: string | null
+  audioCodec: string | null
+  width: number | null
+  height: number | null
 }
 
 export interface MediaSeriesSeasonVo {
@@ -215,6 +247,8 @@ export interface MediaSeriesDetailVo {
   posterUrl: string | null
   backdropUrl: string | null
   seasons: MediaSeriesSeasonVo[]
+  /** 元数据完整性（false 时展示「不完整」弱标识） */
+  metadataComplete: boolean
 }
 
 export interface MediaTranscodeSessionVo {

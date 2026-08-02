@@ -11,19 +11,19 @@ import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.FileMapper;
 import com.fleyx.jcloud.mapper.MediaDirectoryMapper;
 import com.fleyx.jcloud.mapper.MediaMovieMapper;
-import com.fleyx.jcloud.mapper.MediaSeriesV2Mapper;
+import com.fleyx.jcloud.mapper.MediaSeriesMapper;
 import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.po.MediaDirectory;
-import com.fleyx.jcloud.model.po.MediaMetadataV2;
+import com.fleyx.jcloud.model.po.MediaMetadata;
 import com.fleyx.jcloud.model.po.MediaMovie;
 import com.fleyx.jcloud.model.po.MediaMovieFile;
-import com.fleyx.jcloud.model.po.MediaSeriesV2;
+import com.fleyx.jcloud.model.po.MediaSeries;
 import com.fleyx.jcloud.service.MediaScrapeService;
 import com.fleyx.jcloud.service.TmdbService;
 import com.fleyx.jcloud.service.support.MediaArtworkPersistSupport;
 import com.fleyx.jcloud.service.support.MediaArtworkPersistV2Support;
 import com.fleyx.jcloud.service.support.MediaMetadataCompleteSupport;
-import com.fleyx.jcloud.service.support.MediaMetadataV2Support;
+import com.fleyx.jcloud.service.support.MediaMetadataSupport;
 import com.fleyx.jcloud.service.support.MediaNfoSupport;
 import com.fleyx.jcloud.service.support.MediaPlaybackResolveSupport;
 import com.fleyx.jcloud.service.support.MediaTaskSupport;
@@ -55,12 +55,12 @@ public class MediaScrapeServiceImpl implements MediaScrapeService {
 
     private final MediaDirectoryMapper mediaDirectoryMapper;
     private final MediaMovieMapper mediaMovieMapper;
-    private final MediaSeriesV2Mapper mediaSeriesV2Mapper;
+    private final MediaSeriesMapper mediaSeriesMapper;
     private final FileMapper fileMapper;
     private final TmdbService tmdbService;
     private final MediaTaskSupport mediaTaskSupport;
     private final MediaNfoSupport mediaNfoSupport;
-    private final MediaMetadataV2Support metadataV2Support;
+    private final MediaMetadataSupport metadataV2Support;
     private final MediaMetadataCompleteSupport completeSupport;
     private final MediaTvScrapeSupport mediaTvScrapeSupport;
     private final MediaArtworkPersistSupport persistSupport;
@@ -69,9 +69,9 @@ public class MediaScrapeServiceImpl implements MediaScrapeService {
     private final TaskExecutor taskExecutor;
 
     public MediaScrapeServiceImpl(MediaDirectoryMapper mediaDirectoryMapper, MediaMovieMapper mediaMovieMapper,
-                                  MediaSeriesV2Mapper mediaSeriesV2Mapper, FileMapper fileMapper,
+                                  MediaSeriesMapper mediaSeriesMapper, FileMapper fileMapper,
                                   TmdbService tmdbService, MediaTaskSupport mediaTaskSupport,
-                                  MediaNfoSupport mediaNfoSupport, MediaMetadataV2Support metadataV2Support,
+                                  MediaNfoSupport mediaNfoSupport, MediaMetadataSupport metadataV2Support,
                                   MediaMetadataCompleteSupport completeSupport,
                                   MediaTvScrapeSupport mediaTvScrapeSupport,
                                   MediaArtworkPersistSupport persistSupport,
@@ -80,7 +80,7 @@ public class MediaScrapeServiceImpl implements MediaScrapeService {
                                   @Qualifier("applicationTaskExecutor") TaskExecutor taskExecutor) {
         this.mediaDirectoryMapper = mediaDirectoryMapper;
         this.mediaMovieMapper = mediaMovieMapper;
-        this.mediaSeriesV2Mapper = mediaSeriesV2Mapper;
+        this.mediaSeriesMapper = mediaSeriesMapper;
         this.fileMapper = fileMapper;
         this.tmdbService = tmdbService;
         this.mediaTaskSupport = mediaTaskSupport;
@@ -184,8 +184,8 @@ public class MediaScrapeServiceImpl implements MediaScrapeService {
      * 先文件名解析结果、失败用电影文件夹名兜底。
      */
     private void scrapeMovie(MediaDirectory directory, MediaMovie movie) {
-        MediaMetadataV2 local = scrapeMovieLocalNfo(movie);
-        MediaMetadataV2 metadata = local;
+        MediaMetadata local = scrapeMovieLocalNfo(movie);
+        MediaMetadata metadata = local;
         if (metadata == null) {
             MediaMovieFile file = playbackResolveSupport.pickMovieFile(movie);
             FileNode video = file == null ? null : fileMapper.selectById(file.getFileNodeId());
@@ -201,7 +201,7 @@ public class MediaScrapeServiceImpl implements MediaScrapeService {
                 }
             }
         }
-        MediaMetadataV2 bound = applyMovieMatch(movie, metadata);
+        MediaMetadata bound = applyMovieMatch(movie, metadata);
         if (bound != null) {
             artworkPersistV2Support.persistMovieV2(movie, bound);
         }
@@ -215,7 +215,7 @@ public class MediaScrapeServiceImpl implements MediaScrapeService {
      *
      * @return 已绑定 owner 的本地元数据，无 NFO 且无本地图片时返回 null
      */
-    private MediaMetadataV2 scrapeMovieLocalNfo(MediaMovie movie) {
+    private MediaMetadata scrapeMovieLocalNfo(MediaMovie movie) {
         FileNode folder = fileMapper.selectById(movie.getFolderNodeId());
         MediaMovieFile file = playbackResolveSupport.pickMovieFile(movie);
         FileNode video = file == null ? null : fileMapper.selectById(file.getFileNodeId());
@@ -242,10 +242,10 @@ public class MediaScrapeServiceImpl implements MediaScrapeService {
      *
      * @return 绑定后的元数据行；未匹配时返回 null
      */
-    private MediaMetadataV2 applyMovieMatch(MediaMovie movie, MediaMetadataV2 metadata) {
+    private MediaMetadata applyMovieMatch(MediaMovie movie, MediaMetadata metadata) {
         String metadataId;
         String matchStatus;
-        MediaMetadataV2 bound;
+        MediaMetadata bound;
         if (metadata == null) {
             metadataV2Support.deleteByOwner(MediaMetadataOwnerType.MOVIE.getCode(), movie.getId());
             metadataId = null;
@@ -271,9 +271,9 @@ public class MediaScrapeServiceImpl implements MediaScrapeService {
 
     private boolean scrapeSeries(MediaDirectory directory, boolean force) {
         boolean partial = false;
-        List<MediaSeriesV2> seriesList = mediaSeriesV2Mapper.selectList(new LambdaQueryWrapper<MediaSeriesV2>()
-                .eq(MediaSeriesV2::getDirectoryId, directory.getId()));
-        for (MediaSeriesV2 series : seriesList) {
+        List<MediaSeries> seriesList = mediaSeriesMapper.selectList(new LambdaQueryWrapper<MediaSeries>()
+                .eq(MediaSeries::getDirectoryId, directory.getId()));
+        for (MediaSeries series : seriesList) {
             if (mediaTaskSupport.isCancelled(directory.getId())) {
                 return partial;
             }
@@ -282,12 +282,12 @@ public class MediaScrapeServiceImpl implements MediaScrapeService {
             }
             try {
                 // 本地优先：剧文件夹存在 tvshow.nfo/本地图片时完全信任本地内容，不请求 TMDB
-                MediaMetadataV2 localMetadata = mediaTvScrapeSupport.scrapeSeriesLocalNfo(series);
+                MediaMetadata localMetadata = mediaTvScrapeSupport.scrapeSeriesLocalNfo(series);
                 if (localMetadata != null) {
                     mediaTvScrapeSupport.applyLocalSeriesMatch(series, localMetadata);
                     continue;
                 }
-                MediaMetadataV2 metadata = tmdbService.autoMatchV2(directory.getUserId(), MediaType.TV.getCode(),
+                MediaMetadata metadata = tmdbService.autoMatchV2(directory.getUserId(), MediaType.TV.getCode(),
                         series.getSeriesName(), series.getReleaseYear());
                 if (metadata == null) {
                     mediaTvScrapeSupport.applySeriesUnmatch(series);

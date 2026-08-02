@@ -6,14 +6,14 @@ import com.fleyx.jcloud.common.enums.MediaMatchStatus;
 import com.fleyx.jcloud.common.enums.MediaMetadataOwnerType;
 import com.fleyx.jcloud.mapper.FileMapper;
 import com.fleyx.jcloud.mapper.MediaEpisodeMapper;
-import com.fleyx.jcloud.mapper.MediaSeasonV2Mapper;
-import com.fleyx.jcloud.mapper.MediaSeriesV2Mapper;
+import com.fleyx.jcloud.mapper.MediaSeasonMapper;
+import com.fleyx.jcloud.mapper.MediaSeriesMapper;
 import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.po.MediaEpisode;
 import com.fleyx.jcloud.model.po.MediaEpisodeFile;
-import com.fleyx.jcloud.model.po.MediaMetadataV2;
-import com.fleyx.jcloud.model.po.MediaSeasonV2;
-import com.fleyx.jcloud.model.po.MediaSeriesV2;
+import com.fleyx.jcloud.model.po.MediaMetadata;
+import com.fleyx.jcloud.model.po.MediaSeason;
+import com.fleyx.jcloud.model.po.MediaSeries;
 import com.fleyx.jcloud.service.TmdbService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -36,10 +36,10 @@ import java.util.List;
 public class MediaTvScrapeSupport {
 
     private final FileMapper fileMapper;
-    private final MediaSeriesV2Mapper mediaSeriesV2Mapper;
-    private final MediaSeasonV2Mapper mediaSeasonV2Mapper;
+    private final MediaSeriesMapper mediaSeriesMapper;
+    private final MediaSeasonMapper mediaSeasonMapper;
     private final MediaEpisodeMapper mediaEpisodeMapper;
-    private final MediaMetadataV2Support metadataV2Support;
+    private final MediaMetadataSupport metadataV2Support;
     private final MediaMetadataCompleteSupport completeSupport;
     private final MediaArtworkPersistV2Support artworkPersistV2Support;
     private final MediaArtworkPersistSupport persistSupport;
@@ -53,7 +53,7 @@ public class MediaTvScrapeSupport {
      *
      * @return 剧元数据（已绑定 owner）；无 tvshow.nfo 且无本地图片时返回 null（调用方回退 TMDB 流程）
      */
-    public MediaMetadataV2 scrapeSeriesLocalNfo(MediaSeriesV2 series) {
+    public MediaMetadata scrapeSeriesLocalNfo(MediaSeries series) {
         FileNode seriesFolder = fileMapper.selectById(series.getFolderNodeId());
         if (seriesFolder == null) {
             return null;
@@ -66,7 +66,7 @@ public class MediaTvScrapeSupport {
         if (data == null && poster == null && fanart == null && !hasSeasonPoster(series, userId, seriesFolder)) {
             return null;
         }
-        MediaMetadataV2 seriesMetadata = metadataV2Support.upsertLocal(
+        MediaMetadata seriesMetadata = metadataV2Support.upsertLocal(
                 MediaMetadataOwnerType.SERIES.getCode(), series.getId(), userId,
                 data == null ? MediaNfoSupport.emptyData("tv") : data,
                 poster == null ? null : poster.getId(), fanart == null ? null : fanart.getId());
@@ -78,8 +78,8 @@ public class MediaTvScrapeSupport {
     /**
      * 应用本地优先削刮结果：绑定剧行（matched）→ 写回（local 跳过写回、标记 persisted）→ 重算完整性。
      */
-    public void applyLocalSeriesMatch(MediaSeriesV2 series, MediaMetadataV2 localMetadata) {
-        MediaMetadataV2 bound = metadataV2Support.upsertByOwner(
+    public void applyLocalSeriesMatch(MediaSeries series, MediaMetadata localMetadata) {
+        MediaMetadata bound = metadataV2Support.upsertByOwner(
                 MediaMetadataOwnerType.SERIES.getCode(), series.getId(), localMetadata);
         bindSeriesRow(series, bound, MediaMatchStatus.MATCHED.getCode());
         artworkPersistV2Support.persistSeriesV2(series, bound);
@@ -93,8 +93,8 @@ public class MediaTvScrapeSupport {
      * @param detached    未绑定 owner 的剧元数据（TMDB 拉取结果）
      * @param matchStatus 剧行匹配状态（matched / manual）
      */
-    public void applySeriesMatchWithDerivation(MediaSeriesV2 series, MediaMetadataV2 detached, String matchStatus) {
-        MediaMetadataV2 bound = metadataV2Support.upsertByOwner(
+    public void applySeriesMatchWithDerivation(MediaSeries series, MediaMetadata detached, String matchStatus) {
+        MediaMetadata bound = metadataV2Support.upsertByOwner(
                 MediaMetadataOwnerType.SERIES.getCode(), series.getId(), detached);
         bindSeriesRow(series, bound, matchStatus);
         deriveSeasonEpisodes(series, bound);
@@ -105,10 +105,10 @@ public class MediaTvScrapeSupport {
     /**
      * 应用剧级匹配失败：清空剧/季/集全部元数据行与关联（owner 指针不留孤儿），置未匹配并重算完整性。
      */
-    public void applySeriesUnmatch(MediaSeriesV2 series) {
-        List<MediaSeasonV2> seasons = mediaSeasonV2Mapper.selectList(
-                new LambdaQueryWrapper<MediaSeasonV2>().eq(MediaSeasonV2::getSeriesId, series.getId()));
-        for (MediaSeasonV2 season : seasons) {
+    public void applySeriesUnmatch(MediaSeries series) {
+        List<MediaSeason> seasons = mediaSeasonMapper.selectList(
+                new LambdaQueryWrapper<MediaSeason>().eq(MediaSeason::getSeriesId, series.getId()));
+        for (MediaSeason season : seasons) {
             clearOwner(season.getId(), season.getMetadataId(), season);
         }
         List<MediaEpisode> episodes = mediaEpisodeMapper.selectList(
@@ -132,13 +132,13 @@ public class MediaTvScrapeSupport {
      * 季/集元数据 upsert 到各自 owner 并回写 metadata_id；单个季拉取失败仅记日志不影响其他季。
      * 供自动削刮与剧级手动修正共用。
      */
-    public void deriveSeasonEpisodes(MediaSeriesV2 series, MediaMetadataV2 seriesMetadata) {
+    public void deriveSeasonEpisodes(MediaSeries series, MediaMetadata seriesMetadata) {
         if (seriesMetadata.getTmdbId() == null) {
             return;
         }
-        List<MediaSeasonV2> seasons = mediaSeasonV2Mapper.selectList(
-                new LambdaQueryWrapper<MediaSeasonV2>().eq(MediaSeasonV2::getSeriesId, series.getId()));
-        for (MediaSeasonV2 season : seasons) {
+        List<MediaSeason> seasons = mediaSeasonMapper.selectList(
+                new LambdaQueryWrapper<MediaSeason>().eq(MediaSeason::getSeriesId, series.getId()));
+        for (MediaSeason season : seasons) {
             if (season.getSeasonNo() == null) {
                 continue;
             }
@@ -148,17 +148,17 @@ public class MediaTvScrapeSupport {
                 if (result == null || result.season() == null) {
                     continue;
                 }
-                MediaMetadataV2 seasonBound = metadataV2Support.upsertByOwner(
+                MediaMetadata seasonBound = metadataV2Support.upsertByOwner(
                         MediaMetadataOwnerType.SEASON.getCode(), season.getId(), result.season());
                 bindSeasonRow(season, seasonBound);
                 List<MediaEpisode> episodes = mediaEpisodeMapper.selectList(
                         new LambdaQueryWrapper<MediaEpisode>().eq(MediaEpisode::getSeasonId, season.getId()));
                 for (MediaEpisode episode : episodes) {
-                    MediaMetadataV2 episodeMeta = result.episodes().get(episode.getEpisodeNo());
+                    MediaMetadata episodeMeta = result.episodes().get(episode.getEpisodeNo());
                     if (episodeMeta == null) {
                         continue;
                     }
-                    MediaMetadataV2 episodeBound = metadataV2Support.upsertByOwner(
+                    MediaMetadata episodeBound = metadataV2Support.upsertByOwner(
                             MediaMetadataOwnerType.EPISODE.getCode(), episode.getId(), episodeMeta);
                     MediaEpisode update = new MediaEpisode();
                     update.setId(episode.getId());
@@ -175,10 +175,10 @@ public class MediaTvScrapeSupport {
     /**
      * 剧文件夹下是否存在任一季的季海报（seasonXX-poster.jpg）。
      */
-    private boolean hasSeasonPoster(MediaSeriesV2 series, String userId, FileNode seriesFolder) {
-        List<MediaSeasonV2> seasons = mediaSeasonV2Mapper.selectList(
-                new LambdaQueryWrapper<MediaSeasonV2>().eq(MediaSeasonV2::getSeriesId, series.getId()));
-        for (MediaSeasonV2 season : seasons) {
+    private boolean hasSeasonPoster(MediaSeries series, String userId, FileNode seriesFolder) {
+        List<MediaSeason> seasons = mediaSeasonMapper.selectList(
+                new LambdaQueryWrapper<MediaSeason>().eq(MediaSeason::getSeriesId, series.getId()));
+        for (MediaSeason season : seasons) {
             if (season.getSeasonNo() == null) {
                 continue;
             }
@@ -194,10 +194,10 @@ public class MediaTvScrapeSupport {
     /**
      * 季海报绑定：剧文件夹下 seasonXX-poster.jpg 绑定到季元数据（无则新建 local_nfo 行，标记不完整）。
      */
-    private void applySeasonPosters(MediaSeriesV2 series, String userId, FileNode seriesFolder) {
-        List<MediaSeasonV2> seasons = mediaSeasonV2Mapper.selectList(
-                new LambdaQueryWrapper<MediaSeasonV2>().eq(MediaSeasonV2::getSeriesId, series.getId()));
-        for (MediaSeasonV2 season : seasons) {
+    private void applySeasonPosters(MediaSeries series, String userId, FileNode seriesFolder) {
+        List<MediaSeason> seasons = mediaSeasonMapper.selectList(
+                new LambdaQueryWrapper<MediaSeason>().eq(MediaSeason::getSeriesId, series.getId()));
+        for (MediaSeason season : seasons) {
             if (season.getSeasonNo() == null) {
                 continue;
             }
@@ -206,7 +206,7 @@ public class MediaTvScrapeSupport {
             if (poster == null) {
                 continue;
             }
-            MediaMetadataV2 seasonMetadata = metadataV2Support.upsertLocal(
+            MediaMetadata seasonMetadata = metadataV2Support.upsertLocal(
                     MediaMetadataOwnerType.SEASON.getCode(), season.getId(), userId,
                     MediaNfoSupport.emptyData("season"), poster.getId(), null);
             bindSeasonRow(season, seasonMetadata);
@@ -216,7 +216,7 @@ public class MediaTvScrapeSupport {
     /**
      * 逐集解析集 NFO 绑定集元数据；无集 NFO 的集不绑定（完整性聚合时视为不完整）。
      */
-    private void applyEpisodeNfos(MediaSeriesV2 series, String userId) {
+    private void applyEpisodeNfos(MediaSeries series, String userId) {
         List<MediaEpisode> episodes = mediaEpisodeMapper.selectList(
                 new LambdaQueryWrapper<MediaEpisode>().eq(MediaEpisode::getSeriesId, series.getId()));
         for (MediaEpisode episode : episodes) {
@@ -234,7 +234,7 @@ public class MediaTvScrapeSupport {
             }
             FileNode thumb = persistSupport.findChildFile(userId, dir.getId(),
                     nfoSupport.episodeThumbNameOf(video.getName()));
-            MediaMetadataV2 episodeMetadata = metadataV2Support.upsertLocal(
+            MediaMetadata episodeMetadata = metadataV2Support.upsertLocal(
                     MediaMetadataOwnerType.EPISODE.getCode(), episode.getId(), userId, data,
                     thumb == null ? null : thumb.getId(), null);
             MediaEpisode update = new MediaEpisode();
@@ -244,30 +244,30 @@ public class MediaTvScrapeSupport {
         }
     }
 
-    private void bindSeasonRow(MediaSeasonV2 season, MediaMetadataV2 metadata) {
-        MediaSeasonV2 update = new MediaSeasonV2();
+    private void bindSeasonRow(MediaSeason season, MediaMetadata metadata) {
+        MediaSeason update = new MediaSeason();
         update.setId(season.getId());
         update.setMetadataId(metadata.getId());
-        mediaSeasonV2Mapper.updateById(update);
+        mediaSeasonMapper.updateById(update);
         season.setMetadataId(metadata.getId());
     }
 
-    private void bindSeriesRow(MediaSeriesV2 series, MediaMetadataV2 metadata, String matchStatus) {
-        mediaSeriesV2Mapper.update(null, new LambdaUpdateWrapper<MediaSeriesV2>()
-                .eq(MediaSeriesV2::getId, series.getId())
-                .set(MediaSeriesV2::getMetadataId, metadata == null ? null : metadata.getId())
-                .set(MediaSeriesV2::getMatchStatus, matchStatus));
+    private void bindSeriesRow(MediaSeries series, MediaMetadata metadata, String matchStatus) {
+        mediaSeriesMapper.update(null, new LambdaUpdateWrapper<MediaSeries>()
+                .eq(MediaSeries::getId, series.getId())
+                .set(MediaSeries::getMetadataId, metadata == null ? null : metadata.getId())
+                .set(MediaSeries::getMatchStatus, matchStatus));
         series.setMetadataId(metadata == null ? null : metadata.getId());
         series.setMatchStatus(matchStatus);
     }
 
-    private void clearOwner(String seasonId, String metadataId, MediaSeasonV2 season) {
+    private void clearOwner(String seasonId, String metadataId, MediaSeason season) {
         metadataV2Support.deleteByOwner(MediaMetadataOwnerType.SEASON.getCode(), seasonId);
         if (metadataId != null) {
-            MediaSeasonV2 update = new MediaSeasonV2();
+            MediaSeason update = new MediaSeason();
             update.setId(seasonId);
             update.setMetadataId(null);
-            mediaSeasonV2Mapper.updateById(update);
+            mediaSeasonMapper.updateById(update);
             season.setMetadataId(null);
         }
     }

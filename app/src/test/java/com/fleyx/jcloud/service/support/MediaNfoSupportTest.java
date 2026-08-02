@@ -1,26 +1,18 @@
 package com.fleyx.jcloud.service.support;
 
-import com.fleyx.jcloud.common.enums.MediaCompleteStatus;
-import com.fleyx.jcloud.common.enums.MediaMetadataSource;
-import com.fleyx.jcloud.mapper.MediaMetadataMapper;
+import com.fleyx.jcloud.common.enums.MediaMetadataOwnerType;
 import com.fleyx.jcloud.model.po.MediaMetadata;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
 
 /**
- * 媒体 NFO 支撑组件测试。
+ * 媒体 NFO 支撑组件测试（issue #21 起仅覆盖解析/命名/新模型生成路径，本地元数据 upsert 已随旧表弃用删除）。
  */
 class MediaNfoSupportTest {
 
-    private final MediaMetadataMapper mediaMetadataMapper = mock(MediaMetadataMapper.class);
-    private final MediaNfoSupport nfoSupport = new MediaNfoSupport(mediaMetadataMapper);
+    private final MediaNfoSupport nfoSupport = new MediaNfoSupport();
 
     /**
      * 电影 NFO 完整字段解析。
@@ -124,12 +116,12 @@ class MediaNfoSupportTest {
     }
 
     /**
-     * 生成与解析回读一致（roundtrip）。
+     * 新模型生成与解析回读一致（roundtrip，根元素按 owner_type 派生）。
      */
     @Test
     void shouldGenerateAndParseBack() {
         MediaMetadata metadata = new MediaMetadata();
-        metadata.setMediaType("episode");
+        metadata.setOwnerType(MediaMetadataOwnerType.EPISODE.getCode());
         metadata.setTmdbId(123L);
         metadata.setTitle("第一集");
         metadata.setOriginalTitle("Episode One");
@@ -154,12 +146,12 @@ class MediaNfoSupportTest {
     }
 
     /**
-     * tv 元数据生成 tvshow 根元素。
+     * series owner 生成 tvshow 根元素。
      */
     @Test
     void shouldGenerateTvshowRoot() {
         MediaMetadata metadata = new MediaMetadata();
-        metadata.setMediaType("tv");
+        metadata.setOwnerType(MediaMetadataOwnerType.SERIES.getCode());
         metadata.setTitle("亮剑");
 
         MediaNfoSupport.NfoData data = nfoSupport.parse(nfoSupport.generate(metadata, null, null));
@@ -178,81 +170,5 @@ class MediaNfoSupportTest {
         assertEquals("season01-poster.jpg", nfoSupport.seasonPosterName(1));
         assertEquals("season12-poster.jpg", nfoSupport.seasonPosterName(12));
         assertEquals("无名", nfoSupport.mainNameOf("无名"));
-    }
-
-    /**
-     * 本地元数据 upsert：未绑定时新建 local_nfo 行，字段与完整性正确。
-     */
-    @Test
-    void shouldUpsertNewLocalMetadata() {
-        MediaNfoSupport.NfoData data = new MediaNfoSupport.NfoData("movie", "盗梦空间", "Inception",
-                "造梦师盗取机密", "2010-07-16", 8.8, "科幻", 27205L, null, null);
-
-        nfoSupport.upsertLocalMetadata(null, "user-1", "movie", data, "fnposter00001", null);
-
-        ArgumentCaptor<MediaMetadata> captor = ArgumentCaptor.forClass(MediaMetadata.class);
-        verify(mediaMetadataMapper).insert(captor.capture());
-        MediaMetadata inserted = captor.getValue();
-        assertEquals("user-1", inserted.getUserId());
-        assertEquals(MediaMetadataSource.LOCAL_NFO.getCode(), inserted.getSource());
-        assertEquals(27205L, inserted.getTmdbId());
-        assertEquals("盗梦空间", inserted.getTitle());
-        assertEquals("fnposter00001", inserted.getPosterFileNodeId());
-        assertEquals(MediaCompleteStatus.COMPLETE.getCode(), inserted.getCompleteStatus());
-    }
-
-    /**
-     * 完整性规则：标题、简介、海报任一缺失即 incomplete。
-     */
-    @Test
-    void shouldMarkIncompleteWhenAnyKeyFieldMissing() {
-        MediaNfoSupport.NfoData data = new MediaNfoSupport.NfoData("movie", "盗梦空间", null,
-                null, null, null, null, null, null, null);
-
-        nfoSupport.upsertLocalMetadata(null, "user-1", "movie", data, "fnposter00001", null);
-
-        ArgumentCaptor<MediaMetadata> captor = ArgumentCaptor.forClass(MediaMetadata.class);
-        verify(mediaMetadataMapper).insert(captor.capture());
-        assertEquals(MediaCompleteStatus.INCOMPLETE.getCode(), captor.getValue().getCompleteStatus());
-    }
-
-    /**
-     * 已绑定 local_nfo 行时原地更新而非新建。
-     */
-    @Test
-    void shouldUpdateExistingLocalMetadata() {
-        MediaMetadata existing = new MediaMetadata();
-        existing.setId("meta0000000001");
-        existing.setSource(MediaMetadataSource.LOCAL_NFO.getCode());
-        when(mediaMetadataMapper.selectById("meta0000000001")).thenReturn(existing);
-        MediaNfoSupport.NfoData data = new MediaNfoSupport.NfoData("movie", "新标题", null,
-                "简介", null, null, null, null, null, null);
-
-        MediaMetadata result = nfoSupport.upsertLocalMetadata("meta0000000001", "user-1", "movie", data,
-                "fnposter00001", null);
-
-        assertEquals("meta0000000001", result.getId());
-        assertEquals("新标题", result.getTitle());
-        verify(mediaMetadataMapper).updateById(any(MediaMetadata.class));
-    }
-
-    /**
-     * 仅有本地图片无 NFO 时使用空 NFO 数据：全字段为空、完整性为不完整，不补文本字段。
-     */
-    @Test
-    void shouldUpsertEmptyDataAsIncompleteLocalMetadata() {
-        MediaNfoSupport.NfoData empty = MediaNfoSupport.emptyData("movie");
-
-        nfoSupport.upsertLocalMetadata(null, "user-1", "movie", empty, "fnposter00001", null);
-
-        ArgumentCaptor<MediaMetadata> captor = ArgumentCaptor.forClass(MediaMetadata.class);
-        verify(mediaMetadataMapper).insert(captor.capture());
-        MediaMetadata inserted = captor.getValue();
-        assertEquals("local_nfo", inserted.getSource());
-        assertEquals("incomplete", inserted.getCompleteStatus());
-        assertNull(inserted.getTitle());
-        assertNull(inserted.getTmdbId());
-        assertEquals("fnposter00001", inserted.getPosterFileNodeId());
-        assertEquals("user-1", inserted.getUserId());
     }
 }

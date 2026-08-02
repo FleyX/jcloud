@@ -9,16 +9,16 @@ import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.FileMapper;
 import com.fleyx.jcloud.mapper.MediaEpisodeFileMapper;
 import com.fleyx.jcloud.mapper.MediaEpisodeMapper;
-import com.fleyx.jcloud.mapper.MediaMetadataV2Mapper;
-import com.fleyx.jcloud.mapper.MediaSeasonV2Mapper;
-import com.fleyx.jcloud.mapper.MediaSeriesV2Mapper;
+import com.fleyx.jcloud.mapper.MediaMetadataMapper;
+import com.fleyx.jcloud.mapper.MediaSeasonMapper;
+import com.fleyx.jcloud.mapper.MediaSeriesMapper;
 import com.fleyx.jcloud.model.dto.MediaPageQueryDto;
 import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.po.MediaEpisode;
 import com.fleyx.jcloud.model.po.MediaEpisodeFile;
-import com.fleyx.jcloud.model.po.MediaMetadataV2;
-import com.fleyx.jcloud.model.po.MediaSeasonV2;
-import com.fleyx.jcloud.model.po.MediaSeriesV2;
+import com.fleyx.jcloud.model.po.MediaMetadata;
+import com.fleyx.jcloud.model.po.MediaSeason;
+import com.fleyx.jcloud.model.po.MediaSeries;
 import com.fleyx.jcloud.model.vo.MediaItemDetailVo;
 import com.fleyx.jcloud.model.vo.MediaItemVo;
 import com.fleyx.jcloud.model.vo.MediaSeriesDetailVo;
@@ -37,7 +37,7 @@ import java.util.stream.Collectors;
 
 /**
  * 电视库新模型查询支撑组件（ADR 0021 / issue #17）：海报墙与剧集详情查询走新表
- * （t_media_series_v2 / t_media_season_v2 / t_media_episode / t_media_episode_file / t_media_metadata_v2），
+ * （t_media_series / t_media_season / t_media_episode / t_media_episode_file / t_media_metadata），
  * 视图对象沿用现有 VO，保持响应结构兼容（前端适配在 issue #21）。
  * <p>
  * 集以集行为卡片单位：代表文件取 last_play_file_id 指向的明细，未播放时取最早一条明细；
@@ -47,11 +47,11 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class MediaTvQuerySupport {
 
-    private final MediaSeriesV2Mapper mediaSeriesV2Mapper;
-    private final MediaSeasonV2Mapper mediaSeasonV2Mapper;
+    private final MediaSeriesMapper mediaSeriesMapper;
+    private final MediaSeasonMapper mediaSeasonMapper;
     private final MediaEpisodeMapper mediaEpisodeMapper;
     private final MediaEpisodeFileMapper mediaEpisodeFileMapper;
-    private final MediaMetadataV2Mapper mediaMetadataV2Mapper;
+    private final MediaMetadataMapper mediaMetadataMapper;
     private final FileMapper fileMapper;
     private final MediaItemVoSupport mediaItemVoSupport;
 
@@ -59,29 +59,30 @@ public class MediaTvQuerySupport {
      * 电视海报墙：按剧聚合分页（新表），含集数、匹配状态与最近播放时间。
      */
     public IPage<MediaSeriesVo> listSeries(String userId, MediaPageQueryDto query) {
-        Page<MediaSeriesV2> page = new Page<>(query.normalizedPageNum(), query.normalizedPageSize());
-        IPage<MediaSeriesV2> result = mediaSeriesV2Mapper.selectSeriesPage(page, userId,
+        Page<MediaSeries> page = new Page<>(query.normalizedPageNum(), query.normalizedPageSize());
+        IPage<MediaSeries> result = mediaSeriesMapper.selectSeriesPage(page, userId,
                 blankToNull(query.getKeyword()), blankToNull(query.getDirectoryId()),
                 query.sortByRelease() ? MediaPageQueryDto.SORT_FIELD_RELEASE : MediaPageQueryDto.SORT_FIELD_ADDED,
                 query.asc());
-        List<MediaSeriesV2> seriesList = result.getRecords();
-        Map<String, MediaMetadataV2> metadataMap = loadMetadataMap(
-                seriesList.stream().map(MediaSeriesV2::getMetadataId).toList());
+        List<MediaSeries> seriesList = result.getRecords();
+        Map<String, MediaMetadata> metadataMap = loadMetadataMap(
+                seriesList.stream().map(MediaSeries::getMetadataId).toList());
         Map<String, List<MediaEpisode>> episodeMap = seriesList.isEmpty() ? Map.of()
                 : mediaEpisodeMapper.selectList(new LambdaQueryWrapper<MediaEpisode>()
                                 .in(MediaEpisode::getSeriesId,
-                                        seriesList.stream().map(MediaSeriesV2::getId).toList()))
+                                        seriesList.stream().map(MediaSeries::getId).toList()))
                         .stream().collect(Collectors.groupingBy(MediaEpisode::getSeriesId));
 
         List<MediaSeriesVo> vos = new ArrayList<>();
-        for (MediaSeriesV2 series : seriesList) {
+        for (MediaSeries series : seriesList) {
             List<MediaEpisode> episodes = episodeMap.getOrDefault(series.getId(), List.of());
-            MediaMetadataV2 metadata = series.getMetadataId() == null ? null : metadataMap.get(series.getMetadataId());
+            MediaMetadata metadata = series.getMetadataId() == null ? null : metadataMap.get(series.getMetadataId());
             MediaSeriesVo vo = new MediaSeriesVo();
             vo.setId(series.getId());
             vo.setSeriesName(series.getSeriesName());
             vo.setEpisodeCount((long) episodes.size());
             vo.setMatchStatus(series.getMatchStatus());
+            vo.setMetadataComplete(series.getMetadataComplete());
             vo.setLastPlayTime(episodes.stream().map(MediaEpisode::getLastPlayTime)
                     .filter(Objects::nonNull).max(Comparator.naturalOrder()).orElse(null));
             vo.setMetadataId(series.getMetadataId());
@@ -100,7 +101,7 @@ public class MediaTvQuerySupport {
      * 查询某部剧的全部集（按季号、集号升序）。
      */
     public List<MediaItemVo> listEpisodes(String seriesId, String userId) {
-        MediaSeriesV2 series = requireOwnedSeries(seriesId, userId);
+        MediaSeries series = requireOwnedSeries(seriesId, userId);
         List<MediaEpisode> episodes = mediaEpisodeMapper.selectList(
                 new LambdaQueryWrapper<MediaEpisode>().eq(MediaEpisode::getSeriesId, seriesId));
         return toEpisodeVos(series, episodes);
@@ -110,8 +111,8 @@ public class MediaTvQuerySupport {
      * 查询某部剧指定季的集列表（按集号升序）。
      */
     public List<MediaItemVo> listSeasonEpisodes(String seriesId, String seasonId, String userId) {
-        MediaSeriesV2 series = requireOwnedSeries(seriesId, userId);
-        MediaSeasonV2 season = mediaSeasonV2Mapper.selectById(seasonId);
+        MediaSeries series = requireOwnedSeries(seriesId, userId);
+        MediaSeason season = mediaSeasonMapper.selectById(seasonId);
         if (season == null || !series.getId().equals(season.getSeriesId())) {
             throw new BusinessException(ResultCode.NOT_FOUND, "季不存在");
         }
@@ -124,13 +125,14 @@ public class MediaTvQuerySupport {
      * 剧详情：剧行 + 元数据 + 季卡片列表（季号升序、未知季排最后，含集数与观看进度标记）。
      */
     public MediaSeriesDetailVo getSeriesDetail(String seriesId, String userId) {
-        MediaSeriesV2 series = requireOwnedSeries(seriesId, userId);
-        MediaMetadataV2 metadata = series.getMetadataId() == null ? null
-                : mediaMetadataV2Mapper.selectById(series.getMetadataId());
+        MediaSeries series = requireOwnedSeries(seriesId, userId);
+        MediaMetadata metadata = series.getMetadataId() == null ? null
+                : mediaMetadataMapper.selectById(series.getMetadataId());
 
         MediaSeriesDetailVo vo = new MediaSeriesDetailVo();
         vo.setSeriesName(series.getSeriesName());
         vo.setMatchStatus(series.getMatchStatus());
+        vo.setMetadataComplete(series.getMetadataComplete());
         vo.setMetadataId(series.getMetadataId());
         vo.setSeasons(buildSeasonVos(series));
         vo.setSeasonCount(vo.getSeasons().size());
@@ -156,15 +158,15 @@ public class MediaTvQuerySupport {
      */
     public MediaItemDetailVo getEpisodeDetail(String episodeId, String userId) {
         MediaEpisode episode = mediaEpisodeMapper.selectById(episodeId);
-        MediaSeriesV2 series = episode == null ? null : mediaSeriesV2Mapper.selectById(episode.getSeriesId());
+        MediaSeries series = episode == null ? null : mediaSeriesMapper.selectById(episode.getSeriesId());
         if (series == null || !userId.equals(series.getUserId())) {
             throw new BusinessException(ResultCode.NOT_FOUND, "媒体条目不存在");
         }
-        MediaSeasonV2 season = mediaSeasonV2Mapper.selectById(episode.getSeasonId());
+        MediaSeason season = mediaSeasonMapper.selectById(episode.getSeasonId());
         MediaEpisodeFile file = representativeFile(List.of(episode)).get(episode.getId());
         FileNode node = file == null ? null : fileMapper.selectById(file.getFileNodeId());
-        MediaMetadataV2 metadata = episode.getMetadataId() == null ? null
-                : mediaMetadataV2Mapper.selectById(episode.getMetadataId());
+        MediaMetadata metadata = episode.getMetadataId() == null ? null
+                : mediaMetadataMapper.selectById(episode.getMetadataId());
 
         MediaItemDetailVo vo = new MediaItemDetailVo();
         vo.setId(episode.getId());
@@ -204,16 +206,16 @@ public class MediaTvQuerySupport {
     /**
      * 集列表转视图：按季号、集号升序；代表文件定位文件事实，进度取自集行。
      */
-    private List<MediaItemVo> toEpisodeVos(MediaSeriesV2 series, List<MediaEpisode> episodes) {
+    private List<MediaItemVo> toEpisodeVos(MediaSeries series, List<MediaEpisode> episodes) {
         if (episodes.isEmpty()) {
             return List.of();
         }
-        Map<String, MediaSeasonV2> seasonMap = mediaSeasonV2Mapper.selectBatchIds(
+        Map<String, MediaSeason> seasonMap = mediaSeasonMapper.selectBatchIds(
                         episodes.stream().map(MediaEpisode::getSeasonId).distinct().toList())
-                .stream().collect(Collectors.toMap(MediaSeasonV2::getId, Function.identity()));
+                .stream().collect(Collectors.toMap(MediaSeason::getId, Function.identity()));
         Map<String, MediaEpisodeFile> fileMap = representativeFile(episodes);
         Map<String, String> fileNameMap = loadFileNameMap(fileMap);
-        Map<String, MediaMetadataV2> metadataMap = loadMetadataMap(
+        Map<String, MediaMetadata> metadataMap = loadMetadataMap(
                 episodes.stream().map(MediaEpisode::getMetadataId).toList());
 
         List<MediaEpisode> sorted = new ArrayList<>(episodes);
@@ -226,8 +228,8 @@ public class MediaTvQuerySupport {
         List<MediaItemVo> result = new ArrayList<>();
         for (MediaEpisode episode : sorted) {
             MediaEpisodeFile file = fileMap.get(episode.getId());
-            MediaSeasonV2 season = seasonMap.get(episode.getSeasonId());
-            MediaMetadataV2 metadata = episode.getMetadataId() == null ? null : metadataMap.get(episode.getMetadataId());
+            MediaSeason season = seasonMap.get(episode.getSeasonId());
+            MediaMetadata metadata = episode.getMetadataId() == null ? null : metadataMap.get(episode.getMetadataId());
             MediaItemVo vo = new MediaItemVo();
             vo.setId(episode.getId());
             vo.setFileNodeId(file == null ? null : file.getFileNodeId());
@@ -258,19 +260,19 @@ public class MediaTvQuerySupport {
     /**
      * 组装季卡片列表：按季号升序（未知季排最后），含集数与观看进度标记。
      */
-    private List<MediaSeriesSeasonVo> buildSeasonVos(MediaSeriesV2 series) {
-        List<MediaSeasonV2> seasons = mediaSeasonV2Mapper.selectList(
-                new LambdaQueryWrapper<MediaSeasonV2>().eq(MediaSeasonV2::getSeriesId, series.getId()));
+    private List<MediaSeriesSeasonVo> buildSeasonVos(MediaSeries series) {
+        List<MediaSeason> seasons = mediaSeasonMapper.selectList(
+                new LambdaQueryWrapper<MediaSeason>().eq(MediaSeason::getSeriesId, series.getId()));
         if (seasons.isEmpty()) {
             return List.of();
         }
-        Map<String, MediaMetadataV2> metadataMap = loadMetadataMap(
-                seasons.stream().map(MediaSeasonV2::getMetadataId).toList());
+        Map<String, MediaMetadata> metadataMap = loadMetadataMap(
+                seasons.stream().map(MediaSeason::getMetadataId).toList());
         Map<String, List<MediaEpisode>> episodeMap = mediaEpisodeMapper.selectList(
                         new LambdaQueryWrapper<MediaEpisode>().eq(MediaEpisode::getSeriesId, series.getId()))
                 .stream().collect(Collectors.groupingBy(MediaEpisode::getSeasonId));
         List<MediaSeriesSeasonVo> result = new ArrayList<>();
-        for (MediaSeasonV2 season : seasons) {
+        for (MediaSeason season : seasons) {
             List<MediaEpisode> episodes = episodeMap.getOrDefault(season.getId(), List.of());
             MediaSeriesSeasonVo vo = new MediaSeriesSeasonVo();
             vo.setSeasonId(season.getId());
@@ -311,21 +313,21 @@ public class MediaTvQuerySupport {
         return result;
     }
 
-    private MediaSeriesV2 requireOwnedSeries(String seriesId, String userId) {
-        MediaSeriesV2 series = mediaSeriesV2Mapper.selectById(seriesId);
+    private MediaSeries requireOwnedSeries(String seriesId, String userId) {
+        MediaSeries series = mediaSeriesMapper.selectById(seriesId);
         if (series == null || !userId.equals(series.getUserId())) {
             throw new BusinessException(ResultCode.NOT_FOUND, "电视剧不存在");
         }
         return series;
     }
 
-    private Map<String, MediaMetadataV2> loadMetadataMap(List<String> metadataIds) {
+    private Map<String, MediaMetadata> loadMetadataMap(List<String> metadataIds) {
         List<String> ids = metadataIds.stream().filter(Objects::nonNull).distinct().toList();
         if (ids.isEmpty()) {
             return Map.of();
         }
-        return mediaMetadataV2Mapper.selectBatchIds(ids).stream()
-                .collect(Collectors.toMap(MediaMetadataV2::getId, Function.identity()));
+        return mediaMetadataMapper.selectBatchIds(ids).stream()
+                .collect(Collectors.toMap(MediaMetadata::getId, Function.identity()));
     }
 
     private Map<String, String> loadFileNameMap(Map<String, MediaEpisodeFile> fileMap) {
@@ -341,7 +343,7 @@ public class MediaTvQuerySupport {
     /**
      * 元数据海报图 URL，无海报时返回 null。
      */
-    private String posterUrlOf(MediaMetadataV2 metadata) {
+    private String posterUrlOf(MediaMetadata metadata) {
         return metadata == null || metadata.getPosterFileNodeId() == null ? null
                 : mediaItemVoSupport.metadataPosterUrl(metadata.getId());
     }
@@ -349,7 +351,7 @@ public class MediaTvQuerySupport {
     /**
      * 元数据背景图 URL，无背景图时返回 null。
      */
-    private String backdropUrlOf(MediaMetadataV2 metadata) {
+    private String backdropUrlOf(MediaMetadata metadata) {
         return metadata == null || metadata.getBackdropFileNodeId() == null ? null
                 : mediaItemVoSupport.metadataBackdropUrl(metadata.getId());
     }

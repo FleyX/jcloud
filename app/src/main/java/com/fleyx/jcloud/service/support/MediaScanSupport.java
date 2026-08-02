@@ -1,23 +1,14 @@
 package com.fleyx.jcloud.service.support;
 
 import cn.hutool.crypto.digest.DigestUtil;
-import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.fleyx.jcloud.common.constant.FileNodeConstants;
-import com.fleyx.jcloud.common.enums.MediaItemType;
-import com.fleyx.jcloud.common.enums.MediaMatchStatus;
-import com.fleyx.jcloud.common.enums.MediaType;
 import com.fleyx.jcloud.mapper.FileMapper;
-import com.fleyx.jcloud.mapper.MediaItemMapper;
 import com.fleyx.jcloud.mapper.StorageSpaceMapper;
 import com.fleyx.jcloud.model.bo.MediaProbeResult;
 import com.fleyx.jcloud.model.po.FileNode;
-import com.fleyx.jcloud.model.po.MediaItem;
-import com.fleyx.jcloud.model.po.MediaSeason;
-import com.fleyx.jcloud.model.po.MediaSeries;
 import com.fleyx.jcloud.model.po.StorageSpace;
 import com.fleyx.jcloud.service.RemoteFileService;
 import com.fleyx.jcloud.util.FilePathUtil;
-import com.fleyx.jcloud.util.MediaFileNameParser;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -27,11 +18,11 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
 
 /**
- * 媒体库扫描辅助组件：ffprobe 探测填充、文件变更哈希、电视三层结构解析等。
+ * 媒体库扫描辅助组件（issue #21 起仅保留新模型共用原语）：ffprobe 探测、文件变更哈希、
+ * 来源目录相对路径解析与祖先名称缓存。旧模型三层结构解析与条目归属逻辑已随旧表弃用删除。
  */
 @Slf4j
 @Component
@@ -42,28 +33,9 @@ public class MediaScanSupport {
     private final StorageSpaceMapper storageSpaceMapper;
     private final RemoteFileService remoteFileService;
     private final MediaProbeSupport mediaProbeSupport;
-    private final MediaItemMapper mediaItemMapper;
-    private final MediaSeriesSupport mediaSeriesSupport;
 
     /**
-     * ffprobe 探测并填充条目的时长/编码/分辨率，失败仅记日志。
-     */
-    public void fillProbeResult(MediaItem item, FileNode file, String username, Map<String, String> idToName) {
-        try {
-            MediaProbeResult probe = probeFile(file, username, idToName);
-            item.setDurationMs(probe.durationMs());
-            item.setContainer(probe.container());
-            item.setVideoCodec(probe.videoCodec());
-            item.setAudioCodec(probe.audioCodec());
-            item.setWidth(probe.width());
-            item.setHeight(probe.height());
-        } catch (Exception e) {
-            log.warn("ffprobe 探测失败: {}, {}", file.getName(), e.getMessage());
-        }
-    }
-
-    /**
-     * ffprobe 探测单个文件（本地物理路径或远程输入流），供电视新模型扫描复用。
+     * ffprobe 探测单个文件（本地物理路径或远程输入流），供电视/电影/其他新模型扫描复用。
      */
     public MediaProbeResult probeFile(FileNode file, String username, Map<String, String> idToName) {
         if (FileNodeConstants.SOURCE_REMOTE.equals(file.getSourceType())) {
@@ -101,50 +73,8 @@ public class MediaScanSupport {
     }
 
     /**
-     * 电视三层结构归属结果。
-     *
-     * @param seriesName  剧名（一级子文件夹名清洗结果）
-     * @param seasonNo    季号（二级子文件夹名解析，无法解析或无季文件夹归第一季）
-     * @param releaseYear 首播年份（一级子文件夹名解析，未解析出为 null）
-     */
-    public record TvLocation(String seriesName, Integer seasonNo, Integer releaseYear) {
-    }
-
-    /**
-     * 按固定三层结构（来源目录/剧/季/集）解析剧集归属。
-     * <p>
-     * 根下散文件（深度 1）与超过三层的文件返回 null 表示忽略；
-     * 剧文件夹下散文件（深度 2）归第一季。
-     *
-     * @param file             文件节点
-     * @param folderFullIdPath 来源目录文件夹的完整物化路径
-     * @param idToName         节点 ID → 名称缓存
-     * @return 归属结果，忽略返回 null
-     */
-    public TvLocation resolveTvLocation(FileNode file, String folderFullIdPath, Map<String, String> idToName) {
-        List<String> folderIds = relativeFolderIds(file, folderFullIdPath);
-        if (folderIds.size() == 1) {
-            String folderName = idToName.get(folderIds.getFirst());
-            String seriesName = MediaFileNameParser.cleanTitle(folderName);
-            return seriesName.isBlank() ? null
-                    : new TvLocation(seriesName, 1, MediaFileNameParser.parseYear(folderName));
-        }
-        if (folderIds.size() == 2) {
-            String folderName = idToName.get(folderIds.getFirst());
-            String seriesName = MediaFileNameParser.cleanTitle(folderName);
-            if (seriesName.isBlank()) {
-                return null;
-            }
-            Integer seasonNo = MediaFileNameParser.parseSeasonNo(idToName.get(folderIds.get(1)));
-            return new TvLocation(seriesName, seasonNo == null ? 1 : seasonNo,
-                    MediaFileNameParser.parseYear(folderName));
-        }
-        return null;
-    }
-
-    /**
      * 文件相对来源目录的祖先文件夹 ID 列表（不含来源目录本身与文件自身）。
-     * 电视新模型扫描按该列表长度判定三层结构。
+     * 电视/电影新模型扫描按该列表长度判定目录层级结构。
      */
     public List<String> relativeFolderIds(FileNode file, String folderFullIdPath) {
         List<String> result = new ArrayList<>();
@@ -181,84 +111,5 @@ public class MediaScanSupport {
                 }
             }
         }
-    }
-
-    /**
-     * 判断文件与已扫描条目相比是否未变化（文件变更哈希）。
-     */
-    public boolean unchanged(MediaItem item, String fileHash) {
-        return Objects.equals(item.getFileHash(), fileHash);
-    }
-
-    /**
-     * 填充条目类型与剧/季归属。
-     *
-     * @return 条目所属的剧（电视媒体库），其他类型返回 null
-     */
-    public MediaSeries fillItemTypeAndSeries(MediaItem item, MediaType mediaType, TvLocation tvLocation,
-                                             FileNode file, String userId,
-                                             Map<String, MediaSeries> seriesCache, Map<String, MediaSeason> seasonCache,
-                                             Set<String> touchedSeriesIds) {
-        switch (mediaType) {
-            case MOVIE -> {
-                item.setItemType(MediaItemType.MOVIE.getCode());
-                clearSeriesFields(item);
-                return null;
-            }
-            case TV -> {
-                item.setItemType(MediaItemType.EPISODE.getCode());
-                Integer episodeNo = MediaFileNameParser.parse(file.getName(), null, null).episodeNo();
-                item.setEpisodeNo(episodeNo);
-                item.setSeasonNo(tvLocation.seasonNo());
-                item.setSeriesName(tvLocation.seriesName());
-                MediaSeries series = mediaSeriesSupport.getOrCreateSeries(userId, tvLocation.seriesName(), seriesCache);
-                MediaSeason season = mediaSeriesSupport.getOrCreateSeason(series.getId(), tvLocation.seasonNo(), seasonCache);
-                item.setSeriesId(series.getId());
-                item.setSeasonId(season.getId());
-                touchedSeriesIds.add(series.getId());
-                return series;
-            }
-            case OTHER -> {
-                item.setItemType(MediaItemType.OTHER.getCode());
-                clearSeriesFields(item);
-                item.setMatchStatus(MediaMatchStatus.NONE.getCode());
-                return null;
-            }
-        }
-        return null;
-    }
-
-    private void clearSeriesFields(MediaItem item) {
-        item.setSeriesName(null);
-        item.setSeriesId(null);
-        item.setSeasonId(null);
-        item.setSeasonNo(null);
-        item.setEpisodeNo(null);
-    }
-
-    /**
-     * 变化的条目重置匹配状态：手动修正的保留，其余清空元数据待削刮。
-     *
-     * @return 是否发生了重置
-     */
-    public boolean resetMatchIfNotManual(MediaItem item, MediaType mediaType) {
-        if (mediaType == MediaType.OTHER) {
-            return false;
-        }
-        if (MediaMatchStatus.MANUAL.getCode().equals(item.getMatchStatus()) && item.getMetadataId() != null) {
-            return false;
-        }
-        item.setMetadataId(null);
-        item.setMatchStatus(MediaMatchStatus.UNMATCHED.getCode());
-        return true;
-    }
-
-    /**
-     * 显式清空条目的元数据关联（updateById 无法写入 null）。
-     */
-    public void clearItemMetadataId(String itemId) {
-        mediaItemMapper.update(null, new LambdaUpdateWrapper<MediaItem>()
-                .eq(MediaItem::getId, itemId)
-                .set(MediaItem::getMetadataId, null));
     }
 }

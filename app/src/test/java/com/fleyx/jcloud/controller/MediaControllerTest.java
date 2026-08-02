@@ -2,13 +2,15 @@ package com.fleyx.jcloud.controller;
 
 import com.fleyx.jcloud.common.context.CurrentUser;
 import com.fleyx.jcloud.common.context.UserContext;
+import com.fleyx.jcloud.common.enums.MediaMetadataOwnerType;
 import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.common.exception.GlobalExceptionHandler;
 import com.fleyx.jcloud.mapper.FileMapper;
 import com.fleyx.jcloud.mapper.MediaMetadataMapper;
-import com.fleyx.jcloud.mapper.MediaMetadataV2Mapper;
+import com.fleyx.jcloud.model.dto.MediaMatchUpdateDto;
 import com.fleyx.jcloud.model.po.MediaMetadata;
+import com.fleyx.jcloud.model.vo.MediaItemVo;
 import com.fleyx.jcloud.service.MediaDirectoryService;
 import com.fleyx.jcloud.service.MediaHomeService;
 import com.fleyx.jcloud.service.MediaItemService;
@@ -22,17 +24,19 @@ import com.fleyx.jcloud.service.support.TranscodeSessionManager;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -49,7 +53,6 @@ class MediaControllerTest {
     private final MediaPlaybackService mediaPlaybackService = mock(MediaPlaybackService.class);
     private final TmdbService tmdbService = mock(TmdbService.class);
     private final MediaMetadataMapper mediaMetadataMapper = mock(MediaMetadataMapper.class);
-    private final MediaMetadataV2Mapper mediaMetadataV2Mapper = mock(MediaMetadataV2Mapper.class);
     private final FileMapper fileMapper = mock(FileMapper.class);
     private final MediaArtworkPersistSupport mediaArtworkPersistSupport = mock(MediaArtworkPersistSupport.class);
     private final MediaMetadataCompleteSupport metadataCompleteSupport = mock(MediaMetadataCompleteSupport.class);
@@ -58,7 +61,7 @@ class MediaControllerTest {
     private final MediaController mediaController = new MediaController(
             mediaDirectoryService, mediaScanService, mediaScrapeService, mediaItemService,
             mediaHomeService, mediaPlaybackService, tmdbService, mediaMetadataMapper,
-            mediaMetadataV2Mapper, fileMapper, mediaArtworkPersistSupport,
+            fileMapper, mediaArtworkPersistSupport,
             metadataCompleteSupport, transcodeSessionManager);
 
     private final MockMvc mockMvc = MockMvcBuilders.standaloneSetup(mediaController)
@@ -103,20 +106,41 @@ class MediaControllerTest {
     }
 
     /**
-     * 刷新元数据：元数据属于当前登录用户时放行并调用 TMDB 刷新。
+     * 手动修正统一按行 ID（issue #21）：PUT /items/{id}/match 转发电影/剧集行 ID。
+     */
+    @Test
+    void shouldUpdateMatchByRowId() throws Exception {
+        MediaItemVo vo = new MediaItemVo();
+        vo.setId("movie-1");
+        when(mediaItemService.updateMatch(eq("movie-1"), any(MediaMatchUpdateDto.class), eq("user-1")))
+                .thenReturn(vo);
+
+        mockMvc.perform(put("/jcloud/api/media/items/movie-1/match")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"tmdbId\":100,\"mediaType\":\"movie\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.id").value("movie-1"));
+    }
+
+    /**
+     * 刷新元数据：元数据属于当前登录用户时放行并按 owner 类型刷新 + 重算完整性。
      */
     @Test
     void shouldRefreshOwnMetadata() throws Exception {
         MediaMetadata metadata = new MediaMetadata();
         metadata.setId("meta-1");
         metadata.setUserId("user-1");
+        metadata.setOwnerType(MediaMetadataOwnerType.MOVIE.getCode());
+        metadata.setOwnerId("movie-1");
         when(mediaMetadataMapper.selectById("meta-1")).thenReturn(metadata);
 
         mockMvc.perform(post("/jcloud/api/media/metadata/meta-1/refresh"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(200));
 
-        verify(tmdbService).refresh("meta-1");
+        verify(tmdbService).refreshV2(metadata);
+        verify(metadataCompleteSupport).refreshOwnerComplete(MediaMetadataOwnerType.MOVIE, "movie-1");
     }
 
     /**
@@ -134,7 +158,7 @@ class MediaControllerTest {
                 .andExpect(jsonPath("$.code").value(404))
                 .andExpect(jsonPath("$.msg").value("元数据不存在"));
 
-        verify(tmdbService, never()).refresh(anyString());
+        verify(tmdbService, org.mockito.Mockito.never()).refreshV2(any(MediaMetadata.class));
     }
 
     /**
@@ -149,6 +173,6 @@ class MediaControllerTest {
                 .andExpect(jsonPath("$.code").value(404))
                 .andExpect(jsonPath("$.msg").value("元数据不存在"));
 
-        verify(tmdbService, never()).refresh(anyString());
+        verify(tmdbService, org.mockito.Mockito.never()).refreshV2(any(MediaMetadata.class));
     }
 }

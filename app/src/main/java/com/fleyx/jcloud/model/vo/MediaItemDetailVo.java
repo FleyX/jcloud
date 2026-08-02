@@ -36,6 +36,11 @@ public class MediaItemDetailVo {
     private String matchStatus;
 
     /**
+     * 元数据完整性标志（电影/剧集行），未匹配无元数据时为 false。
+     */
+    private Boolean metadataComplete;
+
+    /**
      * 元数据 ID。
      */
     private String metadataId;
@@ -139,4 +144,10 @@ public class MediaItemDetailVo {
      * 电影版本列表（仅电影详情有效，issue #18；其他类型为 null）。
      */
     private List<MediaMovieVersionVo> versions;
+
+    /**
+     * 默认播放版本 ID（仅电影详情有效）：电影行 last_play_file_id 指向的明细行仍存在时取它，
+     * 否则取版本列表中最早（create_time 升序）的明细行 ID；无版本时为空。
+     */
+    private String defaultVersionId;
 }

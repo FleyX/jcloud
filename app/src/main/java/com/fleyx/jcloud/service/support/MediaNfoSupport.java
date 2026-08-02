@@ -1,11 +1,7 @@
 package com.fleyx.jcloud.service.support;
 
-import com.fleyx.jcloud.common.enums.MediaCompleteStatus;
-import com.fleyx.jcloud.common.enums.MediaMetadataSource;
-import com.fleyx.jcloud.common.enums.MediaPersistStatus;
-import com.fleyx.jcloud.mapper.MediaMetadataMapper;
+import com.fleyx.jcloud.common.enums.MediaMetadataOwnerType;
 import com.fleyx.jcloud.model.po.MediaMetadata;
-import com.fleyx.jcloud.model.po.MediaMetadataV2;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -53,8 +49,6 @@ public class MediaNfoSupport {
     public static final String FANART_JPG = "fanart.jpg";
 
     private static final String NFO_MIME = "application/xml";
-
-    private final MediaMetadataMapper mediaMetadataMapper;
 
     /**
      * NFO 解析结果。
@@ -168,21 +162,7 @@ public class MediaNfoSupport {
     }
 
     /**
-     * 从元数据生成 Jellyfin/Kodi 兼容 NFO XML。
-     *
-     * @param metadata 元数据（mediaType 决定根元素：movie/tv/episode）
-     * @param seasonNo 季号，仅集有效，可为空
-     * @param episodeNo 集号，仅集有效，可为空
-     * @return NFO XML 字符串
-     */
-    public String generate(MediaMetadata metadata, Integer seasonNo, Integer episodeNo) {
-        return generateXml(metadata.getMediaType(), metadata.getTmdbId(), metadata.getTitle(),
-                metadata.getOriginalTitle(), metadata.getOverview(), metadata.getReleaseDate(),
-                metadata.getVoteAverage(), metadata.getGenres(), seasonNo, episodeNo);
-    }
-
-    /**
-     * 从新模型元数据生成 Jellyfin/Kodi 兼容 NFO XML（issue #20）。
+     * 从新模型元数据生成 Jellyfin/Kodi 兼容 NFO XML（issue #20/#21）。
      * 根元素按 owner_type 派生：series→tvshow / episode→episodedetails / 其余→movie。
      *
      * @param metadata 元数据行（已绑定 owner）
@@ -190,10 +170,12 @@ public class MediaNfoSupport {
      * @param episodeNo 集号，仅集有效，可为空
      * @return NFO XML 字符串
      */
-    public String generate(MediaMetadataV2 metadata, Integer seasonNo, Integer episodeNo) {
-        String mediaType = switch (metadata.getOwnerType()) {
-            case "series" -> "tv";
-            case "episode" -> "episode";
+    public String generate(MediaMetadata metadata, Integer seasonNo, Integer episodeNo) {
+        // owner_type 未知编码时回退 movie 根元素（of 空安全，issue #21 收尾）
+        MediaMetadataOwnerType ownerType = MediaMetadataOwnerType.of(metadata.getOwnerType());
+        String mediaType = ownerType == null ? "movie" : switch (ownerType) {
+            case SERIES -> "tv";
+            case EPISODE -> "episode";
             default -> "movie";
         };
         return generateXml(mediaType, metadata.getTmdbId(), metadata.getTitle(),
@@ -242,63 +224,6 @@ public class MediaNfoSupport {
         } catch (Exception e) {
             throw new IllegalStateException("NFO 生成失败", e);
         }
-    }
-
-    /**
-     * 新建或更新本地 NFO 来源的元数据行：已绑定 local_nfo 行则原地更新，否则新建。
-     * 完整性规则：标题、简介、海报三者均非空为 complete，否则 incomplete。
-     *
-     * @param existingMetadataId 当前绑定的元数据 ID，可为空
-     * @param userId             用户 ID
-     * @param mediaType          类型：movie / tv / episode
-     * @param data               NFO 解析结果
-     * @param posterFileNodeId   海报文件节点 ID，可为空
-     * @param backdropFileNodeId 背景图文件节点 ID，可为空
-     * @return 落库后的元数据
-     */
-    public MediaMetadata upsertLocalMetadata(String existingMetadataId, String userId, String mediaType,
-                                             NfoData data, String posterFileNodeId, String backdropFileNodeId) {
-        MediaMetadata metadata = null;
-        if (existingMetadataId != null) {
-            MediaMetadata existing = mediaMetadataMapper.selectById(existingMetadataId);
-            if (existing != null && MediaMetadataSource.LOCAL_NFO.getCode().equals(existing.getSource())) {
-                metadata = existing;
-            }
-        }
-        boolean isNew = metadata == null;
-        if (isNew) {
-            metadata = new MediaMetadata();
-            metadata.setUserId(userId);
-            metadata.setMediaType(mediaType);
-            metadata.setSource(MediaMetadataSource.LOCAL_NFO.getCode());
-            metadata.setPersistStatus(MediaPersistStatus.PENDING.getCode());
-        }
-        metadata.setTmdbId(data.tmdbId());
-        metadata.setTitle(data.title());
-        metadata.setOriginalTitle(data.originalTitle());
-        metadata.setOverview(data.overview());
-        metadata.setReleaseDate(data.releaseDate());
-        metadata.setVoteAverage(data.voteAverage());
-        metadata.setGenres(data.genres() == null || data.genres().isBlank() ? null : data.genres());
-        metadata.setPosterFileNodeId(posterFileNodeId);
-        metadata.setBackdropFileNodeId(backdropFileNodeId);
-        metadata.setCompleteStatus(resolveCompleteStatus(metadata));
-        if (isNew) {
-            mediaMetadataMapper.insert(metadata);
-        } else {
-            mediaMetadataMapper.updateById(metadata);
-        }
-        return metadata;
-    }
-
-    /**
-     * 计算完整性状态：标题、简介、海报三者均非空为 complete，否则 incomplete。
-     */
-    public String resolveCompleteStatus(MediaMetadata metadata) {
-        boolean complete = metadata.getTitle() != null && !metadata.getTitle().isBlank()
-                && metadata.getOverview() != null && !metadata.getOverview().isBlank()
-                && metadata.getPosterFileNodeId() != null;
-        return complete ? MediaCompleteStatus.COMPLETE.getCode() : MediaCompleteStatus.INCOMPLETE.getCode();
     }
 
     private void append(Document doc, Element parent, String tag, Object value) {

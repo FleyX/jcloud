@@ -4,15 +4,19 @@ import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.fleyx.jcloud.common.enums.MediaMatchStatus;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.MediaEpisodeMapper;
+import com.fleyx.jcloud.mapper.MediaMovieFileMapper;
 import com.fleyx.jcloud.mapper.MediaMovieMapper;
-import com.fleyx.jcloud.mapper.MediaSeasonV2Mapper;
-import com.fleyx.jcloud.mapper.MediaSeriesV2Mapper;
+import com.fleyx.jcloud.mapper.MediaSeasonMapper;
+import com.fleyx.jcloud.mapper.MediaSeriesMapper;
 import com.fleyx.jcloud.model.dto.MediaPageQueryDto;
 import com.fleyx.jcloud.model.po.MediaEpisode;
 import com.fleyx.jcloud.model.po.MediaMovie;
-import com.fleyx.jcloud.model.po.MediaSeasonV2;
-import com.fleyx.jcloud.model.po.MediaSeriesV2;
+import com.fleyx.jcloud.model.po.MediaMovieFile;
+import com.fleyx.jcloud.model.po.MediaSeason;
+import com.fleyx.jcloud.model.po.MediaSeries;
+import com.fleyx.jcloud.model.vo.MediaItemDetailVo;
 import com.fleyx.jcloud.model.vo.MediaItemVo;
+import com.fleyx.jcloud.model.vo.MediaMovieVersionVo;
 import com.fleyx.jcloud.model.vo.MediaSeriesDetailVo;
 import com.fleyx.jcloud.model.vo.MediaSeriesVo;
 import com.fleyx.jcloud.util.IdUtil;
@@ -44,10 +48,10 @@ class MediaItemServiceTest {
     private MediaItemService mediaItemService;
 
     @Autowired
-    private MediaSeriesV2Mapper mediaSeriesV2Mapper;
+    private MediaSeriesMapper mediaSeriesMapper;
 
     @Autowired
-    private MediaSeasonV2Mapper mediaSeasonV2Mapper;
+    private MediaSeasonMapper mediaSeasonMapper;
 
     @Autowired
     private MediaEpisodeMapper mediaEpisodeMapper;
@@ -55,15 +59,18 @@ class MediaItemServiceTest {
     @Autowired
     private MediaMovieMapper mediaMovieMapper;
 
+    @Autowired
+    private MediaMovieFileMapper mediaMovieFileMapper;
+
     /**
      * 剧详情返回季卡片：季号升序、未知季排最后，含集数与观看进度标记。
      */
     @Test
     void shouldReturnSeriesDetailWithSeasons() {
-        MediaSeriesV2 series = insertSeries("user-1", "dir-1", "测试剧");
-        MediaSeasonV2 season1 = insertSeason(series, 1);
-        MediaSeasonV2 season2 = insertSeason(series, 2);
-        MediaSeasonV2 unknownSeason = insertSeason(series, null);
+        MediaSeries series = insertSeries("user-1", "dir-1", "测试剧");
+        MediaSeason season1 = insertSeason(series, 1);
+        MediaSeason season2 = insertSeason(series, 2);
+        MediaSeason unknownSeason = insertSeason(series, null);
         insertEpisode(series, season1, 1, 0L);
         insertEpisode(series, season1, 2, 0L);
         insertEpisode(series, season2, 1, 100L);
@@ -87,9 +94,9 @@ class MediaItemServiceTest {
      */
     @Test
     void shouldListSeasonEpisodesOrderedByEpisodeNo() {
-        MediaSeriesV2 series = insertSeries("user-1", "dir-1", "测试剧");
-        MediaSeasonV2 season1 = insertSeason(series, 1);
-        MediaSeasonV2 season2 = insertSeason(series, 2);
+        MediaSeries series = insertSeries("user-1", "dir-1", "测试剧");
+        MediaSeason season1 = insertSeason(series, 1);
+        MediaSeason season2 = insertSeason(series, 2);
         insertEpisode(series, season1, 2, 0L);
         insertEpisode(series, season1, 1, 0L);
         insertEpisode(series, season2, 1, 0L);
@@ -113,7 +120,7 @@ class MediaItemServiceTest {
 
     @Test
     void shouldThrowWhenSeriesNotOwned() {
-        MediaSeriesV2 series = insertSeries("user-1", "dir-1", "测试剧");
+        MediaSeries series = insertSeries("user-1", "dir-1", "测试剧");
 
         assertThrows(BusinessException.class,
                 () -> mediaItemService.getSeriesDetail(series.getId(), "user-2"));
@@ -150,27 +157,50 @@ class MediaItemServiceTest {
         assertEquals(2L, mediaItemService.listSeries("user-1", new MediaPageQueryDto()).getTotal());
     }
 
-    private MediaSeriesV2 insertSeries(String userId, String directoryId, String seriesName) {
-        MediaSeriesV2 series = new MediaSeriesV2();
+    /**
+     * 电影详情版本列表确定性与默认版本（issue #21 收尾）：
+     * 无 last_play_file_id 时 defaultVersionId 指向最早版本且 versions 按 create_time 升序；
+     * 有 last_play_file_id 且明细仍存在时 defaultVersionId 指向该版本。
+     */
+    @Test
+    void shouldExposeDefaultVersionIdInMovieDetail() {
+        MediaMovie movie = insertMovieWithVersions("user-1", "dir-1");
+
+        MediaItemDetailVo detail = mediaItemService.getItemDetail(movie.getId(), "user-1");
+        assertEquals("ver-v1", detail.getDefaultVersionId());
+        assertEquals(List.of("ver-v1", "ver-v2"),
+                detail.getVersions().stream().map(MediaMovieVersionVo::getId).toList());
+
+        // 续播定位 v2 后默认版本随之指向 v2
+        movie.setLastPlayFileId("ver-v2");
+        mediaMovieMapper.updateById(movie);
+        MediaItemDetailVo resumed = mediaItemService.getItemDetail(movie.getId(), "user-1");
+        assertEquals("ver-v2", resumed.getDefaultVersionId());
+        assertEquals(List.of("ver-v1", "ver-v2"),
+                resumed.getVersions().stream().map(MediaMovieVersionVo::getId).toList());
+    }
+
+    private MediaSeries insertSeries(String userId, String directoryId, String seriesName) {
+        MediaSeries series = new MediaSeries();
         series.setUserId(userId);
         series.setDirectoryId(directoryId);
         series.setFolderNodeId(IdUtil.nextId());
         series.setSeriesName(seriesName);
         series.setMatchStatus(MediaMatchStatus.MATCHED.getCode());
-        mediaSeriesV2Mapper.insert(series);
+        mediaSeriesMapper.insert(series);
         return series;
     }
 
-    private MediaSeasonV2 insertSeason(MediaSeriesV2 series, Integer seasonNo) {
-        MediaSeasonV2 season = new MediaSeasonV2();
+    private MediaSeason insertSeason(MediaSeries series, Integer seasonNo) {
+        MediaSeason season = new MediaSeason();
         season.setSeriesId(series.getId());
         season.setFolderNodeId(IdUtil.nextId());
         season.setSeasonNo(seasonNo);
-        mediaSeasonV2Mapper.insert(season);
+        mediaSeasonMapper.insert(season);
         return season;
     }
 
-    private void insertEpisode(MediaSeriesV2 series, MediaSeasonV2 season, int episodeNo, long progressMs) {
+    private void insertEpisode(MediaSeries series, MediaSeason season, int episodeNo, long progressMs) {
         MediaEpisode episode = new MediaEpisode();
         episode.setSeriesId(series.getId());
         episode.setSeasonId(season.getId());
@@ -188,5 +218,31 @@ class MediaItemServiceTest {
         movie.setMatchStatus(MediaMatchStatus.UNMATCHED.getCode());
         movie.setMetadataComplete(false);
         mediaMovieMapper.insert(movie);
+    }
+
+    /**
+     * 插入带两个版本明细（create_time 依次 v1 早 / v2 晚）的电影，验证版本列表顺序与默认版本。
+     */
+    private MediaMovie insertMovieWithVersions(String userId, String directoryId) {
+        MediaMovie movie = new MediaMovie();
+        movie.setUserId(userId);
+        movie.setDirectoryId(directoryId);
+        movie.setFolderNodeId(IdUtil.nextId());
+        movie.setTitle("测试电影");
+        movie.setMatchStatus(MediaMatchStatus.UNMATCHED.getCode());
+        movie.setMetadataComplete(false);
+        mediaMovieMapper.insert(movie);
+        insertVersion(movie.getId(), "ver-v1", java.time.LocalDateTime.of(2026, 1, 1, 0, 0));
+        insertVersion(movie.getId(), "ver-v2", java.time.LocalDateTime.of(2026, 1, 2, 0, 0));
+        return movie;
+    }
+
+    private void insertVersion(String movieId, String versionId, java.time.LocalDateTime createTime) {
+        MediaMovieFile file = new MediaMovieFile();
+        file.setId(versionId);
+        file.setMovieId(movieId);
+        file.setFileNodeId(IdUtil.nextId());
+        file.setCreateTime(createTime);
+        mediaMovieFileMapper.insert(file);
     }
 }

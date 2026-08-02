@@ -1,21 +1,22 @@
 package com.fleyx.jcloud.service.support;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.fleyx.jcloud.common.enums.MediaMetadataOwnerType;
 import com.fleyx.jcloud.common.enums.MediaMetadataSource;
 import com.fleyx.jcloud.common.enums.MediaPersistStatus;
 import com.fleyx.jcloud.mapper.FileMapper;
 import com.fleyx.jcloud.mapper.MediaEpisodeFileMapper;
 import com.fleyx.jcloud.mapper.MediaEpisodeMapper;
-import com.fleyx.jcloud.mapper.MediaMetadataV2Mapper;
-import com.fleyx.jcloud.mapper.MediaSeasonV2Mapper;
+import com.fleyx.jcloud.mapper.MediaMetadataMapper;
+import com.fleyx.jcloud.mapper.MediaSeasonMapper;
 import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.po.MediaEpisode;
 import com.fleyx.jcloud.model.po.MediaEpisodeFile;
-import com.fleyx.jcloud.model.po.MediaMetadataV2;
+import com.fleyx.jcloud.model.po.MediaMetadata;
 import com.fleyx.jcloud.model.po.MediaMovie;
 import com.fleyx.jcloud.model.po.MediaMovieFile;
-import com.fleyx.jcloud.model.po.MediaSeasonV2;
-import com.fleyx.jcloud.model.po.MediaSeriesV2;
+import com.fleyx.jcloud.model.po.MediaSeason;
+import com.fleyx.jcloud.model.po.MediaSeries;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -37,8 +38,8 @@ import java.util.List;
 public class MediaArtworkPersistV2Support {
 
     private final FileMapper fileMapper;
-    private final MediaMetadataV2Mapper mediaMetadataV2Mapper;
-    private final MediaSeasonV2Mapper mediaSeasonV2Mapper;
+    private final MediaMetadataMapper mediaMetadataMapper;
+    private final MediaSeasonMapper mediaSeasonMapper;
     private final MediaEpisodeMapper mediaEpisodeMapper;
     private final MediaEpisodeFileMapper mediaEpisodeFileMapper;
     private final MediaPlaybackResolveSupport mediaPlaybackResolveSupport;
@@ -49,7 +50,7 @@ public class MediaArtworkPersistV2Support {
      * 写回电影级元数据：{@code <代表视频主文件名>.nfo} + poster/fanart 到电影文件夹。
      * local_nfo 来源跳过写回；任一步失败仅标记 failed 不影响削刮结果。
      */
-    public void persistMovieV2(MediaMovie movie, MediaMetadataV2 metadata) {
+    public void persistMovieV2(MediaMovie movie, MediaMetadata metadata) {
         try {
             if (MediaMetadataSource.LOCAL_NFO.getCode().equals(metadata.getSource())) {
                 metadata.setPersistStatus(MediaPersistStatus.PERSISTED.getCode());
@@ -81,7 +82,7 @@ public class MediaArtworkPersistV2Support {
             log.warn("电影元数据写回失败: movie={}, error={}", movie.getId(), e.getMessage());
             metadata.setPersistStatus(MediaPersistStatus.FAILED.getCode());
         } finally {
-            mediaMetadataV2Mapper.updateById(metadata);
+            mediaMetadataMapper.updateById(metadata);
         }
     }
 
@@ -89,7 +90,7 @@ public class MediaArtworkPersistV2Support {
      * 写回剧级元数据：tvshow.nfo + poster/fanart（剧文件夹）、季海报、逐集 nfo 与剧照。
      * 各级别独立成败：剧级失败不影响季/集继续写回；各级别来源为 local_nfo 时跳过本级写回。
      */
-    public void persistSeriesV2(MediaSeriesV2 series, MediaMetadataV2 seriesMetadata) {
+    public void persistSeriesV2(MediaSeries series, MediaMetadata seriesMetadata) {
         FileNode seriesFolder = null;
         boolean ok = true;
         try {
@@ -116,7 +117,7 @@ public class MediaArtworkPersistV2Support {
             log.warn("剧元数据写回失败: series={}, error={}", series.getId(), e.getMessage());
         }
         seriesMetadata.setPersistStatus(ok ? MediaPersistStatus.PERSISTED.getCode() : MediaPersistStatus.FAILED.getCode());
-        mediaMetadataV2Mapper.updateById(seriesMetadata);
+        mediaMetadataMapper.updateById(seriesMetadata);
         if (seriesFolder == null) {
             return;
         }
@@ -124,20 +125,20 @@ public class MediaArtworkPersistV2Support {
         persistEpisodeNfos(series);
     }
 
-    private void persistSeasonPosters(MediaSeriesV2 series, FileNode seriesFolder) {
-        List<MediaSeasonV2> seasons = mediaSeasonV2Mapper.selectList(
-                new LambdaQueryWrapper<MediaSeasonV2>().eq(MediaSeasonV2::getSeriesId, series.getId()));
-        for (MediaSeasonV2 season : seasons) {
+    private void persistSeasonPosters(MediaSeries series, FileNode seriesFolder) {
+        List<MediaSeason> seasons = mediaSeasonMapper.selectList(
+                new LambdaQueryWrapper<MediaSeason>().eq(MediaSeason::getSeriesId, series.getId()));
+        for (MediaSeason season : seasons) {
             if (season.getSeasonNo() == null || season.getMetadataId() == null) {
                 continue;
             }
-            MediaMetadataV2 metadata = mediaMetadataV2Mapper.selectById(season.getMetadataId());
+            MediaMetadata metadata = mediaMetadataMapper.selectById(season.getMetadataId());
             if (metadata == null) {
                 continue;
             }
             if (MediaMetadataSource.LOCAL_NFO.getCode().equals(metadata.getSource())) {
                 metadata.setPersistStatus(MediaPersistStatus.PERSISTED.getCode());
-                mediaMetadataV2Mapper.updateById(metadata);
+                mediaMetadataMapper.updateById(metadata);
                 continue;
             }
             try {
@@ -152,22 +153,22 @@ public class MediaArtworkPersistV2Support {
                 log.warn("季海报写回失败: season={}, error={}", season.getId(), e.getMessage());
                 metadata.setPersistStatus(MediaPersistStatus.FAILED.getCode());
             }
-            mediaMetadataV2Mapper.updateById(metadata);
+            mediaMetadataMapper.updateById(metadata);
         }
     }
 
-    private void persistEpisodeNfos(MediaSeriesV2 series) {
+    private void persistEpisodeNfos(MediaSeries series) {
         List<MediaEpisode> episodes = mediaEpisodeMapper.selectList(new LambdaQueryWrapper<MediaEpisode>()
                 .eq(MediaEpisode::getSeriesId, series.getId())
                 .isNotNull(MediaEpisode::getMetadataId));
         for (MediaEpisode episode : episodes) {
-            MediaMetadataV2 metadata = mediaMetadataV2Mapper.selectById(episode.getMetadataId());
-            if (metadata == null || !"episode".equals(metadata.getOwnerType())) {
+            MediaMetadata metadata = mediaMetadataMapper.selectById(episode.getMetadataId());
+            if (metadata == null || !MediaMetadataOwnerType.EPISODE.getCode().equals(metadata.getOwnerType())) {
                 continue;
             }
             if (MediaMetadataSource.LOCAL_NFO.getCode().equals(metadata.getSource())) {
                 metadata.setPersistStatus(MediaPersistStatus.PERSISTED.getCode());
-                mediaMetadataV2Mapper.updateById(metadata);
+                mediaMetadataMapper.updateById(metadata);
                 continue;
             }
             try {
@@ -195,12 +196,12 @@ public class MediaArtworkPersistV2Support {
                 log.warn("集元数据写回失败: episode={}, error={}", episode.getId(), e.getMessage());
                 metadata.setPersistStatus(MediaPersistStatus.FAILED.getCode());
             }
-            mediaMetadataV2Mapper.updateById(metadata);
+            mediaMetadataMapper.updateById(metadata);
         }
     }
 
     private Integer episodeSeasonNo(MediaEpisode episode) {
-        MediaSeasonV2 season = mediaSeasonV2Mapper.selectById(episode.getSeasonId());
+        MediaSeason season = mediaSeasonMapper.selectById(episode.getSeasonId());
         return season == null ? null : season.getSeasonNo();
     }
 }

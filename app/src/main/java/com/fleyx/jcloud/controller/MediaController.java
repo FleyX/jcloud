@@ -4,11 +4,11 @@ import com.fleyx.jcloud.common.R;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.fleyx.jcloud.common.constant.CommonConstant;
 import com.fleyx.jcloud.common.context.UserContext;
+import com.fleyx.jcloud.common.enums.MediaMetadataOwnerType;
 import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.FileMapper;
 import com.fleyx.jcloud.mapper.MediaMetadataMapper;
-import com.fleyx.jcloud.mapper.MediaMetadataV2Mapper;
 import com.fleyx.jcloud.model.bo.FileDownloadResult;
 import com.fleyx.jcloud.model.dto.MediaDirectorySaveDto;
 import com.fleyx.jcloud.model.dto.MediaDirectoryUpdateDto;
@@ -16,7 +16,6 @@ import com.fleyx.jcloud.model.dto.MediaMatchUpdateDto;
 import com.fleyx.jcloud.model.dto.MediaPageQueryDto;
 import com.fleyx.jcloud.model.dto.MediaProgressUpdateDto;
 import com.fleyx.jcloud.model.po.MediaMetadata;
-import com.fleyx.jcloud.model.po.MediaMetadataV2;
 import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.vo.MediaDirectoryVo;
 import com.fleyx.jcloud.model.vo.MediaHomeVo;
@@ -80,7 +79,6 @@ public class MediaController {
     private final MediaPlaybackService mediaPlaybackService;
     private final TmdbService tmdbService;
     private final MediaMetadataMapper mediaMetadataMapper;
-    private final MediaMetadataV2Mapper mediaMetadataV2Mapper;
     private final FileMapper fileMapper;
     private final MediaArtworkPersistSupport mediaArtworkPersistSupport;
     private final MediaMetadataCompleteSupport metadataCompleteSupport;
@@ -176,12 +174,6 @@ public class MediaController {
         return R.ok(mediaItemService.updateMatch(id, dto, UserContext.get().id()));
     }
 
-    @PutMapping("/items/series/match")
-    public R<Void> updateSeriesMatch(@RequestParam String seriesName, @Valid @RequestBody MediaMatchUpdateDto dto) {
-        mediaItemService.updateSeriesMatch(seriesName, dto, UserContext.get().id());
-        return R.ok();
-    }
-
     @PutMapping("/items/{id}/progress")
     public R<Void> updateProgress(@PathVariable String id, @Valid @RequestBody MediaProgressUpdateDto dto) {
         mediaItemService.updateProgress(id, dto, UserContext.get().id());
@@ -191,14 +183,17 @@ public class MediaController {
     // ---------- 播放 ----------
 
     @GetMapping("/items/{id}/playback")
-    public R<MediaPlaybackInfoVo> playbackInfo(@PathVariable String id) {
-        return R.ok(mediaPlaybackService.getPlaybackInfo(id, UserContext.get().id()));
+    public R<MediaPlaybackInfoVo> playbackInfo(@PathVariable String id,
+                                               @RequestParam(required = false) String versionId) {
+        return R.ok(mediaPlaybackService.getPlaybackInfo(id, UserContext.get().id(), versionId));
     }
 
     @GetMapping("/items/{id}/stream")
     public ResponseEntity<InputStreamResource> stream(@PathVariable String id,
-                                                      @RequestHeader(value = "Range", required = false) String range) {
-        MediaPlaybackService.MediaStreamResult result = mediaPlaybackService.stream(id, UserContext.get().id(), range);
+                                                      @RequestHeader(value = "Range", required = false) String range,
+                                                      @RequestParam(required = false) String versionId) {
+        MediaPlaybackService.MediaStreamResult result =
+                mediaPlaybackService.stream(id, UserContext.get().id(), range, versionId);
         FileDownloadResult download = result.downloadResult();
         String encodedName = URLEncoder.encode(result.fileName(), StandardCharsets.UTF_8).replace("+", "%20");
         ResponseEntity.BodyBuilder builder;
@@ -218,9 +213,10 @@ public class MediaController {
     }
 
     @GetMapping("/items/{id}/subtitles/{index}")
-    public ResponseEntity<InputStreamResource> subtitle(@PathVariable String id, @PathVariable int index)
+    public ResponseEntity<InputStreamResource> subtitle(@PathVariable String id, @PathVariable int index,
+                                                        @RequestParam(required = false) String versionId)
             throws Exception {
-        Path path = mediaPlaybackService.extractSubtitle(id, index, UserContext.get().id());
+        Path path = mediaPlaybackService.extractSubtitle(id, index, UserContext.get().id(), versionId);
         return ResponseEntity.ok()
                 .contentType(MediaType.parseMediaType("text/vtt"))
                 .contentLength(Files.size(path))
@@ -229,8 +225,10 @@ public class MediaController {
 
     @GetMapping("/items/{id}/subtitles/external/{subtitleId}")
     public ResponseEntity<InputStreamResource> externalSubtitle(@PathVariable String id,
-                                                                @PathVariable String subtitleId) throws Exception {
-        Path path = mediaPlaybackService.extractExternalSubtitle(id, subtitleId, UserContext.get().id());
+                                                                @PathVariable String subtitleId,
+                                                                @RequestParam(required = false) String versionId)
+            throws Exception {
+        Path path = mediaPlaybackService.extractExternalSubtitle(id, subtitleId, UserContext.get().id(), versionId);
         return ResponseEntity.ok()
                 .contentType(MediaType.parseMediaType("text/vtt"))
                 .contentLength(Files.size(path))
@@ -243,9 +241,11 @@ public class MediaController {
                                                   @RequestParam(required = false) Integer audioIndex,
                                                   @RequestParam(required = false) Long targetBitrateKbps,
                                                   @RequestParam(required = false) Integer maxHeight,
-                                                  @RequestParam(defaultValue = "false") boolean forceVideoTranscode) {
+                                                  @RequestParam(defaultValue = "false") boolean forceVideoTranscode,
+                                                  @RequestParam(required = false) String versionId) {
         TranscodeSession session = mediaPlaybackService.createTranscodeSession(
-                id, startMs, audioIndex, targetBitrateKbps, maxHeight, forceVideoTranscode, UserContext.get().id());
+                id, startMs, audioIndex, targetBitrateKbps, maxHeight, forceVideoTranscode,
+                UserContext.get().id(), versionId);
         Map<String, String> result = new HashMap<>();
         result.put("sessionId", session.id());
         result.put("playlistUrl", "/jcloud/api/media/transcode/" + session.id() + "/index.m3u8");
@@ -315,13 +315,6 @@ public class MediaController {
 
     @GetMapping("/metadata/{id}/poster")
     public ResponseEntity<InputStreamResource> poster(@PathVariable String id) {
-        MediaMetadataV2 metadataV2 = mediaMetadataV2Mapper.selectById(id);
-        if (metadataV2 != null) {
-            if (!UserContext.get().id().equals(metadataV2.getUserId())) {
-                throw new BusinessException(ResultCode.NOT_FOUND, "海报不存在");
-            }
-            return artworkResponse(metadataV2.getPosterFileNodeId(), "海报");
-        }
         MediaMetadata metadata = mediaMetadataMapper.selectById(id);
         if (metadata == null || !UserContext.get().id().equals(metadata.getUserId())) {
             throw new BusinessException(ResultCode.NOT_FOUND, "海报不存在");
@@ -338,13 +331,6 @@ public class MediaController {
 
     @GetMapping("/metadata/{id}/backdrop")
     public ResponseEntity<InputStreamResource> backdrop(@PathVariable String id) {
-        MediaMetadataV2 metadataV2 = mediaMetadataV2Mapper.selectById(id);
-        if (metadataV2 != null) {
-            if (!UserContext.get().id().equals(metadataV2.getUserId())) {
-                throw new BusinessException(ResultCode.NOT_FOUND, "背景图不存在");
-            }
-            return artworkResponse(metadataV2.getBackdropFileNodeId(), "背景图");
-        }
         MediaMetadata metadata = mediaMetadataMapper.selectById(id);
         if (metadata == null || !UserContext.get().id().equals(metadata.getUserId())) {
             throw new BusinessException(ResultCode.NOT_FOUND, "背景图不存在");
@@ -376,24 +362,19 @@ public class MediaController {
 
     @PostMapping("/metadata/{id}/refresh")
     public R<Void> refreshMetadata(@PathVariable String id) {
-        MediaMetadataV2 metadataV2 = mediaMetadataV2Mapper.selectById(id);
-        if (metadataV2 != null) {
-            if (!UserContext.get().id().equals(metadataV2.getUserId())) {
-                throw new BusinessException(ResultCode.NOT_FOUND, "元数据不存在");
-            }
-            MediaMetadataV2 refreshed = tmdbService.refreshV2(metadataV2);
-            if (refreshed != null) {
-                mediaMetadataV2Mapper.updateById(refreshed);
-            }
-            // 每次刷新结束后重算 owner 的元数据完整性（剧集为聚合语义）
-            metadataCompleteSupport.refreshOwnerComplete(metadataV2.getOwnerType(), metadataV2.getOwnerId());
-            return R.ok();
-        }
         MediaMetadata metadata = mediaMetadataMapper.selectById(id);
         if (metadata == null || !UserContext.get().id().equals(metadata.getUserId())) {
             throw new BusinessException(ResultCode.NOT_FOUND, "元数据不存在");
         }
-        tmdbService.refresh(id);
+        MediaMetadata refreshed = tmdbService.refreshV2(metadata);
+        if (refreshed != null) {
+            mediaMetadataMapper.updateById(refreshed);
+        }
+        // 每次刷新结束后重算 owner 的元数据完整性（剧集为聚合语义）；owner_type 未知编码时跳过（of 空安全）
+        MediaMetadataOwnerType ownerType = MediaMetadataOwnerType.of(metadata.getOwnerType());
+        if (ownerType != null) {
+            metadataCompleteSupport.refreshOwnerComplete(ownerType, metadata.getOwnerId());
+        }
         return R.ok();
     }
 }

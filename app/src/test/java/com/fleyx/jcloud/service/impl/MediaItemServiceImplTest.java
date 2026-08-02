@@ -3,33 +3,26 @@ package com.fleyx.jcloud.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.exception.BusinessException;
-import com.fleyx.jcloud.mapper.FileMapper;
 import com.fleyx.jcloud.mapper.MediaEpisodeFileMapper;
 import com.fleyx.jcloud.mapper.MediaEpisodeMapper;
-import com.fleyx.jcloud.mapper.MediaItemMapper;
-import com.fleyx.jcloud.mapper.MediaMetadataMapper;
 import com.fleyx.jcloud.mapper.MediaMovieFileMapper;
 import com.fleyx.jcloud.mapper.MediaMovieMapper;
 import com.fleyx.jcloud.mapper.MediaOtherMapper;
 import com.fleyx.jcloud.mapper.MediaSeriesMapper;
-import com.fleyx.jcloud.mapper.MediaSeriesV2Mapper;
 import com.fleyx.jcloud.model.po.MediaEpisode;
 import com.fleyx.jcloud.model.po.MediaEpisodeFile;
-import com.fleyx.jcloud.model.po.MediaItem;
+import com.fleyx.jcloud.model.po.MediaMetadata;
 import com.fleyx.jcloud.model.po.MediaMovie;
 import com.fleyx.jcloud.model.po.MediaMovieFile;
 import com.fleyx.jcloud.model.po.MediaOther;
-import com.fleyx.jcloud.model.po.MediaSeriesV2;
+import com.fleyx.jcloud.model.po.MediaSeries;
 import com.fleyx.jcloud.service.TmdbService;
-import com.fleyx.jcloud.service.support.MediaArtworkPersistSupport;
 import com.fleyx.jcloud.service.support.MediaArtworkPersistV2Support;
-import com.fleyx.jcloud.service.support.MediaItemVoSupport;
 import com.fleyx.jcloud.service.support.MediaMetadataCompleteSupport;
-import com.fleyx.jcloud.service.support.MediaMetadataV2Support;
+import com.fleyx.jcloud.service.support.MediaMetadataSupport;
 import com.fleyx.jcloud.service.support.MediaMovieQuerySupport;
 import com.fleyx.jcloud.service.support.MediaOtherQuerySupport;
 import com.fleyx.jcloud.service.support.MediaPlaybackResolveSupport;
-import com.fleyx.jcloud.service.support.MediaSeriesSupport;
 import com.fleyx.jcloud.service.support.MediaTvQuerySupport;
 import com.fleyx.jcloud.service.support.MediaTvScrapeSupport;
 import org.junit.jupiter.api.Test;
@@ -37,43 +30,36 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * 媒体条目查询服务实现测试（issue #19：按文件节点反查标题级行 ID）。
+ * 媒体条目查询服务实现测试（issue #19：按文件节点反查标题级行 ID；issue #21：统一按行 ID 手动修正）。
  */
 class MediaItemServiceImplTest {
 
-    private final MediaItemMapper mediaItemMapper = mock(MediaItemMapper.class);
-    private final MediaMetadataMapper mediaMetadataMapper = mock(MediaMetadataMapper.class);
     private final MediaSeriesMapper mediaSeriesMapper = mock(MediaSeriesMapper.class);
     private final MediaMovieMapper mediaMovieMapper = mock(MediaMovieMapper.class);
     private final MediaMovieFileMapper mediaMovieFileMapper = mock(MediaMovieFileMapper.class);
     private final MediaEpisodeMapper mediaEpisodeMapper = mock(MediaEpisodeMapper.class);
     private final MediaEpisodeFileMapper mediaEpisodeFileMapper = mock(MediaEpisodeFileMapper.class);
     private final MediaOtherMapper mediaOtherMapper = mock(MediaOtherMapper.class);
-    private final MediaSeriesV2Mapper mediaSeriesV2Mapper = mock(MediaSeriesV2Mapper.class);
-    private final FileMapper fileMapper = mock(FileMapper.class);
     private final TmdbService tmdbService = mock(TmdbService.class);
-    private final MediaSeriesSupport mediaSeriesSupport = mock(MediaSeriesSupport.class);
-    private final MediaItemVoSupport mediaItemVoSupport = mock(MediaItemVoSupport.class);
-    private final MediaArtworkPersistSupport mediaArtworkPersistSupport = mock(MediaArtworkPersistSupport.class);
     private final MediaTvQuerySupport mediaTvQuerySupport = mock(MediaTvQuerySupport.class);
     private final MediaMovieQuerySupport mediaMovieQuerySupport = mock(MediaMovieQuerySupport.class);
     private final MediaOtherQuerySupport mediaOtherQuerySupport = mock(MediaOtherQuerySupport.class);
     private final MediaPlaybackResolveSupport mediaPlaybackResolveSupport = mock(MediaPlaybackResolveSupport.class);
-    private final MediaMetadataV2Support metadataV2Support = mock(MediaMetadataV2Support.class);
+    private final MediaMetadataSupport metadataSupport = mock(MediaMetadataSupport.class);
     private final MediaMetadataCompleteSupport metadataCompleteSupport = mock(MediaMetadataCompleteSupport.class);
     private final MediaTvScrapeSupport mediaTvScrapeSupport = mock(MediaTvScrapeSupport.class);
     private final MediaArtworkPersistV2Support artworkPersistV2Support = mock(MediaArtworkPersistV2Support.class);
 
     private final MediaItemServiceImpl mediaItemService = new MediaItemServiceImpl(
-            mediaItemMapper, mediaMetadataMapper, mediaSeriesMapper, mediaMovieMapper,
-            mediaMovieFileMapper, mediaEpisodeMapper, mediaEpisodeFileMapper, mediaOtherMapper,
-            mediaSeriesV2Mapper, fileMapper, tmdbService, mediaSeriesSupport, mediaItemVoSupport,
-            mediaArtworkPersistSupport, mediaTvQuerySupport, mediaMovieQuerySupport, mediaOtherQuerySupport,
-            mediaPlaybackResolveSupport, metadataV2Support, metadataCompleteSupport,
+            mediaSeriesMapper, mediaMovieMapper, mediaMovieFileMapper,
+            mediaEpisodeMapper, mediaEpisodeFileMapper, mediaOtherMapper,
+            tmdbService, mediaTvQuerySupport, mediaMovieQuerySupport, mediaOtherQuerySupport,
+            mediaPlaybackResolveSupport, metadataSupport, metadataCompleteSupport,
             mediaTvScrapeSupport, artworkPersistV2Support);
 
     /**
@@ -124,12 +110,12 @@ class MediaItemServiceImplTest {
         MediaEpisode episode = new MediaEpisode();
         episode.setId("episode-1");
         episode.setSeriesId("series-1");
-        MediaSeriesV2 series = new MediaSeriesV2();
+        MediaSeries series = new MediaSeries();
         series.setId("series-1");
         series.setUserId("user-1");
         when(mediaEpisodeFileMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(episodeFile);
         when(mediaEpisodeMapper.selectById("episode-1")).thenReturn(episode);
-        when(mediaSeriesV2Mapper.selectById("series-1")).thenReturn(series);
+        when(mediaSeriesMapper.selectById("series-1")).thenReturn(series);
 
         String id = mediaItemService.getItemIdByFileNodeId("fn-ep", "user-1");
 
@@ -144,11 +130,56 @@ class MediaItemServiceImplTest {
         when(mediaOtherMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(null);
         when(mediaMovieFileMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(null);
         when(mediaEpisodeFileMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(null);
-        when(mediaItemMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(null);
 
         BusinessException exception = assertThrows(BusinessException.class,
                 () -> mediaItemService.getItemIdByFileNodeId("fn-9", "user-1"));
 
         assertEquals(ResultCode.NOT_FOUND, exception.getResultCode());
+    }
+
+    /**
+     * 手动修正：剧集行 ID 命中时走剧集级修正，返回剧集行视图。
+     */
+    @Test
+    void shouldMatchSeriesRowById() {
+        MediaSeries series = new MediaSeries();
+        series.setId("series-1");
+        series.setUserId("user-1");
+        series.setSeriesName("测试剧");
+        when(mediaMovieMapper.selectById("series-1")).thenReturn(null);
+        when(mediaSeriesMapper.selectById("series-1")).thenReturn(series);
+
+        com.fleyx.jcloud.model.dto.MediaMatchUpdateDto dto = new com.fleyx.jcloud.model.dto.MediaMatchUpdateDto();
+        dto.setTmdbId(100L);
+        dto.setMediaType("tv");
+        MediaMetadata detached = new MediaMetadata();
+        detached.setTitle("测试剧");
+        when(tmdbService.fetchDetailV2(eq("user-1"), eq(100L), eq("tv"))).thenReturn(detached);
+
+        var vo = mediaItemService.updateMatch("series-1", dto, "user-1");
+
+        assertEquals("series-1", vo.getId());
+        assertEquals("series", vo.getItemType());
+    }
+
+    /**
+     * 手动修正：集行 ID 命中时集级手动修正已下线，抛业务异常。
+     */
+    @Test
+    void shouldRejectEpisodeMatch() {
+        MediaEpisode episode = new MediaEpisode();
+        episode.setId("episode-1");
+        when(mediaMovieMapper.selectById("episode-1")).thenReturn(null);
+        when(mediaSeriesMapper.selectById("episode-1")).thenReturn(null);
+        when(mediaEpisodeMapper.selectById("episode-1")).thenReturn(episode);
+
+        com.fleyx.jcloud.model.dto.MediaMatchUpdateDto dto = new com.fleyx.jcloud.model.dto.MediaMatchUpdateDto();
+        dto.setTmdbId(100L);
+        dto.setMediaType("tv");
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> mediaItemService.updateMatch("episode-1", dto, "user-1"));
+
+        assertEquals(ResultCode.BUSINESS_ERROR, exception.getResultCode());
     }
 }

@@ -6,7 +6,7 @@
     <select id="selectMoviePage" resultType="com.fleyx.jcloud.model.po.MediaMovie">
         SELECT m.*
         FROM t_media_movie m
-        LEFT JOIN t_media_metadata_v2 md ON md.id = m.metadata_id
+        LEFT JOIN t_media_metadata md ON md.id = m.metadata_id
         WHERE m.user_id = #{userId}
         <if test="directoryId != null and directoryId != ''">
           AND m.directory_id = #{directoryId}
