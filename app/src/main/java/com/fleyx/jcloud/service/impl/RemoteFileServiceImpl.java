@@ -60,8 +60,33 @@ public class RemoteFileServiceImpl implements RemoteFileService {
         }
     }
 
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public FileNode uploadContent(FileNode parentNode, String userId, String finalName, byte[] content, String mimeType) {
+        validateRemoteFolder(parentNode, userId);
+        RemoteMount mount = remoteMountSupport.requireOwnedMount(parentNode.getRemoteMountId(), userId);
+        RLock lock = remoteMountLock.getLock(mount.getId());
+        lock.lock();
+        try {
+            return doUpload(new java.io.ByteArrayInputStream(content), content.length, mimeType,
+                    parentNode, mount, userId, finalName);
+        } finally {
+            lock.unlock();
+        }
+    }
+
     private FileNodeVo doUpload(MultipartFile file, FileNode parentNode, RemoteMount mount,
                                 String userId, String finalName) {
+        try (InputStream is = file.getInputStream()) {
+            FileNode node = doUpload(is, file.getSize(), file.getContentType(), parentNode, mount, userId, finalName);
+            return fileConvert.poToVo(node);
+        } catch (IOException e) {
+            throw new SystemException(ResultCode.BUSINESS_ERROR, "读取上传文件失败", e);
+        }
+    }
+
+    private FileNode doUpload(InputStream content, long size, String mimeType, FileNode parentNode,
+                              RemoteMount mount, String userId, String finalName) {
         FileNode existing = FileConflictHelper.findSameName(fileMapper, userId, parentNode.getId(), finalName);
         if (existing != null && TYPE_FOLDER.equals(existing.getType())) {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "不能覆盖文件夹");
@@ -71,11 +96,7 @@ public class RemoteFileServiceImpl implements RemoteFileService {
         String newRemotePath = FilePathUtil.buildPathName(parentRemotePath, finalName);
 
         RemoteProtocolAdapter adapter = adapterFactory.create(mount);
-        try (InputStream is = file.getInputStream()) {
-            adapter.upload(newRemotePath, is, file.getSize(), file.getContentType());
-        } catch (IOException e) {
-            throw new SystemException(ResultCode.BUSINESS_ERROR, "读取上传文件失败", e);
-        }
+        adapter.upload(newRemotePath, content, size, mimeType);
 
         if (existing != null) {
             fileMapper.deleteById(existing.getId());
@@ -86,16 +107,16 @@ public class RemoteFileServiceImpl implements RemoteFileService {
         node.setParentId(parentNode.getId());
         node.setName(finalName);
         node.setType(TYPE_FILE);
-        node.setSize(file.getSize());
+        node.setSize(size);
         node.setHash(null);
         node.setSourceType(FileNodeConstants.SOURCE_REMOTE);
         node.setRemoteMountId(mount.getId());
         node.setPath(FilePathUtil.buildChildPath(parentNode));
-        node.setMimeType(file.getContentType());
+        node.setMimeType(mimeType);
         node.setStatus(1);
         fileMapper.insert(node);
 
-        return fileConvert.poToVo(node);
+        return node;
     }
 
     @Override

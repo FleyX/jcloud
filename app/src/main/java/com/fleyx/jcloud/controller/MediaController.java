@@ -6,6 +6,7 @@ import com.fleyx.jcloud.common.constant.CommonConstant;
 import com.fleyx.jcloud.common.context.UserContext;
 import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.exception.BusinessException;
+import com.fleyx.jcloud.mapper.FileMapper;
 import com.fleyx.jcloud.mapper.MediaMetadataMapper;
 import com.fleyx.jcloud.model.bo.FileDownloadResult;
 import com.fleyx.jcloud.model.dto.MediaDirectorySaveDto;
@@ -14,7 +15,7 @@ import com.fleyx.jcloud.model.dto.MediaMatchUpdateDto;
 import com.fleyx.jcloud.model.dto.MediaPageQueryDto;
 import com.fleyx.jcloud.model.dto.MediaProgressUpdateDto;
 import com.fleyx.jcloud.model.po.MediaMetadata;
-import com.fleyx.jcloud.model.po.StorageSpace;
+import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.vo.MediaDirectoryVo;
 import com.fleyx.jcloud.model.vo.MediaHomeVo;
 import com.fleyx.jcloud.model.vo.MediaItemDetailVo;
@@ -29,8 +30,8 @@ import com.fleyx.jcloud.service.MediaItemService;
 import com.fleyx.jcloud.service.MediaPlaybackService;
 import com.fleyx.jcloud.service.MediaScanService;
 import com.fleyx.jcloud.service.MediaScrapeService;
-import com.fleyx.jcloud.service.SystemStorageSpaceProvider;
 import com.fleyx.jcloud.service.TmdbService;
+import com.fleyx.jcloud.service.support.MediaArtworkPersistSupport;
 import com.fleyx.jcloud.service.support.TranscodeSession;
 import com.fleyx.jcloud.service.support.TranscodeSessionManager;
 import jakarta.validation.Valid;
@@ -76,7 +77,8 @@ public class MediaController {
     private final MediaPlaybackService mediaPlaybackService;
     private final TmdbService tmdbService;
     private final MediaMetadataMapper mediaMetadataMapper;
-    private final SystemStorageSpaceProvider systemStorageSpaceProvider;
+    private final FileMapper fileMapper;
+    private final MediaArtworkPersistSupport mediaArtworkPersistSupport;
     private final TranscodeSessionManager transcodeSessionManager;
 
     // ---------- 目录管理 ----------
@@ -307,20 +309,12 @@ public class MediaController {
     // ---------- 元数据 ----------
 
     @GetMapping("/metadata/{id}/poster")
-    public ResponseEntity<InputStreamResource> poster(@PathVariable String id) throws Exception {
+    public ResponseEntity<InputStreamResource> poster(@PathVariable String id) {
         MediaMetadata metadata = mediaMetadataMapper.selectById(id);
-        if (metadata == null || metadata.getPosterPath() == null) {
+        if (metadata == null || !UserContext.get().id().equals(metadata.getUserId())) {
             throw new BusinessException(ResultCode.NOT_FOUND, "海报不存在");
         }
-        StorageSpace space = systemStorageSpaceProvider.getSystemSpace();
-        Path path = Path.of(space.getPath(), "system", metadata.getPosterPath());
-        if (!Files.exists(path)) {
-            throw new BusinessException(ResultCode.NOT_FOUND, "海报文件已丢失");
-        }
-        return ResponseEntity.ok()
-                .contentType(MediaType.IMAGE_JPEG)
-                .contentLength(Files.size(path))
-                .body(new InputStreamResource(Files.newInputStream(path)));
+        return artworkResponse(metadata.getPosterFileNodeId(), "海报");
     }
 
     @GetMapping("/tmdb/search")
@@ -331,24 +325,42 @@ public class MediaController {
     }
 
     @GetMapping("/metadata/{id}/backdrop")
-    public ResponseEntity<InputStreamResource> backdrop(@PathVariable String id) throws Exception {
+    public ResponseEntity<InputStreamResource> backdrop(@PathVariable String id) {
         MediaMetadata metadata = mediaMetadataMapper.selectById(id);
-        if (metadata == null || metadata.getBackdropPath() == null) {
+        if (metadata == null || !UserContext.get().id().equals(metadata.getUserId())) {
             throw new BusinessException(ResultCode.NOT_FOUND, "背景图不存在");
         }
-        StorageSpace space = systemStorageSpaceProvider.getSystemSpace();
-        Path path = Path.of(space.getPath(), "system", metadata.getBackdropPath());
-        if (!Files.exists(path)) {
-            throw new BusinessException(ResultCode.NOT_FOUND, "背景图文件已丢失");
+        return artworkResponse(metadata.getBackdropFileNodeId(), "背景图");
+    }
+
+    /**
+     * 按图片文件节点实时读取图片（本地直读，远程经适配器下载），加缓存头缓解重复读取。
+     */
+    private ResponseEntity<InputStreamResource> artworkResponse(String fileNodeId, String label) {
+        if (fileNodeId == null) {
+            throw new BusinessException(ResultCode.NOT_FOUND, label + "不存在");
+        }
+        FileNode node = fileMapper.selectById(fileNodeId);
+        if (node == null) {
+            throw new BusinessException(ResultCode.NOT_FOUND, label + "文件已丢失");
+        }
+        byte[] bytes = mediaArtworkPersistSupport.readFileBytes(node);
+        if (bytes == null) {
+            throw new BusinessException(ResultCode.NOT_FOUND, label + "读取失败");
         }
         return ResponseEntity.ok()
+                .header(HttpHeaders.CACHE_CONTROL, "max-age=3600")
                 .contentType(MediaType.IMAGE_JPEG)
-                .contentLength(Files.size(path))
-                .body(new InputStreamResource(Files.newInputStream(path)));
+                .contentLength(bytes.length)
+                .body(new InputStreamResource(new ByteArrayInputStream(bytes)));
     }
 
     @PostMapping("/metadata/{id}/refresh")
     public R<Void> refreshMetadata(@PathVariable String id) {
+        MediaMetadata metadata = mediaMetadataMapper.selectById(id);
+        if (metadata == null || !UserContext.get().id().equals(metadata.getUserId())) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "元数据不存在");
+        }
         tmdbService.refresh(id);
         return R.ok();
     }

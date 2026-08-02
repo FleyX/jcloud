@@ -71,7 +71,7 @@ public class MediaItemVoSupport {
      * 元数据海报图 URL，无海报时返回 null。
      */
     public String posterUrlOf(MediaMetadata metadata) {
-        return metadata == null || metadata.getPosterPath() == null ? null
+        return metadata == null || metadata.getPosterFileNodeId() == null ? null
                 : metadataPosterUrl(metadata.getId());
     }
 
@@ -79,7 +79,7 @@ public class MediaItemVoSupport {
      * 元数据背景图 URL，无背景图时返回 null。
      */
     public String backdropUrlOf(MediaMetadata metadata) {
-        return metadata == null || metadata.getBackdropPath() == null ? null
+        return metadata == null || metadata.getBackdropFileNodeId() == null ? null
                 : "/jcloud/api/media/metadata/" + metadata.getId() + "/backdrop";
     }
 
