@@ -1,5 +1,6 @@
 package com.fleyx.jcloud.service.support;
 
+import cn.hutool.core.util.StrUtil;
 import com.fleyx.jcloud.common.enums.MediaMetadataOwnerType;
 import com.fleyx.jcloud.model.po.MediaMetadata;
 import lombok.RequiredArgsConstructor;
@@ -129,6 +130,8 @@ public class MediaNfoSupport {
         if (xml == null || xml.isBlank()) {
             return null;
         }
+        // 剥离前导 BOM（\uFEFF，Emby 等工具写出的 NFO 常见），否则解析器抛「前言中不允许有内容」
+        xml = StrUtil.removePrefix(xml, "\uFEFF");
         try {
             DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
             factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
