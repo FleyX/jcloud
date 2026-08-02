@@ -10,6 +10,7 @@ import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.FileMapper;
 import com.fleyx.jcloud.mapper.MediaItemMapper;
 import com.fleyx.jcloud.mapper.MediaMetadataMapper;
+import com.fleyx.jcloud.mapper.MediaMovieMapper;
 import com.fleyx.jcloud.mapper.MediaSeriesMapper;
 import com.fleyx.jcloud.model.dto.MediaMatchUpdateDto;
 import com.fleyx.jcloud.model.dto.MediaPageQueryDto;
@@ -17,6 +18,7 @@ import com.fleyx.jcloud.model.dto.MediaProgressUpdateDto;
 import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.po.MediaItem;
 import com.fleyx.jcloud.model.po.MediaMetadata;
+import com.fleyx.jcloud.model.po.MediaMovie;
 import com.fleyx.jcloud.model.po.MediaSeries;
 import com.fleyx.jcloud.model.vo.MediaItemDetailVo;
 import com.fleyx.jcloud.model.vo.MediaItemVo;
@@ -26,6 +28,7 @@ import com.fleyx.jcloud.service.MediaItemService;
 import com.fleyx.jcloud.service.TmdbService;
 import com.fleyx.jcloud.service.support.MediaArtworkPersistSupport;
 import com.fleyx.jcloud.service.support.MediaItemVoSupport;
+import com.fleyx.jcloud.service.support.MediaMovieQuerySupport;
 import com.fleyx.jcloud.service.support.MediaSeriesSupport;
 import com.fleyx.jcloud.service.support.MediaTvQuerySupport;
 import lombok.RequiredArgsConstructor;
@@ -48,16 +51,19 @@ public class MediaItemServiceImpl implements MediaItemService {
     private final MediaItemMapper mediaItemMapper;
     private final MediaMetadataMapper mediaMetadataMapper;
     private final MediaSeriesMapper mediaSeriesMapper;
+    private final MediaMovieMapper mediaMovieMapper;
     private final FileMapper fileMapper;
     private final TmdbService tmdbService;
     private final MediaSeriesSupport mediaSeriesSupport;
     private final MediaItemVoSupport mediaItemVoSupport;
     private final MediaArtworkPersistSupport mediaArtworkPersistSupport;
     private final MediaTvQuerySupport mediaTvQuerySupport;
+    private final MediaMovieQuerySupport mediaMovieQuerySupport;
 
     @Override
     public IPage<MediaItemVo> listMovies(String userId, MediaPageQueryDto query) {
-        return queryItemPage(userId, MediaItemType.MOVIE.getCode(), query, true);
+        // 电影库新模型海报墙（issue #18）：按电影聚合，一部电影只出现一次
+        return mediaMovieQuerySupport.listMovies(userId, query);
     }
 
     @Override
@@ -141,7 +147,11 @@ public class MediaItemServiceImpl implements MediaItemService {
     public MediaItemDetailVo getItemDetail(String itemId, String userId) {
         MediaItem item = mediaItemMapper.selectById(itemId);
         if (item == null) {
-            // 电视库新模型的集详情（issue #17）
+            // 新模型回退：电影详情（issue #18）或电视库的集详情（issue #17）
+            MediaMovie movie = mediaMovieMapper.selectById(itemId);
+            if (movie != null) {
+                return mediaMovieQuerySupport.getMovieDetail(itemId, userId);
+            }
             return mediaTvQuerySupport.getEpisodeDetail(itemId, userId);
         }
         if (!userId.equals(item.getUserId())) {

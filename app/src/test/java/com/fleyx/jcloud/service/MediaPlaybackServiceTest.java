@@ -240,11 +240,15 @@ class MediaPlaybackServiceTest {
         return subtitles.get(0);
     }
 
+    /**
+     * 创建「其他」类型媒体库：视频文件在来源根目录下的散文件，仍走旧路径扫描（每个视频文件一行），
+     * 供播放链路（字幕/码率/vtt）测试复用旧表条目（播放链路切换到新模型在 issue #19）。
+     */
     private MediaDirectory createMovieDirectory(String userId, String folderNodeId) {
         MediaDirectory directory = new MediaDirectory();
         directory.setUserId(userId);
         directory.setName("测试媒体库");
-        directory.setMediaType("movie");
+        directory.setMediaType("other");
         mediaDirectoryMapper.insert(directory);
         MediaDirectorySource source = new MediaDirectorySource();
         source.setDirectoryId(directory.getId());

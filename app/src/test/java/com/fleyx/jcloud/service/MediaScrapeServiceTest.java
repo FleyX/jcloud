@@ -114,9 +114,9 @@ class MediaScrapeServiceTest {
         UserVo user = prepareUserWithStorageSpace();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo parentFolder = createFolder(user.getId(), movieFolder.getId(), "Iron Man 2008");
-        fileService.upload(buildFile("randomfile.mkv"), user.getId(), parentFolder.getId(), null);
+        FileNodeVo videoFile = fileService.upload(buildFile("randomfile.mkv"), user.getId(), parentFolder.getId(), null);
         MediaDirectory directory = createDirectory(user.getId(), movieFolder.getId(), "movie");
-        mediaScanService.scan(directory.getId());
+        seedOldMovieScanData(directory, videoFile.getId());
 
         MediaMetadata metadata = buildMetadata("metamovie0001", 1000L);
         when(tmdbService.autoMatch(eq(user.getId()), eq("movie"), anyString(), any()))
@@ -138,9 +138,9 @@ class MediaScrapeServiceTest {
     void shouldSkipManualItemWhenScraping() {
         UserVo user = prepareUserWithStorageSpace();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
-        fileService.upload(buildFile("Iron.Man.2008.1080p.mkv"), user.getId(), movieFolder.getId(), null);
+        FileNodeVo videoFile = fileService.upload(buildFile("Iron.Man.2008.1080p.mkv"), user.getId(), movieFolder.getId(), null);
         MediaDirectory directory = createDirectory(user.getId(), movieFolder.getId(), "movie");
-        mediaScanService.scan(directory.getId());
+        seedOldMovieScanData(directory, videoFile.getId());
 
         MediaItem item = queryItem(directory.getId());
         item.setMetadataId("manualmeta001");
@@ -252,7 +252,7 @@ class MediaScrapeServiceTest {
         UserVo user = prepareUserWithStorageSpace();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo parentFolder = createFolder(user.getId(), movieFolder.getId(), "Iron Man 2008");
-        fileService.upload(buildFile("Iron.Man.2008.1080p.mkv"), user.getId(), parentFolder.getId(), null);
+        FileNodeVo videoFile = fileService.upload(buildFile("Iron.Man.2008.1080p.mkv"), user.getId(), parentFolder.getId(), null);
         fileService.upload(buildTextFile("Iron.Man.2008.1080p.nfo", """
                 <movie>
                   <tmdbid>1726</tmdbid>
@@ -268,7 +268,7 @@ class MediaScrapeServiceTest {
         fileService.upload(buildFile("poster.jpg"), user.getId(), parentFolder.getId(), null);
         fileService.upload(buildFile("fanart.jpg"), user.getId(), parentFolder.getId(), null);
         MediaDirectory directory = createDirectory(user.getId(), movieFolder.getId(), "movie");
-        mediaScanService.scan(directory.getId());
+        seedOldMovieScanData(directory, videoFile.getId());
 
         scrapeAwaitIdle(directory, user.getId(), false);
 
@@ -297,9 +297,9 @@ class MediaScrapeServiceTest {
     void shouldPersistArtworkAfterTmdbScrape() {
         UserVo user = prepareUserWithStorageSpace();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
-        fileService.upload(buildFile("Iron.Man.2008.1080p.mkv"), user.getId(), movieFolder.getId(), null);
+        FileNodeVo videoFile = fileService.upload(buildFile("Iron.Man.2008.1080p.mkv"), user.getId(), movieFolder.getId(), null);
         MediaDirectory directory = createDirectory(user.getId(), movieFolder.getId(), "movie");
-        mediaScanService.scan(directory.getId());
+        seedOldMovieScanData(directory, videoFile.getId());
 
         MediaMetadata metadata = buildMetadata("metatmdb00001", 1000L);
         metadata.setUserId(user.getId());
@@ -337,9 +337,9 @@ class MediaScrapeServiceTest {
     void shouldKeepMetadataWhenPersistFails() {
         UserVo user = prepareUserWithStorageSpace();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
-        fileService.upload(buildFile("Iron.Man.2008.1080p.mkv"), user.getId(), movieFolder.getId(), null);
+        FileNodeVo videoFile = fileService.upload(buildFile("Iron.Man.2008.1080p.mkv"), user.getId(), movieFolder.getId(), null);
         MediaDirectory directory = createDirectory(user.getId(), movieFolder.getId(), "movie");
-        mediaScanService.scan(directory.getId());
+        seedOldMovieScanData(directory, videoFile.getId());
 
         MediaMetadata metadata = buildMetadata("metatmdb00002", 1001L);
         metadata.setUserId(user.getId());
@@ -444,11 +444,11 @@ class MediaScrapeServiceTest {
         UserVo user = prepareUserWithStorageSpace();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo parentFolder = createFolder(user.getId(), movieFolder.getId(), "Iron Man 2008");
-        fileService.upload(buildFile("Iron.Man.2008.1080p.mkv"), user.getId(), parentFolder.getId(), null);
+        FileNodeVo videoFile = fileService.upload(buildFile("Iron.Man.2008.1080p.mkv"), user.getId(), parentFolder.getId(), null);
         fileService.upload(buildFile("poster.jpg"), user.getId(), parentFolder.getId(), null);
         fileService.upload(buildFile("fanart.jpg"), user.getId(), parentFolder.getId(), null);
         MediaDirectory directory = createDirectory(user.getId(), movieFolder.getId(), "movie");
-        mediaScanService.scan(directory.getId());
+        seedOldMovieScanData(directory, videoFile.getId());
 
         scrapeAwaitIdle(directory, user.getId(), false);
 
@@ -603,6 +603,22 @@ class MediaScrapeServiceTest {
         item.setMatchStatus(MediaMatchStatus.UNMATCHED.getCode());
         mediaItemMapper.insert(item);
         return series;
+    }
+
+    /**
+     * 电影库扫描已切换到新模型（issue #18），旧电影削刮路径（#20 替换前仍是旁路旧代码）
+     * 的测试直接播种旧表数据，取代原先的「先扫描再削刮」准备方式。
+     */
+    private void seedOldMovieScanData(MediaDirectory directory, String fileNodeId) {
+        MediaItem item = new MediaItem();
+        item.setUserId(directory.getUserId());
+        item.setDirectoryId(directory.getId());
+        item.setSourceId(mediaDirectorySourceMapper.selectOne(new LambdaQueryWrapper<MediaDirectorySource>()
+                .eq(MediaDirectorySource::getDirectoryId, directory.getId())).getId());
+        item.setFileNodeId(fileNodeId);
+        item.setItemType(MediaItemType.MOVIE.getCode());
+        item.setMatchStatus(MediaMatchStatus.UNMATCHED.getCode());
+        mediaItemMapper.insert(item);
     }
 
     private MultipartFile buildFile(String name) {

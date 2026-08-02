@@ -20,6 +20,7 @@ import com.fleyx.jcloud.service.support.MediaDirectorySourceSupport;
 import com.fleyx.jcloud.service.support.MediaScanSupport;
 import com.fleyx.jcloud.service.support.MediaSeriesSupport;
 import com.fleyx.jcloud.service.support.MediaSubtitleSupport;
+import com.fleyx.jcloud.service.support.MediaMovieScanSupport;
 import com.fleyx.jcloud.service.support.MediaTaskSupport;
 import com.fleyx.jcloud.service.support.MediaTvScanSupport;
 import com.fleyx.jcloud.util.FilePathUtil;
@@ -64,6 +65,7 @@ public class MediaScanServiceImpl implements MediaScanService {
     private final MediaScrapeService mediaScrapeService;
     private final MediaDirectorySourceSupport sourceSupport;
     private final MediaTvScanSupport mediaTvScanSupport;
+    private final MediaMovieScanSupport mediaMovieScanSupport;
     private final TaskExecutor taskExecutor;
 
     public MediaScanServiceImpl(MediaDirectoryMapper mediaDirectoryMapper, MediaItemMapper mediaItemMapper,
@@ -72,6 +74,7 @@ public class MediaScanServiceImpl implements MediaScanService {
                                 MediaSubtitleSupport mediaSubtitleSupport,
                                 MediaTaskSupport mediaTaskSupport, MediaScrapeService mediaScrapeService,
                                 MediaDirectorySourceSupport sourceSupport, MediaTvScanSupport mediaTvScanSupport,
+                                MediaMovieScanSupport mediaMovieScanSupport,
                                 @Qualifier("applicationTaskExecutor") TaskExecutor taskExecutor) {
         this.mediaDirectoryMapper = mediaDirectoryMapper;
         this.mediaItemMapper = mediaItemMapper;
@@ -84,6 +87,7 @@ public class MediaScanServiceImpl implements MediaScanService {
         this.mediaScrapeService = mediaScrapeService;
         this.sourceSupport = sourceSupport;
         this.mediaTvScanSupport = mediaTvScanSupport;
+        this.mediaMovieScanSupport = mediaMovieScanSupport;
         this.taskExecutor = taskExecutor;
     }
 
@@ -197,6 +201,10 @@ public class MediaScanServiceImpl implements MediaScanService {
         if (mediaType == MediaType.TV) {
             // 电视库：新模型端到端扫描（ADR 0021），含按剧即时 reconcile 与三道闸批次清理
             return mediaTvScanSupport.scanDirectory(directory, sources, force, username);
+        }
+        if (mediaType == MediaType.MOVIE) {
+            // 电影库：新模型端到端扫描（issue #18），含按电影即时 reconcile 与三道闸批次清理
+            return mediaMovieScanSupport.scanDirectory(directory, sources, force, username);
         }
         Map<String, MediaSeries> seriesCache = new HashMap<>();
         Map<String, MediaSeason> seasonCache = new HashMap<>();
