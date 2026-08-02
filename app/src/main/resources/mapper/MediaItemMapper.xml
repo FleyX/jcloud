@@ -54,7 +54,7 @@
         FROM t_media_item i
         JOIN t_media_metadata m ON m.id = i.metadata_id
         WHERE i.directory_id = #{directoryId}
-          AND m.poster_path IS NOT NULL
+          AND m.poster_file_node_id IS NOT NULL
         ORDER BY i.file_last_modified DESC NULLS LAST, i.create_time DESC, i.id
         LIMIT 1
     </select>

@@ -10,6 +10,7 @@ import com.fleyx.jcloud.mapper.MediaSeasonMapper;
 import com.fleyx.jcloud.mapper.MediaSeriesMapper;
 import com.fleyx.jcloud.model.po.MediaItem;
 import com.fleyx.jcloud.service.TmdbService;
+import com.fleyx.jcloud.service.support.MediaArtworkPersistSupport;
 import com.fleyx.jcloud.service.support.MediaItemVoSupport;
 import com.fleyx.jcloud.service.support.MediaSeriesSupport;
 import org.junit.jupiter.api.Test;
@@ -34,10 +35,11 @@ class MediaItemServiceImplTest {
     private final TmdbService tmdbService = mock(TmdbService.class);
     private final MediaSeriesSupport mediaSeriesSupport = mock(MediaSeriesSupport.class);
     private final MediaItemVoSupport mediaItemVoSupport = mock(MediaItemVoSupport.class);
+    private final MediaArtworkPersistSupport mediaArtworkPersistSupport = mock(MediaArtworkPersistSupport.class);
 
     private final MediaItemServiceImpl mediaItemService = new MediaItemServiceImpl(
             mediaItemMapper, mediaMetadataMapper, mediaSeriesMapper, mediaSeasonMapper,
-            fileMapper, tmdbService, mediaSeriesSupport, mediaItemVoSupport);
+            fileMapper, tmdbService, mediaSeriesSupport, mediaItemVoSupport, mediaArtworkPersistSupport);
 
     /**
      * 按文件节点 ID 反查媒体条目 ID：命中时返回条目 ID。
