@@ -90,6 +90,61 @@ class MediaNfoSupportTest {
     }
 
     /**
+     * 带 UTF-8 BOM（\uFEFF，Emby 等工具写出的 NFO）的剧 NFO 可完整解析。
+     */
+    @Test
+    void shouldParseTvshowNfoWithBom() {
+        String xml = "\uFEFF" + """
+                <tvshow>
+                  <title>亮剑</title>
+                  <originaltitle>Bright Sword</originaltitle>
+                  <plot>抗战题材</plot>
+                  <premiered>2005-09-12</premiered>
+                  <rating>9.2</rating>
+                  <tmdbid>34567</tmdbid>
+                  <genre>战争</genre>
+                  <genre>剧情</genre>
+                </tvshow>
+                """;
+        MediaNfoSupport.NfoData data = nfoSupport.parse(xml);
+
+        assertEquals("tv", data.mediaType());
+        assertEquals("亮剑", data.title());
+        assertEquals("Bright Sword", data.originalTitle());
+        assertEquals("抗战题材", data.overview());
+        assertEquals("2005-09-12", data.releaseDate());
+        assertEquals(9.2, data.voteAverage());
+        assertEquals(34567L, data.tmdbId());
+        assertEquals("战争,剧情", data.genres());
+    }
+
+    /**
+     * 带 UTF-8 BOM 的集 NFO 可完整解析。
+     */
+    @Test
+    void shouldParseEpisodeNfoWithBom() {
+        String xml = "\uFEFF" + """
+                <episodedetails>
+                  <title>第一集</title>
+                  <plot>开场</plot>
+                  <season>1</season>
+                  <episode>1</episode>
+                  <rating>9.0</rating>
+                  <tmdbid>888</tmdbid>
+                </episodedetails>
+                """;
+        MediaNfoSupport.NfoData data = nfoSupport.parse(xml);
+
+        assertEquals("episode", data.mediaType());
+        assertEquals("第一集", data.title());
+        assertEquals("开场", data.overview());
+        assertEquals(1, data.seasonNo());
+        assertEquals(1, data.episodeNo());
+        assertEquals(9.0, data.voteAverage());
+        assertEquals(888L, data.tmdbId());
+    }
+
+    /**
      * 非法 XML 与不支持的根元素返回 null，不抛异常。
      */
     @Test
