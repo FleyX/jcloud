@@ -76,22 +76,33 @@ export function fetchMediaOthers(query: MediaPageQuery): Promise<PageResult<Medi
 
 // ---------- 匹配与进度 ----------
 
+/**
+ * 手动修正匹配：id 为电影行或剧集行 ID（集级修正已下线，集 ID 会触发业务异常）。
+ */
 export function updateMediaMatch(id: string, tmdbId: number, mediaType: 'movie' | 'tv'): Promise<MediaItemVo> {
   return put<MediaItemVo>(`/media/items/${id}/match`, { tmdbId, mediaType })
 }
 
-export function updateSeriesMatch(seriesName: string, tmdbId: number): Promise<void> {
-  return put<void>('/media/items/series/match', { tmdbId, mediaType: 'tv' }, { seriesName })
+/** 播放进度上报入参（versionId 非空时后端记为该次播放版本，续播据此定位；剧集/其他忽略） */
+export interface MediaProgressUpdateDto {
+  progressMs: number
+  versionId?: string
 }
 
-export function updateMediaProgress(id: string, progressMs: number): Promise<void> {
-  return put<void>(`/media/items/${id}/progress`, { progressMs })
+export function updateMediaProgress(id: string, progressMs: number, versionId?: string): Promise<void> {
+  const body: MediaProgressUpdateDto = { progressMs }
+  if (versionId) body.versionId = versionId
+  return put<void>(`/media/items/${id}/progress`, body)
 }
 
 // ---------- 播放 ----------
 
-export function fetchPlaybackInfo(id: string): Promise<MediaPlaybackInfoVo> {
-  return get<MediaPlaybackInfoVo>(`/media/items/${id}/playback`)
+/**
+ * 拉取播放信息。versionId 为电影版本明细行 ID（可选）：指定时用该版本文件事实，
+ * 缺省时后端按续播语义定位（last_play_file_id 优先，缺省最早版本）。
+ */
+export function fetchPlaybackInfo(id: string, versionId?: string): Promise<MediaPlaybackInfoVo> {
+  return get<MediaPlaybackInfoVo>(`/media/items/${id}/playback`, versionId ? { versionId } : undefined)
 }
 
 /**
@@ -112,8 +123,9 @@ export function createTranscodeSession(
   id: string,
   startMs: number,
   options: TranscodeSessionOptions = {},
+  versionId?: string,
 ): Promise<MediaTranscodeSessionVo> {
-  return post<MediaTranscodeSessionVo>(`/media/items/${id}/transcode`, undefined, { startMs, ...options })
+  return post<MediaTranscodeSessionVo>(`/media/items/${id}/transcode`, undefined, { startMs, ...options, versionId })
 }
 
 /**
@@ -143,12 +155,14 @@ export function transcodeCloseBeaconUrl(sessionId: string): string {
   return withToken(`/jcloud/api/media/transcode/${sessionId}/close`)
 }
 
-export function subtitleUrl(id: string, index: number): string {
-  return withToken(`/jcloud/api/media/items/${id}/subtitles/${index}`)
+export function subtitleUrl(id: string, index: number, versionId?: string): string {
+  const base = `/jcloud/api/media/items/${id}/subtitles/${index}`
+  return withToken(versionId ? `${base}?versionId=${encodeURIComponent(versionId)}` : base)
 }
 
-export function externalSubtitleUrl(id: string, subtitleId: string): string {
-  return withToken(`/jcloud/api/media/items/${id}/subtitles/external/${subtitleId}`)
+export function externalSubtitleUrl(id: string, subtitleId: string, versionId?: string): string {
+  const base = `/jcloud/api/media/items/${id}/subtitles/external/${subtitleId}`
+  return withToken(versionId ? `${base}?versionId=${encodeURIComponent(versionId)}` : base)
 }
 
 // ---------- 元数据 ----------

@@ -81,4 +81,11 @@ public class MediaPlaybackInfoVo {
      * 播放进度（毫秒）。
      */
     private Long progressMs;
+
+    /**
+     * 本次解析使用的文件明细行 ID（电影为 t_media_movie_file 明细行 ID，即版本 ID；
+     * 集为 t_media_episode_file 明细行 ID；其他为 other 行 ID）。前端播放时以此定位版本，
+     * 进度上报时回传该值使 last_play_file_id 记为该版本（续播定位）。
+     */
+    private String versionId;
 }

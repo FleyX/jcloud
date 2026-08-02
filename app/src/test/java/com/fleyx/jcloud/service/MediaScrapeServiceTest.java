@@ -12,11 +12,11 @@ import com.fleyx.jcloud.mapper.MediaDirectoryMapper;
 import com.fleyx.jcloud.mapper.MediaDirectorySourceMapper;
 import com.fleyx.jcloud.mapper.MediaEpisodeFileMapper;
 import com.fleyx.jcloud.mapper.MediaEpisodeMapper;
-import com.fleyx.jcloud.mapper.MediaMetadataV2Mapper;
+import com.fleyx.jcloud.mapper.MediaMetadataMapper;
 import com.fleyx.jcloud.mapper.MediaMovieFileMapper;
 import com.fleyx.jcloud.mapper.MediaMovieMapper;
-import com.fleyx.jcloud.mapper.MediaSeasonV2Mapper;
-import com.fleyx.jcloud.mapper.MediaSeriesV2Mapper;
+import com.fleyx.jcloud.mapper.MediaSeasonMapper;
+import com.fleyx.jcloud.mapper.MediaSeriesMapper;
 import com.fleyx.jcloud.model.dto.FileCreateFolderDto;
 import com.fleyx.jcloud.model.dto.MediaMatchUpdateDto;
 import com.fleyx.jcloud.model.dto.StorageSpaceSaveDto;
@@ -26,11 +26,11 @@ import com.fleyx.jcloud.model.po.MediaDirectory;
 import com.fleyx.jcloud.model.po.MediaDirectorySource;
 import com.fleyx.jcloud.model.po.MediaEpisode;
 import com.fleyx.jcloud.model.po.MediaEpisodeFile;
-import com.fleyx.jcloud.model.po.MediaMetadataV2;
+import com.fleyx.jcloud.model.po.MediaMetadata;
 import com.fleyx.jcloud.model.po.MediaMovie;
 import com.fleyx.jcloud.model.po.MediaMovieFile;
-import com.fleyx.jcloud.model.po.MediaSeasonV2;
-import com.fleyx.jcloud.model.po.MediaSeriesV2;
+import com.fleyx.jcloud.model.po.MediaSeason;
+import com.fleyx.jcloud.model.po.MediaSeries;
 import com.fleyx.jcloud.model.vo.FileNodeVo;
 import com.fleyx.jcloud.model.vo.StorageSpaceVo;
 import com.fleyx.jcloud.model.vo.UserVo;
@@ -111,10 +111,10 @@ class MediaScrapeServiceTest {
     private MediaMovieFileMapper mediaMovieFileMapper;
 
     @Autowired
-    private MediaSeriesV2Mapper mediaSeriesV2Mapper;
+    private MediaSeriesMapper mediaSeriesMapper;
 
     @Autowired
-    private MediaSeasonV2Mapper mediaSeasonV2Mapper;
+    private MediaSeasonMapper mediaSeasonMapper;
 
     @Autowired
     private MediaEpisodeMapper mediaEpisodeMapper;
@@ -123,7 +123,7 @@ class MediaScrapeServiceTest {
     private MediaEpisodeFileMapper mediaEpisodeFileMapper;
 
     @Autowired
-    private MediaMetadataV2Mapper mediaMetadataV2Mapper;
+    private MediaMetadataMapper mediaMetadataMapper;
 
     @Autowired
     private MediaMovieCascadeSupport mediaMovieCascadeSupport;
@@ -167,8 +167,8 @@ class MediaScrapeServiceTest {
         movieC.setMetadataComplete(false);
         mediaMovieMapper.updateById(movieC);
 
-        MediaMetadataV2 metaA = fullMetadata(user.getId(), "movie", 1000L);
-        MediaMetadataV2 metaC = fullMetadata(user.getId(), "movie", 2000L);
+        MediaMetadata metaA = fullMetadata(user.getId(), "movie", 1000L);
+        MediaMetadata metaC = fullMetadata(user.getId(), "movie", 2000L);
         when(tmdbService.autoMatchV2(eq(user.getId()), eq("movie"), anyString(), any()))
                 .thenAnswer(inv -> "Iron Man".equals(inv.getArgument(2)) ? metaA
                         : "Avatar".equals(inv.getArgument(2)) ? metaC : null);
@@ -219,7 +219,7 @@ class MediaScrapeServiceTest {
         MediaDirectory directory = createDirectory(user.getId(), movieFolder.getId(), "movie");
         MediaMovie movie = seedMovie(directory, user.getId(), movieFolder.getId(), "Iron Man", 2008, videoFile.getId());
 
-        MediaMetadataV2 metadata = fullMetadata(user.getId(), "movie", 1000L);
+        MediaMetadata metadata = fullMetadata(user.getId(), "movie", 1000L);
         when(tmdbService.autoMatchV2(eq(user.getId()), eq("movie"), anyString(), any())).thenReturn(metadata);
         when(tmdbService.downloadArtwork(anyString(), anyString())).thenReturn(new byte[]{1});
 
@@ -227,9 +227,9 @@ class MediaScrapeServiceTest {
 
         MediaMovie after = mediaMovieMapper.selectById(movie.getId());
         assertTrue(after.getMetadataComplete());
-        MediaMetadataV2 meta = mediaMetadataV2Mapper.selectOne(new LambdaQueryWrapper<MediaMetadataV2>()
-                .eq(MediaMetadataV2::getOwnerType, "movie")
-                .eq(MediaMetadataV2::getOwnerId, movie.getId()));
+        MediaMetadata meta = mediaMetadataMapper.selectOne(new LambdaQueryWrapper<MediaMetadata>()
+                .eq(MediaMetadata::getOwnerType, "movie")
+                .eq(MediaMetadata::getOwnerId, movie.getId()));
         assertNotNull(meta);
         assertEquals("tmdb", meta.getSource());
         assertEquals("persisted", meta.getPersistStatus());
@@ -246,7 +246,7 @@ class MediaScrapeServiceTest {
         MediaDirectory directory = createDirectory(user.getId(), movieFolder.getId(), "movie");
         MediaMovie movie = seedMovie(directory, user.getId(), movieFolder.getId(), "Iron Man", 2008, videoFile.getId());
 
-        MediaMetadataV2 metadata = fullMetadata(user.getId(), "movie", 1000L);
+        MediaMetadata metadata = fullMetadata(user.getId(), "movie", 1000L);
         metadata.setOverview(null);
         when(tmdbService.autoMatchV2(eq(user.getId()), eq("movie"), anyString(), any())).thenReturn(metadata);
         when(tmdbService.downloadArtwork(anyString(), anyString())).thenReturn(new byte[]{1});
@@ -270,15 +270,15 @@ class MediaScrapeServiceTest {
         FileNodeVo epFile = fileService.upload(buildFile("亮剑.S01E01.1080p.mkv"), user.getId(), seasonFolder.getId(), null);
         FileNodeVo ep2File = fileService.upload(buildFile("亮剑.S01E02.1080p.mkv"), user.getId(), seasonFolder.getId(), null);
         MediaDirectory directory = createDirectory(user.getId(), tvFolder.getId(), "tv");
-        MediaSeriesV2 series = seedSeries(directory, user.getId(), seriesFolder.getId(), "亮剑", null);
-        MediaSeasonV2 season = seedSeason(series.getId(), seasonFolder.getId(), 1);
+        MediaSeries series = seedSeries(directory, user.getId(), seriesFolder.getId(), "亮剑", null);
+        MediaSeason season = seedSeason(series.getId(), seasonFolder.getId(), 1);
         MediaEpisode ep1 = seedEpisode(series.getId(), season.getId(), 1, epFile.getId());
         MediaEpisode ep2 = seedEpisode(series.getId(), season.getId(), 2, ep2File.getId());
 
-        MediaMetadataV2 seriesMeta = fullMetadata(user.getId(), "series", 2000L);
-        MediaMetadataV2 seasonMeta = fullMetadata(user.getId(), "season", null);
-        MediaMetadataV2 ep1Meta = fullMetadata(user.getId(), "episode", null);
-        MediaMetadataV2 ep2Meta = fullMetadata(user.getId(), "episode", null);
+        MediaMetadata seriesMeta = fullMetadata(user.getId(), "series", 2000L);
+        MediaMetadata seasonMeta = fullMetadata(user.getId(), "season", null);
+        MediaMetadata ep1Meta = fullMetadata(user.getId(), "episode", null);
+        MediaMetadata ep2Meta = fullMetadata(user.getId(), "episode", null);
         when(tmdbService.autoMatchV2(eq(user.getId()), eq("tv"), eq("亮剑"), isNull())).thenReturn(seriesMeta);
         when(tmdbService.fetchSeasonV2(eq(user.getId()), eq(2000L), eq(1)))
                 .thenReturn(new TmdbService.SeasonFetchV2(seasonMeta, Map.of(1, ep1Meta, 2, ep2Meta)));
@@ -286,12 +286,12 @@ class MediaScrapeServiceTest {
 
         scrapeAwaitIdle(directory, user.getId(), false);
 
-        MediaSeriesV2 after = mediaSeriesV2Mapper.selectById(series.getId());
+        MediaSeries after = mediaSeriesMapper.selectById(series.getId());
         assertEquals(MediaMatchStatus.MATCHED.getCode(), after.getMatchStatus());
         assertTrue(after.getMetadataComplete());
-        assertNotNull(mediaMetadataV2Mapper.selectOne(owner("season", season.getId())));
-        assertNotNull(mediaMetadataV2Mapper.selectOne(owner("episode", ep1.getId())));
-        assertNotNull(mediaMetadataV2Mapper.selectOne(owner("episode", ep2.getId())));
+        assertNotNull(mediaMetadataMapper.selectOne(owner("season", season.getId())));
+        assertNotNull(mediaMetadataMapper.selectOne(owner("episode", ep1.getId())));
+        assertNotNull(mediaMetadataMapper.selectOne(owner("episode", ep2.getId())));
     }
 
     /**
@@ -306,15 +306,15 @@ class MediaScrapeServiceTest {
         FileNodeVo epFile = fileService.upload(buildFile("亮剑.S01E01.1080p.mkv"), user.getId(), seasonFolder.getId(), null);
         FileNodeVo ep2File = fileService.upload(buildFile("亮剑.S01E02.1080p.mkv"), user.getId(), seasonFolder.getId(), null);
         MediaDirectory directory = createDirectory(user.getId(), tvFolder.getId(), "tv");
-        MediaSeriesV2 series = seedSeries(directory, user.getId(), seriesFolder.getId(), "亮剑", null);
-        MediaSeasonV2 season = seedSeason(series.getId(), seasonFolder.getId(), 1);
+        MediaSeries series = seedSeries(directory, user.getId(), seriesFolder.getId(), "亮剑", null);
+        MediaSeason season = seedSeason(series.getId(), seasonFolder.getId(), 1);
         seedEpisode(series.getId(), season.getId(), 1, epFile.getId());
         seedEpisode(series.getId(), season.getId(), 2, ep2File.getId());
 
-        MediaMetadataV2 seriesMeta = fullMetadata(user.getId(), "series", 2000L);
-        MediaMetadataV2 seasonMeta = fullMetadata(user.getId(), "season", null);
-        MediaMetadataV2 ep1Meta = fullMetadata(user.getId(), "episode", null);
-        MediaMetadataV2 ep2Meta = fullMetadata(user.getId(), "episode", null);
+        MediaMetadata seriesMeta = fullMetadata(user.getId(), "series", 2000L);
+        MediaMetadata seasonMeta = fullMetadata(user.getId(), "season", null);
+        MediaMetadata ep1Meta = fullMetadata(user.getId(), "episode", null);
+        MediaMetadata ep2Meta = fullMetadata(user.getId(), "episode", null);
         ep2Meta.setOverview(null);
         when(tmdbService.autoMatchV2(eq(user.getId()), eq("tv"), eq("亮剑"), isNull())).thenReturn(seriesMeta);
         when(tmdbService.fetchSeasonV2(eq(user.getId()), eq(2000L), eq(1)))
@@ -323,7 +323,7 @@ class MediaScrapeServiceTest {
 
         scrapeAwaitIdle(directory, user.getId(), false);
 
-        assertFalse(mediaSeriesV2Mapper.selectById(series.getId()).getMetadataComplete());
+        assertFalse(mediaSeriesMapper.selectById(series.getId()).getMetadataComplete());
     }
 
     // ---------- 验收 4：本地 NFO 优先、不请求 TMDB、写回不变 ----------
@@ -361,7 +361,7 @@ class MediaScrapeServiceTest {
         MediaMovie after = mediaMovieMapper.selectById(movie.getId());
         assertEquals(MediaMatchStatus.MATCHED.getCode(), after.getMatchStatus());
         assertTrue(after.getMetadataComplete());
-        MediaMetadataV2 metadata = mediaMetadataV2Mapper.selectOne(owner("movie", movie.getId()));
+        MediaMetadata metadata = mediaMetadataMapper.selectOne(owner("movie", movie.getId()));
         assertEquals("local_nfo", metadata.getSource());
         assertEquals(1726L, metadata.getTmdbId());
         assertEquals("钢铁侠", metadata.getTitle());
@@ -408,27 +408,27 @@ class MediaScrapeServiceTest {
                 """), user.getId(), seasonFolder.getId(), null);
         fileService.upload(buildFile("亮剑.S01E01.1080p-thumb.jpg"), user.getId(), seasonFolder.getId(), null);
         MediaDirectory directory = createDirectory(user.getId(), tvFolder.getId(), "tv");
-        MediaSeriesV2 series = seedSeries(directory, user.getId(), seriesFolder.getId(), "亮剑", null);
-        MediaSeasonV2 season = seedSeason(series.getId(), seasonFolder.getId(), 1);
+        MediaSeries series = seedSeries(directory, user.getId(), seriesFolder.getId(), "亮剑", null);
+        MediaSeason season = seedSeason(series.getId(), seasonFolder.getId(), 1);
         MediaEpisode episode = seedEpisode(series.getId(), season.getId(), 1, episodeFile.getId());
 
         scrapeAwaitIdle(directory, user.getId(), false);
 
         verify(tmdbService, never()).autoMatchV2(any(), anyString(), anyString(), any());
         verify(tmdbService, never()).fetchSeasonV2(any(), any(), any());
-        MediaSeriesV2 after = mediaSeriesV2Mapper.selectById(series.getId());
+        MediaSeries after = mediaSeriesMapper.selectById(series.getId());
         assertEquals(MediaMatchStatus.MATCHED.getCode(), after.getMatchStatus());
-        MediaMetadataV2 seriesMetadata = mediaMetadataV2Mapper.selectOne(owner("series", series.getId()));
+        MediaMetadata seriesMetadata = mediaMetadataMapper.selectOne(owner("series", series.getId()));
         assertEquals("local_nfo", seriesMetadata.getSource());
         assertEquals(2000L, seriesMetadata.getTmdbId());
         assertEquals("亮剑", seriesMetadata.getTitle());
         assertEquals("persisted", seriesMetadata.getPersistStatus());
         assertEquals(queryChildNode(seriesFolder.getId(), "poster.jpg").getId(), seriesMetadata.getPosterFileNodeId());
-        MediaMetadataV2 seasonMetadata = mediaMetadataV2Mapper.selectOne(owner("season", season.getId()));
+        MediaMetadata seasonMetadata = mediaMetadataMapper.selectOne(owner("season", season.getId()));
         assertEquals("local_nfo", seasonMetadata.getSource());
         assertEquals(queryChildNode(seriesFolder.getId(), "season01-poster.jpg").getId(),
                 seasonMetadata.getPosterFileNodeId());
-        MediaMetadataV2 episodeMetadata = mediaMetadataV2Mapper.selectOne(owner("episode", episode.getId()));
+        MediaMetadata episodeMetadata = mediaMetadataMapper.selectOne(owner("episode", episode.getId()));
         assertEquals("local_nfo", episodeMetadata.getSource());
         assertEquals("苍云岭之战", episodeMetadata.getTitle());
         assertEquals(queryChildNode(seasonFolder.getId(), "亮剑.S01E01.1080p-thumb.jpg").getId(),
@@ -461,7 +461,7 @@ class MediaScrapeServiceTest {
         MediaMovie after = mediaMovieMapper.selectById(movie.getId());
         assertEquals(MediaMatchStatus.MATCHED.getCode(), after.getMatchStatus());
         assertFalse(after.getMetadataComplete());
-        MediaMetadataV2 metadata = mediaMetadataV2Mapper.selectOne(owner("movie", movie.getId()));
+        MediaMetadata metadata = mediaMetadataMapper.selectOne(owner("movie", movie.getId()));
         assertEquals("local_nfo", metadata.getSource());
         assertNull(metadata.getTitle());
         assertNull(metadata.getTmdbId());
@@ -481,20 +481,20 @@ class MediaScrapeServiceTest {
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         MediaDirectory directory = createDirectory(user.getId(), movieFolder.getId(), "movie");
         MediaMovie movie = seedMovie(directory, user.getId(), movieFolder.getId(), "Iron Man", 2008, null);
-        MediaMetadataV2 metadata = new MediaMetadataV2();
+        MediaMetadata metadata = new MediaMetadata();
         metadata.setUserId(user.getId());
         metadata.setOwnerType("movie");
         metadata.setOwnerId(movie.getId());
         metadata.setSource("tmdb");
         metadata.setTitle("钢铁侠");
-        mediaMetadataV2Mapper.insert(metadata);
+        mediaMetadataMapper.insert(metadata);
 
         mediaMovieCascadeSupport.deleteMoviesCascade(List.of(movie.getId()));
 
         assertNull(mediaMovieMapper.selectById(movie.getId()));
-        assertNull(mediaMetadataV2Mapper.selectOne(owner("movie", movie.getId())));
-        assertEquals(0, mediaMetadataV2Mapper.selectCount(new LambdaQueryWrapper<MediaMetadataV2>()
-                .eq(MediaMetadataV2::getUserId, user.getId())));
+        assertNull(mediaMetadataMapper.selectOne(owner("movie", movie.getId())));
+        assertEquals(0, mediaMetadataMapper.selectCount(new LambdaQueryWrapper<MediaMetadata>()
+                .eq(MediaMetadata::getUserId, user.getId())));
     }
 
     /**
@@ -507,8 +507,8 @@ class MediaScrapeServiceTest {
         FileNodeVo seriesFolder = createFolder(user.getId(), tvFolder.getId(), "亮剑");
         FileNodeVo seasonFolder = createFolder(user.getId(), seriesFolder.getId(), "Season 1");
         MediaDirectory directory = createDirectory(user.getId(), tvFolder.getId(), "tv");
-        MediaSeriesV2 series = seedSeries(directory, user.getId(), seriesFolder.getId(), "亮剑", null);
-        MediaSeasonV2 season = seedSeason(series.getId(), seasonFolder.getId(), 1);
+        MediaSeries series = seedSeries(directory, user.getId(), seriesFolder.getId(), "亮剑", null);
+        MediaSeason season = seedSeason(series.getId(), seasonFolder.getId(), 1);
         MediaEpisode episode = seedEpisode(series.getId(), season.getId(), 1, null);
         seedMetadata(user.getId(), "series", series.getId());
         seedMetadata(user.getId(), "season", season.getId());
@@ -516,11 +516,11 @@ class MediaScrapeServiceTest {
 
         mediaTvCascadeSupport.deleteSeriesCascade(List.of(series.getId()));
 
-        assertNull(mediaSeriesV2Mapper.selectById(series.getId()));
-        assertNull(mediaSeasonV2Mapper.selectById(season.getId()));
+        assertNull(mediaSeriesMapper.selectById(series.getId()));
+        assertNull(mediaSeasonMapper.selectById(season.getId()));
         assertNull(mediaEpisodeMapper.selectById(episode.getId()));
-        assertEquals(0, mediaMetadataV2Mapper.selectCount(new LambdaQueryWrapper<MediaMetadataV2>()
-                .eq(MediaMetadataV2::getUserId, user.getId())));
+        assertEquals(0, mediaMetadataMapper.selectCount(new LambdaQueryWrapper<MediaMetadata>()
+                .eq(MediaMetadata::getUserId, user.getId())));
     }
 
     // ---------- 验收 6：集级手动修正移除 + manual 保护 ----------
@@ -535,8 +535,8 @@ class MediaScrapeServiceTest {
         FileNodeVo seriesFolder = createFolder(user.getId(), tvFolder.getId(), "亮剑");
         FileNodeVo seasonFolder = createFolder(user.getId(), seriesFolder.getId(), "Season 1");
         MediaDirectory directory = createDirectory(user.getId(), tvFolder.getId(), "tv");
-        MediaSeriesV2 series = seedSeries(directory, user.getId(), seriesFolder.getId(), "亮剑", null);
-        MediaSeasonV2 season = seedSeason(series.getId(), seasonFolder.getId(), 1);
+        MediaSeries series = seedSeries(directory, user.getId(), seriesFolder.getId(), "亮剑", null);
+        MediaSeason season = seedSeason(series.getId(), seasonFolder.getId(), 1);
         MediaEpisode episode = seedEpisode(series.getId(), season.getId(), 1, null);
 
         MediaMatchUpdateDto dto = new MediaMatchUpdateDto();
@@ -558,7 +558,7 @@ class MediaScrapeServiceTest {
         MediaDirectory directory = createDirectory(user.getId(), movieFolder.getId(), "movie");
         MediaMovie movie = seedMovie(directory, user.getId(), movieFolder.getId(), "Iron Man", 2008, videoFile.getId());
 
-        MediaMetadataV2 manualMeta = fullMetadata(user.getId(), "movie", 1000L);
+        MediaMetadata manualMeta = fullMetadata(user.getId(), "movie", 1000L);
         when(tmdbService.fetchDetailV2(eq(user.getId()), eq(1000L), eq("movie"))).thenReturn(manualMeta);
         when(tmdbService.downloadArtwork(anyString(), anyString())).thenReturn(new byte[]{1});
 
@@ -590,13 +590,13 @@ class MediaScrapeServiceTest {
         FileNodeVo seasonFolder = createFolder(user.getId(), seriesFolder.getId(), "Season 1");
         FileNodeVo epFile = fileService.upload(buildFile("亮剑.S01E01.1080p.mkv"), user.getId(), seasonFolder.getId(), null);
         MediaDirectory directory = createDirectory(user.getId(), tvFolder.getId(), "tv");
-        MediaSeriesV2 series = seedSeries(directory, user.getId(), seriesFolder.getId(), "亮剑", null);
-        MediaSeasonV2 season = seedSeason(series.getId(), seasonFolder.getId(), 1);
+        MediaSeries series = seedSeries(directory, user.getId(), seriesFolder.getId(), "亮剑", null);
+        MediaSeason season = seedSeason(series.getId(), seasonFolder.getId(), 1);
         seedEpisode(series.getId(), season.getId(), 1, epFile.getId());
 
-        MediaMetadataV2 manualMeta = fullMetadata(user.getId(), "series", 2000L);
-        MediaMetadataV2 seasonMeta = fullMetadata(user.getId(), "season", null);
-        MediaMetadataV2 epMeta = fullMetadata(user.getId(), "episode", null);
+        MediaMetadata manualMeta = fullMetadata(user.getId(), "series", 2000L);
+        MediaMetadata seasonMeta = fullMetadata(user.getId(), "season", null);
+        MediaMetadata epMeta = fullMetadata(user.getId(), "episode", null);
         when(tmdbService.fetchDetailV2(eq(user.getId()), eq(2000L), eq("tv"))).thenReturn(manualMeta);
         when(tmdbService.fetchSeasonV2(eq(user.getId()), eq(2000L), eq(1)))
                 .thenReturn(new TmdbService.SeasonFetchV2(seasonMeta, Map.of(1, epMeta)));
@@ -605,16 +605,17 @@ class MediaScrapeServiceTest {
         MediaMatchUpdateDto dto = new MediaMatchUpdateDto();
         dto.setTmdbId(2000L);
         dto.setMediaType("tv");
-        mediaItemService.updateSeriesMatch("亮剑", dto, user.getId());
+        // issue #21：剧集级手动修正统一按行 ID
+        mediaItemService.updateMatch(series.getId(), dto, user.getId());
 
-        MediaSeriesV2 manual = mediaSeriesV2Mapper.selectById(series.getId());
+        MediaSeries manual = mediaSeriesMapper.selectById(series.getId());
         assertEquals(MediaMatchStatus.MANUAL.getCode(), manual.getMatchStatus());
         assertNotNull(manual.getMetadataId());
 
         scrapeAwaitIdle(directory, user.getId(), true);
 
         verify(tmdbService, never()).autoMatchV2(any(), anyString(), anyString(), any());
-        MediaSeriesV2 after = mediaSeriesV2Mapper.selectById(series.getId());
+        MediaSeries after = mediaSeriesMapper.selectById(series.getId());
         assertEquals(MediaMatchStatus.MANUAL.getCode(), after.getMatchStatus());
         assertEquals(manual.getMetadataId(), after.getMetadataId());
     }
@@ -633,7 +634,7 @@ class MediaScrapeServiceTest {
         MediaDirectory directory = createDirectory(user.getId(), movieFolder.getId(), "movie");
         MediaMovie movie = seedMovie(directory, user.getId(), parentFolder.getId(), "Iron Man", 2008, videoFile.getId());
 
-        MediaMetadataV2 metadata = fullMetadata(user.getId(), "movie", 1000L);
+        MediaMetadata metadata = fullMetadata(user.getId(), "movie", 1000L);
         when(tmdbService.autoMatchV2(eq(user.getId()), eq("movie"), anyString(), any()))
                 .thenAnswer(inv -> "Iron Man".equals(inv.getArgument(2)) ? metadata : null);
         when(tmdbService.downloadArtwork(anyString(), anyString())).thenReturn(new byte[]{1});
@@ -658,7 +659,7 @@ class MediaScrapeServiceTest {
         MediaDirectory directory = createDirectory(user.getId(), movieFolder.getId(), "movie");
         MediaMovie movie = seedMovie(directory, user.getId(), movieFolder.getId(), "Iron Man", 2008, videoFile.getId());
 
-        MediaMetadataV2 metadata = fullMetadata(user.getId(), "movie", 1000L);
+        MediaMetadata metadata = fullMetadata(user.getId(), "movie", 1000L);
         metadata.setRawJson("{\"poster_path\":\"/p.jpg\",\"backdrop_path\":\"/b.jpg\"}");
         when(tmdbService.autoMatchV2(eq(user.getId()), eq("movie"), anyString(), any())).thenReturn(metadata);
         when(tmdbService.downloadArtwork("/p.jpg", "poster")).thenReturn(new byte[]{1, 2, 3});
@@ -667,7 +668,7 @@ class MediaScrapeServiceTest {
         scrapeAwaitIdle(directory, user.getId(), false);
 
         MediaMovie after = mediaMovieMapper.selectById(movie.getId());
-        MediaMetadataV2 meta = mediaMetadataV2Mapper.selectOne(owner("movie", movie.getId()));
+        MediaMetadata meta = mediaMetadataMapper.selectOne(owner("movie", movie.getId()));
         assertEquals("persisted", meta.getPersistStatus());
         FileNode poster = queryChildNode(movieFolder.getId(), "poster.jpg");
         FileNode fanart = queryChildNode(movieFolder.getId(), "fanart.jpg");
@@ -691,7 +692,7 @@ class MediaScrapeServiceTest {
         MediaDirectory directory = createDirectory(user.getId(), movieFolder.getId(), "movie");
         MediaMovie movie = seedMovie(directory, user.getId(), movieFolder.getId(), "Iron Man", 2008, videoFile.getId());
 
-        MediaMetadataV2 metadata = fullMetadata(user.getId(), "movie", 1001L);
+        MediaMetadata metadata = fullMetadata(user.getId(), "movie", 1001L);
         metadata.setRawJson("{\"poster_path\":\"/p.jpg\"}");
         when(tmdbService.autoMatchV2(eq(user.getId()), eq("movie"), anyString(), any())).thenReturn(metadata);
         when(tmdbService.downloadArtwork(anyString(), anyString())).thenReturn(null);
@@ -701,7 +702,7 @@ class MediaScrapeServiceTest {
         MediaMovie after = mediaMovieMapper.selectById(movie.getId());
         assertNotNull(after.getMetadataId());
         assertEquals(MediaMatchStatus.MATCHED.getCode(), after.getMatchStatus());
-        MediaMetadataV2 meta = mediaMetadataV2Mapper.selectOne(owner("movie", movie.getId()));
+        MediaMetadata meta = mediaMetadataMapper.selectOne(owner("movie", movie.getId()));
         assertEquals("failed", meta.getPersistStatus());
         assertEquals("钢铁侠", meta.getTitle());
         assertEquals(MediaScrapeStatus.COMPLETED.name(),
@@ -718,19 +719,19 @@ class MediaScrapeServiceTest {
         FileNodeVo seriesFolder = createFolder(user.getId(), tvFolder.getId(), "不存在的剧xyz");
         FileNodeVo episodeFile = fileService.upload(buildFile("xyz.S01E01.mkv"), user.getId(), seriesFolder.getId(), null);
         MediaDirectory directory = createDirectory(user.getId(), tvFolder.getId(), "tv");
-        MediaSeriesV2 series = seedSeries(directory, user.getId(), seriesFolder.getId(), "不存在的剧xyz", null);
+        MediaSeries series = seedSeries(directory, user.getId(), seriesFolder.getId(), "不存在的剧xyz", null);
         seedEpisode(series.getId(), seedSeason(series.getId(), seriesFolder.getId(), 1).getId(), 1, episodeFile.getId());
 
         when(tmdbService.autoMatchV2(eq(user.getId()), eq("tv"), anyString(), isNull())).thenReturn(null);
 
         scrapeAwaitIdle(directory, user.getId(), false);
 
-        MediaSeriesV2 after = mediaSeriesV2Mapper.selectById(series.getId());
+        MediaSeries after = mediaSeriesMapper.selectById(series.getId());
         assertEquals(MediaMatchStatus.UNMATCHED.getCode(), after.getMatchStatus());
         assertNull(after.getMetadataId());
         verify(tmdbService, never()).fetchSeasonV2(any(), any(), any());
-        assertEquals(0, mediaMetadataV2Mapper.selectCount(new LambdaQueryWrapper<MediaMetadataV2>()
-                .eq(MediaMetadataV2::getUserId, user.getId())));
+        assertEquals(0, mediaMetadataMapper.selectCount(new LambdaQueryWrapper<MediaMetadata>()
+                .eq(MediaMetadata::getUserId, user.getId())));
     }
 
     /**
@@ -743,10 +744,10 @@ class MediaScrapeServiceTest {
         FileNodeVo seriesFolder = createFolder(user.getId(), tvFolder.getId(), "亮剑 (2005)");
         FileNodeVo episodeFile = fileService.upload(buildFile("亮剑.S01E01.mkv"), user.getId(), seriesFolder.getId(), null);
         MediaDirectory directory = createDirectory(user.getId(), tvFolder.getId(), "tv");
-        MediaSeriesV2 series = seedSeries(directory, user.getId(), seriesFolder.getId(), "亮剑", 2005);
+        MediaSeries series = seedSeries(directory, user.getId(), seriesFolder.getId(), "亮剑", 2005);
         seedEpisode(series.getId(), seedSeason(series.getId(), seriesFolder.getId(), 1).getId(), 1, episodeFile.getId());
 
-        MediaMetadataV2 seriesMetadata = fullMetadata(user.getId(), "series", 2000L);
+        MediaMetadata seriesMetadata = fullMetadata(user.getId(), "series", 2000L);
         when(tmdbService.autoMatchV2(eq(user.getId()), eq("tv"), eq("亮剑"), eq(2005))).thenReturn(seriesMetadata);
         when(tmdbService.fetchSeasonV2(eq(user.getId()), eq(2000L), eq(1)))
                 .thenReturn(new TmdbService.SeasonFetchV2(
@@ -756,7 +757,7 @@ class MediaScrapeServiceTest {
         scrapeAwaitIdle(directory, user.getId(), false);
 
         verify(tmdbService).autoMatchV2(user.getId(), "tv", "亮剑", 2005);
-        MediaSeriesV2 after = mediaSeriesV2Mapper.selectById(series.getId());
+        MediaSeries after = mediaSeriesMapper.selectById(series.getId());
         assertNotNull(after.getMetadataId());
         assertEquals(MediaMatchStatus.MATCHED.getCode(), after.getMatchStatus());
     }
@@ -809,8 +810,8 @@ class MediaScrapeServiceTest {
     /**
      * 构造 5 项齐备的 TMDB 游离元数据（标题/简介/海报/发行日期/评分）。
      */
-    private MediaMetadataV2 fullMetadata(String userId, String ownerType, Long tmdbId) {
-        MediaMetadataV2 metadata = new MediaMetadataV2();
+    private MediaMetadata fullMetadata(String userId, String ownerType, Long tmdbId) {
+        MediaMetadata metadata = new MediaMetadata();
         metadata.setUserId(userId);
         metadata.setOwnerType(ownerType);
         metadata.setSource("tmdb");
@@ -825,19 +826,19 @@ class MediaScrapeServiceTest {
     }
 
     private void seedMetadata(String userId, String ownerType, String ownerId) {
-        MediaMetadataV2 metadata = new MediaMetadataV2();
+        MediaMetadata metadata = new MediaMetadata();
         metadata.setUserId(userId);
         metadata.setOwnerType(ownerType);
         metadata.setOwnerId(ownerId);
         metadata.setSource("tmdb");
         metadata.setTitle("钢铁侠");
-        mediaMetadataV2Mapper.insert(metadata);
+        mediaMetadataMapper.insert(metadata);
     }
 
-    private LambdaQueryWrapper<MediaMetadataV2> owner(String ownerType, String ownerId) {
-        return new LambdaQueryWrapper<MediaMetadataV2>()
-                .eq(MediaMetadataV2::getOwnerType, ownerType)
-                .eq(MediaMetadataV2::getOwnerId, ownerId);
+    private LambdaQueryWrapper<MediaMetadata> owner(String ownerType, String ownerId) {
+        return new LambdaQueryWrapper<MediaMetadata>()
+                .eq(MediaMetadata::getOwnerType, ownerType)
+                .eq(MediaMetadata::getOwnerId, ownerId);
     }
 
     private MediaMovie seedMovie(MediaDirectory directory, String userId, String folderNodeId,
@@ -862,9 +863,9 @@ class MediaScrapeServiceTest {
         return movie;
     }
 
-    private MediaSeriesV2 seedSeries(MediaDirectory directory, String userId, String seriesFolderNodeId,
+    private MediaSeries seedSeries(MediaDirectory directory, String userId, String seriesFolderNodeId,
                                      String seriesName, Integer releaseYear) {
-        MediaSeriesV2 series = new MediaSeriesV2();
+        MediaSeries series = new MediaSeries();
         series.setUserId(userId);
         series.setDirectoryId(directory.getId());
         series.setSourceId(sourceIdOf(directory));
@@ -873,16 +874,16 @@ class MediaScrapeServiceTest {
         series.setReleaseYear(releaseYear);
         series.setMatchStatus(MediaMatchStatus.UNMATCHED.getCode());
         series.setMetadataComplete(false);
-        mediaSeriesV2Mapper.insert(series);
+        mediaSeriesMapper.insert(series);
         return series;
     }
 
-    private MediaSeasonV2 seedSeason(String seriesId, String seasonFolderNodeId, Integer seasonNo) {
-        MediaSeasonV2 season = new MediaSeasonV2();
+    private MediaSeason seedSeason(String seriesId, String seasonFolderNodeId, Integer seasonNo) {
+        MediaSeason season = new MediaSeason();
         season.setSeriesId(seriesId);
         season.setFolderNodeId(seasonFolderNodeId);
         season.setSeasonNo(seasonNo);
-        mediaSeasonV2Mapper.insert(season);
+        mediaSeasonMapper.insert(season);
         return season;
     }
 

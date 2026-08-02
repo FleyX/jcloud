@@ -7,7 +7,8 @@ import lombok.EqualsAndHashCode;
 import java.io.Serial;
 
 /**
- * 电视剧季实体，由扫描自动维护。
+ * 电视剧季实体（文件夹锚定）。
+ * 媒体模型重构 contract 阶段（issue #21）由 t_media_season_v2 rename 而来。
  */
 @Data
 @EqualsAndHashCode(callSuper = true)
@@ -23,12 +24,17 @@ public class MediaSeason extends BaseEntity {
     private String seriesId;
 
     /**
+     * 锚：季文件夹的虚拟文件树节点 ID（唯一）。
+     */
+    private String folderNodeId;
+
+    /**
      * 季号，为空表示未识别季。
      */
     private Integer seasonNo;
 
     /**
-     * 季元数据 ID。
+     * 季元数据 ID，未匹配时为空。
      */
     private String metadataId;
 }

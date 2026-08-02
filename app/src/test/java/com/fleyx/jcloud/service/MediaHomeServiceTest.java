@@ -1,27 +1,25 @@
 package com.fleyx.jcloud.service;
 
-import com.fleyx.jcloud.common.enums.MediaItemType;
 import com.fleyx.jcloud.common.enums.MediaMatchStatus;
+import com.fleyx.jcloud.common.enums.MediaMetadataOwnerType;
 import com.fleyx.jcloud.mapper.MediaDirectoryMapper;
 import com.fleyx.jcloud.mapper.MediaEpisodeFileMapper;
 import com.fleyx.jcloud.mapper.MediaEpisodeMapper;
-import com.fleyx.jcloud.mapper.MediaItemMapper;
 import com.fleyx.jcloud.mapper.MediaMetadataMapper;
 import com.fleyx.jcloud.mapper.MediaMovieFileMapper;
 import com.fleyx.jcloud.mapper.MediaMovieMapper;
 import com.fleyx.jcloud.mapper.MediaOtherMapper;
-import com.fleyx.jcloud.mapper.MediaSeasonV2Mapper;
-import com.fleyx.jcloud.mapper.MediaSeriesV2Mapper;
+import com.fleyx.jcloud.mapper.MediaSeasonMapper;
+import com.fleyx.jcloud.mapper.MediaSeriesMapper;
 import com.fleyx.jcloud.model.po.MediaDirectory;
 import com.fleyx.jcloud.model.po.MediaEpisode;
 import com.fleyx.jcloud.model.po.MediaEpisodeFile;
-import com.fleyx.jcloud.model.po.MediaItem;
 import com.fleyx.jcloud.model.po.MediaMetadata;
 import com.fleyx.jcloud.model.po.MediaMovie;
 import com.fleyx.jcloud.model.po.MediaMovieFile;
 import com.fleyx.jcloud.model.po.MediaOther;
-import com.fleyx.jcloud.model.po.MediaSeasonV2;
-import com.fleyx.jcloud.model.po.MediaSeriesV2;
+import com.fleyx.jcloud.model.po.MediaSeason;
+import com.fleyx.jcloud.model.po.MediaSeries;
 import com.fleyx.jcloud.model.vo.MediaDirectoryVo;
 import com.fleyx.jcloud.model.vo.MediaHomeVo;
 import org.junit.jupiter.api.Test;
@@ -59,13 +57,10 @@ class MediaHomeServiceTest {
     private MediaDirectoryMapper mediaDirectoryMapper;
 
     @Autowired
-    private MediaItemMapper mediaItemMapper;
+    private MediaSeriesMapper mediaSeriesMapper;
 
     @Autowired
-    private MediaSeriesV2Mapper mediaSeriesV2Mapper;
-
-    @Autowired
-    private MediaSeasonV2Mapper mediaSeasonV2Mapper;
+    private MediaSeasonMapper mediaSeasonMapper;
 
     @Autowired
     private MediaEpisodeMapper mediaEpisodeMapper;
@@ -125,13 +120,13 @@ class MediaHomeServiceTest {
      */
     @Test
     void shouldPickNextUpAndExcludeInProgress() {
-        MediaSeriesV2 seriesA = insertSeries("剧A");
+        MediaSeries seriesA = insertSeries("剧A");
         insertEpisode(seriesA, 1, 1, 95_000L, 100_000L, playTime(10));
         MediaEpisode a2 = insertEpisode(seriesA, 1, 2, 0L, 100_000L, null);
-        MediaSeriesV2 seriesB = insertSeries("剧B");
+        MediaSeries seriesB = insertSeries("剧B");
         MediaEpisode b1 = insertEpisode(seriesB, 1, 1, 10_000L, 100_000L, playTime(20));
         MediaEpisode b2 = insertEpisode(seriesB, 1, 2, 0L, 100_000L, null);
-        MediaSeriesV2 seriesC = insertSeries("剧C");
+        MediaSeries seriesC = insertSeries("剧C");
         insertEpisode(seriesC, 1, 1, 0L, 100_000L, null);
 
         MediaHomeVo home = mediaHomeService.getHome(USER_ID);
@@ -152,7 +147,7 @@ class MediaHomeServiceTest {
      */
     @Test
     void shouldSkipSeriesWhenAllEpisodesFinished() {
-        MediaSeriesV2 series = insertSeries("看完的剧");
+        MediaSeries series = insertSeries("看完的剧");
         insertEpisode(series, 1, 1, 96_000L, 100_000L, playTime(10));
 
         MediaHomeVo home = mediaHomeService.getHome(USER_ID);
@@ -161,26 +156,32 @@ class MediaHomeServiceTest {
     }
 
     /**
-     * 媒体库封面：电影/电视库取最新有海报条目的元数据海报（旧表存量逻辑）；
+     * 媒体库封面：电影/电视库取库内最新有海报条目的元数据海报（新表，issue #21）；
      * 其他库用最新 other 行（新表）的预览缩略图兜底；空库为空。
      */
     @Test
     void shouldResolveLibraryCovers() {
         MediaDirectory movieDir = insertDirectory("电影库", "movie");
+        MediaMovie movie = new MediaMovie();
+        movie.setUserId(USER_ID);
+        movie.setDirectoryId(movieDir.getId());
+        movie.setFolderNodeId(nextNodeId());
+        movie.setTitle("测试电影");
+        movie.setMatchStatus(MediaMatchStatus.UNMATCHED.getCode());
+        movie.setMetadataComplete(false);
+        mediaMovieMapper.insert(movie);
         MediaMetadata metadata = new MediaMetadata();
         metadata.setId("metaposter001");
         metadata.setUserId(USER_ID);
-        metadata.setMediaType("movie");
+        metadata.setOwnerType(MediaMetadataOwnerType.MOVIE.getCode());
+        metadata.setOwnerId(movie.getId());
         metadata.setSource("tmdb");
-        metadata.setCompleteStatus("complete");
+        metadata.setPersistStatus("persisted");
         metadata.setTitle("电影");
         metadata.setPosterFileNodeId("fnposter00001");
         mediaMetadataMapper.insert(metadata);
-        MediaItem movieItem = insertLegacyItem(MediaItemType.MOVIE.getCode());
-        movieItem.setDirectoryId(movieDir.getId());
-        movieItem.setMetadataId(metadata.getId());
-        movieItem.setFileLastModified(1000L);
-        mediaItemMapper.updateById(movieItem);
+        movie.setMetadataId(metadata.getId());
+        mediaMovieMapper.updateById(movie);
 
         MediaDirectory otherDir = insertDirectory("其他库", "other");
         insertOtherIntoDir(otherDir.getId(), 0L, null, null);
@@ -208,25 +209,25 @@ class MediaHomeServiceTest {
         return directory;
     }
 
-    private MediaSeriesV2 insertSeries(String seriesName) {
-        MediaSeriesV2 series = new MediaSeriesV2();
+    private MediaSeries insertSeries(String seriesName) {
+        MediaSeries series = new MediaSeries();
         series.setUserId(USER_ID);
         series.setDirectoryId("dir-home-001");
         series.setFolderNodeId(nextNodeId());
         series.setSeriesName(seriesName);
         series.setMatchStatus(MediaMatchStatus.MATCHED.getCode());
         series.setMetadataComplete(false);
-        mediaSeriesV2Mapper.insert(series);
+        mediaSeriesMapper.insert(series);
         return series;
     }
 
-    private MediaEpisode insertEpisode(MediaSeriesV2 series, int seasonNo, int episodeNo,
+    private MediaEpisode insertEpisode(MediaSeries series, int seasonNo, int episodeNo,
                                        Long progressMs, Long durationMs, LocalDateTime lastPlayTime) {
-        MediaSeasonV2 season = new MediaSeasonV2();
+        MediaSeason season = new MediaSeason();
         season.setSeriesId(series.getId());
         season.setFolderNodeId(nextNodeId());
         season.setSeasonNo(seasonNo);
-        mediaSeasonV2Mapper.insert(season);
+        mediaSeasonMapper.insert(season);
 
         MediaEpisode episode = new MediaEpisode();
         episode.setSeriesId(series.getId());
@@ -289,18 +290,6 @@ class MediaHomeServiceTest {
         other.setDurationMs(durationMs);
         mediaOtherMapper.insert(other);
         return other;
-    }
-
-    private MediaItem insertLegacyItem(String itemType) {
-        MediaItem item = new MediaItem();
-        item.setUserId(USER_ID);
-        item.setDirectoryId("dir-home-001");
-        item.setFileNodeId(nextNodeId());
-        item.setItemType(itemType);
-        item.setProgressMs(0L);
-        item.setMatchStatus(MediaMatchStatus.UNMATCHED.getCode());
-        mediaItemMapper.insert(item);
-        return item;
     }
 
     private String nextNodeId() {

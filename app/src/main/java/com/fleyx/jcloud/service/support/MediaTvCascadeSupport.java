@@ -5,15 +5,15 @@ import com.fleyx.jcloud.common.enums.MediaMetadataOwnerType;
 import com.fleyx.jcloud.mapper.FileMapper;
 import com.fleyx.jcloud.mapper.MediaEpisodeFileMapper;
 import com.fleyx.jcloud.mapper.MediaEpisodeMapper;
-import com.fleyx.jcloud.mapper.MediaMetadataV2Mapper;
-import com.fleyx.jcloud.mapper.MediaSeasonV2Mapper;
-import com.fleyx.jcloud.mapper.MediaSeriesV2Mapper;
+import com.fleyx.jcloud.mapper.MediaMetadataMapper;
+import com.fleyx.jcloud.mapper.MediaSeasonMapper;
+import com.fleyx.jcloud.mapper.MediaSeriesMapper;
 import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.po.MediaEpisode;
 import com.fleyx.jcloud.model.po.MediaEpisodeFile;
-import com.fleyx.jcloud.model.po.MediaMetadataV2;
-import com.fleyx.jcloud.model.po.MediaSeasonV2;
-import com.fleyx.jcloud.model.po.MediaSeriesV2;
+import com.fleyx.jcloud.model.po.MediaMetadata;
+import com.fleyx.jcloud.model.po.MediaSeason;
+import com.fleyx.jcloud.model.po.MediaSeries;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -28,7 +28,7 @@ import java.util.Set;
  * 电视库新模型级联删除支撑组件（ADR 0021 / issue #17）。
  * <p>
  * 应用层事务内执行（项目禁用外键）：删剧 → 集文件明细 → 集 → 季 → 剧行，
- * 各级连带其 owner 反向指针指向的 t_media_metadata_v2 行。
+ * 各级连带其 owner 反向指针指向的 t_media_metadata 行。
  * 即时 reconcile 的删除、批次清理与媒体库删除共用同一套级联。
  */
 @Slf4j
@@ -36,16 +36,16 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class MediaTvCascadeSupport {
 
-    private final MediaSeriesV2Mapper mediaSeriesV2Mapper;
-    private final MediaSeasonV2Mapper mediaSeasonV2Mapper;
+    private final MediaSeriesMapper mediaSeriesMapper;
+    private final MediaSeasonMapper mediaSeasonMapper;
     private final MediaEpisodeMapper mediaEpisodeMapper;
     private final MediaEpisodeFileMapper mediaEpisodeFileMapper;
-    private final MediaMetadataV2Mapper mediaMetadataV2Mapper;
+    private final MediaMetadataMapper mediaMetadataMapper;
     private final MediaSubtitleSupport mediaSubtitleSupport;
     private final FileMapper fileMapper;
 
     /**
-     * 级联删除若干部剧：集文件 → 集 → 季 → 剧行，各级连带其 owner 指向的 t_media_metadata_v2 行；
+     * 级联删除若干部剧：集文件 → 集 → 季 → 剧行，各级连带其 owner 指向的 t_media_metadata 行；
      * 集文件明细的外部字幕记录一并删除（issue #19）。
      *
      * @param seriesIds 剧 ID 集合
@@ -71,16 +71,16 @@ public class MediaTvCascadeSupport {
                 }
                 mediaEpisodeMapper.deleteBatchIds(episodeIds);
             }
-            List<MediaSeasonV2> seasons = mediaSeasonV2Mapper.selectList(
-                    new LambdaQueryWrapper<MediaSeasonV2>().eq(MediaSeasonV2::getSeriesId, seriesId));
-            for (MediaSeasonV2 season : seasons) {
+            List<MediaSeason> seasons = mediaSeasonMapper.selectList(
+                    new LambdaQueryWrapper<MediaSeason>().eq(MediaSeason::getSeriesId, seriesId));
+            for (MediaSeason season : seasons) {
                 deleteMetadata(MediaMetadataOwnerType.SEASON.getCode(), season.getId());
             }
             if (!seasons.isEmpty()) {
-                mediaSeasonV2Mapper.deleteBatchIds(seasons.stream().map(MediaSeasonV2::getId).toList());
+                mediaSeasonMapper.deleteBatchIds(seasons.stream().map(MediaSeason::getId).toList());
             }
             deleteMetadata(MediaMetadataOwnerType.SERIES.getCode(), seriesId);
-            mediaSeriesV2Mapper.deleteById(seriesId);
+            mediaSeriesMapper.deleteById(seriesId);
         }
         log.info("级联删除剧 {} 部: ids={}", seriesIds.size(), seriesIds);
     }
@@ -93,11 +93,11 @@ public class MediaTvCascadeSupport {
         if (sourceIds == null || sourceIds.isEmpty()) {
             return;
         }
-        List<String> seriesIds = mediaSeriesV2Mapper.selectList(new LambdaQueryWrapper<MediaSeriesV2>()
-                        .eq(MediaSeriesV2::getDirectoryId, directoryId)
-                        .in(MediaSeriesV2::getSourceId, sourceIds)
-                        .select(MediaSeriesV2::getId))
-                .stream().map(MediaSeriesV2::getId).toList();
+        List<String> seriesIds = mediaSeriesMapper.selectList(new LambdaQueryWrapper<MediaSeries>()
+                        .eq(MediaSeries::getDirectoryId, directoryId)
+                        .in(MediaSeries::getSourceId, sourceIds)
+                        .select(MediaSeries::getId))
+                .stream().map(MediaSeries::getId).toList();
         deleteSeriesCascade(seriesIds);
     }
 
@@ -106,10 +106,10 @@ public class MediaTvCascadeSupport {
      */
     @Transactional(rollbackFor = Exception.class)
     public void deleteByDirectoryId(String directoryId) {
-        List<String> seriesIds = mediaSeriesV2Mapper.selectList(new LambdaQueryWrapper<MediaSeriesV2>()
-                        .eq(MediaSeriesV2::getDirectoryId, directoryId)
-                        .select(MediaSeriesV2::getId))
-                .stream().map(MediaSeriesV2::getId).toList();
+        List<String> seriesIds = mediaSeriesMapper.selectList(new LambdaQueryWrapper<MediaSeries>()
+                        .eq(MediaSeries::getDirectoryId, directoryId)
+                        .select(MediaSeries::getId))
+                .stream().map(MediaSeries::getId).toList();
         deleteSeriesCascade(seriesIds);
     }
 
@@ -122,7 +122,7 @@ public class MediaTvCascadeSupport {
      *
      * @param sourceFullIdPaths 本库全部可达来源目录的完整物化路径
      */
-    public void deleteUnseenChildren(List<MediaSeasonV2> existingSeasons, List<MediaEpisode> existingEpisodes,
+    public void deleteUnseenChildren(List<MediaSeason> existingSeasons, List<MediaEpisode> existingEpisodes,
                                      List<MediaEpisodeFile> existingFiles, Set<String> seenSeasonIds,
                                      Set<String> seenEpisodeIds, Set<String> seenFileRowIds,
                                      List<String> sourceFullIdPaths) {
@@ -158,7 +158,7 @@ public class MediaTvCascadeSupport {
             log.info("即时删除消失的集: {}", episodeId);
         }
         List<String> removedSeasonIds = new ArrayList<>();
-        for (MediaSeasonV2 season : existingSeasons) {
+        for (MediaSeason season : existingSeasons) {
             if (!seenSeasonIds.contains(season.getId())) {
                 removedSeasonIds.add(season.getId());
             }
@@ -170,7 +170,7 @@ public class MediaTvCascadeSupport {
                 continue;
             }
             deleteMetadata(MediaMetadataOwnerType.SEASON.getCode(), seasonId);
-            mediaSeasonV2Mapper.deleteById(seasonId);
+            mediaSeasonMapper.deleteById(seasonId);
             log.info("即时删除消失的季: {}", seasonId);
         }
     }
@@ -198,8 +198,8 @@ public class MediaTvCascadeSupport {
      * @param ownerId   归属实体 ID
      */
     public void deleteMetadata(String ownerType, String ownerId) {
-        mediaMetadataV2Mapper.delete(new LambdaQueryWrapper<MediaMetadataV2>()
-                .eq(MediaMetadataV2::getOwnerType, ownerType)
-                .eq(MediaMetadataV2::getOwnerId, ownerId));
+        mediaMetadataMapper.delete(new LambdaQueryWrapper<MediaMetadata>()
+                .eq(MediaMetadata::getOwnerType, ownerType)
+                .eq(MediaMetadata::getOwnerId, ownerId));
     }
 }

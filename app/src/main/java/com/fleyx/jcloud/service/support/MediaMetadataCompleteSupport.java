@@ -2,16 +2,17 @@ package com.fleyx.jcloud.service.support;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.fleyx.jcloud.common.enums.MediaMetadataOwnerType;
 import com.fleyx.jcloud.mapper.MediaEpisodeMapper;
-import com.fleyx.jcloud.mapper.MediaMetadataV2Mapper;
+import com.fleyx.jcloud.mapper.MediaMetadataMapper;
 import com.fleyx.jcloud.mapper.MediaMovieMapper;
-import com.fleyx.jcloud.mapper.MediaSeasonV2Mapper;
-import com.fleyx.jcloud.mapper.MediaSeriesV2Mapper;
+import com.fleyx.jcloud.mapper.MediaSeasonMapper;
+import com.fleyx.jcloud.mapper.MediaSeriesMapper;
 import com.fleyx.jcloud.model.po.MediaEpisode;
-import com.fleyx.jcloud.model.po.MediaMetadataV2;
+import com.fleyx.jcloud.model.po.MediaMetadata;
 import com.fleyx.jcloud.model.po.MediaMovie;
-import com.fleyx.jcloud.model.po.MediaSeasonV2;
-import com.fleyx.jcloud.model.po.MediaSeriesV2;
+import com.fleyx.jcloud.model.po.MediaSeason;
+import com.fleyx.jcloud.model.po.MediaSeries;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -33,10 +34,10 @@ import java.util.function.Predicate;
 @RequiredArgsConstructor
 public class MediaMetadataCompleteSupport {
 
-    private final MediaMetadataV2Mapper mediaMetadataV2Mapper;
+    private final MediaMetadataMapper mediaMetadataMapper;
     private final MediaMovieMapper mediaMovieMapper;
-    private final MediaSeriesV2Mapper mediaSeriesV2Mapper;
-    private final MediaSeasonV2Mapper mediaSeasonV2Mapper;
+    private final MediaSeriesMapper mediaSeriesMapper;
+    private final MediaSeasonMapper mediaSeasonMapper;
     private final MediaEpisodeMapper mediaEpisodeMapper;
 
     /**
@@ -45,7 +46,7 @@ public class MediaMetadataCompleteSupport {
      * @param id        校验项标识（title/overview/poster/release_date/vote_average）
      * @param predicate 元数据是否通过该校验
      */
-    public record CheckItem(String id, Predicate<MediaMetadataV2> predicate) {
+    public record CheckItem(String id, Predicate<MediaMetadata> predicate) {
     }
 
     /**
@@ -63,14 +64,14 @@ public class MediaMetadataCompleteSupport {
      *
      * @param metadata 元数据，null 视为不完整
      */
-    public boolean isComplete(MediaMetadataV2 metadata) {
+    public boolean isComplete(MediaMetadata metadata) {
         return metadata != null && missingItems(metadata).isEmpty();
     }
 
     /**
      * 未通过的校验项标识列表（调试与日志用），全部通过时为空列表。
      */
-    public List<String> missingItems(MediaMetadataV2 metadata) {
+    public List<String> missingItems(MediaMetadata metadata) {
         List<String> missing = new ArrayList<>();
         if (metadata == null) {
             return CHECK_ITEMS.stream().map(CheckItem::id).toList();
@@ -89,8 +90,8 @@ public class MediaMetadataCompleteSupport {
      * @param movie 电影行（行内 metadata_id 需为最新值）
      */
     public void refreshMovieComplete(MediaMovie movie) {
-        MediaMetadataV2 metadata = movie.getMetadataId() == null ? null
-                : mediaMetadataV2Mapper.selectById(movie.getMetadataId());
+        MediaMetadata metadata = movie.getMetadataId() == null ? null
+                : mediaMetadataMapper.selectById(movie.getMetadataId());
         boolean complete = isComplete(metadata);
         if (Boolean.TRUE.equals(movie.getMetadataComplete()) == complete) {
             return;
@@ -108,45 +109,45 @@ public class MediaMetadataCompleteSupport {
      *
      * @param series 剧集行（行内 metadata_id 需为最新值）
      */
-    public void refreshSeriesComplete(MediaSeriesV2 series) {
-        MediaMetadataV2 metadata = series.getMetadataId() == null ? null
-                : mediaMetadataV2Mapper.selectById(series.getMetadataId());
+    public void refreshSeriesComplete(MediaSeries series) {
+        MediaMetadata metadata = series.getMetadataId() == null ? null
+                : mediaMetadataMapper.selectById(series.getMetadataId());
         boolean complete = isComplete(metadata) && seasonsAndEpisodesComplete(series);
         if (Boolean.TRUE.equals(series.getMetadataComplete()) == complete) {
             return;
         }
-        mediaSeriesV2Mapper.update(null, new LambdaUpdateWrapper<MediaSeriesV2>()
-                .eq(MediaSeriesV2::getId, series.getId())
-                .set(MediaSeriesV2::getMetadataComplete, complete));
+        mediaSeriesMapper.update(null, new LambdaUpdateWrapper<MediaSeries>()
+                .eq(MediaSeries::getId, series.getId())
+                .set(MediaSeries::getMetadataComplete, complete));
         series.setMetadataComplete(complete);
         log.debug("剧集完整性重算: series={}, complete={}", series.getId(), complete);
     }
 
     /**
      * 按 owner 反查并重算完整性（元数据刷新端点用）：movie → 电影行；series → 剧集行（聚合）；
-     * season/episode → 其所属剧集行（聚合）。
+     * season/episode → 其所属剧集行（聚合）。owner_type 读写统一走枚举（issue #21 审查遗留修复）。
      */
-    public void refreshOwnerComplete(String ownerType, String ownerId) {
+    public void refreshOwnerComplete(MediaMetadataOwnerType ownerType, String ownerId) {
         switch (ownerType) {
-            case "movie" -> {
+            case MOVIE -> {
                 MediaMovie movie = mediaMovieMapper.selectById(ownerId);
                 if (movie != null) {
                     refreshMovieComplete(movie);
                 }
             }
-            case "series" -> {
-                MediaSeriesV2 series = mediaSeriesV2Mapper.selectById(ownerId);
+            case SERIES -> {
+                MediaSeries series = mediaSeriesMapper.selectById(ownerId);
                 if (series != null) {
                     refreshSeriesComplete(series);
                 }
             }
-            case "season" -> {
-                MediaSeasonV2 season = mediaSeasonV2Mapper.selectById(ownerId);
+            case SEASON -> {
+                MediaSeason season = mediaSeasonMapper.selectById(ownerId);
                 if (season != null) {
                     refreshSeriesOf(season.getSeriesId());
                 }
             }
-            case "episode" -> {
+            case EPISODE -> {
                 MediaEpisode episode = mediaEpisodeMapper.selectById(ownerId);
                 if (episode != null) {
                     refreshSeriesOf(episode.getSeriesId());
@@ -157,7 +158,7 @@ public class MediaMetadataCompleteSupport {
     }
 
     private void refreshSeriesOf(String seriesId) {
-        MediaSeriesV2 series = mediaSeriesV2Mapper.selectById(seriesId);
+        MediaSeries series = mediaSeriesMapper.selectById(seriesId);
         if (series != null) {
             refreshSeriesComplete(series);
         }
@@ -166,10 +167,10 @@ public class MediaMetadataCompleteSupport {
     /**
      * 聚合语义：所有实际存在的季、集的元数据都完整。
      */
-    private boolean seasonsAndEpisodesComplete(MediaSeriesV2 series) {
-        List<MediaSeasonV2> seasons = mediaSeasonV2Mapper.selectList(
-                new LambdaQueryWrapper<MediaSeasonV2>().eq(MediaSeasonV2::getSeriesId, series.getId()));
-        for (MediaSeasonV2 season : seasons) {
+    private boolean seasonsAndEpisodesComplete(MediaSeries series) {
+        List<MediaSeason> seasons = mediaSeasonMapper.selectList(
+                new LambdaQueryWrapper<MediaSeason>().eq(MediaSeason::getSeriesId, series.getId()));
+        for (MediaSeason season : seasons) {
             if (!isComplete(metadataOf(season.getMetadataId()))) {
                 return false;
             }
@@ -184,8 +185,8 @@ public class MediaMetadataCompleteSupport {
         return true;
     }
 
-    private MediaMetadataV2 metadataOf(String metadataId) {
-        return metadataId == null ? null : mediaMetadataV2Mapper.selectById(metadataId);
+    private MediaMetadata metadataOf(String metadataId) {
+        return metadataId == null ? null : mediaMetadataMapper.selectById(metadataId);
     }
 
     private static boolean notBlank(String text) {

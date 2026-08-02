@@ -53,23 +53,15 @@ public interface MediaItemService {
     IPage<MediaItemVo> listOthers(String userId, MediaPageQueryDto query);
 
     /**
-     * 手动修正条目匹配。
+     * 手动修正条目匹配（统一按行 ID，issue #21）：id 为电影行或剧集行 ID；
+     * 剧集行 ID 时整剧应用（等效原系列级修正语义）。集级手动修正已下线。
      *
-     * @param itemId 条目 ID
+     * @param itemId 条目行 ID（电影行或剧集行）
      * @param dto    入参
      * @param userId 用户 ID
      * @return 更新后的条目视图
      */
     MediaItemVo updateMatch(String itemId, MediaMatchUpdateDto dto, String userId);
-
-    /**
-     * 对整部剧批量修正匹配。
-     *
-     * @param seriesName 剧名
-     * @param dto        入参
-     * @param userId     用户 ID
-     */
-    void updateSeriesMatch(String seriesName, MediaMatchUpdateDto dto, String userId);
 
     /**
      * 上报播放进度。

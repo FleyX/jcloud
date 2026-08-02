@@ -96,6 +96,7 @@ function resultSubtitle(series: MediaSeriesVo): string {
           :vote-average="series.voteAverage"
           :release-date="series.releaseDate"
           :unmatched="series.matchStatus === 'unmatched'"
+          :incomplete="series.metadataComplete === false"
           @play="openDetail(series)"
         />
       </div>

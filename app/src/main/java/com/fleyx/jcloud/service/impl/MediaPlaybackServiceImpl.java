@@ -73,8 +73,8 @@ public class MediaPlaybackServiceImpl implements MediaPlaybackService {
     private final com.fleyx.jcloud.service.SystemStorageSpaceProvider systemStorageSpaceProvider;
 
     @Override
-    public MediaPlaybackInfoVo getPlaybackInfo(String id, String userId) {
-        Playable playable = mediaPlaybackResolveSupport.resolve(id, userId);
+    public MediaPlaybackInfoVo getPlaybackInfo(String id, String userId, String versionId) {
+        Playable playable = mediaPlaybackResolveSupport.resolve(id, userId, versionId);
         FileNode node = requireFileNode(playable.fileNodeId(), userId);
         MediaProbeResult probe = probePlayableFile(node, playable, userId);
 
@@ -90,20 +90,23 @@ public class MediaPlaybackServiceImpl implements MediaPlaybackService {
         vo.setSubtitles(mediaSubtitleSupport.buildSubtitleList(probe.subtitleTracks(), playable.fileRowId()));
         vo.setEffectiveBitRate(resolveEffectiveBitRate(probe, playable, vo.getDurationMs()));
         vo.setProgressMs(playable.progressMs());
+        // 本次解析使用的文件明细行 ID：前端播放/进度上报以此定位版本（续播定位语义不变）
+        vo.setVersionId(playable.fileRowId());
 
+        String versionSuffix = versionId == null ? "" : "?versionId=" + versionId;
         if (canDirectPlay(vo.getContainer(), vo.getVideoCodec(), vo.getAudioCodec())) {
             vo.setMode("direct");
-            vo.setDirectUrl("/jcloud/api/media/items/" + id + "/stream");
+            vo.setDirectUrl("/jcloud/api/media/items/" + id + "/stream" + versionSuffix);
         } else {
             vo.setMode("transcode");
-            vo.setTranscodeUrl("/jcloud/api/media/items/" + id + "/transcode");
+            vo.setTranscodeUrl("/jcloud/api/media/items/" + id + "/transcode" + versionSuffix);
         }
         return vo;
     }
 
     @Override
-    public MediaStreamResult stream(String id, String userId, String rangeHeader) {
-        Playable playable = mediaPlaybackResolveSupport.resolve(id, userId);
+    public MediaStreamResult stream(String id, String userId, String rangeHeader, String versionId) {
+        Playable playable = mediaPlaybackResolveSupport.resolve(id, userId, versionId);
         FileNode node = requireFileNode(playable.fileNodeId(), userId);
         long total = node.getSize() == null ? 0L : node.getSize();
         String contentType = resolveVideoContentType(node);
@@ -144,8 +147,8 @@ public class MediaPlaybackServiceImpl implements MediaPlaybackService {
     }
 
     @Override
-    public Path extractSubtitle(String id, int index, String userId) {
-        Playable playable = mediaPlaybackResolveSupport.resolve(id, userId);
+    public Path extractSubtitle(String id, int index, String userId, String versionId) {
+        Playable playable = mediaPlaybackResolveSupport.resolve(id, userId, versionId);
         StorageSpace space = systemStorageSpaceProvider.getSystemSpace();
         Path target = Path.of(space.getPath(), "system", SUBTITLE_CACHE_DIR, playable.fileRowId() + "_" + index + ".vtt");
         if (Files.exists(target)) {
@@ -192,8 +195,8 @@ public class MediaPlaybackServiceImpl implements MediaPlaybackService {
     }
 
     @Override
-    public Path extractExternalSubtitle(String id, String subtitleId, String userId) {
-        Playable playable = mediaPlaybackResolveSupport.resolve(id, userId);
+    public Path extractExternalSubtitle(String id, String subtitleId, String userId, String versionId) {
+        Playable playable = mediaPlaybackResolveSupport.resolve(id, userId, versionId);
         MediaSubtitle subtitle = mediaSubtitleMapper.selectById(subtitleId);
         if (subtitle == null || !playable.fileRowId().equals(subtitle.getFileId())) {
             throw new BusinessException(ResultCode.NOT_FOUND, "字幕不存在");
@@ -225,9 +228,9 @@ public class MediaPlaybackServiceImpl implements MediaPlaybackService {
     public TranscodeSession createTranscodeSession(String id, long startMs,
                                                    Integer audioIndex, Long targetBitrateKbps,
                                                    Integer maxHeight, boolean forceVideoTranscode,
-                                                   String userId) {
+                                                   String userId, String versionId) {
         TranscodeCommandBuilder.validateParams(targetBitrateKbps, maxHeight);
-        Playable playable = mediaPlaybackResolveSupport.resolve(id, userId);
+        Playable playable = mediaPlaybackResolveSupport.resolve(id, userId, versionId);
         FileNode node = requireFileNode(playable.fileNodeId(), userId);
         MediaProbeResult probe = probePlayableFile(node, playable, userId);
         String videoCodec = firstNonNull(probe.videoCodec(), playable.videoCodec());

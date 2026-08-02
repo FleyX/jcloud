@@ -3,14 +3,14 @@ package com.fleyx.jcloud.service.support;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fleyx.jcloud.common.enums.MediaMetadataSource;
 import com.fleyx.jcloud.common.enums.MediaPersistStatus;
-import com.fleyx.jcloud.mapper.MediaMetadataV2Mapper;
-import com.fleyx.jcloud.model.po.MediaMetadataV2;
+import com.fleyx.jcloud.mapper.MediaMetadataMapper;
+import com.fleyx.jcloud.model.po.MediaMetadata;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 /**
- * 新模型元数据行（t_media_metadata_v2）生命周期支撑组件（ADR 0021 / issue #20）。
+ * 新模型元数据行（t_media_metadata）生命周期支撑组件（ADR 0021 / issue #20）。
  * <p>
  * 电影/剧集/季/集行各持 metadata_id 一对一关联元数据行，元数据行以 owner_type + owner_id
  * 反向指针同步维护：写入时设置（{@link #upsertByOwner} 按 owner 定位，已存在则原地更新，
@@ -20,9 +20,9 @@ import org.springframework.stereotype.Component;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-public class MediaMetadataV2Support {
+public class MediaMetadataSupport {
 
-    private final MediaMetadataV2Mapper mediaMetadataV2Mapper;
+    private final MediaMetadataMapper mediaMetadataMapper;
 
     /**
      * 按 owner 反向指针 upsert 元数据行：已存在对应行则原地更新（来源也随新数据变化），
@@ -32,21 +32,21 @@ public class MediaMetadataV2Support {
      * @param ownerId   归属实体 ID
      * @param data      待绑定元数据（需含 userId 与全部字段）
      */
-    public MediaMetadataV2 upsertByOwner(String ownerType, String ownerId, MediaMetadataV2 data) {
-        MediaMetadataV2 existing = selectByOwner(ownerType, ownerId);
+    public MediaMetadata upsertByOwner(String ownerType, String ownerId, MediaMetadata data) {
+        MediaMetadata existing = selectByOwner(ownerType, ownerId);
         if (existing == null) {
-            existing = new MediaMetadataV2();
+            existing = new MediaMetadata();
             existing.setUserId(data.getUserId());
             existing.setOwnerType(ownerType);
             existing.setOwnerId(ownerId);
             existing.setPersistStatus(data.getPersistStatus() == null
                     ? MediaPersistStatus.PENDING.getCode() : data.getPersistStatus());
             copyMetadata(data, existing);
-            mediaMetadataV2Mapper.insert(existing);
+            mediaMetadataMapper.insert(existing);
             return existing;
         }
         copyMetadata(data, existing);
-        mediaMetadataV2Mapper.updateById(existing);
+        mediaMetadataMapper.updateById(existing);
         return existing;
     }
 
@@ -61,9 +61,9 @@ public class MediaMetadataV2Support {
      * @param posterNodeId   海报图文件节点 ID，可为空
      * @param backdropNodeId 背景图文件节点 ID，可为空
      */
-    public MediaMetadataV2 upsertLocal(String ownerType, String ownerId, String userId,
+    public MediaMetadata upsertLocal(String ownerType, String ownerId, String userId,
                                        MediaNfoSupport.NfoData data, String posterNodeId, String backdropNodeId) {
-        MediaMetadataV2 metadata = new MediaMetadataV2();
+        MediaMetadata metadata = new MediaMetadata();
         metadata.setUserId(userId);
         metadata.setSource(MediaMetadataSource.LOCAL_NFO.getCode());
         metadata.setTmdbId(data.tmdbId());
@@ -83,24 +83,24 @@ public class MediaMetadataV2Support {
      * 删除 owner 一对一绑定的元数据行（无对应行时无事发生），供未匹配清理与级联删除复用。
      */
     public void deleteByOwner(String ownerType, String ownerId) {
-        mediaMetadataV2Mapper.delete(new LambdaQueryWrapper<MediaMetadataV2>()
-                .eq(MediaMetadataV2::getOwnerType, ownerType)
-                .eq(MediaMetadataV2::getOwnerId, ownerId));
+        mediaMetadataMapper.delete(new LambdaQueryWrapper<MediaMetadata>()
+                .eq(MediaMetadata::getOwnerType, ownerType)
+                .eq(MediaMetadata::getOwnerId, ownerId));
     }
 
     /**
      * 按 owner 反向指针查询元数据行。
      */
-    public MediaMetadataV2 selectByOwner(String ownerType, String ownerId) {
-        return mediaMetadataV2Mapper.selectOne(new LambdaQueryWrapper<MediaMetadataV2>()
-                .eq(MediaMetadataV2::getOwnerType, ownerType)
-                .eq(MediaMetadataV2::getOwnerId, ownerId));
+    public MediaMetadata selectByOwner(String ownerType, String ownerId) {
+        return mediaMetadataMapper.selectOne(new LambdaQueryWrapper<MediaMetadata>()
+                .eq(MediaMetadata::getOwnerType, ownerType)
+                .eq(MediaMetadata::getOwnerId, ownerId));
     }
 
     /**
      * 把新数据字段复制到既有行（保留 id/user_id/owner 指针）。
      */
-    private void copyMetadata(MediaMetadataV2 from, MediaMetadataV2 to) {
+    private void copyMetadata(MediaMetadata from, MediaMetadata to) {
         to.setTmdbId(from.getTmdbId());
         to.setSource(from.getSource());
         to.setTitle(from.getTitle());

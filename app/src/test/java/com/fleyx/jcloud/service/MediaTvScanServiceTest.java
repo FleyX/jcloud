@@ -12,9 +12,9 @@ import com.fleyx.jcloud.mapper.MediaDirectoryMapper;
 import com.fleyx.jcloud.mapper.MediaDirectorySourceMapper;
 import com.fleyx.jcloud.mapper.MediaEpisodeFileMapper;
 import com.fleyx.jcloud.mapper.MediaEpisodeMapper;
-import com.fleyx.jcloud.mapper.MediaMetadataV2Mapper;
-import com.fleyx.jcloud.mapper.MediaSeasonV2Mapper;
-import com.fleyx.jcloud.mapper.MediaSeriesV2Mapper;
+import com.fleyx.jcloud.mapper.MediaMetadataMapper;
+import com.fleyx.jcloud.mapper.MediaSeasonMapper;
+import com.fleyx.jcloud.mapper.MediaSeriesMapper;
 import com.fleyx.jcloud.model.dto.FileCreateFolderDto;
 import com.fleyx.jcloud.model.dto.FileRenameDto;
 import com.fleyx.jcloud.model.dto.MediaPageQueryDto;
@@ -26,9 +26,9 @@ import com.fleyx.jcloud.model.po.MediaDirectory;
 import com.fleyx.jcloud.model.po.MediaDirectorySource;
 import com.fleyx.jcloud.model.po.MediaEpisode;
 import com.fleyx.jcloud.model.po.MediaEpisodeFile;
-import com.fleyx.jcloud.model.po.MediaMetadataV2;
-import com.fleyx.jcloud.model.po.MediaSeasonV2;
-import com.fleyx.jcloud.model.po.MediaSeriesV2;
+import com.fleyx.jcloud.model.po.MediaMetadata;
+import com.fleyx.jcloud.model.po.MediaSeason;
+import com.fleyx.jcloud.model.po.MediaSeries;
 import com.fleyx.jcloud.model.vo.FileNodeVo;
 import com.fleyx.jcloud.model.vo.MediaItemDetailVo;
 import com.fleyx.jcloud.model.vo.MediaItemVo;
@@ -102,10 +102,10 @@ class MediaTvScanServiceTest {
     private MediaDirectorySourceMapper mediaDirectorySourceMapper;
 
     @Autowired
-    private MediaSeriesV2Mapper mediaSeriesV2Mapper;
+    private MediaSeriesMapper mediaSeriesMapper;
 
     @Autowired
-    private MediaSeasonV2Mapper mediaSeasonV2Mapper;
+    private MediaSeasonMapper mediaSeasonMapper;
 
     @Autowired
     private MediaEpisodeMapper mediaEpisodeMapper;
@@ -114,7 +114,7 @@ class MediaTvScanServiceTest {
     private MediaEpisodeFileMapper mediaEpisodeFileMapper;
 
     @Autowired
-    private MediaMetadataV2Mapper mediaMetadataV2Mapper;
+    private MediaMetadataMapper mediaMetadataMapper;
 
     @Autowired
     private FileMapper fileMapper;
@@ -161,7 +161,7 @@ class MediaTvScanServiceTest {
         // 重扫幂等：锚定 upsert 不重复建行
         mediaScanService.scan(directory.getId());
 
-        MediaSeriesV2 series = querySingleSeries(directory.getId());
+        MediaSeries series = querySingleSeries(directory.getId());
         assertEquals(seriesFolder.getId(), series.getFolderNodeId());
         assertEquals("火星生活", series.getSeriesName());
         assertEquals(2018, series.getReleaseYear());
@@ -172,7 +172,7 @@ class MediaTvScanServiceTest {
         assertEquals(Boolean.FALSE, series.getMetadataComplete());
         assertNotNull(series.getMinFileLastModified());
 
-        List<MediaSeasonV2> seasons = seasonsOfSeries(series.getId());
+        List<MediaSeason> seasons = seasonsOfSeries(series.getId());
         assertEquals(1, seasons.size());
         assertEquals(seasonFolder.getId(), seasons.getFirst().getFolderNodeId());
         assertEquals(1, seasons.getFirst().getSeasonNo());
@@ -219,10 +219,10 @@ class MediaTvScanServiceTest {
         mediaScanService.scan(directory.getId());
 
         // 模拟削刮完成状态 + 播放进度
-        MediaSeriesV2 series = querySingleSeries(directory.getId());
+        MediaSeries series = querySingleSeries(directory.getId());
         series.setMetadataId("metaseries001");
         series.setMatchStatus(MediaMatchStatus.MATCHED.getCode());
-        mediaSeriesV2Mapper.updateById(series);
+        mediaSeriesMapper.updateById(series);
         MediaEpisode episode = episodesOfSeries(series.getId()).getFirst();
         episode.setProgressMs(5000L);
         mediaEpisodeMapper.updateById(episode);
@@ -230,7 +230,7 @@ class MediaTvScanServiceTest {
         rename(user.getId(), seriesFolder.getId(), "火星生活 (2018)");
         mediaScanService.scan(directory.getId());
 
-        MediaSeriesV2 after = querySingleSeries(directory.getId());
+        MediaSeries after = querySingleSeries(directory.getId());
         assertEquals(series.getId(), after.getId());
         assertEquals("火星生活", after.getSeriesName());
         assertEquals(2018, after.getReleaseYear());
@@ -254,15 +254,15 @@ class MediaTvScanServiceTest {
         MediaDirectory directory = createTvDirectory(user.getId(), tvFolder.getId());
         mediaScanService.scan(directory.getId());
 
-        MediaSeriesV2 series = querySingleSeries(directory.getId());
+        MediaSeries series = querySingleSeries(directory.getId());
         series.setMetadataId("metaseries001");
         series.setMatchStatus(MediaMatchStatus.MANUAL.getCode());
-        mediaSeriesV2Mapper.updateById(series);
+        mediaSeriesMapper.updateById(series);
 
         rename(user.getId(), seriesFolder.getId(), "火星生活 (2018)");
         mediaScanService.scan(directory.getId());
 
-        MediaSeriesV2 after = querySingleSeries(directory.getId());
+        MediaSeries after = querySingleSeries(directory.getId());
         assertEquals(series.getId(), after.getId());
         assertEquals(MediaMatchStatus.MANUAL.getCode(), after.getMatchStatus());
         assertEquals("metaseries001", after.getMetadataId());
@@ -282,16 +282,16 @@ class MediaTvScanServiceTest {
         MediaDirectory directory = createTvDirectory(user.getId(), tvFolder.getId());
         mediaScanService.scan(directory.getId());
 
-        MediaSeriesV2 series = querySingleSeries(directory.getId());
+        MediaSeries series = querySingleSeries(directory.getId());
         MediaEpisode episode = episodesOfSeries(series.getId()).getFirst();
         episode.setProgressMs(8000L);
         mediaEpisodeMapper.updateById(episode);
-        MediaSeasonV2 season = seasonsOfSeries(series.getId()).getFirst();
+        MediaSeason season = seasonsOfSeries(series.getId()).getFirst();
 
         rename(user.getId(), seasonFolder.getId(), "Season 2");
         mediaScanService.scan(directory.getId());
 
-        MediaSeasonV2 afterSeason = seasonsOfSeries(series.getId()).getFirst();
+        MediaSeason afterSeason = seasonsOfSeries(series.getId()).getFirst();
         assertEquals(season.getId(), afterSeason.getId());
         assertEquals(2, afterSeason.getSeasonNo());
         MediaEpisode afterEpisode = episodesOfSeries(series.getId()).getFirst();
@@ -315,7 +315,7 @@ class MediaTvScanServiceTest {
         MediaDirectory directory = createTvDirectory(user.getId(), tvFolder.getId());
         mediaScanService.scan(directory.getId());
 
-        MediaSeriesV2 series = querySingleSeries(directory.getId());
+        MediaSeries series = querySingleSeries(directory.getId());
         MediaEpisode moved = episodesOfSeries(series.getId()).stream()
                 .filter(e -> e.getEpisodeNo() == 2).findFirst().orElseThrow();
         moved.setProgressMs(5000L);
@@ -324,7 +324,7 @@ class MediaTvScanServiceTest {
         moveFileNode(user.getId(), e02.getId(), season2.getId());
         mediaScanService.scan(directory.getId());
 
-        MediaSeasonV2 season2Row = seasonsOfSeries(series.getId()).stream()
+        MediaSeason season2Row = seasonsOfSeries(series.getId()).stream()
                 .filter(s -> s.getSeasonNo() == 2).findFirst().orElseThrow();
         MediaEpisode after = episodesOfSeries(series.getId()).stream()
                 .filter(e -> e.getEpisodeNo() == 2).findFirst().orElseThrow();
@@ -351,8 +351,8 @@ class MediaTvScanServiceTest {
         MediaDirectory directory = createTvDirectory(user.getId(), tvFolder.getId());
         mediaScanService.scan(directory.getId());
 
-        MediaSeriesV2 series = querySingleSeries(directory.getId());
-        MediaSeasonV2 season1Row = seasonsOfSeries(series.getId()).stream()
+        MediaSeries series = querySingleSeries(directory.getId());
+        MediaSeason season1Row = seasonsOfSeries(series.getId()).stream()
                 .filter(s -> s.getSeasonNo() == 1).findFirst().orElseThrow();
         MediaEpisode sourceEpisode = episodesOfSeries(series.getId()).stream()
                 .filter(e -> e.getSeasonId().equals(season1Row.getId())).findFirst().orElseThrow();
@@ -375,7 +375,7 @@ class MediaTvScanServiceTest {
         assertEquals(2, files.size());
         assertTrue(files.stream().anyMatch(f -> f.getFileNodeId().equals(source.getId())));
         // 第一季文件夹已无有效文件：季行即时删除，无孤儿
-        assertEquals(1, mediaSeasonV2Mapper.selectCount(null));
+        assertEquals(1, mediaSeasonMapper.selectCount(null));
         assertNull(mediaEpisodeMapper.selectById(sourceEpisode.getId()));
     }
 
@@ -396,7 +396,7 @@ class MediaTvScanServiceTest {
         fileMapper.deleteById(e02.getId());
         mediaScanService.scan(directory.getId());
 
-        MediaSeriesV2 series = querySingleSeries(directory.getId());
+        MediaSeries series = querySingleSeries(directory.getId());
         List<MediaEpisode> episodes = episodesOfSeries(series.getId());
         assertEquals(1, episodes.size());
         assertEquals(1, episodes.getFirst().getEpisodeNo());
@@ -421,9 +421,9 @@ class MediaTvScanServiceTest {
         MediaDirectory directory = createTvDirectory(user.getId(), tvFolder.getId());
         mediaScanService.scan(directory.getId());
 
-        MediaSeriesV2 series = querySingleSeries(directory.getId());
+        MediaSeries series = querySingleSeries(directory.getId());
         assertEquals(2, seasonsOfSeries(series.getId()).size());
-        MediaSeasonV2 season2 = seasonsOfSeries(series.getId()).stream()
+        MediaSeason season2 = seasonsOfSeries(series.getId()).stream()
                 .filter(s -> s.getSeasonNo() == 2).findFirst().orElseThrow();
         MediaEpisode season2Episode = episodesOfSeries(series.getId()).stream()
                 .filter(e -> e.getSeasonId().equals(season2.getId())).findFirst().orElseThrow();
@@ -433,14 +433,14 @@ class MediaTvScanServiceTest {
         purgeSubtree(user.getId(), season2Folder.getId());
         mediaScanService.scan(directory.getId());
 
-        List<MediaSeasonV2> seasons = seasonsOfSeries(series.getId());
+        List<MediaSeason> seasons = seasonsOfSeries(series.getId());
         assertEquals(1, seasons.size());
         assertEquals(1, seasons.getFirst().getSeasonNo());
-        assertNull(mediaSeasonV2Mapper.selectById(season2.getId()));
+        assertNull(mediaSeasonMapper.selectById(season2.getId()));
         assertNull(mediaEpisodeMapper.selectById(season2Episode.getId()));
         assertEquals(0, mediaEpisodeFileMapper.selectCount(new LambdaQueryWrapper<MediaEpisodeFile>()
                 .eq(MediaEpisodeFile::getEpisodeId, season2Episode.getId())));
-        assertEquals(0, mediaMetadataV2Mapper.selectCount(null));
+        assertEquals(0, mediaMetadataMapper.selectCount(null));
         // 同剧第一季完好
         assertEquals(1, episodesOfSeries(series.getId()).size());
         assertEquals(1, mediaEpisodeFileMapper.selectCount(null));
@@ -463,11 +463,11 @@ class MediaTvScanServiceTest {
         upload(user.getId(), otherSeasonFolder.getId(), "亮剑.S01E01.mkv");
         MediaDirectory directory = createTvDirectory(user.getId(), tvFolder.getId());
         mediaScanService.scan(directory.getId());
-        assertEquals(2, mediaSeriesV2Mapper.selectCount(null));
+        assertEquals(2, mediaSeriesMapper.selectCount(null));
 
-        MediaSeriesV2 removed = mediaSeriesV2Mapper.selectOne(new LambdaQueryWrapper<MediaSeriesV2>()
-                .eq(MediaSeriesV2::getFolderNodeId, seriesFolder.getId()));
-        MediaSeasonV2 removedSeason = seasonsOfSeries(removed.getId()).getFirst();
+        MediaSeries removed = mediaSeriesMapper.selectOne(new LambdaQueryWrapper<MediaSeries>()
+                .eq(MediaSeries::getFolderNodeId, seriesFolder.getId()));
+        MediaSeason removedSeason = seasonsOfSeries(removed.getId()).getFirst();
         MediaEpisode removedEpisode = episodesOfSeries(removed.getId()).getFirst();
         // 模拟削刮写入的元数据（owner 反向指针），验证级联连带删除
         seedMetadata(user.getId(), "series", removed.getId());
@@ -477,14 +477,14 @@ class MediaTvScanServiceTest {
         purgeSubtree(user.getId(), seriesFolder.getId());
         mediaScanService.scan(directory.getId());
 
-        assertNull(mediaSeriesV2Mapper.selectById(removed.getId()));
-        assertNull(mediaSeasonV2Mapper.selectById(removedSeason.getId()));
+        assertNull(mediaSeriesMapper.selectById(removed.getId()));
+        assertNull(mediaSeasonMapper.selectById(removedSeason.getId()));
         assertNull(mediaEpisodeMapper.selectById(removedEpisode.getId()));
         assertEquals(0, mediaEpisodeFileMapper.selectCount(new LambdaQueryWrapper<MediaEpisodeFile>()
                 .eq(MediaEpisodeFile::getEpisodeId, removedEpisode.getId())));
-        assertEquals(0, mediaMetadataV2Mapper.selectCount(null));
+        assertEquals(0, mediaMetadataMapper.selectCount(null));
         // 另一部剧完好
-        assertEquals(1, mediaSeriesV2Mapper.selectCount(null));
+        assertEquals(1, mediaSeriesMapper.selectCount(null));
         assertEquals(MediaScanStatus.COMPLETED.name(),
                 mediaDirectoryMapper.selectById(directory.getId()).getLastScanStatus());
     }
@@ -508,7 +508,7 @@ class MediaTvScanServiceTest {
         MediaDirectory directory = createTvDirectory(user.getId(), tvFolderA.getId());
         addSource(directory.getId(), tvFolderB.getId());
         mediaScanService.scan(directory.getId());
-        assertEquals(2, mediaSeriesV2Mapper.selectCount(null));
+        assertEquals(2, mediaSeriesMapper.selectCount(null));
 
         // 来源 A 掉线 + 来源 B 下的剧被删除：本轮扫描 PARTIAL，两道闸均不清理
         purgeSubtree(user.getId(), tvFolderA.getId());
@@ -517,7 +517,7 @@ class MediaTvScanServiceTest {
 
         assertEquals(MediaScanStatus.PARTIAL.name(),
                 mediaDirectoryMapper.selectById(directory.getId()).getLastScanStatus());
-        assertEquals(2, mediaSeriesV2Mapper.selectCount(null));
+        assertEquals(2, mediaSeriesMapper.selectCount(null));
 
         // 来源 A 出库后完整重扫：合格来源 B 下消失的剧被批次清理；来源 A 不结算（由目录管理负责清空）
         mediaDirectorySourceMapper.delete(new LambdaQueryWrapper<MediaDirectorySource>()
@@ -527,7 +527,7 @@ class MediaTvScanServiceTest {
 
         assertEquals(MediaScanStatus.COMPLETED.name(),
                 mediaDirectoryMapper.selectById(directory.getId()).getLastScanStatus());
-        List<MediaSeriesV2> remaining = mediaSeriesV2Mapper.selectList(null);
+        List<MediaSeries> remaining = mediaSeriesMapper.selectList(null);
         assertEquals(1, remaining.size());
         assertEquals("火星生活", remaining.getFirst().getSeriesName());
     }
@@ -552,16 +552,16 @@ class MediaTvScanServiceTest {
         mediaScanService.scan(directory1.getId());
         mediaScanService.scan(directory2.getId());
         // 同名剧跨库各建一行
-        assertEquals(2, mediaSeriesV2Mapper.selectCount(null));
+        assertEquals(2, mediaSeriesMapper.selectCount(null));
 
         // 库 1 的剧文件夹删除后重扫库 1：仅库 1 数据被清理
         purgeSubtree(user.getId(), seriesFolder1.getId());
         mediaScanService.scan(directory1.getId());
 
-        assertEquals(0, mediaSeriesV2Mapper.selectCount(new LambdaQueryWrapper<MediaSeriesV2>()
-                .eq(MediaSeriesV2::getDirectoryId, directory1.getId())));
-        assertEquals(1, mediaSeriesV2Mapper.selectCount(new LambdaQueryWrapper<MediaSeriesV2>()
-                .eq(MediaSeriesV2::getDirectoryId, directory2.getId())));
+        assertEquals(0, mediaSeriesMapper.selectCount(new LambdaQueryWrapper<MediaSeries>()
+                .eq(MediaSeries::getDirectoryId, directory1.getId())));
+        assertEquals(1, mediaSeriesMapper.selectCount(new LambdaQueryWrapper<MediaSeries>()
+                .eq(MediaSeries::getDirectoryId, directory2.getId())));
         assertEquals(1, mediaEpisodeMapper.selectCount(null));
     }
 
@@ -580,7 +580,7 @@ class MediaTvScanServiceTest {
         MediaDirectory directory = createTvDirectory(user.getId(), tvFolder.getId());
         mediaScanService.scan(directory.getId());
 
-        MediaSeriesV2 series = querySingleSeries(directory.getId());
+        MediaSeries series = querySingleSeries(directory.getId());
         MediaEpisode episode1 = episodesOfSeries(series.getId()).stream()
                 .filter(e -> e.getEpisodeNo() == 1).findFirst().orElseThrow();
         episode1.setProgressMs(5000L);
@@ -657,9 +657,9 @@ class MediaTvScanServiceTest {
         MediaDirectory directory = createTvDirectory(user.getId(), tvFolder.getId());
         mediaScanService.scan(directory.getId());
 
-        MediaSeriesV2 seriesArow = querySeriesByFolder(seriesA.getId());
-        MediaSeriesV2 seriesBrow = querySeriesByFolder(seriesB.getId());
-        MediaSeasonV2 seasonRow = seasonsOfSeries(seriesArow.getId()).getFirst();
+        MediaSeries seriesArow = querySeriesByFolder(seriesA.getId());
+        MediaSeries seriesBrow = querySeriesByFolder(seriesB.getId());
+        MediaSeason seasonRow = seasonsOfSeries(seriesArow.getId()).getFirst();
         MediaEpisode episodeRow = episodesOfSeries(seriesArow.getId()).getFirst();
         episodeRow.setProgressMs(5000L);
         mediaEpisodeMapper.updateById(episodeRow);
@@ -671,7 +671,7 @@ class MediaTvScanServiceTest {
         mediaScanService.scan(directory.getId());
 
         // 季行改挂到剧乙：ID 与文件夹锚不变，集行/明细行 ID 与进度保留，元数据未删
-        MediaSeasonV2 afterSeason = mediaSeasonV2Mapper.selectById(seasonRow.getId());
+        MediaSeason afterSeason = mediaSeasonMapper.selectById(seasonRow.getId());
         assertNotNull(afterSeason);
         assertEquals(seriesBrow.getId(), afterSeason.getSeriesId());
         assertEquals(seasonA1.getId(), afterSeason.getFolderNodeId());
@@ -689,7 +689,7 @@ class MediaTvScanServiceTest {
         assertEquals(0, episodesOfSeries(seriesArow.getId()).size());
         assertEquals(2, seasonsOfSeries(seriesBrow.getId()).size());
         assertEquals(2, episodesOfSeries(seriesBrow.getId()).size());
-        assertEquals(2, mediaMetadataV2Mapper.selectCount(null));
+        assertEquals(2, mediaMetadataMapper.selectCount(null));
     }
 
     /**
@@ -710,8 +710,8 @@ class MediaTvScanServiceTest {
         MediaDirectory directory = createTvDirectory(user.getId(), tvFolder.getId());
         mediaScanService.scan(directory.getId());
 
-        MediaSeriesV2 seriesArow = querySeriesByFolder(seriesA.getId());
-        MediaSeriesV2 seriesBrow = querySeriesByFolder(seriesB.getId());
+        MediaSeries seriesArow = querySeriesByFolder(seriesA.getId());
+        MediaSeries seriesBrow = querySeriesByFolder(seriesB.getId());
         MediaEpisode movedEpisode = episodesOfSeries(seriesArow.getId()).stream()
                 .filter(e -> e.getEpisodeNo() == 2).findFirst().orElseThrow();
         movedEpisode.setProgressMs(5000L);
@@ -727,11 +727,11 @@ class MediaTvScanServiceTest {
         assertNotNull(after);
         assertEquals(seriesBrow.getId(), after.getSeriesId());
         assertEquals(5000L, after.getProgressMs());
-        MediaSeasonV2 seasonB1Row = seasonsOfSeries(seriesBrow.getId()).stream()
+        MediaSeason seasonB1Row = seasonsOfSeries(seriesBrow.getId()).stream()
                 .filter(s -> s.getSeasonNo() == 1).findFirst().orElseThrow();
         assertEquals(seasonB1Row.getId(), after.getSeasonId());
         assertEquals(e02.getId(), mediaEpisodeFileMapper.selectById(movedFile.getId()).getFileNodeId());
-        assertEquals(1, mediaMetadataV2Mapper.selectCount(null));
+        assertEquals(1, mediaMetadataMapper.selectCount(null));
         // 源剧保留 E01；两剧共 3 集 3 明细，无孤儿
         assertEquals(1, episodesOfSeries(seriesArow.getId()).size());
         assertEquals(3, mediaEpisodeMapper.selectCount(null));
@@ -739,23 +739,23 @@ class MediaTvScanServiceTest {
     }
 
     private void seedMetadata(String userId, String ownerType, String ownerId) {
-        MediaMetadataV2 metadata = new MediaMetadataV2();
+        MediaMetadata metadata = new MediaMetadata();
         metadata.setUserId(userId);
         metadata.setOwnerType(ownerType);
         metadata.setOwnerId(ownerId);
         metadata.setSource("tmdb");
         metadata.setTitle("测试元数据");
-        mediaMetadataV2Mapper.insert(metadata);
+        mediaMetadataMapper.insert(metadata);
     }
 
-    private MediaSeriesV2 querySingleSeries(String directoryId) {
-        return mediaSeriesV2Mapper.selectOne(new LambdaQueryWrapper<MediaSeriesV2>()
-                .eq(MediaSeriesV2::getDirectoryId, directoryId));
+    private MediaSeries querySingleSeries(String directoryId) {
+        return mediaSeriesMapper.selectOne(new LambdaQueryWrapper<MediaSeries>()
+                .eq(MediaSeries::getDirectoryId, directoryId));
     }
 
-    private List<MediaSeasonV2> seasonsOfSeries(String seriesId) {
-        return mediaSeasonV2Mapper.selectList(new LambdaQueryWrapper<MediaSeasonV2>()
-                .eq(MediaSeasonV2::getSeriesId, seriesId));
+    private List<MediaSeason> seasonsOfSeries(String seriesId) {
+        return mediaSeasonMapper.selectList(new LambdaQueryWrapper<MediaSeason>()
+                .eq(MediaSeason::getSeriesId, seriesId));
     }
 
     private List<MediaEpisode> episodesOfSeries(String seriesId) {
@@ -823,9 +823,9 @@ class MediaTvScanServiceTest {
         }
     }
 
-    private MediaSeriesV2 querySeriesByFolder(String folderNodeId) {
-        return mediaSeriesV2Mapper.selectOne(new LambdaQueryWrapper<MediaSeriesV2>()
-                .eq(MediaSeriesV2::getFolderNodeId, folderNodeId));
+    private MediaSeries querySeriesByFolder(String folderNodeId) {
+        return mediaSeriesMapper.selectOne(new LambdaQueryWrapper<MediaSeries>()
+                .eq(MediaSeries::getFolderNodeId, folderNodeId));
     }
 
     private void rename(String userId, String nodeId, String newName) {

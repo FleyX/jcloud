@@ -3,11 +3,11 @@ package com.fleyx.jcloud.service.support;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fleyx.jcloud.common.enums.MediaMetadataOwnerType;
 import com.fleyx.jcloud.mapper.FileMapper;
-import com.fleyx.jcloud.mapper.MediaMetadataV2Mapper;
+import com.fleyx.jcloud.mapper.MediaMetadataMapper;
 import com.fleyx.jcloud.mapper.MediaMovieFileMapper;
 import com.fleyx.jcloud.mapper.MediaMovieMapper;
 import com.fleyx.jcloud.model.po.FileNode;
-import com.fleyx.jcloud.model.po.MediaMetadataV2;
+import com.fleyx.jcloud.model.po.MediaMetadata;
 import com.fleyx.jcloud.model.po.MediaMovie;
 import com.fleyx.jcloud.model.po.MediaMovieFile;
 import lombok.RequiredArgsConstructor;
@@ -24,7 +24,7 @@ import java.util.Set;
  * 电影库新模型级联删除支撑组件（ADR 0021 / issue #18）。
  * <p>
  * 应用层事务内执行（项目禁用外键）：删电影 → 电影文件明细 → 电影行，
- * 连带其 owner 反向指针指向的 t_media_metadata_v2 行。
+ * 连带其 owner 反向指针指向的 t_media_metadata 行。
  * 即时 reconcile 的删除、批次清理与媒体库删除共用同一套级联。
  */
 @Slf4j
@@ -34,12 +34,12 @@ public class MediaMovieCascadeSupport {
 
     private final MediaMovieMapper mediaMovieMapper;
     private final MediaMovieFileMapper mediaMovieFileMapper;
-    private final MediaMetadataV2Mapper mediaMetadataV2Mapper;
+    private final MediaMetadataMapper mediaMetadataMapper;
     private final MediaSubtitleSupport mediaSubtitleSupport;
     private final FileMapper fileMapper;
 
     /**
-     * 级联删除若干部电影：电影文件明细 → 电影行，各级连带其 owner 指向的 t_media_metadata_v2 行；
+     * 级联删除若干部电影：电影文件明细 → 电影行，各级连带其 owner 指向的 t_media_metadata 行；
      * 电影文件明细的外部字幕记录一并删除（issue #19）。
      *
      * @param movieIds 电影 ID 集合
@@ -141,8 +141,8 @@ public class MediaMovieCascadeSupport {
      * @param ownerId   归属实体 ID
      */
     public void deleteMetadata(String ownerType, String ownerId) {
-        mediaMetadataV2Mapper.delete(new LambdaQueryWrapper<MediaMetadataV2>()
-                .eq(MediaMetadataV2::getOwnerType, ownerType)
-                .eq(MediaMetadataV2::getOwnerId, ownerId));
+        mediaMetadataMapper.delete(new LambdaQueryWrapper<MediaMetadata>()
+                .eq(MediaMetadata::getOwnerType, ownerType)
+                .eq(MediaMetadata::getOwnerId, ownerId));
     }
 }

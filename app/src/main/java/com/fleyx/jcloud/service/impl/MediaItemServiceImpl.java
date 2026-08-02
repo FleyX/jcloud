@@ -7,45 +7,34 @@ import com.fleyx.jcloud.common.enums.MediaMatchStatus;
 import com.fleyx.jcloud.common.enums.MediaMetadataOwnerType;
 import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.exception.BusinessException;
-import com.fleyx.jcloud.mapper.FileMapper;
 import com.fleyx.jcloud.mapper.MediaEpisodeFileMapper;
 import com.fleyx.jcloud.mapper.MediaEpisodeMapper;
-import com.fleyx.jcloud.mapper.MediaItemMapper;
-import com.fleyx.jcloud.mapper.MediaMetadataMapper;
 import com.fleyx.jcloud.mapper.MediaMovieFileMapper;
 import com.fleyx.jcloud.mapper.MediaMovieMapper;
 import com.fleyx.jcloud.mapper.MediaOtherMapper;
 import com.fleyx.jcloud.mapper.MediaSeriesMapper;
-import com.fleyx.jcloud.mapper.MediaSeriesV2Mapper;
 import com.fleyx.jcloud.model.dto.MediaMatchUpdateDto;
 import com.fleyx.jcloud.model.dto.MediaPageQueryDto;
 import com.fleyx.jcloud.model.dto.MediaProgressUpdateDto;
-import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.po.MediaEpisode;
 import com.fleyx.jcloud.model.po.MediaEpisodeFile;
-import com.fleyx.jcloud.model.po.MediaItem;
 import com.fleyx.jcloud.model.po.MediaMetadata;
-import com.fleyx.jcloud.model.po.MediaMetadataV2;
 import com.fleyx.jcloud.model.po.MediaMovie;
 import com.fleyx.jcloud.model.po.MediaMovieFile;
 import com.fleyx.jcloud.model.po.MediaOther;
 import com.fleyx.jcloud.model.po.MediaSeries;
-import com.fleyx.jcloud.model.po.MediaSeriesV2;
 import com.fleyx.jcloud.model.vo.MediaItemDetailVo;
 import com.fleyx.jcloud.model.vo.MediaItemVo;
 import com.fleyx.jcloud.model.vo.MediaSeriesDetailVo;
 import com.fleyx.jcloud.model.vo.MediaSeriesVo;
 import com.fleyx.jcloud.service.MediaItemService;
 import com.fleyx.jcloud.service.TmdbService;
-import com.fleyx.jcloud.service.support.MediaArtworkPersistSupport;
 import com.fleyx.jcloud.service.support.MediaArtworkPersistV2Support;
-import com.fleyx.jcloud.service.support.MediaItemVoSupport;
 import com.fleyx.jcloud.service.support.MediaMetadataCompleteSupport;
-import com.fleyx.jcloud.service.support.MediaMetadataV2Support;
+import com.fleyx.jcloud.service.support.MediaMetadataSupport;
 import com.fleyx.jcloud.service.support.MediaMovieQuerySupport;
 import com.fleyx.jcloud.service.support.MediaOtherQuerySupport;
 import com.fleyx.jcloud.service.support.MediaPlaybackResolveSupport;
-import com.fleyx.jcloud.service.support.MediaSeriesSupport;
 import com.fleyx.jcloud.service.support.MediaTvQuerySupport;
 import com.fleyx.jcloud.service.support.MediaTvScrapeSupport;
 import lombok.RequiredArgsConstructor;
@@ -61,30 +50,25 @@ import java.util.List;
  * 电视（issue #17）/电影（issue #18）/其他（issue #19）海报墙与详情均已切换到新模型表，
  * 分别委托 {@link MediaTvQuerySupport} / {@link MediaMovieQuerySupport} / {@link MediaOtherQuerySupport}；
  * 播放进度记录到标题级新行（电影/集/其他），续播通过 last_play_file_id 定位版本文件。
+ * 手动修正统一按行 ID（issue #21）：id 为电影行或剧集行 ID，集级手动修正已下线；
+ * 旧表存量数据兜底分支已随旧四表弃用删除。
  */
 @Service
 @RequiredArgsConstructor
 public class MediaItemServiceImpl implements MediaItemService {
 
-    private final MediaItemMapper mediaItemMapper;
-    private final MediaMetadataMapper mediaMetadataMapper;
     private final MediaSeriesMapper mediaSeriesMapper;
     private final MediaMovieMapper mediaMovieMapper;
     private final MediaMovieFileMapper mediaMovieFileMapper;
     private final MediaEpisodeMapper mediaEpisodeMapper;
     private final MediaEpisodeFileMapper mediaEpisodeFileMapper;
     private final MediaOtherMapper mediaOtherMapper;
-    private final MediaSeriesV2Mapper mediaSeriesV2Mapper;
-    private final FileMapper fileMapper;
     private final TmdbService tmdbService;
-    private final MediaSeriesSupport mediaSeriesSupport;
-    private final MediaItemVoSupport mediaItemVoSupport;
-    private final MediaArtworkPersistSupport mediaArtworkPersistSupport;
     private final MediaTvQuerySupport mediaTvQuerySupport;
     private final MediaMovieQuerySupport mediaMovieQuerySupport;
     private final MediaOtherQuerySupport mediaOtherQuerySupport;
     private final MediaPlaybackResolveSupport mediaPlaybackResolveSupport;
-    private final MediaMetadataV2Support metadataV2Support;
+    private final MediaMetadataSupport metadataSupport;
     private final MediaMetadataCompleteSupport metadataCompleteSupport;
     private final MediaTvScrapeSupport mediaTvScrapeSupport;
     private final MediaArtworkPersistV2Support artworkPersistV2Support;
@@ -114,27 +98,21 @@ public class MediaItemServiceImpl implements MediaItemService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public MediaItemVo updateMatch(String itemId, MediaMatchUpdateDto dto, String userId) {
-        // 新模型优先（issue #20）：电影级手动修正
+        // 电影行手动修正（issue #20）
         MediaMovie movie = mediaMovieMapper.selectById(itemId);
         if (movie != null) {
             return applyMovieManualMatch(movie, dto, userId);
+        }
+        // 剧集行手动修正（issue #21：统一按行 ID，id = 剧集行 ID 时等效原系列级修正语义，整剧应用）
+        MediaSeries series = mediaSeriesMapper.selectById(itemId);
+        if (series != null) {
+            return applySeriesManualMatch(series, dto, userId);
         }
         // 集级手动修正已下线（issue #15/#20）
         if (mediaEpisodeMapper.selectById(itemId) != null) {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "集级手动修正已下线");
         }
-        // 旧表存量数据兜底（issue #21 弃表后移除）
-        MediaItem item = requireOwned(itemId, userId);
-        if (MediaItemType.EPISODE.getCode().equals(item.getItemType())) {
-            throw new BusinessException(ResultCode.BUSINESS_ERROR, "集级手动修正已下线");
-        }
-        MediaMetadata metadata = tmdbService.getOrFetch(userId, dto.getTmdbId(), dto.getMediaType());
-        item.setMetadataId(metadata.getId());
-        item.setMatchStatus(MediaMatchStatus.MANUAL.getCode());
-        mediaItemMapper.updateById(item);
-        // 手动修正成功即写回视频目录的 NFO 与图片，落盘失败不影响匹配结果
-        mediaArtworkPersistSupport.persistItem(item, metadata);
-        return mediaItemVoSupport.toItemVos(List.of(item), true).getFirst();
+        throw new BusinessException(ResultCode.NOT_FOUND, "媒体条目不存在");
     }
 
     /**
@@ -144,8 +122,8 @@ public class MediaItemServiceImpl implements MediaItemService {
         if (!userId.equals(movie.getUserId())) {
             throw new BusinessException(ResultCode.NOT_FOUND, "电影不存在");
         }
-        MediaMetadataV2 detached = tmdbService.fetchDetailV2(userId, dto.getTmdbId(), dto.getMediaType());
-        MediaMetadataV2 bound = metadataV2Support.upsertByOwner(
+        MediaMetadata detached = tmdbService.fetchDetailV2(userId, dto.getTmdbId(), dto.getMediaType());
+        MediaMetadata bound = metadataSupport.upsertByOwner(
                 MediaMetadataOwnerType.MOVIE.getCode(), movie.getId(), detached);
         movie.setMetadataId(bound.getId());
         movie.setMatchStatus(MediaMatchStatus.MANUAL.getCode());
@@ -162,37 +140,22 @@ public class MediaItemServiceImpl implements MediaItemService {
         return vo;
     }
 
-    @Override
-    @Transactional(rollbackFor = Exception.class)
-    public void updateSeriesMatch(String seriesName, MediaMatchUpdateDto dto, String userId) {
-        MediaMetadataV2 detached = tmdbService.fetchDetailV2(userId, dto.getTmdbId(), "tv");
-        // 新模型优先（issue #20）：库级归属下同名剧逐个手动修正（各库各建一条）
-        List<MediaSeriesV2> seriesList = mediaSeriesV2Mapper.selectList(new LambdaQueryWrapper<MediaSeriesV2>()
-                .eq(MediaSeriesV2::getUserId, userId)
-                .eq(MediaSeriesV2::getSeriesName, seriesName));
-        if (!seriesList.isEmpty()) {
-            for (MediaSeriesV2 series : seriesList) {
-                mediaTvScrapeSupport.applySeriesMatchWithDerivation(series, detached, MediaMatchStatus.MANUAL.getCode());
-            }
-            return;
-        }
-        // 旧表存量数据兜底（issue #21 弃表后移除）
-        MediaMetadata metadata = tmdbService.getOrFetch(userId, dto.getTmdbId(), "tv");
-        MediaSeries series = mediaSeriesMapper.selectOne(new LambdaQueryWrapper<MediaSeries>()
-                .eq(MediaSeries::getUserId, userId)
-                .eq(MediaSeries::getSeriesName, seriesName));
-        if (series == null) {
+    /**
+     * 新模型剧集行手动修正：整剧应用（绑定 owner=series → 置 manual → 派生季/集 → 写回 → 重算完整性）。
+     */
+    private MediaItemVo applySeriesManualMatch(MediaSeries series, MediaMatchUpdateDto dto, String userId) {
+        if (!userId.equals(series.getUserId())) {
             throw new BusinessException(ResultCode.NOT_FOUND, "电视剧不存在");
         }
-        MediaSeries update = new MediaSeries();
-        update.setId(series.getId());
-        update.setMetadataId(metadata.getId());
-        update.setMatchStatus(MediaMatchStatus.MANUAL.getCode());
-        mediaSeriesMapper.updateById(update);
-        // 复用削刮管线补齐季/集元数据（已单独手动修正的集不覆盖）
-        mediaSeriesSupport.applySeriesMetadata(series, metadata, MediaMatchStatus.MANUAL.getCode());
-        // 手动修正成功即写回视频目录的 NFO 与图片，落盘失败不影响匹配结果
-        mediaArtworkPersistSupport.persistSeries(series, metadata);
+        MediaMetadata detached = tmdbService.fetchDetailV2(userId, dto.getTmdbId(), "tv");
+        mediaTvScrapeSupport.applySeriesMatchWithDerivation(series, detached, MediaMatchStatus.MANUAL.getCode());
+        MediaItemVo vo = new MediaItemVo();
+        vo.setId(series.getId());
+        vo.setItemType("series");
+        vo.setMatchStatus(series.getMatchStatus());
+        vo.setMetadataId(series.getMetadataId());
+        vo.setTitle(detached.getTitle() == null ? series.getSeriesName() : detached.getTitle());
+        return vo;
     }
 
     @Override
@@ -205,7 +168,10 @@ public class MediaItemServiceImpl implements MediaItemService {
             if (!userId.equals(movie.getUserId())) {
                 throw new BusinessException(ResultCode.NOT_FOUND, "媒体条目不存在");
             }
-            MediaMovieFile file = mediaPlaybackResolveSupport.pickMovieFile(movie);
+            // 指定版本时校验该明细行属于此电影并记为该次播放版本，缺省按续播定位（last_play_file_id 优先）
+            MediaMovieFile file = dto.getVersionId() == null
+                    ? mediaPlaybackResolveSupport.pickMovieFile(movie)
+                    : mediaPlaybackResolveSupport.pickVersion(movie, dto.getVersionId());
             movie.setProgressMs(dto.getProgressMs());
             movie.setLastPlayTime(now);
             if (file != null) {
@@ -216,7 +182,7 @@ public class MediaItemServiceImpl implements MediaItemService {
         }
         MediaEpisode episode = mediaEpisodeMapper.selectById(itemId);
         if (episode != null) {
-            MediaSeriesV2 series = mediaSeriesV2Mapper.selectById(episode.getSeriesId());
+            MediaSeries series = mediaSeriesMapper.selectById(episode.getSeriesId());
             if (series == null || !userId.equals(series.getUserId())) {
                 throw new BusinessException(ResultCode.NOT_FOUND, "媒体条目不存在");
             }
@@ -240,14 +206,7 @@ public class MediaItemServiceImpl implements MediaItemService {
 
     @Override
     public MediaItemDetailVo getItemDetail(String itemId, String userId) {
-        MediaItem item = mediaItemMapper.selectById(itemId);
-        if (item != null) {
-            if (!userId.equals(item.getUserId())) {
-                throw new BusinessException(ResultCode.NOT_FOUND, "媒体条目不存在");
-            }
-            return toLegacyItemDetail(item, userId);
-        }
-        // 新模型回退：电影详情（issue #18）、集详情（issue #17）、其他详情（issue #19）
+        // 电影详情（issue #18）、集详情（issue #17）、其他详情（issue #19）
         MediaMovie movie = mediaMovieMapper.selectById(itemId);
         if (movie != null) {
             return mediaMovieQuerySupport.getMovieDetail(itemId, userId);
@@ -263,53 +222,6 @@ public class MediaItemServiceImpl implements MediaItemService {
         throw new BusinessException(ResultCode.NOT_FOUND, "媒体条目不存在");
     }
 
-    /**
-     * 旧表条目详情组装（存量旧数据，issue #21 弃表后移除）。
-     */
-    private MediaItemDetailVo toLegacyItemDetail(MediaItem item, String userId) {
-        FileNode node = fileMapper.selectById(item.getFileNodeId());
-        MediaMetadata metadata = item.getMetadataId() == null ? null
-                : mediaMetadataMapper.selectById(item.getMetadataId());
-
-        MediaItemDetailVo vo = new MediaItemDetailVo();
-        vo.setId(item.getId());
-        vo.setItemType(item.getItemType());
-        vo.setFileName(node == null ? null : node.getName());
-        vo.setFileSize(node == null ? null : node.getSize());
-        vo.setMatchStatus(item.getMatchStatus());
-        vo.setMetadataId(item.getMetadataId());
-        vo.setSeriesId(item.getSeriesId());
-        vo.setSeriesName(item.getSeriesName());
-        vo.setSeasonNo(item.getSeasonNo());
-        vo.setEpisodeNo(item.getEpisodeNo());
-        vo.setDurationMs(item.getDurationMs());
-        vo.setProgressMs(item.getProgressMs());
-        if (item.getSeriesId() != null) {
-            MediaSeries series = mediaSeriesMapper.selectById(item.getSeriesId());
-            if (series != null) {
-                vo.setSeriesMetadataId(series.getMetadataId());
-            }
-        }
-        vo.setWidth(item.getWidth());
-        vo.setHeight(item.getHeight());
-        vo.setVideoCodec(item.getVideoCodec());
-        vo.setAudioCodec(item.getAudioCodec());
-        if (metadata != null) {
-            vo.setTitle(metadata.getTitle());
-            vo.setOriginalTitle(metadata.getOriginalTitle());
-            vo.setOverview(metadata.getOverview());
-            vo.setGenres(splitGenres(metadata.getGenres()));
-            vo.setReleaseDate(metadata.getReleaseDate());
-            vo.setVoteAverage(metadata.getVoteAverage());
-            vo.setPosterUrl(mediaItemVoSupport.posterUrlOf(metadata));
-            vo.setBackdropUrl(mediaItemVoSupport.backdropUrlOf(metadata));
-        }
-        if (vo.getTitle() == null) {
-            vo.setTitle(vo.getFileName());
-        }
-        return vo;
-    }
-
     @Override
     public MediaSeriesDetailVo getSeriesDetail(String seriesId, String userId) {
         return mediaTvQuerySupport.getSeriesDetail(seriesId, userId);
@@ -322,7 +234,7 @@ public class MediaItemServiceImpl implements MediaItemService {
 
     @Override
     public String getItemIdByFileNodeId(String fileNodeId, String userId) {
-        // 新模型优先（issue #19）：其他行（文件级）→ 其他 ID；电影/集文件明细 → 标题级 ID
+        // 新模型（issue #19）：其他行（文件级）→ 其他 ID；电影/集文件明细 → 标题级 ID
         MediaOther other = mediaOtherMapper.selectOne(new LambdaQueryWrapper<MediaOther>()
                 .eq(MediaOther::getFileNodeId, fileNodeId)
                 .eq(MediaOther::getUserId, userId));
@@ -342,34 +254,12 @@ public class MediaItemServiceImpl implements MediaItemService {
         if (episodeFile != null) {
             MediaEpisode episode = mediaEpisodeMapper.selectById(episodeFile.getEpisodeId());
             if (episode != null) {
-                MediaSeriesV2 series = mediaSeriesV2Mapper.selectById(episode.getSeriesId());
+                MediaSeries series = mediaSeriesMapper.selectById(episode.getSeriesId());
                 if (series != null && userId.equals(series.getUserId())) {
                     return episode.getId();
                 }
             }
         }
-        // 旧表存量数据兜底（issue #21 弃表后移除）
-        MediaItem item = mediaItemMapper.selectOne(new LambdaQueryWrapper<MediaItem>()
-                .eq(MediaItem::getFileNodeId, fileNodeId)
-                .eq(MediaItem::getUserId, userId));
-        if (item != null) {
-            return item.getId();
-        }
         throw new BusinessException(ResultCode.NOT_FOUND, "媒体条目不存在");
-    }
-
-    private List<String> splitGenres(String genres) {
-        if (genres == null || genres.isBlank()) {
-            return List.of();
-        }
-        return java.util.Arrays.stream(genres.split(",")).filter(g -> !g.isBlank()).toList();
-    }
-
-    private MediaItem requireOwned(String itemId, String userId) {
-        MediaItem item = mediaItemMapper.selectById(itemId);
-        if (item == null || !userId.equals(item.getUserId())) {
-            throw new BusinessException(ResultCode.NOT_FOUND, "媒体条目不存在");
-        }
-        return item;
     }
 }

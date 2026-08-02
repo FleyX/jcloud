@@ -5,19 +5,23 @@ import com.fleyx.jcloud.common.constant.FileNodeConstants;
 import com.fleyx.jcloud.common.context.CurrentUser;
 import com.fleyx.jcloud.common.context.UserContext;
 import com.fleyx.jcloud.common.exception.BusinessException;
-import com.fleyx.jcloud.mapper.MediaItemMapper;
+import com.fleyx.jcloud.mapper.MediaDirectoryMapper;
+import com.fleyx.jcloud.mapper.MediaEpisodeMapper;
+import com.fleyx.jcloud.mapper.MediaSeasonMapper;
 import com.fleyx.jcloud.mapper.MediaSeriesMapper;
 import com.fleyx.jcloud.model.dto.FileCreateFolderDto;
 import com.fleyx.jcloud.model.dto.MediaDirectorySaveDto;
 import com.fleyx.jcloud.model.dto.MediaDirectoryUpdateDto;
 import com.fleyx.jcloud.model.dto.StorageSpaceSaveDto;
 import com.fleyx.jcloud.model.dto.UserSaveDto;
-import com.fleyx.jcloud.model.po.MediaItem;
+import com.fleyx.jcloud.model.po.MediaEpisode;
+import com.fleyx.jcloud.model.po.MediaSeason;
 import com.fleyx.jcloud.model.po.MediaSeries;
 import com.fleyx.jcloud.model.vo.FileNodeVo;
 import com.fleyx.jcloud.model.vo.MediaDirectoryVo;
 import com.fleyx.jcloud.model.vo.StorageSpaceVo;
 import com.fleyx.jcloud.model.vo.UserVo;
+import com.fleyx.jcloud.util.IdUtil;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -64,10 +68,13 @@ class MediaDirectoryServiceTest {
     private MediaDirectoryService mediaDirectoryService;
 
     @Autowired
-    private MediaItemMapper mediaItemMapper;
+    private MediaSeriesMapper mediaSeriesMapper;
 
     @Autowired
-    private MediaSeriesMapper mediaSeriesMapper;
+    private MediaSeasonMapper mediaSeasonMapper;
+
+    @Autowired
+    private MediaEpisodeMapper mediaEpisodeMapper;
 
     @MockitoBean
     private MediaScanService mediaScanService;
@@ -184,40 +191,41 @@ class MediaDirectoryServiceTest {
     }
 
     /**
-     * 增删来源目录：中断当前任务并强制全量重扫；被移除来源目录下的条目（含播放进度）删除，孤儿剧清理。
+     * 增删来源目录：中断当前任务并强制全量重扫；被移除来源目录下的剧（含集与播放进度）级联删除，
+     * 保留来源的剧与其集保留（新模型，issue #17/#21）。
      */
     @Test
     void shouldRescanAndCleanItemsWhenSourcesChanged() {
         UserVo user = prepareUserWithStorageSpace();
         FileNodeVo folderA = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电视A");
         FileNodeVo folderB = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电视B");
-        MediaDirectoryVo vo = mediaDirectoryService.save(buildSaveDto(List.of(folderA.getId(), folderB.getId())), user.getId());
+        MediaDirectorySaveDto saveDto = buildSaveDto(List.of(folderA.getId(), folderB.getId()));
+        saveDto.setMediaType("tv");
+        MediaDirectoryVo vo = mediaDirectoryService.save(saveDto, user.getId());
         String sourceIdA = vo.getSources().get(0).getId();
         String sourceIdB = vo.getSources().get(1).getId();
 
-        MediaSeries series = new MediaSeries();
-        series.setUserId(user.getId());
-        series.setSeriesName("测试剧");
-        mediaSeriesMapper.insert(series);
-        insertItem(user.getId(), vo.getId(), sourceIdA, "filenodesa01", 100L, null);
-        insertItem(user.getId(), vo.getId(), sourceIdB, "filenodesb01", 200L, series.getId());
+        MediaSeries seriesA = insertSeries(user.getId(), vo.getId(), sourceIdA, "保留剧");
+        insertEpisode(seriesA.getId(), 100L);
+        MediaSeries seriesB = insertSeries(user.getId(), vo.getId(), sourceIdB, "移除剧");
 
-        MediaDirectoryUpdateDto dto = buildUpdateDto(vo.getId(), List.of(folderA.getId()));
-        MediaDirectoryVo updated = mediaDirectoryService.update(dto, user.getId());
+        MediaDirectoryUpdateDto updateDto = buildUpdateDto(vo.getId(), List.of(folderA.getId()));
+        updateDto.setMediaType("tv");
+        MediaDirectoryVo updated = mediaDirectoryService.update(updateDto, user.getId());
 
         // 中断当前任务 + 强制全量重扫（事务提交后）
         verify(mediaScanService).requestCancel(vo.getId());
         triggerAfterCommit();
         verify(mediaScanService).submitScan(vo.getId(), user.getId(), true);
 
-        // 被移除来源目录下的条目删除，保留来源的条目与播放进度保留
-        List<MediaItem> items = mediaItemMapper.selectList(new LambdaQueryWrapper<MediaItem>()
-                .eq(MediaItem::getDirectoryId, vo.getId()));
-        assertEquals(1, items.size());
-        assertEquals(sourceIdA, items.getFirst().getSourceId());
-        assertEquals(100L, items.getFirst().getProgressMs());
-        // 孤儿剧被清理
-        assertNull(mediaSeriesMapper.selectById(series.getId()));
+        // 被移除来源目录下的剧级联删除，保留来源的剧与其集（含播放进度）保留
+        assertNull(mediaSeriesMapper.selectById(seriesB.getId()));
+        MediaSeries kept = mediaSeriesMapper.selectById(seriesA.getId());
+        assertEquals(sourceIdA, kept.getSourceId());
+        assertEquals(1, mediaEpisodeMapper.selectList(new LambdaQueryWrapper<MediaEpisode>()
+                .eq(MediaEpisode::getSeriesId, seriesA.getId())).size());
+        assertEquals(100L, mediaEpisodeMapper.selectList(new LambdaQueryWrapper<MediaEpisode>()
+                .eq(MediaEpisode::getSeriesId, seriesA.getId())).getFirst().getProgressMs());
         // 视图只保留一个来源目录
         assertEquals(1, updated.getSources().size());
         assertEquals(folderA.getId(), updated.getSources().getFirst().getFileNodeId());
@@ -244,24 +252,23 @@ class MediaDirectoryServiceTest {
     }
 
     /**
-     * 删除媒体库：级联删除来源目录与全部条目，清理孤儿剧。
+     * 删除媒体库：级联删除来源目录与库内全部剧/集（新模型，issue #17/#21）。
      */
     @Test
     void shouldDeleteLibraryCascade() {
         UserVo user = prepareUserWithStorageSpace();
         FileNodeVo folder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电视");
-        MediaDirectoryVo vo = mediaDirectoryService.save(buildSaveDto(List.of(folder.getId())), user.getId());
-        MediaSeries series = new MediaSeries();
-        series.setUserId(user.getId());
-        series.setSeriesName("测试剧");
-        mediaSeriesMapper.insert(series);
-        insertItem(user.getId(), vo.getId(), vo.getSources().getFirst().getId(), "filenodes001", 0L, series.getId());
+        MediaDirectorySaveDto saveDto = buildSaveDto(List.of(folder.getId()));
+        saveDto.setMediaType("tv");
+        MediaDirectoryVo vo = mediaDirectoryService.save(saveDto, user.getId());
+        MediaSeries series = insertSeries(user.getId(), vo.getId(), vo.getSources().getFirst().getId(), "测试剧");
+        insertEpisode(series.getId(), 0L);
 
         mediaDirectoryService.delete(vo.getId(), user.getId());
 
         verify(mediaScanService).requestCancel(vo.getId());
-        assertEquals(0, mediaItemMapper.selectCount(new LambdaQueryWrapper<MediaItem>()
-                .eq(MediaItem::getDirectoryId, vo.getId())));
+        assertEquals(0, mediaEpisodeMapper.selectCount(new LambdaQueryWrapper<MediaEpisode>()
+                .eq(MediaEpisode::getSeriesId, series.getId())));
         assertNull(mediaSeriesMapper.selectById(series.getId()));
         assertEquals(0, mediaDirectoryService.list(user.getId()).size());
     }
@@ -275,18 +282,30 @@ class MediaDirectoryServiceTest {
         }
     }
 
-    private void insertItem(String userId, String directoryId, String sourceId, String fileNodeId,
-                            Long progressMs, String seriesId) {
-        MediaItem item = new MediaItem();
-        item.setUserId(userId);
-        item.setDirectoryId(directoryId);
-        item.setSourceId(sourceId);
-        item.setFileNodeId(fileNodeId);
-        item.setItemType("episode");
-        item.setMatchStatus("unmatched");
-        item.setProgressMs(progressMs);
-        item.setSeriesId(seriesId);
-        mediaItemMapper.insert(item);
+    private MediaSeries insertSeries(String userId, String directoryId, String sourceId, String seriesName) {
+        MediaSeries series = new MediaSeries();
+        series.setUserId(userId);
+        series.setDirectoryId(directoryId);
+        series.setSourceId(sourceId);
+        series.setFolderNodeId(IdUtil.nextId());
+        series.setSeriesName(seriesName);
+        series.setMatchStatus("unmatched");
+        mediaSeriesMapper.insert(series);
+        return series;
+    }
+
+    private void insertEpisode(String seriesId, long progressMs) {
+        MediaSeason season = new MediaSeason();
+        season.setSeriesId(seriesId);
+        season.setFolderNodeId(IdUtil.nextId());
+        season.setSeasonNo(1);
+        mediaSeasonMapper.insert(season);
+        MediaEpisode episode = new MediaEpisode();
+        episode.setSeriesId(seriesId);
+        episode.setSeasonId(season.getId());
+        episode.setEpisodeNo(1);
+        episode.setProgressMs(progressMs);
+        mediaEpisodeMapper.insert(episode);
     }
 
     private MediaDirectorySaveDto buildSaveDto(List<String> sourceFileNodeIds) {

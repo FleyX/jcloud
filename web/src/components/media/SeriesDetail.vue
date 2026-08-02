@@ -9,7 +9,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, LoaderCircle, Tv } from '@lucide/vue'
 import type { MediaItemVo, MediaSeriesDetailVo, MediaSeriesSeasonVo, TmdbSearchResultVo } from '@/types/media'
-import { fetchSeasonEpisodes, fetchSeriesDetail, refreshMetadata, updateSeriesMatch, withToken } from '@/api/media'
+import { fetchSeasonEpisodes, fetchSeriesDetail, refreshMetadata, updateMediaMatch, withToken } from '@/api/media'
 import { useNotificationStore } from '@/store/notification'
 import { formatDurationText } from './format'
 import MediaDetailHero from './MediaDetailHero.vue'
@@ -182,8 +182,7 @@ function playEpisode(episode: MediaItemVo, startMs?: number) {
 }
 
 async function handleMatched(result: TmdbSearchResultVo) {
-  if (!detail.value) return
-  await updateSeriesMatch(detail.value.seriesName, result.tmdbId)
+  await updateMediaMatch(seriesId, result.tmdbId, 'tv')
   matchOpen.value = false
   await load()
 }
@@ -215,6 +214,7 @@ async function handleRefresh() {
         :genres="detail.genres"
         :overview="detail.overview"
         :unmatched="unmatched"
+        :incomplete="detail.metadataComplete === false"
         :continue-ms="continueMs"
         :show-refresh="!!detail.metadataId"
         @play="handleHeroPlay"

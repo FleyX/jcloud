@@ -5,16 +5,16 @@ import com.fleyx.jcloud.common.enums.MediaScanOutcome;
 import com.fleyx.jcloud.mapper.FileMapper;
 import com.fleyx.jcloud.mapper.MediaEpisodeFileMapper;
 import com.fleyx.jcloud.mapper.MediaEpisodeMapper;
-import com.fleyx.jcloud.mapper.MediaSeasonV2Mapper;
-import com.fleyx.jcloud.mapper.MediaSeriesV2Mapper;
+import com.fleyx.jcloud.mapper.MediaSeasonMapper;
+import com.fleyx.jcloud.mapper.MediaSeriesMapper;
 import com.fleyx.jcloud.model.bo.MediaProbeResult;
 import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.po.MediaDirectory;
 import com.fleyx.jcloud.model.po.MediaDirectorySource;
 import com.fleyx.jcloud.model.po.MediaEpisode;
 import com.fleyx.jcloud.model.po.MediaEpisodeFile;
-import com.fleyx.jcloud.model.po.MediaSeasonV2;
-import com.fleyx.jcloud.model.po.MediaSeriesV2;
+import com.fleyx.jcloud.model.po.MediaSeason;
+import com.fleyx.jcloud.model.po.MediaSeries;
 import com.fleyx.jcloud.util.FilePathUtil;
 import com.fleyx.jcloud.util.MediaFileNameParser;
 import lombok.RequiredArgsConstructor;
@@ -49,8 +49,8 @@ import java.util.stream.Collectors;
 public class MediaTvScanSupport {
 
     private final FileMapper fileMapper;
-    private final MediaSeriesV2Mapper mediaSeriesV2Mapper;
-    private final MediaSeasonV2Mapper mediaSeasonV2Mapper;
+    private final MediaSeriesMapper mediaSeriesMapper;
+    private final MediaSeasonMapper mediaSeasonMapper;
     private final MediaEpisodeMapper mediaEpisodeMapper;
     private final MediaEpisodeFileMapper mediaEpisodeFileMapper;
     private final MediaScanSupport mediaScanSupport;
@@ -114,13 +114,13 @@ public class MediaTvScanSupport {
         if (qualifiedSourceIds.isEmpty()) {
             return;
         }
-        List<String> staleIds = mediaSeriesV2Mapper.selectList(new LambdaQueryWrapper<MediaSeriesV2>()
-                        .eq(MediaSeriesV2::getDirectoryId, directory.getId())
-                        .in(MediaSeriesV2::getSourceId, qualifiedSourceIds)
-                        .and(w -> w.isNull(MediaSeriesV2::getScanTime)
-                                .or().lt(MediaSeriesV2::getScanTime, batchTime))
-                        .select(MediaSeriesV2::getId))
-                .stream().map(MediaSeriesV2::getId).toList();
+        List<String> staleIds = mediaSeriesMapper.selectList(new LambdaQueryWrapper<MediaSeries>()
+                        .eq(MediaSeries::getDirectoryId, directory.getId())
+                        .in(MediaSeries::getSourceId, qualifiedSourceIds)
+                        .and(w -> w.isNull(MediaSeries::getScanTime)
+                                .or().lt(MediaSeries::getScanTime, batchTime))
+                        .select(MediaSeries::getId))
+                .stream().map(MediaSeries::getId).toList();
         if (!staleIds.isEmpty()) {
             log.info("批次清理删除消失的剧: directory={}, count={}", directory.getId(), staleIds.size());
             mediaTvCascadeSupport.deleteSeriesCascade(staleIds);
@@ -196,11 +196,11 @@ public class MediaTvScanSupport {
      * 重建来源目录下集文件明细行的外部字幕关联（阶段二删除完成后执行，file_id 指向明细行 ID）。
      */
     private void rebuildSubtitles(MediaTvReconcileSupport.TvScanContext ctx, List<FileNode> nodes) {
-        List<String> seriesIds = mediaSeriesV2Mapper.selectList(new LambdaQueryWrapper<MediaSeriesV2>()
-                        .eq(MediaSeriesV2::getDirectoryId, ctx.directory().getId())
-                        .eq(MediaSeriesV2::getSourceId, ctx.source().getId())
-                        .select(MediaSeriesV2::getId))
-                .stream().map(MediaSeriesV2::getId).toList();
+        List<String> seriesIds = mediaSeriesMapper.selectList(new LambdaQueryWrapper<MediaSeries>()
+                        .eq(MediaSeries::getDirectoryId, ctx.directory().getId())
+                        .eq(MediaSeries::getSourceId, ctx.source().getId())
+                        .select(MediaSeries::getId))
+                .stream().map(MediaSeries::getId).toList();
         if (seriesIds.isEmpty()) {
             return;
         }
@@ -227,14 +227,14 @@ public class MediaTvScanSupport {
     private MediaTvReconcileSupport.SeriesPrepare prepareSeries(MediaTvReconcileSupport.TvScanContext ctx,
                                                                 FileNode seriesFolder,
                                                                 List<MediaTvReconcileSupport.SeasonFiles> seasonFilesList) {
-        MediaSeriesV2 series = mediaSeriesV2Mapper.selectOne(new LambdaQueryWrapper<MediaSeriesV2>()
-                .eq(MediaSeriesV2::getFolderNodeId, seriesFolder.getId()));
-        List<MediaSeasonV2> existingSeasons = new ArrayList<>();
+        MediaSeries series = mediaSeriesMapper.selectOne(new LambdaQueryWrapper<MediaSeries>()
+                .eq(MediaSeries::getFolderNodeId, seriesFolder.getId()));
+        List<MediaSeason> existingSeasons = new ArrayList<>();
         List<MediaEpisode> existingEpisodes = new ArrayList<>();
         List<MediaEpisodeFile> existingFiles = new ArrayList<>();
         if (series != null) {
-            existingSeasons = mediaSeasonV2Mapper.selectList(new LambdaQueryWrapper<MediaSeasonV2>()
-                    .eq(MediaSeasonV2::getSeriesId, series.getId()));
+            existingSeasons = mediaSeasonMapper.selectList(new LambdaQueryWrapper<MediaSeason>()
+                    .eq(MediaSeason::getSeriesId, series.getId()));
             existingEpisodes = mediaEpisodeMapper.selectList(new LambdaQueryWrapper<MediaEpisode>()
                     .eq(MediaEpisode::getSeriesId, series.getId()));
             if (!existingEpisodes.isEmpty()) {

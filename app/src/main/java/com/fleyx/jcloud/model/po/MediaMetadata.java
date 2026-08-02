@@ -7,7 +7,8 @@ import lombok.EqualsAndHashCode;
 import java.io.Serial;
 
 /**
- * 媒体元数据实体，按用户隔离，绑定电影条目/剧/季（ADR 0020）。
+ * 媒体元数据实体，按用户隔离，与电影/剧集/季/集一对一绑定（owner_type + owner_id 反向指针）。
+ * 媒体模型重构 contract 阶段（issue #21）由 t_media_metadata_v2 rename 而来。
  */
 @Data
 @EqualsAndHashCode(callSuper = true)
@@ -23,14 +24,19 @@ public class MediaMetadata extends BaseEntity {
     private String userId;
 
     /**
+     * 归属实体类型：movie / series / season / episode。
+     */
+    private String ownerType;
+
+    /**
+     * 归属实体 ID（反向指针，用于级联校验、孤儿排查与清理）。
+     */
+    private String ownerId;
+
+    /**
      * TMDB 条目 ID，local_nfo 来源可为空。
      */
     private Long tmdbId;
-
-    /**
-     * 类型：movie / tv / season / episode。
-     */
-    private String mediaType;
 
     /**
      * 来源：local_nfo 本地NFO / tmdb。
@@ -38,24 +44,19 @@ public class MediaMetadata extends BaseEntity {
     private String source;
 
     /**
-     * 完整性：complete 完整 / incomplete 不完整（本地优先缺字段不补）。
-     */
-    private String completeStatus;
-
-    /**
      * 落盘状态：pending 待落盘 / persisted 已写回视频目录 / failed 落盘失败待重试。
      */
     private String persistStatus;
 
     /**
-     * 海报图文件节点 ID（视频目录下 poster.jpg）。
+     * 类型列表，逗号分隔，NFO 写回使用。
      */
-    private String posterFileNodeId;
+    private String genres;
 
     /**
-     * 背景图文件节点 ID（视频目录下 fanart.jpg）。
+     * TMDB 原始响应 JSON（图片写回按 poster_path/backdrop_path/still_path 下载），local_nfo 来源可为空。
      */
-    private String backdropFileNodeId;
+    private String rawJson;
 
     /**
      * 标题（中文）。
@@ -83,17 +84,12 @@ public class MediaMetadata extends BaseEntity {
     private Double voteAverage;
 
     /**
-     * 类型列表，逗号分隔。
+     * 海报图文件节点 ID（视频目录下 poster.jpg）。
      */
-    private String genres;
+    private String posterFileNodeId;
 
     /**
-     * 季数，仅电视剧有效。
+     * 背景图文件节点 ID（视频目录下 fanart.jpg）。
      */
-    private Integer seasonCount;
-
-    /**
-     * TMDB 原始响应 JSON。
-     */
-    private String rawJson;
+    private String backdropFileNodeId;
 }
