@@ -63,4 +63,17 @@ public interface RemoteFileService {
      * @return 文件夹节点视图
      */
     FileNodeVo createFolder(FileNode parentNode, String name, String userId);
+
+    /**
+     * 上传字节内容到远程目录（内部写回通道，如 NFO/媒体图片落盘）。
+     * 已存在同名文件节点时覆盖。
+     *
+     * @param parentNode 远程父目录节点
+     * @param userId     用户 ID
+     * @param finalName  最终文件名
+     * @param content    文件内容
+     * @param mimeType   MIME 类型，可为空
+     * @return 文件节点
+     */
+    FileNode uploadContent(FileNode parentNode, String userId, String finalName, byte[] content, String mimeType);
 }

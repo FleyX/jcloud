@@ -15,6 +15,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -37,7 +38,8 @@ public class MediaSeriesSupport {
 
     /**
      * 剧匹配成功后应用元数据：拉取本地存在的季/集元数据，更新季与非手动修正集条目的元数据关联。
-     * 单个季拉取失败仅记日志，不影响其他季。
+     * 季/集元数据按用户隔离，通过季/集条目已有的 metadata_id 直接绑定，未绑定时新建并回写（ADR 0020）。
+     * 单个季/集拉取失败仅记日志，不影响其他季/集。
      *
      * @param series         剧记录
      * @param seriesMetadata 匹配到的剧元数据
@@ -45,18 +47,26 @@ public class MediaSeriesSupport {
      */
     public void applySeriesMetadata(MediaSeries series, MediaMetadata seriesMetadata, String episodeStatus) {
         Long seriesTmdbId = seriesMetadata.getTmdbId();
+        String userId = series.getUserId();
         List<MediaSeason> seasons = mediaSeasonMapper.selectList(
                 new LambdaQueryWrapper<MediaSeason>().eq(MediaSeason::getSeriesId, series.getId()));
+        Map<String, MediaMetadata> seasonMetadataMap = new HashMap<>();
         for (MediaSeason season : seasons) {
             if (season.getSeasonNo() == null) {
                 continue;
             }
             try {
-                MediaMetadata seasonMetadata = tmdbService.getOrFetchSeason(seriesTmdbId, season.getSeasonNo());
-                MediaSeason update = new MediaSeason();
-                update.setId(season.getId());
-                update.setMetadataId(seasonMetadata.getId());
-                mediaSeasonMapper.updateById(update);
+                MediaMetadata seasonMetadata = tmdbService.getOrFetchSeason(userId, seriesTmdbId, season);
+                if (seasonMetadata == null) {
+                    continue;
+                }
+                seasonMetadataMap.put(season.getId(), seasonMetadata);
+                if (!seasonMetadata.getId().equals(season.getMetadataId())) {
+                    MediaSeason update = new MediaSeason();
+                    update.setId(season.getId());
+                    update.setMetadataId(seasonMetadata.getId());
+                    mediaSeasonMapper.updateById(update);
+                }
             } catch (Exception e) {
                 log.warn("季元数据拉取失败: series={}, season={}, error={}",
                         series.getSeriesName(), season.getSeasonNo(), e.getMessage());
@@ -68,13 +78,30 @@ public class MediaSeriesSupport {
             if (MediaMatchStatus.MANUAL.getCode().equals(episode.getMatchStatus())) {
                 continue;
             }
-            MediaMetadata episodeMetadata = episode.getEpisodeNo() == null || episode.getSeasonNo() == null ? null
-                    : tmdbService.findEpisode(seriesTmdbId, episode.getSeasonNo(), episode.getEpisodeNo());
+            MediaMetadata episodeMetadata = resolveEpisodeMetadata(userId, episode, seasonMetadataMap);
             MediaItem update = new MediaItem();
             update.setId(episode.getId());
             update.setMetadataId(episodeMetadata == null ? seriesMetadata.getId() : episodeMetadata.getId());
             update.setMatchStatus(episodeStatus);
             mediaItemMapper.updateById(update);
+        }
+    }
+
+    /**
+     * 解析集条目的集元数据：所属季元数据缺失或季数据中无该集时返回 null（回退绑定剧元数据）。
+     */
+    private MediaMetadata resolveEpisodeMetadata(String userId, MediaItem episode,
+                                                 Map<String, MediaMetadata> seasonMetadataMap) {
+        MediaMetadata seasonMetadata = episode.getSeasonId() == null ? null : seasonMetadataMap.get(episode.getSeasonId());
+        if (seasonMetadata == null) {
+            return null;
+        }
+        try {
+            return tmdbService.getOrFetchEpisode(userId, episode, seasonMetadata);
+        } catch (Exception e) {
+            log.warn("集元数据拉取失败: item={}, episode={}, error={}",
+                    episode.getId(), episode.getEpisodeNo(), e.getMessage());
+            return null;
         }
     }
 

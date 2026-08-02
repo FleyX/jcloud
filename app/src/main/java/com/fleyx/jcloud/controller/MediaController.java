@@ -6,6 +6,7 @@ import com.fleyx.jcloud.common.constant.CommonConstant;
 import com.fleyx.jcloud.common.context.UserContext;
 import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.exception.BusinessException;
+import com.fleyx.jcloud.mapper.FileMapper;
 import com.fleyx.jcloud.mapper.MediaMetadataMapper;
 import com.fleyx.jcloud.model.bo.FileDownloadResult;
 import com.fleyx.jcloud.model.dto.MediaDirectorySaveDto;
@@ -14,7 +15,7 @@ import com.fleyx.jcloud.model.dto.MediaMatchUpdateDto;
 import com.fleyx.jcloud.model.dto.MediaPageQueryDto;
 import com.fleyx.jcloud.model.dto.MediaProgressUpdateDto;
 import com.fleyx.jcloud.model.po.MediaMetadata;
-import com.fleyx.jcloud.model.po.StorageSpace;
+import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.vo.MediaDirectoryVo;
 import com.fleyx.jcloud.model.vo.MediaHomeVo;
 import com.fleyx.jcloud.model.vo.MediaItemDetailVo;
@@ -29,8 +30,9 @@ import com.fleyx.jcloud.service.MediaItemService;
 import com.fleyx.jcloud.service.MediaPlaybackService;
 import com.fleyx.jcloud.service.MediaScanService;
 import com.fleyx.jcloud.service.MediaScrapeService;
-import com.fleyx.jcloud.service.SystemStorageSpaceProvider;
 import com.fleyx.jcloud.service.TmdbService;
+import com.fleyx.jcloud.service.support.MediaArtworkPersistSupport;
+import com.fleyx.jcloud.service.support.TranscodeSession;
 import com.fleyx.jcloud.service.support.TranscodeSessionManager;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -50,6 +52,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.io.ByteArrayInputStream;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -74,7 +77,8 @@ public class MediaController {
     private final MediaPlaybackService mediaPlaybackService;
     private final TmdbService tmdbService;
     private final MediaMetadataMapper mediaMetadataMapper;
-    private final SystemStorageSpaceProvider systemStorageSpaceProvider;
+    private final FileMapper fileMapper;
+    private final MediaArtworkPersistSupport mediaArtworkPersistSupport;
     private final TranscodeSessionManager transcodeSessionManager;
 
     // ---------- 目录管理 ----------
@@ -140,6 +144,11 @@ public class MediaController {
     @GetMapping("/items/others")
     public R<IPage<MediaItemVo>> listOthers(MediaPageQueryDto query) {
         return R.ok(mediaItemService.listOthers(UserContext.get().id(), query));
+    }
+
+    @GetMapping("/items/by-file-node/{fileNodeId}")
+    public R<String> getItemIdByFileNodeId(@PathVariable String fileNodeId) {
+        return R.ok(mediaItemService.getItemIdByFileNodeId(fileNodeId, UserContext.get().id()));
     }
 
     @GetMapping("/items/{id}/detail")
@@ -213,26 +222,59 @@ public class MediaController {
                 .body(new InputStreamResource(Files.newInputStream(path)));
     }
 
+    @GetMapping("/items/{id}/subtitles/external/{subtitleId}")
+    public ResponseEntity<InputStreamResource> externalSubtitle(@PathVariable String id,
+                                                                @PathVariable String subtitleId) throws Exception {
+        Path path = mediaPlaybackService.extractExternalSubtitle(id, subtitleId, UserContext.get().id());
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType("text/vtt"))
+                .contentLength(Files.size(path))
+                .body(new InputStreamResource(Files.newInputStream(path)));
+    }
+
     @PostMapping("/items/{id}/transcode")
     public R<Map<String, String>> createTranscode(@PathVariable String id,
                                                   @RequestParam(defaultValue = "0") long startMs,
-                                                  @RequestParam(required = false) Integer audioIndex) {
-        TranscodeSessionManager.TranscodeSession session =
-                mediaPlaybackService.createTranscodeSession(id, startMs, audioIndex, UserContext.get().id());
+                                                  @RequestParam(required = false) Integer audioIndex,
+                                                  @RequestParam(required = false) Long targetBitrateKbps,
+                                                  @RequestParam(required = false) Integer maxHeight,
+                                                  @RequestParam(defaultValue = "false") boolean forceVideoTranscode) {
+        TranscodeSession session = mediaPlaybackService.createTranscodeSession(
+                id, startMs, audioIndex, targetBitrateKbps, maxHeight, forceVideoTranscode, UserContext.get().id());
         Map<String, String> result = new HashMap<>();
         result.put("sessionId", session.id());
         result.put("playlistUrl", "/jcloud/api/media/transcode/" + session.id() + "/index.m3u8");
         return R.ok(result);
     }
 
+    /**
+     * 播放页心跳：播放页打开期间每 5s 调用一次。超时未收到心跳的会话会被自动回收。
+     */
+    @PostMapping("/transcode/{sessionId}/heartbeat")
+    public R<Void> transcodeHeartbeat(@PathVariable String sessionId) {
+        transcodeSessionManager.heartbeat(sessionId, UserContext.get().id());
+        return R.ok();
+    }
+
+    /**
+     * 主动关闭转码会话：播放页正常退出时调用（含 sendBeacon 场景，token 走查询参数），即时回收。
+     */
+    @PostMapping("/transcode/{sessionId}/close")
+    public R<Void> closeTranscode(@PathVariable String sessionId) {
+        transcodeSessionManager.closeSession(sessionId, UserContext.get().id());
+        return R.ok();
+    }
+
     @GetMapping("/transcode/{sessionId}/{fileName}")
     public ResponseEntity<InputStreamResource> transcodeFile(@PathVariable String sessionId,
-                                                             @PathVariable String fileName) throws Exception {
+                                                             @PathVariable String fileName,
+                                                             @RequestParam(required = false) String token) throws Exception {
         String userId = UserContext.get().id();
-        // 播放列表可能需要等待 ffmpeg 生成首个切片
+        // 播放列表、分片、初始化段都可能需要等待 ffmpeg 生成
         Path path = transcodeSessionManager.touchAndResolve(sessionId, userId, fileName);
-        if (path == null && fileName.endsWith(".m3u8")) {
-            for (int i = 0; i < 60 && path == null; i++) {
+        if (path == null && isWaitableTranscodeFile(fileName)) {
+            int maxRetries = fileName.endsWith(".m3u8") ? 60 : 30;
+            for (int i = 0; i < maxRetries && path == null; i++) {
                 Thread.sleep(500);
                 path = transcodeSessionManager.touchAndResolve(sessionId, userId, fileName);
             }
@@ -243,6 +285,16 @@ public class MediaController {
         MediaType contentType = fileName.endsWith(".m3u8")
                 ? MediaType.parseMediaType("application/vnd.apple.mpegurl")
                 : MediaType.parseMediaType("video/mp4");
+        if (fileName.endsWith(".m3u8") && token != null && !token.isBlank()) {
+            // 切片相对地址会丢失播放列表 URL 上的 token 查询参数，重写 m3u8 使切片请求携带凭证
+            byte[] content = TranscodeSessionManager.appendTokenToPlaylist(
+                    Files.readString(path, StandardCharsets.UTF_8), token).getBytes(StandardCharsets.UTF_8);
+            return ResponseEntity.ok()
+                    .header(HttpHeaders.CACHE_CONTROL, "no-store")
+                    .contentType(contentType)
+                    .contentLength(content.length)
+                    .body(new InputStreamResource(new ByteArrayInputStream(content)));
+        }
         return ResponseEntity.ok()
                 .header(HttpHeaders.CACHE_CONTROL, "no-store")
                 .contentType(contentType)
@@ -250,23 +302,19 @@ public class MediaController {
                 .body(new InputStreamResource(Files.newInputStream(path)));
     }
 
+    private boolean isWaitableTranscodeFile(String fileName) {
+        return fileName.endsWith(".m3u8") || fileName.endsWith(".m4s") || "init.mp4".equals(fileName);
+    }
+
     // ---------- 元数据 ----------
 
     @GetMapping("/metadata/{id}/poster")
-    public ResponseEntity<InputStreamResource> poster(@PathVariable String id) throws Exception {
+    public ResponseEntity<InputStreamResource> poster(@PathVariable String id) {
         MediaMetadata metadata = mediaMetadataMapper.selectById(id);
-        if (metadata == null || metadata.getPosterPath() == null) {
+        if (metadata == null || !UserContext.get().id().equals(metadata.getUserId())) {
             throw new BusinessException(ResultCode.NOT_FOUND, "海报不存在");
         }
-        StorageSpace space = systemStorageSpaceProvider.getSystemSpace();
-        Path path = Path.of(space.getPath(), "system", metadata.getPosterPath());
-        if (!Files.exists(path)) {
-            throw new BusinessException(ResultCode.NOT_FOUND, "海报文件已丢失");
-        }
-        return ResponseEntity.ok()
-                .contentType(MediaType.IMAGE_JPEG)
-                .contentLength(Files.size(path))
-                .body(new InputStreamResource(Files.newInputStream(path)));
+        return artworkResponse(metadata.getPosterFileNodeId(), "海报");
     }
 
     @GetMapping("/tmdb/search")
@@ -277,24 +325,42 @@ public class MediaController {
     }
 
     @GetMapping("/metadata/{id}/backdrop")
-    public ResponseEntity<InputStreamResource> backdrop(@PathVariable String id) throws Exception {
+    public ResponseEntity<InputStreamResource> backdrop(@PathVariable String id) {
         MediaMetadata metadata = mediaMetadataMapper.selectById(id);
-        if (metadata == null || metadata.getBackdropPath() == null) {
+        if (metadata == null || !UserContext.get().id().equals(metadata.getUserId())) {
             throw new BusinessException(ResultCode.NOT_FOUND, "背景图不存在");
         }
-        StorageSpace space = systemStorageSpaceProvider.getSystemSpace();
-        Path path = Path.of(space.getPath(), "system", metadata.getBackdropPath());
-        if (!Files.exists(path)) {
-            throw new BusinessException(ResultCode.NOT_FOUND, "背景图文件已丢失");
+        return artworkResponse(metadata.getBackdropFileNodeId(), "背景图");
+    }
+
+    /**
+     * 按图片文件节点实时读取图片（本地直读，远程经适配器下载），加缓存头缓解重复读取。
+     */
+    private ResponseEntity<InputStreamResource> artworkResponse(String fileNodeId, String label) {
+        if (fileNodeId == null) {
+            throw new BusinessException(ResultCode.NOT_FOUND, label + "不存在");
+        }
+        FileNode node = fileMapper.selectById(fileNodeId);
+        if (node == null) {
+            throw new BusinessException(ResultCode.NOT_FOUND, label + "文件已丢失");
+        }
+        byte[] bytes = mediaArtworkPersistSupport.readFileBytes(node);
+        if (bytes == null) {
+            throw new BusinessException(ResultCode.NOT_FOUND, label + "读取失败");
         }
         return ResponseEntity.ok()
+                .header(HttpHeaders.CACHE_CONTROL, "max-age=3600")
                 .contentType(MediaType.IMAGE_JPEG)
-                .contentLength(Files.size(path))
-                .body(new InputStreamResource(Files.newInputStream(path)));
+                .contentLength(bytes.length)
+                .body(new InputStreamResource(new ByteArrayInputStream(bytes)));
     }
 
     @PostMapping("/metadata/{id}/refresh")
     public R<Void> refreshMetadata(@PathVariable String id) {
+        MediaMetadata metadata = mediaMetadataMapper.selectById(id);
+        if (metadata == null || !UserContext.get().id().equals(metadata.getUserId())) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "元数据不存在");
+        }
         tmdbService.refresh(id);
         return R.ok();
     }

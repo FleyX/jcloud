@@ -7,17 +7,22 @@ import com.fleyx.jcloud.common.exception.SystemException;
 import com.fleyx.jcloud.config.MediaProperties;
 import com.fleyx.jcloud.mapper.FileMapper;
 import com.fleyx.jcloud.mapper.MediaItemMapper;
+import com.fleyx.jcloud.mapper.MediaSubtitleMapper;
 import com.fleyx.jcloud.mapper.StorageSpaceMapper;
 import com.fleyx.jcloud.mapper.UserMapper;
 import com.fleyx.jcloud.model.bo.FileDownloadResult;
 import com.fleyx.jcloud.model.bo.MediaProbeResult;
 import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.po.MediaItem;
+import com.fleyx.jcloud.model.po.MediaSubtitle;
 import com.fleyx.jcloud.model.po.StorageSpace;
 import com.fleyx.jcloud.model.vo.MediaPlaybackInfoVo;
 import com.fleyx.jcloud.service.MediaPlaybackService;
 import com.fleyx.jcloud.service.RemoteFileService;
 import com.fleyx.jcloud.service.support.MediaProbeSupport;
+import com.fleyx.jcloud.service.support.MediaSubtitleSupport;
+import com.fleyx.jcloud.service.support.TranscodeCommandBuilder;
+import com.fleyx.jcloud.service.support.TranscodeSession;
 import com.fleyx.jcloud.service.support.TranscodeSessionManager;
 import com.fleyx.jcloud.util.FilePathUtil;
 import lombok.RequiredArgsConstructor;
@@ -56,6 +61,8 @@ public class MediaPlaybackServiceImpl implements MediaPlaybackService {
     private final UserMapper userMapper;
     private final RemoteFileService remoteFileService;
     private final MediaProbeSupport mediaProbeSupport;
+    private final MediaSubtitleSupport mediaSubtitleSupport;
+    private final MediaSubtitleMapper mediaSubtitleMapper;
     private final TranscodeSessionManager transcodeSessionManager;
     private final MediaProperties mediaProperties;
     private final com.fleyx.jcloud.service.SystemStorageSpaceProvider systemStorageSpaceProvider;
@@ -74,6 +81,8 @@ public class MediaPlaybackServiceImpl implements MediaPlaybackService {
         vo.setHeight(firstNonNull(probe.height(), item.getHeight()));
         vo.setAudioTracks(probe.audioTracks());
         vo.setSubtitleTracks(probe.subtitleTracks());
+        vo.setSubtitles(mediaSubtitleSupport.buildSubtitleList(probe.subtitleTracks(), itemId));
+        vo.setEffectiveBitRate(resolveEffectiveBitRate(probe, item, vo.getDurationMs()));
         vo.setProgressMs(item.getProgressMs());
 
         if (canDirectPlay(vo.getContainer(), vo.getVideoCodec(), vo.getAudioCodec())) {
@@ -177,15 +186,71 @@ public class MediaPlaybackServiceImpl implements MediaPlaybackService {
     }
 
     @Override
-    public TranscodeSessionManager.TranscodeSession createTranscodeSession(String itemId, long startMs,
-                                                                           Integer audioIndex, String userId) {
+    public Path extractExternalSubtitle(String itemId, String subtitleId, String userId) {
+        MediaItem item = requireOwnedItem(itemId, userId);
+        MediaSubtitle subtitle = mediaSubtitleMapper.selectById(subtitleId);
+        if (subtitle == null || !itemId.equals(subtitle.getItemId())) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "字幕不存在");
+        }
+        FileNode node = fileMapper.selectById(subtitle.getFileNodeId());
+        if (node == null || !item.getUserId().equals(node.getUserId())) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "字幕文件不存在");
+        }
+        Path localPath = FileNodeConstants.SOURCE_REMOTE.equals(node.getSourceType())
+                ? null : resolveLocalPath(node, userId);
+        return mediaSubtitleSupport.resolveExternalVtt(subtitle, node, localPath, userId);
+    }
+
+    /**
+     * 计算实际码率：优先 ffprobe bit_rate，缺失时按文件大小与时长估算，均缺失为 null。
+     */
+    private Long resolveEffectiveBitRate(MediaProbeResult probe, MediaItem item, Long durationMs) {
+        if (probe.bitRate() != null) {
+            return probe.bitRate();
+        }
+        Long size = item.getFileSize();
+        if (size == null || durationMs == null || durationMs <= 0) {
+            return null;
+        }
+        return size * 8 * 1000 / durationMs;
+    }
+
+    @Override
+    public TranscodeSession createTranscodeSession(String itemId, long startMs,
+                                                   Integer audioIndex, Long targetBitrateKbps,
+                                                   Integer maxHeight, boolean forceVideoTranscode,
+                                                   String userId) {
+        TranscodeCommandBuilder.validateParams(targetBitrateKbps, maxHeight);
         MediaItem item = requireOwnedItem(itemId, userId);
         FileNode node = requireFileNode(item);
+        MediaProbeResult probe = probeItemFile(item, userId);
+        String videoCodec = firstNonNull(probe.videoCodec(), item.getVideoCodec());
+        String audioCodec = resolveSelectedAudioCodec(probe, audioIndex, item);
+        TranscodeCommandBuilder.TranscodeRequest request;
         if (FileNodeConstants.SOURCE_REMOTE.equals(node.getSourceType())) {
-            return transcodeSessionManager.createSession(userId, startMs, audioIndex, null,
-                    () -> remoteFileService.download(node, userId).getInputStream());
+            request = new TranscodeCommandBuilder.TranscodeRequest(startMs, audioIndex, null,
+                    () -> remoteFileService.download(node, userId).getInputStream(),
+                    videoCodec, audioCodec, targetBitrateKbps, maxHeight, forceVideoTranscode);
+        } else {
+            request = new TranscodeCommandBuilder.TranscodeRequest(startMs, audioIndex,
+                    resolveLocalPath(node, userId), null,
+                    videoCodec, audioCodec, targetBitrateKbps, maxHeight, forceVideoTranscode);
         }
-        return transcodeSessionManager.createSession(userId, startMs, audioIndex, resolveLocalPath(node, userId), null);
+        return transcodeSessionManager.createSession(userId, request);
+    }
+
+    /**
+     * 解析所选音轨的编码：指定音轨取 probe 对应轨，缺省取首个音轨，probe 缺失回退扫描数据。
+     */
+    private String resolveSelectedAudioCodec(MediaProbeResult probe, Integer audioIndex, MediaItem item) {
+        if (audioIndex != null) {
+            for (MediaProbeResult.Track track : probe.audioTracks()) {
+                if (track.index() == audioIndex) {
+                    return track.codec();
+                }
+            }
+        }
+        return firstNonNull(probe.audioCodec(), item.getAudioCodec());
     }
 
     /**
@@ -220,7 +285,7 @@ public class MediaPlaybackServiceImpl implements MediaPlaybackService {
         } catch (Exception e) {
             log.warn("播放探测失败，回退到扫描数据: {}", e.getMessage());
             return new MediaProbeResult(item.getDurationMs(), item.getContainer(), item.getVideoCodec(),
-                    item.getAudioCodec(), item.getWidth(), item.getHeight(), List.of(), List.of());
+                    item.getAudioCodec(), item.getWidth(), item.getHeight(), null, List.of(), List.of());
         }
     }
 

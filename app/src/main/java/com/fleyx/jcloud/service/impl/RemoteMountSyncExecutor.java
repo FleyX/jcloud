@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fleyx.jcloud.common.constant.FileNodeConstants;
 import com.fleyx.jcloud.common.enums.SyncTaskStatus;
 import com.fleyx.jcloud.common.event.RemoteMountSubmittedEvent;
+import com.fleyx.jcloud.common.event.SyncCompletedEvent;
 import com.fleyx.jcloud.mapper.FileMapper;
 import com.fleyx.jcloud.mapper.PreviewFileMapper;
 import com.fleyx.jcloud.mapper.RemoteMountMapper;
@@ -23,6 +24,7 @@ import com.fleyx.jcloud.util.IdUtil;
 import com.fleyx.jcloud.util.RemoteMountLock;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RLock;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
@@ -50,6 +52,7 @@ public class RemoteMountSyncExecutor extends AbstractTreeSyncExecutor<RemoteMoun
     private final RemoteMountLock remoteMountLock;
     private final RemoteMountSupport remoteMountSupport;
     private final SyncTaskSupport syncTaskSupport;
+    private final ApplicationEventPublisher eventPublisher;
 
     public RemoteMountSyncExecutor(FileMapper fileMapper,
                                    RemoteSyncTaskMapper remoteSyncTaskMapper,
@@ -58,7 +61,8 @@ public class RemoteMountSyncExecutor extends AbstractTreeSyncExecutor<RemoteMoun
                                    RemoteProtocolAdapterFactory adapterFactory,
                                    RemoteMountLock remoteMountLock,
                                    RemoteMountSupport remoteMountSupport,
-                                   SyncTaskSupport syncTaskSupport) {
+                                   SyncTaskSupport syncTaskSupport,
+                                   ApplicationEventPublisher eventPublisher) {
         super(fileMapper);
         this.remoteSyncTaskMapper = remoteSyncTaskMapper;
         this.remoteMountMapper = remoteMountMapper;
@@ -67,6 +71,7 @@ public class RemoteMountSyncExecutor extends AbstractTreeSyncExecutor<RemoteMoun
         this.remoteMountLock = remoteMountLock;
         this.remoteMountSupport = remoteMountSupport;
         this.syncTaskSupport = syncTaskSupport;
+        this.eventPublisher = eventPublisher;
     }
 
     @Async
@@ -121,6 +126,9 @@ public class RemoteMountSyncExecutor extends AbstractTreeSyncExecutor<RemoteMoun
         syncFolder(mountNode, new RemoteFolder("/", adapter), context);
         syncTaskSupport.completeTask(task, context, remoteSyncTaskMapper);
         updateMountStatus(mount, context);
+        // 同步完成（COMPLETED 或 PARTIAL）后发布事件，触发媒体库扫描等后续动作
+        eventPublisher.publishEvent(new SyncCompletedEvent(this, mount.getUserId(),
+                SyncCompletedEvent.TYPE_REMOTE_MOUNT));
     }
 
     /**

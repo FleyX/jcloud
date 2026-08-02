@@ -1,6 +1,8 @@
 spring:
   datasource:
     url: jdbc:postgresql://dev.lan:5432/jcloud
+    username: postgres
+    password: postgres
   data:
     redis:
       host: dev.lan

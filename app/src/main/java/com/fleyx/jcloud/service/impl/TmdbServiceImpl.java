@@ -3,30 +3,30 @@ package com.fleyx.jcloud.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fleyx.jcloud.common.enums.MediaCompleteStatus;
+import com.fleyx.jcloud.common.enums.MediaMetadataSource;
+import com.fleyx.jcloud.common.enums.MediaPersistStatus;
 import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.common.exception.SystemException;
 import com.fleyx.jcloud.mapper.MediaMetadataMapper;
+import com.fleyx.jcloud.model.po.MediaItem;
 import com.fleyx.jcloud.model.po.MediaMetadata;
-import com.fleyx.jcloud.model.po.StorageSpace;
+import com.fleyx.jcloud.model.po.MediaSeason;
 import com.fleyx.jcloud.model.vo.TmdbSearchResultVo;
 import com.fleyx.jcloud.service.SystemConfigService;
-import com.fleyx.jcloud.service.SystemStorageSpaceProvider;
 import com.fleyx.jcloud.service.TmdbService;
 import com.fleyx.jcloud.util.TmdbMatchScorer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
-import java.io.InputStream;
 import java.net.InetSocketAddress;
 import java.net.ProxySelector;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -35,6 +35,7 @@ import java.util.List;
  * TMDB 元数据服务实现。
  * <p>
  * API Key 与代理由管理员全局配置，存储于系统配置表。
+ * 元数据按用户隔离（ADR 0020）；图片字节由削刮写回流程下载并落盘到视频目录。
  */
 @Slf4j
 @Service
@@ -54,10 +55,8 @@ public class TmdbServiceImpl implements TmdbService {
     private static final String API_BASE = "https://api.themoviedb.org/3";
     private static final String IMAGE_BASE = "https://image.tmdb.org/t/p";
     private static final String LANGUAGE = "zh-CN";
-    private static final String POSTER_CACHE_DIR = "media/posters";
 
     private final SystemConfigService systemConfigService;
-    private final SystemStorageSpaceProvider systemStorageSpaceProvider;
     private final MediaMetadataMapper mediaMetadataMapper;
     private final ObjectMapper objectMapper;
 
@@ -92,18 +91,24 @@ public class TmdbServiceImpl implements TmdbService {
     }
 
     @Override
-    public MediaMetadata getOrFetch(Long tmdbId, String mediaType) {
+    public MediaMetadata getOrFetch(String userId, Long tmdbId, String mediaType) {
         MediaMetadata cached = mediaMetadataMapper.selectOne(new LambdaQueryWrapper<MediaMetadata>()
-                .eq(MediaMetadata::getTmdbId, tmdbId)
-                .eq(MediaMetadata::getMediaType, mediaType));
+                .eq(MediaMetadata::getUserId, userId)
+                .eq(MediaMetadata::getMediaType, mediaType)
+                .eq(MediaMetadata::getTmdbId, tmdbId));
         if (cached != null) {
             return cached;
         }
-        return fetchAndCache(tmdbId, mediaType);
+        JsonNode node = requestJson(API_BASE + "/" + mediaType + "/" + tmdbId
+                + "?api_key=" + requireApiKey() + "&language=" + LANGUAGE);
+        MediaMetadata metadata = newTmdbMetadata(userId, tmdbId, mediaType);
+        applyDetail(metadata, node);
+        mediaMetadataMapper.insert(metadata);
+        return metadata;
     }
 
     @Override
-    public MediaMetadata autoMatch(String mediaType, String title, Integer year) {
+    public MediaMetadata autoMatch(String userId, String mediaType, String title, Integer year) {
         if (title == null || title.isBlank()) {
             return null;
         }
@@ -121,7 +126,7 @@ public class TmdbServiceImpl implements TmdbService {
                 log.info("TMDB 候选均低于匹配阈值: title={}, year={}", title, year);
                 return null;
             }
-            return getOrFetch(best.getTmdbId(), mediaType);
+            return getOrFetch(userId, best.getTmdbId(), mediaType);
         } catch (Exception e) {
             log.warn("TMDB 自动匹配失败: title={}, year={}, error={}", title, year, e.getMessage());
             return null;
@@ -129,96 +134,66 @@ public class TmdbServiceImpl implements TmdbService {
     }
 
     @Override
-    public MediaMetadata getOrFetchSeason(Long seriesTmdbId, Integer seasonNo) {
-        MediaMetadata cached = selectSeasonOrEpisode("season", seriesTmdbId, seasonNo, null);
-        if (cached != null) {
-            return cached;
+    public MediaMetadata getOrFetchSeason(String userId, Long seriesTmdbId, MediaSeason season) {
+        if (season.getMetadataId() != null) {
+            MediaMetadata bound = mediaMetadataMapper.selectById(season.getMetadataId());
+            if (bound != null) {
+                return bound;
+            }
         }
-        JsonNode node = requestJson(API_BASE + "/tv/" + seriesTmdbId + "/season/" + seasonNo
+        JsonNode node = requestJson(API_BASE + "/tv/" + seriesTmdbId + "/season/" + season.getSeasonNo()
                 + "?api_key=" + requireApiKey() + "&language=" + LANGUAGE);
-        MediaMetadata season = new MediaMetadata();
-        season.setMediaType("season");
-        season.setSeriesTmdbId(seriesTmdbId);
-        season.setSeasonNo(seasonNo);
-        season.setTitle(text(node, "name"));
-        season.setOverview(text(node, "overview"));
-        season.setReleaseDate(text(node, "air_date"));
-        season.setVoteAverage(node.path("vote_average").isNumber() ? node.path("vote_average").asDouble() : null);
-        season.setRawJson(node.toString());
-        mediaMetadataMapper.insert(season);
-        season.setPosterPath(downloadImage(text(node, "poster_path"), season.getId(), "poster"));
-        mediaMetadataMapper.updateById(season);
-        upsertEpisodes(seriesTmdbId, seasonNo, node.path("episodes"));
-        return season;
+        MediaMetadata metadata = newTmdbMetadata(userId,
+                node.path("id").isNumber() ? node.path("id").asLong() : null, "season");
+        metadata.setTitle(text(node, "name"));
+        metadata.setOverview(text(node, "overview"));
+        metadata.setReleaseDate(text(node, "air_date"));
+        metadata.setVoteAverage(node.path("vote_average").isNumber() ? node.path("vote_average").asDouble() : null);
+        metadata.setRawJson(node.toString());
+        mediaMetadataMapper.insert(metadata);
+        return metadata;
     }
 
     @Override
-    public MediaMetadata findEpisode(Long seriesTmdbId, Integer seasonNo, Integer episodeNo) {
-        return selectSeasonOrEpisode("episode", seriesTmdbId, seasonNo, episodeNo);
-    }
-
-    /**
-     * 按季/集键查询元数据缓存。
-     */
-    private MediaMetadata selectSeasonOrEpisode(String mediaType, Long seriesTmdbId, Integer seasonNo, Integer episodeNo) {
-        LambdaQueryWrapper<MediaMetadata> wrapper = new LambdaQueryWrapper<MediaMetadata>()
-                .eq(MediaMetadata::getMediaType, mediaType)
-                .eq(MediaMetadata::getSeriesTmdbId, seriesTmdbId)
-                .eq(MediaMetadata::getSeasonNo, seasonNo);
-        if (episodeNo == null) {
-            wrapper.isNull(MediaMetadata::getEpisodeNo);
-        } else {
-            wrapper.eq(MediaMetadata::getEpisodeNo, episodeNo);
+    public MediaMetadata getOrFetchEpisode(String userId, MediaItem episode, MediaMetadata seasonMetadata) {
+        if (episode.getMetadataId() != null) {
+            MediaMetadata bound = mediaMetadataMapper.selectById(episode.getMetadataId());
+            if (bound != null && "episode".equals(bound.getMediaType())) {
+                return bound;
+            }
         }
-        return mediaMetadataMapper.selectOne(wrapper);
-    }
-
-    /**
-     * upsert 一季的所有集元数据（剧照存 poster_path，已有图片不重复下载）。
-     */
-    private void upsertEpisodes(Long seriesTmdbId, Integer seasonNo, JsonNode episodes) {
-        for (JsonNode ep : episodes) {
-            if (!ep.path("episode_number").isInt()) {
-                continue;
-            }
-            int episodeNo = ep.path("episode_number").asInt();
-            MediaMetadata episode = selectSeasonOrEpisode("episode", seriesTmdbId, seasonNo, episodeNo);
-            boolean isNew = episode == null;
-            if (isNew) {
-                episode = new MediaMetadata();
-                episode.setMediaType("episode");
-                episode.setSeriesTmdbId(seriesTmdbId);
-                episode.setSeasonNo(seasonNo);
-                episode.setEpisodeNo(episodeNo);
-            }
-            episode.setTitle(text(ep, "name"));
-            episode.setOverview(text(ep, "overview"));
-            episode.setReleaseDate(text(ep, "air_date"));
-            episode.setVoteAverage(ep.path("vote_average").isNumber() ? ep.path("vote_average").asDouble() : null);
-            episode.setRawJson(ep.toString());
-            if (isNew) {
-                mediaMetadataMapper.insert(episode);
-            }
-            if (episode.getPosterPath() == null) {
-                episode.setPosterPath(downloadImage(text(ep, "still_path"), episode.getId(), "poster"));
-            }
-            mediaMetadataMapper.updateById(episode);
+        if (episode.getEpisodeNo() == null || seasonMetadata == null || seasonMetadata.getRawJson() == null) {
+            return null;
         }
-    }
-
-    private MediaMetadata fetchAndCache(Long tmdbId, String mediaType) {
-        JsonNode node = requestJson(API_BASE + "/" + mediaType + "/" + tmdbId
-                + "?api_key=" + requireApiKey() + "&language=" + LANGUAGE);
-        MediaMetadata metadata = new MediaMetadata();
-        metadata.setTmdbId(tmdbId);
-        metadata.setMediaType(mediaType);
-        applyDetail(metadata, node);
+        JsonNode ep = findEpisodeNode(seasonMetadata.getRawJson(), episode.getEpisodeNo());
+        if (ep == null) {
+            return null;
+        }
+        MediaMetadata metadata = newTmdbMetadata(userId,
+                ep.path("id").isNumber() ? ep.path("id").asLong() : null, "episode");
+        metadata.setTitle(text(ep, "name"));
+        metadata.setOverview(text(ep, "overview"));
+        metadata.setReleaseDate(text(ep, "air_date"));
+        metadata.setVoteAverage(ep.path("vote_average").isNumber() ? ep.path("vote_average").asDouble() : null);
+        metadata.setRawJson(ep.toString());
         mediaMetadataMapper.insert(metadata);
-
-        metadata.setPosterPath(downloadImage(text(node, "poster_path"), metadata.getId(), "poster"));
-        metadata.setBackdropPath(downloadImage(text(node, "backdrop_path"), metadata.getId(), "backdrop"));
-        mediaMetadataMapper.updateById(metadata);
         return metadata;
+    }
+
+    /**
+     * 从季元数据的 TMDB 原始响应中定位指定集号的集节点。
+     */
+    private JsonNode findEpisodeNode(String seasonRawJson, int episodeNo) {
+        try {
+            for (JsonNode ep : objectMapper.readTree(seasonRawJson).path("episodes")) {
+                if (ep.path("episode_number").isInt() && ep.path("episode_number").asInt() == episodeNo) {
+                    return ep;
+                }
+            }
+        } catch (Exception e) {
+            log.warn("季元数据原始响应解析失败: {}", e.getMessage());
+        }
+        return null;
     }
 
     @Override
@@ -230,42 +205,26 @@ public class TmdbServiceImpl implements TmdbService {
         JsonNode node = requestJson(API_BASE + "/" + metadata.getMediaType() + "/" + metadata.getTmdbId()
                 + "?api_key=" + requireApiKey() + "&language=" + LANGUAGE);
         applyDetail(metadata, node);
-        String backdropPath = downloadImage(text(node, "backdrop_path"), metadata.getId(), "backdrop");
-        if (backdropPath != null) {
-            metadata.setBackdropPath(backdropPath);
-        }
-        String posterPath = downloadImage(text(node, "poster_path"), metadata.getId(), "poster");
-        if (posterPath != null) {
-            metadata.setPosterPath(posterPath);
-        }
         mediaMetadataMapper.updateById(metadata);
         return metadata;
     }
 
-    @Override
-    public void backfillMissingBackdrops() {
-        String apiKey = systemConfigService.getValue(CONFIG_KEY_API_KEY, "");
-        if (apiKey == null || apiKey.isBlank()) {
-            return;
-        }
-        List<MediaMetadata> missing = mediaMetadataMapper.selectList(new LambdaQueryWrapper<MediaMetadata>()
-                .in(MediaMetadata::getMediaType, "movie", "tv")
-                .isNull(MediaMetadata::getBackdropPath));
-        if (missing.isEmpty()) {
-            return;
-        }
-        log.info("开始补抓 TMDB 背景图，共 {} 条", missing.size());
-        for (MediaMetadata metadata : missing) {
-            try {
-                refresh(metadata.getId());
-            } catch (Exception e) {
-                log.warn("背景图补抓失败: id={}, error={}", metadata.getId(), e.getMessage());
-            }
-        }
+    /**
+     * 新建 TMDB 来源元数据并写入隔离与状态默认值。
+     */
+    MediaMetadata newTmdbMetadata(String userId, Long tmdbId, String mediaType) {
+        MediaMetadata metadata = new MediaMetadata();
+        metadata.setUserId(userId);
+        metadata.setTmdbId(tmdbId);
+        metadata.setMediaType(mediaType);
+        metadata.setSource(MediaMetadataSource.TMDB.getCode());
+        metadata.setCompleteStatus(MediaCompleteStatus.COMPLETE.getCode());
+        metadata.setPersistStatus(MediaPersistStatus.PENDING.getCode());
+        return metadata;
     }
 
     /**
-     * 将 TMDB 详情响应映射到元数据实体（不含图片）。
+     * 将 TMDB 详情响应映射到元数据实体（不含图片，图片写回为后续阶段）。
      */
     private void applyDetail(MediaMetadata metadata, JsonNode node) {
         boolean movie = "movie".equals(metadata.getMediaType());
@@ -285,25 +244,33 @@ public class TmdbServiceImpl implements TmdbService {
         metadata.setRawJson(node.toString());
     }
 
-    private String downloadImage(String tmdbPath, String metadataId, String kind) {
-        if (tmdbPath == null) {
+    @Override
+    public byte[] downloadArtwork(String tmdbImagePath, String kind) {
+        if (tmdbImagePath == null || tmdbImagePath.isBlank()) {
             return null;
         }
-        String relative = POSTER_CACHE_DIR + "/" + metadataId + "-" + kind + ".jpg";
         try {
-            StorageSpace space = systemStorageSpaceProvider.getSystemSpace();
-            Path target = Path.of(space.getPath(), "system", relative);
-            Files.createDirectories(target.getParent());
-            HttpRequest request = HttpRequest.newBuilder(URI.create(IMAGE_BASE + "/w500" + tmdbPath))
+            HttpRequest request = HttpRequest.newBuilder(
+                            URI.create(IMAGE_BASE + "/" + resolveImageWidth(kind) + tmdbImagePath))
                     .timeout(Duration.ofSeconds(30)).GET().build();
-            try (InputStream in = buildClient().send(request, HttpResponse.BodyHandlers.ofInputStream()).body()) {
-                Files.copy(in, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            HttpResponse<byte[]> response = buildClient().send(request, HttpResponse.BodyHandlers.ofByteArray());
+            if (response.statusCode() != 200) {
+                log.warn("TMDB 图片下载失败: {}, HTTP {}", tmdbImagePath, response.statusCode());
+                return null;
             }
-            return relative;
+            return response.body();
         } catch (Exception e) {
-            log.warn("TMDB 图片下载失败: {}, {}", tmdbPath, e.getMessage());
+            log.warn("TMDB 图片下载失败: {}, {}", tmdbImagePath, e.getMessage());
             return null;
         }
+    }
+
+    /**
+     * 根据图片用途解析 TMDB 图片宽度前缀。
+     * backdrop 使用 w1280，poster/still 等保持 w500。
+     */
+    String resolveImageWidth(String kind) {
+        return "backdrop".equals(kind) ? "w1280" : "w500";
     }
 
     private JsonNode requestJson(String url) {

@@ -27,6 +27,7 @@ import com.fleyx.jcloud.model.vo.MediaSeriesSeasonVo;
 import com.fleyx.jcloud.model.vo.MediaSeriesVo;
 import com.fleyx.jcloud.service.MediaItemService;
 import com.fleyx.jcloud.service.TmdbService;
+import com.fleyx.jcloud.service.support.MediaArtworkPersistSupport;
 import com.fleyx.jcloud.service.support.MediaItemVoSupport;
 import com.fleyx.jcloud.service.support.MediaSeriesSupport;
 import lombok.RequiredArgsConstructor;
@@ -56,6 +57,7 @@ public class MediaItemServiceImpl implements MediaItemService {
     private final TmdbService tmdbService;
     private final MediaSeriesSupport mediaSeriesSupport;
     private final MediaItemVoSupport mediaItemVoSupport;
+    private final MediaArtworkPersistSupport mediaArtworkPersistSupport;
 
     @Override
     public IPage<MediaItemVo> listMovies(String userId, MediaPageQueryDto query) {
@@ -148,17 +150,19 @@ public class MediaItemServiceImpl implements MediaItemService {
     @Transactional(rollbackFor = Exception.class)
     public MediaItemVo updateMatch(String itemId, MediaMatchUpdateDto dto, String userId) {
         MediaItem item = requireOwned(itemId, userId);
-        MediaMetadata metadata = tmdbService.getOrFetch(dto.getTmdbId(), dto.getMediaType());
+        MediaMetadata metadata = tmdbService.getOrFetch(userId, dto.getTmdbId(), dto.getMediaType());
         item.setMetadataId(metadata.getId());
         item.setMatchStatus(MediaMatchStatus.MANUAL.getCode());
         mediaItemMapper.updateById(item);
+        // 手动修正成功即写回视频目录的 NFO 与图片，落盘失败不影响匹配结果
+        mediaArtworkPersistSupport.persistItem(item, metadata);
         return mediaItemVoSupport.toItemVos(List.of(item), true).getFirst();
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void updateSeriesMatch(String seriesName, MediaMatchUpdateDto dto, String userId) {
-        MediaMetadata metadata = tmdbService.getOrFetch(dto.getTmdbId(), "tv");
+        MediaMetadata metadata = tmdbService.getOrFetch(userId, dto.getTmdbId(), "tv");
         MediaSeries series = mediaSeriesMapper.selectOne(new LambdaQueryWrapper<MediaSeries>()
                 .eq(MediaSeries::getUserId, userId)
                 .eq(MediaSeries::getSeriesName, seriesName));
@@ -172,6 +176,8 @@ public class MediaItemServiceImpl implements MediaItemService {
         mediaSeriesMapper.updateById(update);
         // 复用削刮管线补齐季/集元数据（已单独手动修正的集不覆盖）
         mediaSeriesSupport.applySeriesMetadata(series, metadata, MediaMatchStatus.MANUAL.getCode());
+        // 手动修正成功即写回视频目录的 NFO 与图片，落盘失败不影响匹配结果
+        mediaArtworkPersistSupport.persistSeries(series, metadata);
     }
 
     @Override
@@ -278,6 +284,17 @@ public class MediaItemServiceImpl implements MediaItemService {
         items.sort(Comparator.comparing(MediaItem::getEpisodeNo, Comparator.nullsLast(Integer::compareTo))
                 .thenComparing(MediaItem::getId));
         return mediaItemVoSupport.toItemVos(items, true);
+    }
+
+    @Override
+    public String getItemIdByFileNodeId(String fileNodeId, String userId) {
+        MediaItem item = mediaItemMapper.selectOne(new LambdaQueryWrapper<MediaItem>()
+                .eq(MediaItem::getFileNodeId, fileNodeId)
+                .eq(MediaItem::getUserId, userId));
+        if (item == null) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "媒体条目不存在");
+        }
+        return item.getId();
     }
 
     /**
