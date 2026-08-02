@@ -41,10 +41,12 @@ public class MediaTvCascadeSupport {
     private final MediaEpisodeMapper mediaEpisodeMapper;
     private final MediaEpisodeFileMapper mediaEpisodeFileMapper;
     private final MediaMetadataV2Mapper mediaMetadataV2Mapper;
+    private final MediaSubtitleSupport mediaSubtitleSupport;
     private final FileMapper fileMapper;
 
     /**
-     * 级联删除若干部剧：集文件 → 集 → 季 → 剧行，各级连带其 owner 指向的 t_media_metadata_v2 行。
+     * 级联删除若干部剧：集文件 → 集 → 季 → 剧行，各级连带其 owner 指向的 t_media_metadata_v2 行；
+     * 集文件明细的外部字幕记录一并删除（issue #19）。
      *
      * @param seriesIds 剧 ID 集合
      */
@@ -58,6 +60,10 @@ public class MediaTvCascadeSupport {
                     new LambdaQueryWrapper<MediaEpisode>().eq(MediaEpisode::getSeriesId, seriesId));
             if (!episodes.isEmpty()) {
                 List<String> episodeIds = episodes.stream().map(MediaEpisode::getId).toList();
+                List<MediaEpisodeFile> files = mediaEpisodeFileMapper.selectList(
+                        new LambdaQueryWrapper<MediaEpisodeFile>().in(MediaEpisodeFile::getEpisodeId, episodeIds));
+                mediaSubtitleSupport.deleteByFileIds(
+                        files.stream().map(MediaEpisodeFile::getId).toList());
                 mediaEpisodeFileMapper.delete(new LambdaQueryWrapper<MediaEpisodeFile>()
                         .in(MediaEpisodeFile::getEpisodeId, episodeIds));
                 for (String episodeId : episodeIds) {
@@ -132,6 +138,7 @@ public class MediaTvCascadeSupport {
             removedFileIds.add(file.getId());
         }
         if (!removedFileIds.isEmpty()) {
+            mediaSubtitleSupport.deleteByFileIds(removedFileIds);
             mediaEpisodeFileMapper.deleteBatchIds(removedFileIds);
         }
         List<String> removedEpisodeIds = new ArrayList<>();

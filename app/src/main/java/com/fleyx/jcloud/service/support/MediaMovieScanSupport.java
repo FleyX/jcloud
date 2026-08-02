@@ -67,6 +67,7 @@ public class MediaMovieScanSupport {
     private final MediaScanSupport mediaScanSupport;
     private final MediaMovieReconcileSupport mediaMovieReconcileSupport;
     private final MediaMovieCascadeSupport mediaMovieCascadeSupport;
+    private final MediaSubtitleSupport mediaSubtitleSupport;
     private final MediaTaskSupport mediaTaskSupport;
 
     private enum SourceOutcome {
@@ -193,7 +194,32 @@ public class MediaMovieScanSupport {
                 partial = true;
             }
         }
-        return partial ? SourceOutcome.PARTIAL : SourceOutcome.OK;
+        if (partial) {
+            return SourceOutcome.PARTIAL;
+        }
+        // 外部字幕关联重建（挂到电影文件明细行，issue #19）
+        rebuildSubtitles(ctx, nodes);
+        return SourceOutcome.OK;
+    }
+
+    /**
+     * 重建来源目录下电影文件明细行的外部字幕关联（阶段二删除完成后执行，file_id 指向明细行 ID）。
+     */
+    private void rebuildSubtitles(MovieScanContext ctx, List<FileNode> nodes) {
+        List<String> movieIds = mediaMovieMapper.selectList(new LambdaQueryWrapper<MediaMovie>()
+                        .eq(MediaMovie::getDirectoryId, ctx.directory().getId())
+                        .eq(MediaMovie::getSourceId, ctx.source().getId())
+                        .select(MediaMovie::getId))
+                .stream().map(MediaMovie::getId).toList();
+        if (movieIds.isEmpty()) {
+            return;
+        }
+        List<MediaMovieFile> files = mediaMovieFileMapper.selectList(new LambdaQueryWrapper<MediaMovieFile>()
+                .in(MediaMovieFile::getMovieId, movieIds));
+        List<MediaSubtitleSupport.FileRef> refs = files.stream()
+                .map(f -> new MediaSubtitleSupport.FileRef(f.getId(), f.getFileNodeId()))
+                .toList();
+        mediaSubtitleSupport.rebuildForSource(refs, nodes);
     }
 
     /**

@@ -10,7 +10,6 @@ import com.fleyx.jcloud.mapper.FileMapper;
 import com.fleyx.jcloud.mapper.MediaSubtitleMapper;
 import com.fleyx.jcloud.model.bo.MediaProbeResult;
 import com.fleyx.jcloud.model.po.FileNode;
-import com.fleyx.jcloud.model.po.MediaItem;
 import com.fleyx.jcloud.model.po.MediaSubtitle;
 import com.fleyx.jcloud.model.vo.MediaSubtitleItemVo;
 import com.fleyx.jcloud.service.RemoteFileService;
@@ -35,6 +34,9 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * 外部字幕支撑组件：扫描关联重建、播放字幕列表组装、字幕读取与转 webvtt。
+ * <p>
+ * issue #19 起字幕关联对象从旧媒体条目改到文件明细行：file_id 指向
+ * t_media_movie_file / t_media_episode_file 明细行或 t_media_other 行（其他库无明细表）。
  */
 @Slf4j
 @Component
@@ -51,24 +53,30 @@ public class MediaSubtitleSupport {
     private final SystemStorageSpaceProvider systemStorageSpaceProvider;
 
     /**
-     * 重建来源目录下各媒体条目的外部字幕关联：按当前文件树重算后与存量记录做 diff，
+     * 文件明细行引用（扫描重建字幕关联的入参）：明细行 ID + 锚定的视频文件节点 ID。
+     */
+    public record FileRef(String fileRowId, String fileNodeId) {
+    }
+
+    /**
+     * 重建来源目录下各文件明细行的外部字幕关联：按当前文件树重算后与存量记录做 diff，
      * 删除失效、更新变化、插入新增。已存在的关联保持记录 ID 不变，
      * 避免扫描完成时正在播放的页面持有的 subtitleId 失效（404）。
      *
-     * @param items 来源目录当前的媒体条目
-     * @param nodes 来源目录子树的全部文件节点
+     * @param fileRefs 来源目录当前的文件明细行（电影/集明细行或 other 行）
+     * @param nodes    来源目录子树的全部文件节点
      */
-    public void rebuildForSource(List<MediaItem> items, List<FileNode> nodes) {
-        if (items.isEmpty()) {
+    public void rebuildForSource(List<FileRef> fileRefs, List<FileNode> nodes) {
+        if (fileRefs.isEmpty()) {
             return;
         }
-        List<String> itemIds = items.stream().map(MediaItem::getId).toList();
-        Map<String, MediaSubtitle> desiredByKey = buildDesiredAssociations(items, nodes);
+        List<String> fileRowIds = fileRefs.stream().map(FileRef::fileRowId).toList();
+        Map<String, MediaSubtitle> desiredByKey = buildDesiredAssociations(fileRefs, nodes);
         List<MediaSubtitle> existing = mediaSubtitleMapper.selectList(
-                new LambdaQueryWrapper<MediaSubtitle>().in(MediaSubtitle::getItemId, itemIds));
+                new LambdaQueryWrapper<MediaSubtitle>().in(MediaSubtitle::getFileId, fileRowIds));
         int inserted = 0;
         for (MediaSubtitle old : existing) {
-            MediaSubtitle want = desiredByKey.remove(associationKey(old.getItemId(), old.getFileNodeId()));
+            MediaSubtitle want = desiredByKey.remove(associationKey(old.getFileId(), old.getFileNodeId()));
             if (want == null) {
                 mediaSubtitleMapper.deleteById(old.getId());
             } else if (associationChanged(old, want)) {
@@ -82,14 +90,14 @@ public class MediaSubtitleSupport {
             mediaSubtitleMapper.insert(record);
             inserted++;
         }
-        log.debug("外部字幕关联重建完成: items={}, existing={}, inserted={}", itemIds.size(), existing.size(), inserted);
+        log.debug("外部字幕关联重建完成: fileRows={}, existing={}, inserted={}", fileRowIds.size(), existing.size(), inserted);
     }
 
     /**
-     * 关联唯一键：与 uk_media_subtitle_item_node 一致（条目 + 字幕文件节点）。
+     * 关联唯一键：与 uk_media_subtitle_file_node 一致（文件明细行 + 字幕文件节点）。
      */
-    private String associationKey(String itemId, String fileNodeId) {
-        return itemId + ":" + fileNodeId;
+    private String associationKey(String fileRowId, String fileNodeId) {
+        return fileRowId + ":" + fileNodeId;
     }
 
     private boolean associationChanged(MediaSubtitle old, MediaSubtitle want) {
@@ -99,9 +107,9 @@ public class MediaSubtitleSupport {
     }
 
     /**
-     * 按当前文件树计算各媒体条目应有的外部字幕关联，以关联唯一键索引。
+     * 按当前文件树计算各文件明细行应有的外部字幕关联，以关联唯一键索引。
      */
-    private Map<String, MediaSubtitle> buildDesiredAssociations(List<MediaItem> items, List<FileNode> nodes) {
+    private Map<String, MediaSubtitle> buildDesiredAssociations(List<FileRef> fileRefs, List<FileNode> nodes) {
         Map<String, List<FileNode>> subtitlesByParent = new HashMap<>();
         for (FileNode node : nodes) {
             if ("file".equals(node.getType()) && MediaSubtitleNameParser.isSubtitleFile(node.getName())) {
@@ -113,8 +121,8 @@ public class MediaSubtitleSupport {
             nodeById.put(node.getId(), node);
         }
         Map<String, MediaSubtitle> desired = new HashMap<>();
-        for (MediaItem item : items) {
-            FileNode video = nodeById.get(item.getFileNodeId());
+        for (FileRef ref : fileRefs) {
+            FileNode video = nodeById.get(ref.fileNodeId());
             if (video == null) {
                 continue;
             }
@@ -126,35 +134,35 @@ public class MediaSubtitleSupport {
                     continue;
                 }
                 MediaSubtitle record = new MediaSubtitle();
-                record.setItemId(item.getId());
+                record.setFileId(ref.fileRowId());
                 record.setFileNodeId(sub.getId());
                 record.setFormat(match.format());
                 record.setLabel(match.label());
                 record.setIsDefault(match.defaulted());
-                desired.put(associationKey(item.getId(), sub.getId()), record);
+                desired.put(associationKey(ref.fileRowId(), sub.getId()), record);
             }
         }
         return desired;
     }
 
     /**
-     * 删除媒体条目的外部字幕记录（条目被清理时一并调用）。
+     * 删除文件明细行的外部字幕记录（明细行被清理时一并调用）。
      */
-    public void deleteByItemIds(Collection<String> itemIds) {
-        if (itemIds == null || itemIds.isEmpty()) {
+    public void deleteByFileIds(Collection<String> fileRowIds) {
+        if (fileRowIds == null || fileRowIds.isEmpty()) {
             return;
         }
-        mediaSubtitleMapper.delete(new LambdaQueryWrapper<MediaSubtitle>().in(MediaSubtitle::getItemId, itemIds));
+        mediaSubtitleMapper.delete(new LambdaQueryWrapper<MediaSubtitle>().in(MediaSubtitle::getFileId, fileRowIds));
     }
 
     /**
      * 组装播放用的统一字幕列表：内嵌轨在前（按 index），外部在后（默认字幕优先，再按标签）。
      *
      * @param subtitleTracks 实时探测的内嵌字幕轨
-     * @param itemId         媒体条目 ID
+     * @param fileRowId      文件明细行 ID（外部字幕关联键）
      * @return 统一字幕列表
      */
-    public List<MediaSubtitleItemVo> buildSubtitleList(List<MediaProbeResult.Track> subtitleTracks, String itemId) {
+    public List<MediaSubtitleItemVo> buildSubtitleList(List<MediaProbeResult.Track> subtitleTracks, String fileRowId) {
         List<MediaSubtitleItemVo> result = new ArrayList<>();
         for (MediaProbeResult.Track track : subtitleTracks) {
             MediaSubtitleItemVo vo = new MediaSubtitleItemVo();
@@ -166,7 +174,7 @@ public class MediaSubtitleSupport {
             result.add(vo);
         }
         List<MediaSubtitle> externals = mediaSubtitleMapper.selectList(
-                new LambdaQueryWrapper<MediaSubtitle>().eq(MediaSubtitle::getItemId, itemId));
+                new LambdaQueryWrapper<MediaSubtitle>().eq(MediaSubtitle::getFileId, fileRowId));
         externals.sort(Comparator.comparing((MediaSubtitle s) -> !Boolean.TRUE.equals(s.getIsDefault()))
                 .thenComparing(s -> s.getLabel() == null ? "" : s.getLabel()));
         for (MediaSubtitle sub : externals) {

@@ -56,6 +56,7 @@ public class MediaTvScanSupport {
     private final MediaScanSupport mediaScanSupport;
     private final MediaTvReconcileSupport mediaTvReconcileSupport;
     private final MediaTvCascadeSupport mediaTvCascadeSupport;
+    private final MediaSubtitleSupport mediaSubtitleSupport;
     private final MediaTaskSupport mediaTaskSupport;
 
     private enum SourceOutcome {
@@ -183,7 +184,39 @@ public class MediaTvScanSupport {
                 partial = true;
             }
         }
-        return partial ? SourceOutcome.PARTIAL : SourceOutcome.OK;
+        if (partial) {
+            return SourceOutcome.PARTIAL;
+        }
+        // 外部字幕关联重建（挂到集文件明细行，issue #19）
+        rebuildSubtitles(ctx, nodes);
+        return SourceOutcome.OK;
+    }
+
+    /**
+     * 重建来源目录下集文件明细行的外部字幕关联（阶段二删除完成后执行，file_id 指向明细行 ID）。
+     */
+    private void rebuildSubtitles(MediaTvReconcileSupport.TvScanContext ctx, List<FileNode> nodes) {
+        List<String> seriesIds = mediaSeriesV2Mapper.selectList(new LambdaQueryWrapper<MediaSeriesV2>()
+                        .eq(MediaSeriesV2::getDirectoryId, ctx.directory().getId())
+                        .eq(MediaSeriesV2::getSourceId, ctx.source().getId())
+                        .select(MediaSeriesV2::getId))
+                .stream().map(MediaSeriesV2::getId).toList();
+        if (seriesIds.isEmpty()) {
+            return;
+        }
+        List<String> episodeIds = mediaEpisodeMapper.selectList(new LambdaQueryWrapper<MediaEpisode>()
+                        .in(MediaEpisode::getSeriesId, seriesIds)
+                        .select(MediaEpisode::getId))
+                .stream().map(MediaEpisode::getId).toList();
+        if (episodeIds.isEmpty()) {
+            return;
+        }
+        List<MediaEpisodeFile> files = mediaEpisodeFileMapper.selectList(
+                new LambdaQueryWrapper<MediaEpisodeFile>().in(MediaEpisodeFile::getEpisodeId, episodeIds));
+        List<MediaSubtitleSupport.FileRef> refs = files.stream()
+                .map(f -> new MediaSubtitleSupport.FileRef(f.getId(), f.getFileNodeId()))
+                .toList();
+        mediaSubtitleSupport.rebuildForSource(refs, nodes);
     }
 
     /**
