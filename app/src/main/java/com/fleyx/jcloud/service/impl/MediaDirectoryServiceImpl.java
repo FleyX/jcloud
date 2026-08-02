@@ -19,6 +19,7 @@ import com.fleyx.jcloud.service.support.MediaDirectorySourceSupport;
 import com.fleyx.jcloud.service.support.MediaItemVoSupport;
 import com.fleyx.jcloud.service.support.MediaSeriesSupport;
 import com.fleyx.jcloud.service.support.MediaSubtitleSupport;
+import com.fleyx.jcloud.service.support.MediaTvCascadeSupport;
 import lombok.RequiredArgsConstructor;
 import org.springframework.scheduling.support.CronExpression;
 import org.springframework.stereotype.Service;
@@ -48,6 +49,7 @@ public class MediaDirectoryServiceImpl implements MediaDirectoryService {
     private final MediaDirectorySourceSupport sourceSupport;
     private final MediaItemVoSupport mediaItemVoSupport;
     private final MediaSubtitleSupport mediaSubtitleSupport;
+    private final MediaTvCascadeSupport mediaTvCascadeSupport;
 
     @Override
     public List<MediaDirectoryVo> list(String userId) {
@@ -124,6 +126,11 @@ public class MediaDirectoryServiceImpl implements MediaDirectoryService {
                         .in(MediaItem::getSourceId, removed.stream().map(MediaDirectorySource::getId).toList()));
                 mediaSubtitleSupport.deleteByItemIds(removedItemIds);
                 mediaSeriesSupport.cleanupOrphans(userId);
+                if (MediaType.TV.getCode().equals(directory.getMediaType())) {
+                    // 电视库新模型：被移除来源目录下的剧级联删除（issue #17）
+                    mediaTvCascadeSupport.deleteByDirectoryAndSourceIds(directory.getId(),
+                            removed.stream().map(MediaDirectorySource::getId).toList());
+                }
             }
             submitForceScanAfterCommit(directory.getId(), userId);
         }
@@ -144,6 +151,8 @@ public class MediaDirectoryServiceImpl implements MediaDirectoryService {
         mediaSubtitleSupport.deleteByItemIds(itemIds);
         sourceSupport.deleteByDirectoryId(id);
         mediaSeriesSupport.cleanupOrphans(userId);
+        // 电视库新模型：库内剧集全部级联删除（issue #17）
+        mediaTvCascadeSupport.deleteByDirectoryId(id);
         mediaDirectoryMapper.deleteById(id);
     }
 

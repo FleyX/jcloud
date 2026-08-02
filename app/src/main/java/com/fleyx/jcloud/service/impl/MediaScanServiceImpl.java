@@ -1,6 +1,7 @@
 package com.fleyx.jcloud.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.fleyx.jcloud.common.enums.MediaScanOutcome;
 import com.fleyx.jcloud.common.enums.MediaScanStatus;
 import com.fleyx.jcloud.common.enums.MediaType;
 import com.fleyx.jcloud.mapper.FileMapper;
@@ -20,6 +21,7 @@ import com.fleyx.jcloud.service.support.MediaScanSupport;
 import com.fleyx.jcloud.service.support.MediaSeriesSupport;
 import com.fleyx.jcloud.service.support.MediaSubtitleSupport;
 import com.fleyx.jcloud.service.support.MediaTaskSupport;
+import com.fleyx.jcloud.service.support.MediaTvScanSupport;
 import com.fleyx.jcloud.util.FilePathUtil;
 import com.fleyx.jcloud.util.MediaFileNameParser;
 import lombok.extern.slf4j.Slf4j;
@@ -61,6 +63,7 @@ public class MediaScanServiceImpl implements MediaScanService {
     private final MediaTaskSupport mediaTaskSupport;
     private final MediaScrapeService mediaScrapeService;
     private final MediaDirectorySourceSupport sourceSupport;
+    private final MediaTvScanSupport mediaTvScanSupport;
     private final TaskExecutor taskExecutor;
 
     public MediaScanServiceImpl(MediaDirectoryMapper mediaDirectoryMapper, MediaItemMapper mediaItemMapper,
@@ -68,7 +71,7 @@ public class MediaScanServiceImpl implements MediaScanService {
                                 MediaSeriesSupport mediaSeriesSupport, MediaScanSupport mediaScanSupport,
                                 MediaSubtitleSupport mediaSubtitleSupport,
                                 MediaTaskSupport mediaTaskSupport, MediaScrapeService mediaScrapeService,
-                                MediaDirectorySourceSupport sourceSupport,
+                                MediaDirectorySourceSupport sourceSupport, MediaTvScanSupport mediaTvScanSupport,
                                 @Qualifier("applicationTaskExecutor") TaskExecutor taskExecutor) {
         this.mediaDirectoryMapper = mediaDirectoryMapper;
         this.mediaItemMapper = mediaItemMapper;
@@ -80,6 +83,7 @@ public class MediaScanServiceImpl implements MediaScanService {
         this.mediaTaskSupport = mediaTaskSupport;
         this.mediaScrapeService = mediaScrapeService;
         this.sourceSupport = sourceSupport;
+        this.mediaTvScanSupport = mediaTvScanSupport;
         this.taskExecutor = taskExecutor;
     }
 
@@ -170,13 +174,13 @@ public class MediaScanServiceImpl implements MediaScanService {
         }
         markScanning(directory);
         try {
-            ScanOutcome outcome = doScan(directory, force);
+            MediaScanOutcome outcome = doScan(directory, force);
             switch (outcome) {
                 case COMPLETED -> updateScanResult(directory, MediaScanStatus.COMPLETED.name(), null);
                 case PARTIAL -> updateScanResult(directory, MediaScanStatus.PARTIAL.name(), "部分文件扫描失败");
                 case CANCELLED -> updateScanResult(directory, MediaScanStatus.FAILED.name(), "扫描已中断");
             }
-            return outcome != ScanOutcome.CANCELLED;
+            return outcome != MediaScanOutcome.CANCELLED;
         } catch (Exception e) {
             log.error("媒体库扫描失败: {}", directoryId, e);
             updateScanResult(directory, MediaScanStatus.FAILED.name(), e.getMessage());
@@ -184,16 +188,16 @@ public class MediaScanServiceImpl implements MediaScanService {
         }
     }
 
-    private enum ScanOutcome {
-        COMPLETED, PARTIAL, CANCELLED
-    }
-
-    private ScanOutcome doScan(MediaDirectory directory, boolean force) {
+    private MediaScanOutcome doScan(MediaDirectory directory, boolean force) {
         String userId = directory.getUserId();
         String username = userMapper.selectById(userId).getUsername();
         List<MediaDirectorySource> sources = sourceSupport.listByDirectoryId(directory.getId());
 
         MediaType mediaType = MediaType.of(directory.getMediaType());
+        if (mediaType == MediaType.TV) {
+            // 电视库：新模型端到端扫描（ADR 0021），含按剧即时 reconcile 与三道闸批次清理
+            return mediaTvScanSupport.scanDirectory(directory, sources, force, username);
+        }
         Map<String, MediaSeries> seriesCache = new HashMap<>();
         Map<String, MediaSeason> seasonCache = new HashMap<>();
         Map<String, Integer> seriesYears = new HashMap<>();
@@ -202,19 +206,19 @@ public class MediaScanServiceImpl implements MediaScanService {
         for (MediaDirectorySource source : sources) {
             if (mediaTaskSupport.isCancelled(directory.getId())) {
                 log.info("媒体库扫描被中断: {}", directory.getId());
-                return ScanOutcome.CANCELLED;
+                return MediaScanOutcome.CANCELLED;
             }
             try {
                 partial |= scanSource(directory, source, force, mediaType, username,
                         seriesCache, seasonCache, seriesYears, touchedSeriesIds);
             } catch (ScanCancelledException e) {
-                return ScanOutcome.CANCELLED;
+                return MediaScanOutcome.CANCELLED;
             }
         }
         mediaSeriesSupport.recalcMinFileLastModified(touchedSeriesIds);
         mediaSeriesSupport.cleanupOrphans(userId);
         syncSeriesYears(userId, mediaType, seriesYears, seriesCache);
-        return partial ? ScanOutcome.PARTIAL : ScanOutcome.COMPLETED;
+        return partial ? MediaScanOutcome.PARTIAL : MediaScanOutcome.COMPLETED;
     }
 
     /**

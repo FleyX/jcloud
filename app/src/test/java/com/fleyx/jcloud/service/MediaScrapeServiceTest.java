@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fleyx.jcloud.common.constant.FileNodeConstants;
 import com.fleyx.jcloud.common.context.CurrentUser;
 import com.fleyx.jcloud.common.context.UserContext;
+import com.fleyx.jcloud.common.enums.MediaItemType;
 import com.fleyx.jcloud.common.enums.MediaMatchStatus;
 import com.fleyx.jcloud.common.enums.MediaScrapeStatus;
 import com.fleyx.jcloud.common.exception.BusinessException;
@@ -156,6 +157,8 @@ class MediaScrapeServiceTest {
 
     /**
      * 电视削刮：剧级匹配应用到季与非手动集，拉取季/集元数据。
+     * <p>
+     * 电视库扫描已切换到新模型（issue #17），旧削刮路径（#20 替换）的测试直接播种旧表数据。
      */
     @Test
     void shouldScrapeSeriesAndFillSeasonEpisodeMetadata() {
@@ -163,9 +166,9 @@ class MediaScrapeServiceTest {
         FileNodeVo tvFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电视");
         FileNodeVo seriesFolder = createFolder(user.getId(), tvFolder.getId(), "亮剑");
         FileNodeVo seasonFolder = createFolder(user.getId(), seriesFolder.getId(), "Season 1");
-        fileService.upload(buildFile("亮剑.S01E01.1080p.mkv"), user.getId(), seasonFolder.getId(), null);
+        FileNodeVo episodeFile = fileService.upload(buildFile("亮剑.S01E01.1080p.mkv"), user.getId(), seasonFolder.getId(), null);
         MediaDirectory directory = createDirectory(user.getId(), tvFolder.getId(), "tv");
-        mediaScanService.scan(directory.getId());
+        seedOldTvScanData(directory, "亮剑", null, 1, 1, episodeFile.getId());
 
         MediaMetadata seriesMetadata = buildMetadata("metatv0000001", 2000L);
         MediaMetadata seasonMetadata = buildMetadata("metaseason001", null);
@@ -200,9 +203,9 @@ class MediaScrapeServiceTest {
         UserVo user = prepareUserWithStorageSpace();
         FileNodeVo tvFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电视");
         FileNodeVo seriesFolder = createFolder(user.getId(), tvFolder.getId(), "不存在的剧xyz");
-        fileService.upload(buildFile("xyz.S01E01.mkv"), user.getId(), seriesFolder.getId(), null);
+        FileNodeVo episodeFile = fileService.upload(buildFile("xyz.S01E01.mkv"), user.getId(), seriesFolder.getId(), null);
         MediaDirectory directory = createDirectory(user.getId(), tvFolder.getId(), "tv");
-        mediaScanService.scan(directory.getId());
+        seedOldTvScanData(directory, "不存在的剧xyz", null, null, 1, episodeFile.getId());
 
         when(tmdbService.autoMatch(eq(user.getId()), eq("tv"), anyString(), isNull())).thenReturn(null);
 
@@ -223,12 +226,9 @@ class MediaScrapeServiceTest {
         UserVo user = prepareUserWithStorageSpace();
         FileNodeVo tvFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电视");
         FileNodeVo seriesFolder = createFolder(user.getId(), tvFolder.getId(), "亮剑 (2005)");
-        fileService.upload(buildFile("亮剑.S01E01.mkv"), user.getId(), seriesFolder.getId(), null);
+        FileNodeVo episodeFile = fileService.upload(buildFile("亮剑.S01E01.mkv"), user.getId(), seriesFolder.getId(), null);
         MediaDirectory directory = createDirectory(user.getId(), tvFolder.getId(), "tv");
-        mediaScanService.scan(directory.getId());
-
-        MediaSeries series = mediaSeriesMapper.selectOne(
-                new LambdaQueryWrapper<MediaSeries>().eq(MediaSeries::getUserId, user.getId()));
+        MediaSeries series = seedOldTvScanData(directory, "亮剑", 2005, 1, 1, episodeFile.getId());
         assertEquals(2005, series.getReleaseYear());
 
         MediaMetadata seriesMetadata = buildMetadata("metatv0000002", 3000L);
@@ -375,7 +375,7 @@ class MediaScrapeServiceTest {
         FileNodeVo tvFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电视");
         FileNodeVo seriesFolder = createFolder(user.getId(), tvFolder.getId(), "亮剑");
         FileNodeVo seasonFolder = createFolder(user.getId(), seriesFolder.getId(), "Season 1");
-        fileService.upload(buildFile("亮剑.S01E01.1080p.mkv"), user.getId(), seasonFolder.getId(), null);
+        FileNodeVo episodeFile = fileService.upload(buildFile("亮剑.S01E01.1080p.mkv"), user.getId(), seasonFolder.getId(), null);
         fileService.upload(buildTextFile("tvshow.nfo", """
                 <tvshow>
                   <tmdbid>2000</tmdbid>
@@ -398,7 +398,7 @@ class MediaScrapeServiceTest {
                 """), user.getId(), seasonFolder.getId(), null);
         fileService.upload(buildFile("亮剑.S01E01.1080p-thumb.jpg"), user.getId(), seasonFolder.getId(), null);
         MediaDirectory directory = createDirectory(user.getId(), tvFolder.getId(), "tv");
-        mediaScanService.scan(directory.getId());
+        seedOldTvScanData(directory, "亮剑", null, 1, 1, episodeFile.getId());
 
         scrapeAwaitIdle(directory, user.getId(), false);
 
@@ -475,11 +475,11 @@ class MediaScrapeServiceTest {
         FileNodeVo tvFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电视");
         FileNodeVo seriesFolder = createFolder(user.getId(), tvFolder.getId(), "亮剑");
         FileNodeVo seasonFolder = createFolder(user.getId(), seriesFolder.getId(), "Season 1");
-        fileService.upload(buildFile("亮剑.S01E01.1080p.mkv"), user.getId(), seasonFolder.getId(), null);
+        FileNodeVo episodeFile = fileService.upload(buildFile("亮剑.S01E01.1080p.mkv"), user.getId(), seasonFolder.getId(), null);
         fileService.upload(buildFile("poster.jpg"), user.getId(), seriesFolder.getId(), null);
         fileService.upload(buildFile("season01-poster.jpg"), user.getId(), seriesFolder.getId(), null);
         MediaDirectory directory = createDirectory(user.getId(), tvFolder.getId(), "tv");
-        mediaScanService.scan(directory.getId());
+        seedOldTvScanData(directory, "亮剑", null, 1, 1, episodeFile.getId());
 
         scrapeAwaitIdle(directory, user.getId(), false);
 
@@ -567,6 +567,42 @@ class MediaScrapeServiceTest {
         source.setFileNodeId(folderNodeId);
         mediaDirectorySourceMapper.insert(source);
         return directory;
+    }
+
+    /**
+     * 电视库扫描已切换到新模型（issue #17），旧电视削刮路径（#20 替换前仍是旁路旧代码）
+     * 的测试直接播种旧表数据，取代原先的「先扫描再削刮」准备方式。
+     */
+    private MediaSeries seedOldTvScanData(MediaDirectory directory, String seriesName, Integer releaseYear,
+                                          Integer seasonNo, Integer episodeNo, String fileNodeId) {
+        MediaSeries series = new MediaSeries();
+        series.setUserId(directory.getUserId());
+        series.setSeriesName(seriesName);
+        series.setReleaseYear(releaseYear);
+        series.setMatchStatus(MediaMatchStatus.UNMATCHED.getCode());
+        mediaSeriesMapper.insert(series);
+        MediaSeason season = null;
+        if (seasonNo != null) {
+            season = new MediaSeason();
+            season.setSeriesId(series.getId());
+            season.setSeasonNo(seasonNo);
+            mediaSeasonMapper.insert(season);
+        }
+        MediaItem item = new MediaItem();
+        item.setUserId(directory.getUserId());
+        item.setDirectoryId(directory.getId());
+        item.setSourceId(mediaDirectorySourceMapper.selectOne(new LambdaQueryWrapper<MediaDirectorySource>()
+                .eq(MediaDirectorySource::getDirectoryId, directory.getId())).getId());
+        item.setFileNodeId(fileNodeId);
+        item.setItemType(MediaItemType.EPISODE.getCode());
+        item.setSeriesId(series.getId());
+        item.setSeriesName(seriesName);
+        item.setSeasonId(season == null ? null : season.getId());
+        item.setSeasonNo(seasonNo);
+        item.setEpisodeNo(episodeNo);
+        item.setMatchStatus(MediaMatchStatus.UNMATCHED.getCode());
+        mediaItemMapper.insert(item);
+        return series;
     }
 
     private MultipartFile buildFile(String name) {

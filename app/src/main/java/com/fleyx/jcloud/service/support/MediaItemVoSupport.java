@@ -80,7 +80,7 @@ public class MediaItemVoSupport {
      */
     public String backdropUrlOf(MediaMetadata metadata) {
         return metadata == null || metadata.getBackdropFileNodeId() == null ? null
-                : "/jcloud/api/media/metadata/" + metadata.getId() + "/backdrop";
+                : metadataBackdropUrl(metadata.getId());
     }
 
     /**
@@ -88,6 +88,13 @@ public class MediaItemVoSupport {
      */
     public String metadataPosterUrl(String metadataId) {
         return metadataId == null ? null : "/jcloud/api/media/metadata/" + metadataId + "/poster";
+    }
+
+    /**
+     * 指定元数据 ID 的背景图 URL（调用方需保证背景图存在）。
+     */
+    public String metadataBackdropUrl(String metadataId) {
+        return metadataId == null ? null : "/jcloud/api/media/metadata/" + metadataId + "/backdrop";
     }
 
     /**
