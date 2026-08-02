@@ -7,6 +7,7 @@ import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.common.exception.GlobalExceptionHandler;
 import com.fleyx.jcloud.mapper.FileMapper;
 import com.fleyx.jcloud.mapper.MediaMetadataMapper;
+import com.fleyx.jcloud.mapper.MediaMetadataV2Mapper;
 import com.fleyx.jcloud.model.po.MediaMetadata;
 import com.fleyx.jcloud.service.MediaDirectoryService;
 import com.fleyx.jcloud.service.MediaHomeService;
@@ -16,6 +17,7 @@ import com.fleyx.jcloud.service.MediaScanService;
 import com.fleyx.jcloud.service.MediaScrapeService;
 import com.fleyx.jcloud.service.TmdbService;
 import com.fleyx.jcloud.service.support.MediaArtworkPersistSupport;
+import com.fleyx.jcloud.service.support.MediaMetadataCompleteSupport;
 import com.fleyx.jcloud.service.support.TranscodeSessionManager;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -47,14 +49,17 @@ class MediaControllerTest {
     private final MediaPlaybackService mediaPlaybackService = mock(MediaPlaybackService.class);
     private final TmdbService tmdbService = mock(TmdbService.class);
     private final MediaMetadataMapper mediaMetadataMapper = mock(MediaMetadataMapper.class);
+    private final MediaMetadataV2Mapper mediaMetadataV2Mapper = mock(MediaMetadataV2Mapper.class);
     private final FileMapper fileMapper = mock(FileMapper.class);
     private final MediaArtworkPersistSupport mediaArtworkPersistSupport = mock(MediaArtworkPersistSupport.class);
+    private final MediaMetadataCompleteSupport metadataCompleteSupport = mock(MediaMetadataCompleteSupport.class);
     private final TranscodeSessionManager transcodeSessionManager = mock(TranscodeSessionManager.class);
 
     private final MediaController mediaController = new MediaController(
             mediaDirectoryService, mediaScanService, mediaScrapeService, mediaItemService,
             mediaHomeService, mediaPlaybackService, tmdbService, mediaMetadataMapper,
-            fileMapper, mediaArtworkPersistSupport, transcodeSessionManager);
+            mediaMetadataV2Mapper, fileMapper, mediaArtworkPersistSupport,
+            metadataCompleteSupport, transcodeSessionManager);
 
     private final MockMvc mockMvc = MockMvcBuilders.standaloneSetup(mediaController)
             .setControllerAdvice(new GlobalExceptionHandler())

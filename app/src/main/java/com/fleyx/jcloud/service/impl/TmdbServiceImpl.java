@@ -12,6 +12,7 @@ import com.fleyx.jcloud.common.exception.SystemException;
 import com.fleyx.jcloud.mapper.MediaMetadataMapper;
 import com.fleyx.jcloud.model.po.MediaItem;
 import com.fleyx.jcloud.model.po.MediaMetadata;
+import com.fleyx.jcloud.model.po.MediaMetadataV2;
 import com.fleyx.jcloud.model.po.MediaSeason;
 import com.fleyx.jcloud.model.vo.TmdbSearchResultVo;
 import com.fleyx.jcloud.service.SystemConfigService;
@@ -29,13 +30,12 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
- * TMDB 元数据服务实现。
- * <p>
- * API Key 与代理由管理员全局配置，存储于系统配置表。
- * 元数据按用户隔离（ADR 0020）；图片字节由削刮写回流程下载并落盘到视频目录。
+ * TMDB 元数据服务实现：API Key 与代理由管理员配置，元数据按用户隔离（ADR 0020），图片由写回流程下载落盘。
  */
 @Slf4j
 @Service
@@ -113,24 +113,28 @@ public class TmdbServiceImpl implements TmdbService {
             return null;
         }
         try {
-            List<TmdbSearchResultVo> results = search(mediaType, title, year);
-            if (results.isEmpty() && year != null) {
-                results = search(mediaType, title, null);
-            }
-            if (results.isEmpty()) {
-                return null;
-            }
-            // 对齐 Jellyfin：候选打分选最优，不再盲取第一条
-            TmdbSearchResultVo best = TmdbMatchScorer.pickBest(results, title, year);
-            if (best == null) {
-                log.info("TMDB 候选均低于匹配阈值: title={}, year={}", title, year);
-                return null;
-            }
-            return getOrFetch(userId, best.getTmdbId(), mediaType);
+            TmdbSearchResultVo best = pickBestResult(mediaType, title, year);
+            return best == null ? null : getOrFetch(userId, best.getTmdbId(), mediaType);
         } catch (Exception e) {
             log.warn("TMDB 自动匹配失败: title={}, year={}, error={}", title, year, e.getMessage());
             return null;
         }
+    }
+
+    /** 搜索 + 候选打分选优（对齐 Jellyfin），无可信匹配返回 null。 */
+    private TmdbSearchResultVo pickBestResult(String mediaType, String title, Integer year) {
+        List<TmdbSearchResultVo> results = search(mediaType, title, year);
+        if (results.isEmpty() && year != null) {
+            results = search(mediaType, title, null);
+        }
+        if (results.isEmpty()) {
+            return null;
+        }
+        TmdbSearchResultVo best = TmdbMatchScorer.pickBest(results, title, year);
+        if (best == null) {
+            log.info("TMDB 候选均低于匹配阈值: title={}, year={}", title, year);
+        }
+        return best;
     }
 
     @Override
@@ -180,9 +184,7 @@ public class TmdbServiceImpl implements TmdbService {
         return metadata;
     }
 
-    /**
-     * 从季元数据的 TMDB 原始响应中定位指定集号的集节点。
-     */
+    /** 从季元数据的 TMDB 原始响应中定位指定集号的集节点。 */
     private JsonNode findEpisodeNode(String seasonRawJson, int episodeNo) {
         try {
             for (JsonNode ep : objectMapper.readTree(seasonRawJson).path("episodes")) {
@@ -209,9 +211,98 @@ public class TmdbServiceImpl implements TmdbService {
         return metadata;
     }
 
-    /**
-     * 新建 TMDB 来源元数据并写入隔离与状态默认值。
-     */
+    // ---------- 新模型（issue #20，t_media_metadata_v2） ----------
+    @Override
+    public MediaMetadataV2 fetchDetailV2(String userId, Long tmdbId, String mediaType) {
+        JsonNode node = requestJson(API_BASE + "/" + mediaType + "/" + tmdbId
+                + "?api_key=" + requireApiKey() + "&language=" + LANGUAGE);
+        MediaMetadataV2 metadata = newDetachedV2(userId, tmdbId);
+        applyDetailV2(metadata, node, "movie".equals(mediaType));
+        return metadata;
+    }
+
+    @Override
+    public MediaMetadataV2 autoMatchV2(String userId, String mediaType, String title, Integer year) {
+        if (title == null || title.isBlank()) {
+            return null;
+        }
+        try {
+            TmdbSearchResultVo best = pickBestResult(mediaType, title, year);
+            return best == null ? null : fetchDetailV2(userId, best.getTmdbId(), mediaType);
+        } catch (Exception e) {
+            log.warn("TMDB 自动匹配失败: title={}, year={}, error={}", title, year, e.getMessage());
+            return null;
+        }
+    }
+
+    @Override
+    public SeasonFetchV2 fetchSeasonV2(String userId, Long seriesTmdbId, Integer seasonNo) {
+        if (seriesTmdbId == null || seasonNo == null) {
+            return null;
+        }
+        JsonNode node = requestJson(API_BASE + "/tv/" + seriesTmdbId + "/season/" + seasonNo
+                + "?api_key=" + requireApiKey() + "&language=" + LANGUAGE);
+        MediaMetadataV2 season = newDetachedV2(userId, nodeIdOrNull(node));
+        applyDetailV2(season, node, false);
+        Map<Integer, MediaMetadataV2> episodes = new LinkedHashMap<>();
+        for (JsonNode ep : node.path("episodes")) {
+            MediaMetadataV2 epMeta = newDetachedV2(userId, nodeIdOrNull(ep));
+            applyDetailV2(epMeta, ep, false);
+            if (ep.path("episode_number").isInt()) {
+                episodes.put(ep.path("episode_number").asInt(), epMeta);
+            }
+        }
+        return new SeasonFetchV2(season, episodes);
+    }
+
+    @Override
+    public MediaMetadataV2 refreshV2(MediaMetadataV2 metadata) {
+        if (metadata == null || !MediaMetadataSource.TMDB.getCode().equals(metadata.getSource())
+                || metadata.getTmdbId() == null) {
+            return metadata;
+        }
+        String mediaType = "movie".equals(metadata.getOwnerType()) ? "movie"
+                : "series".equals(metadata.getOwnerType()) ? "tv" : null;
+        if (mediaType == null) {
+            return metadata;
+        }
+        JsonNode node = requestJson(API_BASE + "/" + mediaType + "/" + metadata.getTmdbId()
+                + "?api_key=" + requireApiKey() + "&language=" + LANGUAGE);
+        applyDetailV2(metadata, node, "movie".equals(mediaType));
+        return metadata;
+    }
+
+    /** TMDB 响应节点 ID，非数值返回 null。 */
+    private Long nodeIdOrNull(JsonNode node) {
+        return node.path("id").isNumber() ? node.path("id").asLong() : null;
+    }
+
+    /** 新建 TMDB 来源游离元数据（未绑定 owner、未落库，绑定与落库由调用方完成）。 */
+    private MediaMetadataV2 newDetachedV2(String userId, Long tmdbId) {
+        MediaMetadataV2 metadata = new MediaMetadataV2();
+        metadata.setUserId(userId);
+        metadata.setTmdbId(tmdbId);
+        metadata.setSource(MediaMetadataSource.TMDB.getCode());
+        metadata.setPersistStatus(MediaPersistStatus.PENDING.getCode());
+        return metadata;
+    }
+
+    /** 将 TMDB 详情/季/集响应映射到游离元数据（不含图片）；movie 为电影字段（title/release_date），否则为剧/季/集。 */
+    private void applyDetailV2(MediaMetadataV2 metadata, JsonNode node, boolean movie) {
+        metadata.setTitle(text(node, movie ? "title" : "name"));
+        metadata.setOriginalTitle(text(node, movie ? "original_title" : "original_name"));
+        metadata.setOverview(text(node, "overview"));
+        metadata.setReleaseDate(text(node, movie ? "release_date" : "air_date"));
+        metadata.setVoteAverage(node.path("vote_average").isNumber() ? node.path("vote_average").asDouble() : null);
+        List<String> genres = new ArrayList<>();
+        for (JsonNode genre : node.path("genres")) {
+            genres.add(genre.path("name").asText());
+        }
+        metadata.setGenres(genres.isEmpty() ? null : String.join(",", genres));
+        metadata.setRawJson(node.toString());
+    }
+
+    /** 新建 TMDB 来源元数据并写入隔离与状态默认值。 */
     MediaMetadata newTmdbMetadata(String userId, Long tmdbId, String mediaType) {
         MediaMetadata metadata = new MediaMetadata();
         metadata.setUserId(userId);
@@ -223,9 +314,7 @@ public class TmdbServiceImpl implements TmdbService {
         return metadata;
     }
 
-    /**
-     * 将 TMDB 详情响应映射到元数据实体（不含图片，图片写回为后续阶段）。
-     */
+    /** 将 TMDB 详情响应映射到元数据实体（不含图片，图片写回为后续阶段）。 */
     private void applyDetail(MediaMetadata metadata, JsonNode node) {
         boolean movie = "movie".equals(metadata.getMediaType());
         metadata.setTitle(text(node, movie ? "title" : "name"));
@@ -265,10 +354,7 @@ public class TmdbServiceImpl implements TmdbService {
         }
     }
 
-    /**
-     * 根据图片用途解析 TMDB 图片宽度前缀。
-     * backdrop 使用 w1280，poster/still 等保持 w500。
-     */
+    /** 根据图片用途解析 TMDB 图片宽度前缀：backdrop 用 w1280，poster/still 等用 w500。 */
     String resolveImageWidth(String kind) {
         return "backdrop".equals(kind) ? "w1280" : "w500";
     }

@@ -279,11 +279,14 @@ public class MediaArtworkPersistSupport {
         }
     }
 
-    /**
-     * 生成 NFO 并写入目标目录（覆盖同名）。
-     */
     private FileNode writeNfo(FileNode dir, String name, MediaMetadata metadata, Integer seasonNo, Integer episodeNo) {
-        String xml = nfoSupport.generate(metadata, seasonNo, episodeNo);
+        return writeNfoXml(dir, name, nfoSupport.generate(metadata, seasonNo, episodeNo));
+    }
+
+    /**
+     * 将 XML 内容写为目标目录的 NFO 文件（覆盖同名），供新模型写回复用（issue #20）。
+     */
+    public FileNode writeNfoXml(FileNode dir, String name, String xml) {
         return writeFileNode(dir, name, xml.getBytes(StandardCharsets.UTF_8), nfoSupport.nfoMimeType());
     }
 
@@ -296,7 +299,16 @@ public class MediaArtworkPersistSupport {
         if (MediaMetadataSource.LOCAL_NFO.getCode().equals(metadata.getSource())) {
             return existing;
         }
-        String tmdbPath = extractJsonField(metadata.getRawJson(), jsonField);
+        return ensureArtwork(dir, name, metadata.getRawJson(), jsonField, kind);
+    }
+
+    /**
+     * 确保图片文件存在并返回其节点：rawJson 含 TMDB 图片路径则下载写入（已存在同名节点则覆盖），
+     * 否则仅返回已有节点（local_nfo 来源与无图片路径场景）。供新模型写回复用（issue #20）。
+     */
+    public FileNode ensureArtwork(FileNode dir, String name, String rawJson, String jsonField, String kind) {
+        FileNode existing = findChildFile(dir.getUserId(), dir.getId(), name);
+        String tmdbPath = extractJsonField(rawJson, jsonField);
         if (tmdbPath == null) {
             return existing;
         }

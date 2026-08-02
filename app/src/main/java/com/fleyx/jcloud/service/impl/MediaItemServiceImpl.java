@@ -2,7 +2,9 @@ package com.fleyx.jcloud.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.fleyx.jcloud.common.enums.MediaItemType;
 import com.fleyx.jcloud.common.enums.MediaMatchStatus;
+import com.fleyx.jcloud.common.enums.MediaMetadataOwnerType;
 import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.FileMapper;
@@ -23,6 +25,7 @@ import com.fleyx.jcloud.model.po.MediaEpisode;
 import com.fleyx.jcloud.model.po.MediaEpisodeFile;
 import com.fleyx.jcloud.model.po.MediaItem;
 import com.fleyx.jcloud.model.po.MediaMetadata;
+import com.fleyx.jcloud.model.po.MediaMetadataV2;
 import com.fleyx.jcloud.model.po.MediaMovie;
 import com.fleyx.jcloud.model.po.MediaMovieFile;
 import com.fleyx.jcloud.model.po.MediaOther;
@@ -35,12 +38,16 @@ import com.fleyx.jcloud.model.vo.MediaSeriesVo;
 import com.fleyx.jcloud.service.MediaItemService;
 import com.fleyx.jcloud.service.TmdbService;
 import com.fleyx.jcloud.service.support.MediaArtworkPersistSupport;
+import com.fleyx.jcloud.service.support.MediaArtworkPersistV2Support;
 import com.fleyx.jcloud.service.support.MediaItemVoSupport;
+import com.fleyx.jcloud.service.support.MediaMetadataCompleteSupport;
+import com.fleyx.jcloud.service.support.MediaMetadataV2Support;
 import com.fleyx.jcloud.service.support.MediaMovieQuerySupport;
 import com.fleyx.jcloud.service.support.MediaOtherQuerySupport;
 import com.fleyx.jcloud.service.support.MediaPlaybackResolveSupport;
 import com.fleyx.jcloud.service.support.MediaSeriesSupport;
 import com.fleyx.jcloud.service.support.MediaTvQuerySupport;
+import com.fleyx.jcloud.service.support.MediaTvScrapeSupport;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -77,6 +84,10 @@ public class MediaItemServiceImpl implements MediaItemService {
     private final MediaMovieQuerySupport mediaMovieQuerySupport;
     private final MediaOtherQuerySupport mediaOtherQuerySupport;
     private final MediaPlaybackResolveSupport mediaPlaybackResolveSupport;
+    private final MediaMetadataV2Support metadataV2Support;
+    private final MediaMetadataCompleteSupport metadataCompleteSupport;
+    private final MediaTvScrapeSupport mediaTvScrapeSupport;
+    private final MediaArtworkPersistV2Support artworkPersistV2Support;
 
     @Override
     public IPage<MediaItemVo> listMovies(String userId, MediaPageQueryDto query) {
@@ -103,7 +114,20 @@ public class MediaItemServiceImpl implements MediaItemService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public MediaItemVo updateMatch(String itemId, MediaMatchUpdateDto dto, String userId) {
+        // 新模型优先（issue #20）：电影级手动修正
+        MediaMovie movie = mediaMovieMapper.selectById(itemId);
+        if (movie != null) {
+            return applyMovieManualMatch(movie, dto, userId);
+        }
+        // 集级手动修正已下线（issue #15/#20）
+        if (mediaEpisodeMapper.selectById(itemId) != null) {
+            throw new BusinessException(ResultCode.BUSINESS_ERROR, "集级手动修正已下线");
+        }
+        // 旧表存量数据兜底（issue #21 弃表后移除）
         MediaItem item = requireOwned(itemId, userId);
+        if (MediaItemType.EPISODE.getCode().equals(item.getItemType())) {
+            throw new BusinessException(ResultCode.BUSINESS_ERROR, "集级手动修正已下线");
+        }
         MediaMetadata metadata = tmdbService.getOrFetch(userId, dto.getTmdbId(), dto.getMediaType());
         item.setMetadataId(metadata.getId());
         item.setMatchStatus(MediaMatchStatus.MANUAL.getCode());
@@ -113,9 +137,46 @@ public class MediaItemServiceImpl implements MediaItemService {
         return mediaItemVoSupport.toItemVos(List.of(item), true).getFirst();
     }
 
+    /**
+     * 新模型电影手动修正：绑定元数据（owner=movie）→ 置 manual → 写回 → 重算完整性。
+     */
+    private MediaItemVo applyMovieManualMatch(MediaMovie movie, MediaMatchUpdateDto dto, String userId) {
+        if (!userId.equals(movie.getUserId())) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "电影不存在");
+        }
+        MediaMetadataV2 detached = tmdbService.fetchDetailV2(userId, dto.getTmdbId(), dto.getMediaType());
+        MediaMetadataV2 bound = metadataV2Support.upsertByOwner(
+                MediaMetadataOwnerType.MOVIE.getCode(), movie.getId(), detached);
+        movie.setMetadataId(bound.getId());
+        movie.setMatchStatus(MediaMatchStatus.MANUAL.getCode());
+        mediaMovieMapper.updateById(movie);
+        // 手动修正成功即写回视频目录的 NFO 与图片，落盘失败不影响匹配结果
+        artworkPersistV2Support.persistMovieV2(movie, bound);
+        metadataCompleteSupport.refreshMovieComplete(movie);
+        MediaItemVo vo = new MediaItemVo();
+        vo.setId(movie.getId());
+        vo.setItemType(MediaItemType.MOVIE.getCode());
+        vo.setMatchStatus(movie.getMatchStatus());
+        vo.setMetadataId(movie.getMetadataId());
+        vo.setTitle(bound.getTitle() == null ? movie.getTitle() : bound.getTitle());
+        return vo;
+    }
+
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void updateSeriesMatch(String seriesName, MediaMatchUpdateDto dto, String userId) {
+        MediaMetadataV2 detached = tmdbService.fetchDetailV2(userId, dto.getTmdbId(), "tv");
+        // 新模型优先（issue #20）：库级归属下同名剧逐个手动修正（各库各建一条）
+        List<MediaSeriesV2> seriesList = mediaSeriesV2Mapper.selectList(new LambdaQueryWrapper<MediaSeriesV2>()
+                .eq(MediaSeriesV2::getUserId, userId)
+                .eq(MediaSeriesV2::getSeriesName, seriesName));
+        if (!seriesList.isEmpty()) {
+            for (MediaSeriesV2 series : seriesList) {
+                mediaTvScrapeSupport.applySeriesMatchWithDerivation(series, detached, MediaMatchStatus.MANUAL.getCode());
+            }
+            return;
+        }
+        // 旧表存量数据兜底（issue #21 弃表后移除）
         MediaMetadata metadata = tmdbService.getOrFetch(userId, dto.getTmdbId(), "tv");
         MediaSeries series = mediaSeriesMapper.selectOne(new LambdaQueryWrapper<MediaSeries>()
                 .eq(MediaSeries::getUserId, userId)

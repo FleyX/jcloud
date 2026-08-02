@@ -44,6 +44,21 @@ public class MediaMetadataV2 extends BaseEntity {
     private String source;
 
     /**
+     * 落盘状态：pending 待落盘 / persisted 已写回视频目录 / failed 落盘失败待重试。
+     */
+    private String persistStatus;
+
+    /**
+     * 类型列表，逗号分隔，NFO 写回使用。
+     */
+    private String genres;
+
+    /**
+     * TMDB 原始响应 JSON（图片写回按 poster_path/backdrop_path/still_path 下载），local_nfo 来源可为空。
+     */
+    private String rawJson;
+
+    /**
      * 标题（中文）。
      */
     private String title;

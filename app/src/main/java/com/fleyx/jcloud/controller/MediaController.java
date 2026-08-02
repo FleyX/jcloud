@@ -8,6 +8,7 @@ import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.FileMapper;
 import com.fleyx.jcloud.mapper.MediaMetadataMapper;
+import com.fleyx.jcloud.mapper.MediaMetadataV2Mapper;
 import com.fleyx.jcloud.model.bo.FileDownloadResult;
 import com.fleyx.jcloud.model.dto.MediaDirectorySaveDto;
 import com.fleyx.jcloud.model.dto.MediaDirectoryUpdateDto;
@@ -15,6 +16,7 @@ import com.fleyx.jcloud.model.dto.MediaMatchUpdateDto;
 import com.fleyx.jcloud.model.dto.MediaPageQueryDto;
 import com.fleyx.jcloud.model.dto.MediaProgressUpdateDto;
 import com.fleyx.jcloud.model.po.MediaMetadata;
+import com.fleyx.jcloud.model.po.MediaMetadataV2;
 import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.vo.MediaDirectoryVo;
 import com.fleyx.jcloud.model.vo.MediaHomeVo;
@@ -32,6 +34,7 @@ import com.fleyx.jcloud.service.MediaScanService;
 import com.fleyx.jcloud.service.MediaScrapeService;
 import com.fleyx.jcloud.service.TmdbService;
 import com.fleyx.jcloud.service.support.MediaArtworkPersistSupport;
+import com.fleyx.jcloud.service.support.MediaMetadataCompleteSupport;
 import com.fleyx.jcloud.service.support.TranscodeSession;
 import com.fleyx.jcloud.service.support.TranscodeSessionManager;
 import jakarta.validation.Valid;
@@ -77,8 +80,10 @@ public class MediaController {
     private final MediaPlaybackService mediaPlaybackService;
     private final TmdbService tmdbService;
     private final MediaMetadataMapper mediaMetadataMapper;
+    private final MediaMetadataV2Mapper mediaMetadataV2Mapper;
     private final FileMapper fileMapper;
     private final MediaArtworkPersistSupport mediaArtworkPersistSupport;
+    private final MediaMetadataCompleteSupport metadataCompleteSupport;
     private final TranscodeSessionManager transcodeSessionManager;
 
     // ---------- 目录管理 ----------
@@ -310,6 +315,13 @@ public class MediaController {
 
     @GetMapping("/metadata/{id}/poster")
     public ResponseEntity<InputStreamResource> poster(@PathVariable String id) {
+        MediaMetadataV2 metadataV2 = mediaMetadataV2Mapper.selectById(id);
+        if (metadataV2 != null) {
+            if (!UserContext.get().id().equals(metadataV2.getUserId())) {
+                throw new BusinessException(ResultCode.NOT_FOUND, "海报不存在");
+            }
+            return artworkResponse(metadataV2.getPosterFileNodeId(), "海报");
+        }
         MediaMetadata metadata = mediaMetadataMapper.selectById(id);
         if (metadata == null || !UserContext.get().id().equals(metadata.getUserId())) {
             throw new BusinessException(ResultCode.NOT_FOUND, "海报不存在");
@@ -326,6 +338,13 @@ public class MediaController {
 
     @GetMapping("/metadata/{id}/backdrop")
     public ResponseEntity<InputStreamResource> backdrop(@PathVariable String id) {
+        MediaMetadataV2 metadataV2 = mediaMetadataV2Mapper.selectById(id);
+        if (metadataV2 != null) {
+            if (!UserContext.get().id().equals(metadataV2.getUserId())) {
+                throw new BusinessException(ResultCode.NOT_FOUND, "背景图不存在");
+            }
+            return artworkResponse(metadataV2.getBackdropFileNodeId(), "背景图");
+        }
         MediaMetadata metadata = mediaMetadataMapper.selectById(id);
         if (metadata == null || !UserContext.get().id().equals(metadata.getUserId())) {
             throw new BusinessException(ResultCode.NOT_FOUND, "背景图不存在");
@@ -357,6 +376,19 @@ public class MediaController {
 
     @PostMapping("/metadata/{id}/refresh")
     public R<Void> refreshMetadata(@PathVariable String id) {
+        MediaMetadataV2 metadataV2 = mediaMetadataV2Mapper.selectById(id);
+        if (metadataV2 != null) {
+            if (!UserContext.get().id().equals(metadataV2.getUserId())) {
+                throw new BusinessException(ResultCode.NOT_FOUND, "元数据不存在");
+            }
+            MediaMetadataV2 refreshed = tmdbService.refreshV2(metadataV2);
+            if (refreshed != null) {
+                mediaMetadataV2Mapper.updateById(refreshed);
+            }
+            // 每次刷新结束后重算 owner 的元数据完整性（剧集为聚合语义）
+            metadataCompleteSupport.refreshOwnerComplete(metadataV2.getOwnerType(), metadataV2.getOwnerId());
+            return R.ok();
+        }
         MediaMetadata metadata = mediaMetadataMapper.selectById(id);
         if (metadata == null || !UserContext.get().id().equals(metadata.getUserId())) {
             throw new BusinessException(ResultCode.NOT_FOUND, "元数据不存在");

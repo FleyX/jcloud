@@ -22,12 +22,16 @@ import com.fleyx.jcloud.model.po.MediaOther;
 import com.fleyx.jcloud.model.po.MediaSeriesV2;
 import com.fleyx.jcloud.service.TmdbService;
 import com.fleyx.jcloud.service.support.MediaArtworkPersistSupport;
+import com.fleyx.jcloud.service.support.MediaArtworkPersistV2Support;
 import com.fleyx.jcloud.service.support.MediaItemVoSupport;
+import com.fleyx.jcloud.service.support.MediaMetadataCompleteSupport;
+import com.fleyx.jcloud.service.support.MediaMetadataV2Support;
 import com.fleyx.jcloud.service.support.MediaMovieQuerySupport;
 import com.fleyx.jcloud.service.support.MediaOtherQuerySupport;
 import com.fleyx.jcloud.service.support.MediaPlaybackResolveSupport;
 import com.fleyx.jcloud.service.support.MediaSeriesSupport;
 import com.fleyx.jcloud.service.support.MediaTvQuerySupport;
+import com.fleyx.jcloud.service.support.MediaTvScrapeSupport;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -59,13 +63,18 @@ class MediaItemServiceImplTest {
     private final MediaMovieQuerySupport mediaMovieQuerySupport = mock(MediaMovieQuerySupport.class);
     private final MediaOtherQuerySupport mediaOtherQuerySupport = mock(MediaOtherQuerySupport.class);
     private final MediaPlaybackResolveSupport mediaPlaybackResolveSupport = mock(MediaPlaybackResolveSupport.class);
+    private final MediaMetadataV2Support metadataV2Support = mock(MediaMetadataV2Support.class);
+    private final MediaMetadataCompleteSupport metadataCompleteSupport = mock(MediaMetadataCompleteSupport.class);
+    private final MediaTvScrapeSupport mediaTvScrapeSupport = mock(MediaTvScrapeSupport.class);
+    private final MediaArtworkPersistV2Support artworkPersistV2Support = mock(MediaArtworkPersistV2Support.class);
 
     private final MediaItemServiceImpl mediaItemService = new MediaItemServiceImpl(
             mediaItemMapper, mediaMetadataMapper, mediaSeriesMapper, mediaMovieMapper,
             mediaMovieFileMapper, mediaEpisodeMapper, mediaEpisodeFileMapper, mediaOtherMapper,
             mediaSeriesV2Mapper, fileMapper, tmdbService, mediaSeriesSupport, mediaItemVoSupport,
             mediaArtworkPersistSupport, mediaTvQuerySupport, mediaMovieQuerySupport, mediaOtherQuerySupport,
-            mediaPlaybackResolveSupport);
+            mediaPlaybackResolveSupport, metadataV2Support, metadataCompleteSupport,
+            mediaTvScrapeSupport, artworkPersistV2Support);
 
     /**
      * 按文件节点 ID 反查：其他库文件命中 other 行时返回 other 行 ID。
