@@ -328,7 +328,7 @@ JCloud 对外暴露的 WebDAV 服务入口，统一前缀为 `/dav/{userCode}`�
 与视频同目录的 Jellyfin 兼容 XML 元数据文件：电影/集为与视频同名的 `.nfo`，剧文件夹为 `tvshow.nfo`。削刮成功后由 jcloud 自动写回（`local_nfo` 来源不写回，内容为用户提供、已在视频目录），也可由 Jellyfin 等外部工具产生。nfo/图片写入后作为普通 FileNode 入库（文件树可见、计入用户配额），视频删除时不级联清理。本地 nfo 存在时其内容即元数据唯一来源，字段残缺不补，元数据标记为不完整。
 
 **本地媒体图片（Local Artwork）**：
-视频目录下按 Jellyfin 命名的图片文件：`poster.jpg`（海报）、`fanart.jpg`（背景）、`season01-poster.jpg`（季海报）。削刮时本地存在则优先使用，仅有本地图片无 NFO 时同样走本地优先、文本字段缺失不补；削刮自 TMDB 的图片也会写回视频目录成为本地媒体图片。前端取图按记录的路径从视频目录实时读取，不复制进系统数据目录缓存。
+视频目录下符合 Jellyfin/Emby 命名约定的图片文件。识别按别名链取第一个存在的文件：海报为 `folder.jpg`→`poster.jpg`→`cover.jpg`→`default.jpg`（电影追加 `movie.jpg`，剧集追加 `show.jpg`），背景为 `backdrop.jpg`→`fanart.jpg`→`background.jpg`→`art.jpg`，季海报仅 `seasonXX-poster.jpg`，集剧照为 `<视频名>-thumb.jpg`；logo/landscape/banner 不在识别范围。削刮时本地存在则优先使用，仅有本地图片无 NFO 时同样走本地优先、文本字段缺失不补；削刮自 TMDB 的图片写回视频目录时统一使用 `folder.jpg`（海报）与 `backdrop.jpg`（背景），季海报写回维持 `seasonXX-poster.jpg`。前端取图按记录的路径从视频目录实时读取，不复制进系统数据目录缓存。
 
 **同步后扫描（Post-Sync Scan）**：
 用户文件同步（用户管理中的手动同步与 cron 定时同步）或远程挂载同步完成后，自动触发该用户所有媒体库的扫描，复用现有同库扫描合并与扫描/削刮互斥机制；扫描完成后沿用现有级联逻辑自动提交一次非强制削刮。

@@ -26,7 +26,7 @@ import java.util.List;
  * 电视库新模型削刮支撑组件（ADR 0021 / issue #20）。
  * <p>
  * 剧集以剧为单位削刮：一次匹配应用到全剧。本地优先：剧文件夹存在 tvshow.nfo 或本地媒体图片
- * （poster/fanart/seasonXX-poster.jpg）时完全信任本地内容、不请求 TMDB 补全；本地缺失时才走
+ * （海报/背景识别链/seasonXX-poster.jpg，ADR 0022）时完全信任本地内容、不请求 TMDB 补全；本地缺失时才走
  * TMDB 匹配，季/集元数据按剧级匹配派生——本地实际存在的季逐个拉取整季数据（含季内全部集）。
  * 每次削刮结束后重算剧集行的元数据完整性（聚合语义，见 {@link MediaMetadataCompleteSupport}）。
  */
@@ -61,8 +61,8 @@ public class MediaTvScrapeSupport {
         String userId = series.getUserId();
         FileNode nfoNode = persistSupport.findChildFile(userId, seriesFolder.getId(), MediaNfoSupport.TVSHOW_NFO);
         MediaNfoSupport.NfoData data = nfoNode == null ? null : readNfo(nfoNode);
-        FileNode poster = persistSupport.findChildFile(userId, seriesFolder.getId(), MediaNfoSupport.POSTER_JPG);
-        FileNode fanart = persistSupport.findChildFile(userId, seriesFolder.getId(), MediaNfoSupport.FANART_JPG);
+        FileNode poster = persistSupport.findFirstChildFile(userId, seriesFolder.getId(), MediaNfoSupport.TV_POSTER_NAMES);
+        FileNode fanart = persistSupport.findFirstChildFile(userId, seriesFolder.getId(), MediaNfoSupport.BACKDROP_NAMES);
         if (data == null && poster == null && fanart == null && !hasSeasonPoster(series, userId, seriesFolder)) {
             return null;
         }

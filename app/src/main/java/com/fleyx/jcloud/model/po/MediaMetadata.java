@@ -84,12 +84,12 @@ public class MediaMetadata extends BaseEntity {
     private Double voteAverage;
 
     /**
-     * 海报图文件节点 ID（视频目录下 poster.jpg）。
+     * 海报图文件节点 ID（视频目录下本地媒体图片，ADR 0022）。
      */
     private String posterFileNodeId;
 
     /**
-     * 背景图文件节点 ID（视频目录下 fanart.jpg）。
+     * 背景图文件节点 ID（视频目录下本地媒体图片，ADR 0022）。
      */
     private String backdropFileNodeId;
 }
