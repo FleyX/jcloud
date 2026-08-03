@@ -100,6 +100,9 @@ function formatDuration(ms: number | null): string | null {
           :release-date="formatDuration(item.durationMs)"
           :progress-ms="item.progressMs"
           :duration-ms="item.durationMs"
+          owner-type="other"
+          :owner-id="item.id"
+          :favorited="item.favorited"
           @play="handlePlay(item)"
         />
       </div>

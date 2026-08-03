@@ -9,7 +9,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Clapperboard, Play } from '@lucide/vue'
 import type { MediaItemDetailVo, MediaMovieVersionVo, TmdbSearchResultVo } from '@/types/media'
-import { fetchItemDetail, refreshMetadata, updateMediaMatch } from '@/api/media'
+import { fetchItemDetail, refreshMetadata, toggleFavorite, updateMediaMatch } from '@/api/media'
 import { formatSize } from '@/utils/fileDisplay'
 import { cn } from '@/utils/cn'
 import { useNotificationStore } from '@/store/notification'
@@ -91,6 +91,18 @@ async function handleRefresh() {
   notificationStore.success('元数据已刷新')
   await load()
 }
+
+/** 收藏/取消收藏：本地先翻转，成功后以服务端结果为准，失败回滚（异常提示由统一请求层处理） */
+async function toggleMovieFavorite() {
+  if (!detail.value) return
+  const previous = detail.value.favorited
+  detail.value.favorited = !previous
+  try {
+    detail.value.favorited = await toggleFavorite('movie', itemId)
+  } catch {
+    detail.value.favorited = previous
+  }
+}
 </script>
 
 <template>
@@ -117,9 +129,11 @@ async function handleRefresh() {
         :continue-ms="detail.progressMs"
         :file-info-chips="fileInfoChips"
         :show-refresh="!!detail.metadataId"
+        :favorited="detail.favorited"
         @play="handlePlay"
         @rematch="matchOpen = true"
         @refresh="handleRefresh"
+        @toggle-favorite="toggleMovieFavorite"
       />
 
       <p

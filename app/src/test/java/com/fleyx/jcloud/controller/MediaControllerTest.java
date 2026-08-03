@@ -12,6 +12,7 @@ import com.fleyx.jcloud.model.dto.MediaMatchUpdateDto;
 import com.fleyx.jcloud.model.po.MediaMetadata;
 import com.fleyx.jcloud.model.vo.MediaItemVo;
 import com.fleyx.jcloud.service.MediaDirectoryService;
+import com.fleyx.jcloud.service.MediaFavoriteService;
 import com.fleyx.jcloud.service.MediaHomeService;
 import com.fleyx.jcloud.service.MediaItemService;
 import com.fleyx.jcloud.service.MediaPlaybackService;
@@ -46,6 +47,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class MediaControllerTest {
 
     private final MediaDirectoryService mediaDirectoryService = mock(MediaDirectoryService.class);
+    private final MediaFavoriteService mediaFavoriteService = mock(MediaFavoriteService.class);
     private final MediaScanService mediaScanService = mock(MediaScanService.class);
     private final MediaScrapeService mediaScrapeService = mock(MediaScrapeService.class);
     private final MediaItemService mediaItemService = mock(MediaItemService.class);
@@ -59,7 +61,7 @@ class MediaControllerTest {
     private final TranscodeSessionManager transcodeSessionManager = mock(TranscodeSessionManager.class);
 
     private final MediaController mediaController = new MediaController(
-            mediaDirectoryService, mediaScanService, mediaScrapeService, mediaItemService,
+            mediaDirectoryService, mediaFavoriteService, mediaScanService, mediaScrapeService, mediaItemService,
             mediaHomeService, mediaPlaybackService, tmdbService, mediaMetadataMapper,
             fileMapper, mediaArtworkPersistSupport,
             metadataCompleteSupport, transcodeSessionManager);

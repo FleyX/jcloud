@@ -3,6 +3,7 @@ import type { PageResult } from '@/types/auth'
 import type {
   MediaDirectorySaveDto,
   MediaDirectoryVo,
+  MediaFavoriteOwnerType,
   MediaHomeVo,
   MediaItemDetailVo,
   MediaItemVo,
@@ -183,6 +184,18 @@ export function fetchSeriesDetail(id: string): Promise<MediaSeriesDetailVo> {
 
 export function fetchSeasonEpisodes(seriesId: string, seasonId: string): Promise<MediaItemVo[]> {
   return get<MediaItemVo[]>(`/media/series/${seriesId}/seasons/${seasonId}/episodes`)
+}
+
+// ---------- 收藏 ----------
+
+/**
+ * 收藏/取消收藏切换：返回切换后的收藏状态（true 已收藏 / false 未收藏）。
+ */
+export function toggleFavorite(
+  ownerType: MediaFavoriteOwnerType,
+  ownerId: string,
+): Promise<boolean> {
+  return post<boolean>('/media/favorites/toggle', { ownerType, ownerId })
 }
 
 export function refreshMetadata(id: string): Promise<void> {

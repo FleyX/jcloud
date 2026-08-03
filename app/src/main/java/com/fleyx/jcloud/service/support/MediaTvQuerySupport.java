@@ -3,6 +3,7 @@ package com.fleyx.jcloud.service.support;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.fleyx.jcloud.common.enums.MediaFavoriteOwnerType;
 import com.fleyx.jcloud.common.enums.MediaItemType;
 import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.exception.BusinessException;
@@ -24,6 +25,7 @@ import com.fleyx.jcloud.model.vo.MediaItemVo;
 import com.fleyx.jcloud.model.vo.MediaSeriesDetailVo;
 import com.fleyx.jcloud.model.vo.MediaSeriesSeasonVo;
 import com.fleyx.jcloud.model.vo.MediaSeriesVo;
+import com.fleyx.jcloud.service.MediaFavoriteService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -32,6 +34,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -54,6 +57,7 @@ public class MediaTvQuerySupport {
     private final MediaMetadataMapper mediaMetadataMapper;
     private final FileMapper fileMapper;
     private final MediaItemVoSupport mediaItemVoSupport;
+    private final MediaFavoriteService mediaFavoriteService;
 
     /**
      * 电视海报墙：按剧聚合分页（新表），含集数、匹配状态与最近播放时间。
@@ -92,6 +96,12 @@ public class MediaTvQuerySupport {
             vo.setPosterUrl(posterUrlOf(metadata));
             vos.add(vo);
         }
+        // 当前用户收藏状态批量填充（ownerType=SERIES）
+        Set<String> favoritedIds = mediaFavoriteService.listFavoritedOwnerIds(userId, MediaFavoriteOwnerType.SERIES,
+                seriesList.stream().map(MediaSeries::getId).toList());
+        for (MediaSeriesVo vo : vos) {
+            vo.setFavorited(favoritedIds.contains(vo.getId()));
+        }
         Page<MediaSeriesVo> voPage = new Page<>(result.getCurrent(), result.getSize(), result.getTotal());
         voPage.setRecords(vos);
         return voPage;
@@ -104,7 +114,7 @@ public class MediaTvQuerySupport {
         MediaSeries series = requireOwnedSeries(seriesId, userId);
         List<MediaEpisode> episodes = mediaEpisodeMapper.selectList(
                 new LambdaQueryWrapper<MediaEpisode>().eq(MediaEpisode::getSeriesId, seriesId));
-        return toEpisodeVos(series, episodes);
+        return toEpisodeVos(series, episodes, userId);
     }
 
     /**
@@ -118,7 +128,7 @@ public class MediaTvQuerySupport {
         }
         List<MediaEpisode> episodes = mediaEpisodeMapper.selectList(new LambdaQueryWrapper<MediaEpisode>()
                 .eq(MediaEpisode::getSeasonId, seasonId));
-        return toEpisodeVos(series, episodes);
+        return toEpisodeVos(series, episodes, userId);
     }
 
     /**
@@ -150,6 +160,15 @@ public class MediaTvQuerySupport {
         }
         // 新元数据表无类型标签字段（issue #20 削刮切换时对齐），保持空列表兼容
         vo.setGenres(List.of());
+        // 当前用户收藏状态填充（ownerType=SERIES + 季卡片 SEASON）
+        vo.setFavorited(mediaFavoriteService.listFavoritedOwnerIds(userId, MediaFavoriteOwnerType.SERIES,
+                List.of(seriesId)).contains(seriesId));
+        Set<String> favoritedSeasonIds = mediaFavoriteService.listFavoritedOwnerIds(userId,
+                MediaFavoriteOwnerType.SEASON,
+                vo.getSeasons().stream().map(MediaSeriesSeasonVo::getSeasonId).toList());
+        for (MediaSeriesSeasonVo seasonVo : vo.getSeasons()) {
+            seasonVo.setFavorited(favoritedSeasonIds.contains(seasonVo.getSeasonId()));
+        }
         return vo;
     }
 
@@ -204,9 +223,10 @@ public class MediaTvQuerySupport {
     }
 
     /**
-     * 集列表转视图：按季号、集号升序；代表文件定位文件事实，进度取自集行。
+     * 集列表转视图：按季号、集号升序；代表文件定位文件事实，进度取自集行；
+     * 末尾按当前用户批量填充收藏状态（ownerType=EPISODE）。
      */
-    private List<MediaItemVo> toEpisodeVos(MediaSeries series, List<MediaEpisode> episodes) {
+    private List<MediaItemVo> toEpisodeVos(MediaSeries series, List<MediaEpisode> episodes, String userId) {
         if (episodes.isEmpty()) {
             return List.of();
         }
@@ -253,6 +273,12 @@ public class MediaTvQuerySupport {
                 vo.setTitle(vo.getFileName());
             }
             result.add(vo);
+        }
+        // 当前用户收藏状态批量填充（ownerType=EPISODE）
+        Set<String> favoritedIds = mediaFavoriteService.listFavoritedOwnerIds(userId, MediaFavoriteOwnerType.EPISODE,
+                result.stream().map(MediaItemVo::getId).toList());
+        for (MediaItemVo vo : result) {
+            vo.setFavorited(favoritedIds.contains(vo.getId()));
         }
         return result;
     }
