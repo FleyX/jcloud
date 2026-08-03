@@ -1,6 +1,7 @@
 package com.fleyx.jcloud.service.support;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.fleyx.jcloud.common.enums.MediaFavoriteOwnerType;
 import com.fleyx.jcloud.common.enums.MediaMetadataOwnerType;
 import com.fleyx.jcloud.mapper.FileMapper;
 import com.fleyx.jcloud.mapper.MediaMetadataMapper;
@@ -10,6 +11,7 @@ import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.po.MediaMetadata;
 import com.fleyx.jcloud.model.po.MediaMovie;
 import com.fleyx.jcloud.model.po.MediaMovieFile;
+import com.fleyx.jcloud.service.MediaFavoriteService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -37,6 +39,7 @@ public class MediaMovieCascadeSupport {
     private final MediaMetadataMapper mediaMetadataMapper;
     private final MediaSubtitleSupport mediaSubtitleSupport;
     private final FileMapper fileMapper;
+    private final MediaFavoriteService mediaFavoriteService;
 
     /**
      * 级联删除若干部电影：电影文件明细 → 电影行，各级连带其 owner 指向的 t_media_metadata 行；
@@ -59,6 +62,8 @@ public class MediaMovieCascadeSupport {
             deleteMetadata(MediaMetadataOwnerType.MOVIE.getCode(), movieId);
             mediaMovieMapper.deleteById(movieId);
         }
+        // 实体删除后清理其收藏记录（不限用户）
+        mediaFavoriteService.deleteByOwners(MediaFavoriteOwnerType.MOVIE, movieIds);
         log.info("级联删除电影 {} 部: ids={}", movieIds.size(), movieIds);
     }
 

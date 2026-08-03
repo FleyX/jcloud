@@ -12,6 +12,7 @@ import com.fleyx.jcloud.mapper.MediaMetadataMapper;
 import com.fleyx.jcloud.model.bo.FileDownloadResult;
 import com.fleyx.jcloud.model.dto.MediaDirectorySaveDto;
 import com.fleyx.jcloud.model.dto.MediaDirectoryUpdateDto;
+import com.fleyx.jcloud.model.dto.MediaFavoriteToggleDto;
 import com.fleyx.jcloud.model.dto.MediaMatchUpdateDto;
 import com.fleyx.jcloud.model.dto.MediaPageQueryDto;
 import com.fleyx.jcloud.model.dto.MediaProgressUpdateDto;
@@ -26,6 +27,7 @@ import com.fleyx.jcloud.model.vo.MediaSeriesDetailVo;
 import com.fleyx.jcloud.model.vo.MediaSeriesVo;
 import com.fleyx.jcloud.model.vo.TmdbSearchResultVo;
 import com.fleyx.jcloud.service.MediaDirectoryService;
+import com.fleyx.jcloud.service.MediaFavoriteService;
 import com.fleyx.jcloud.service.MediaHomeService;
 import com.fleyx.jcloud.service.MediaItemService;
 import com.fleyx.jcloud.service.MediaPlaybackService;
@@ -72,6 +74,7 @@ import java.util.Map;
 public class MediaController {
 
     private final MediaDirectoryService mediaDirectoryService;
+    private final MediaFavoriteService mediaFavoriteService;
     private final MediaScanService mediaScanService;
     private final MediaScrapeService mediaScrapeService;
     private final MediaItemService mediaItemService;
@@ -178,6 +181,13 @@ public class MediaController {
     public R<Void> updateProgress(@PathVariable String id, @Valid @RequestBody MediaProgressUpdateDto dto) {
         mediaItemService.updateProgress(id, dto, UserContext.get().id());
         return R.ok();
+    }
+
+    // ---------- 收藏 ----------
+
+    @PostMapping("/favorites/toggle")
+    public R<Boolean> toggleFavorite(@Valid @RequestBody MediaFavoriteToggleDto dto) {
+        return R.ok(mediaFavoriteService.toggle(UserContext.get().id(), dto.getOwnerType(), dto.getOwnerId()));
     }
 
     // ---------- 播放 ----------

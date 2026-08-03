@@ -7,6 +7,8 @@ export type MediaItemType = 'movie' | 'episode' | 'other' | 'series'
 export type MediaMatchStatus = 'matched' | 'manual' | 'unmatched' | 'none'
 export type MediaScanStatus = 'SCANNING' | 'COMPLETED' | 'FAILED' | 'PARTIAL'
 export type MediaSourceType = 'local' | 'remote'
+/** 收藏归属实体类型（toggle 入参与 VO favorited 字段共用） */
+export type MediaFavoriteOwnerType = 'movie' | 'series' | 'season' | 'episode' | 'other'
 
 /**
  * 媒体列表分页查询参数（电影/电视/其他通用）
@@ -83,6 +85,8 @@ export interface MediaItemVo {
   lastPlayTime: string | null
   /** 元数据完整性（false 时展示「不完整」弱标识），电影/剧集行有效 */
   metadataComplete: boolean
+  /** 当前用户是否已收藏 */
+  favorited: boolean
 }
 
 export interface MediaSeriesVo {
@@ -98,6 +102,8 @@ export interface MediaSeriesVo {
   lastPlayTime: string | null
   /** 元数据完整性（false 时展示「不完整」弱标识） */
   metadataComplete: boolean
+  /** 当前用户是否已收藏 */
+  favorited: boolean
 }
 
 export interface MediaTrack {
@@ -201,6 +207,8 @@ export interface MediaItemDetailVo {
   defaultVersionId?: string
   /** 电影版本列表（仅电影详情有效，其他类型为 null），create_time 升序 */
   versions: MediaMovieVersionVo[] | null
+  /** 当前用户是否已收藏 */
+  favorited: boolean
 }
 
 /**
@@ -231,6 +239,8 @@ export interface MediaSeriesSeasonVo {
   episodeCount: number
   /** 是否有观看进度（存在 progressMs > 0 的集） */
   hasProgress: boolean
+  /** 当前用户是否已收藏 */
+  favorited: boolean
 }
 
 export interface MediaSeriesDetailVo {
@@ -249,6 +259,8 @@ export interface MediaSeriesDetailVo {
   seasons: MediaSeriesSeasonVo[]
   /** 元数据完整性（false 时展示「不完整」弱标识） */
   metadataComplete: boolean
+  /** 当前用户是否已收藏 */
+  favorited: boolean
 }
 
 export interface MediaTranscodeSessionVo {

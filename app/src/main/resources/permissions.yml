@@ -117,6 +117,7 @@ permissions:
       - { code: "GET:/jcloud/api/media/metadata/{id}/poster", name: "获取海报图" }
       - { code: "GET:/jcloud/api/media/metadata/{id}/backdrop", name: "获取背景图" }
       - { code: "POST:/jcloud/api/media/metadata/{id}/refresh", name: "刷新元数据" }
+      - { code: "POST:/jcloud/api/media/favorites/toggle", name: "收藏/取消收藏" }
       - { code: "GET:/jcloud/api/media/tmdb/search", name: "搜索 TMDB" }
 
   - code: "system:menu"

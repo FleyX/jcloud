@@ -1,6 +1,7 @@
 package com.fleyx.jcloud.service.support;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.fleyx.jcloud.common.enums.MediaFavoriteOwnerType;
 import com.fleyx.jcloud.common.enums.MediaMetadataOwnerType;
 import com.fleyx.jcloud.mapper.FileMapper;
 import com.fleyx.jcloud.mapper.MediaEpisodeFileMapper;
@@ -14,6 +15,7 @@ import com.fleyx.jcloud.model.po.MediaEpisodeFile;
 import com.fleyx.jcloud.model.po.MediaMetadata;
 import com.fleyx.jcloud.model.po.MediaSeason;
 import com.fleyx.jcloud.model.po.MediaSeries;
+import com.fleyx.jcloud.service.MediaFavoriteService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -43,6 +45,7 @@ public class MediaTvCascadeSupport {
     private final MediaMetadataMapper mediaMetadataMapper;
     private final MediaSubtitleSupport mediaSubtitleSupport;
     private final FileMapper fileMapper;
+    private final MediaFavoriteService mediaFavoriteService;
 
     /**
      * 级联删除若干部剧：集文件 → 集 → 季 → 剧行，各级连带其 owner 指向的 t_media_metadata 行；
@@ -58,8 +61,10 @@ public class MediaTvCascadeSupport {
         for (String seriesId : seriesIds) {
             List<MediaEpisode> episodes = mediaEpisodeMapper.selectList(
                     new LambdaQueryWrapper<MediaEpisode>().eq(MediaEpisode::getSeriesId, seriesId));
+            List<String> episodeIds = new ArrayList<>();
+            List<String> seasonIds = new ArrayList<>();
             if (!episodes.isEmpty()) {
-                List<String> episodeIds = episodes.stream().map(MediaEpisode::getId).toList();
+                episodeIds = episodes.stream().map(MediaEpisode::getId).toList();
                 List<MediaEpisodeFile> files = mediaEpisodeFileMapper.selectList(
                         new LambdaQueryWrapper<MediaEpisodeFile>().in(MediaEpisodeFile::getEpisodeId, episodeIds));
                 mediaSubtitleSupport.deleteByFileIds(
@@ -74,6 +79,7 @@ public class MediaTvCascadeSupport {
             List<MediaSeason> seasons = mediaSeasonMapper.selectList(
                     new LambdaQueryWrapper<MediaSeason>().eq(MediaSeason::getSeriesId, seriesId));
             for (MediaSeason season : seasons) {
+                seasonIds.add(season.getId());
                 deleteMetadata(MediaMetadataOwnerType.SEASON.getCode(), season.getId());
             }
             if (!seasons.isEmpty()) {
@@ -81,6 +87,10 @@ public class MediaTvCascadeSupport {
             }
             deleteMetadata(MediaMetadataOwnerType.SERIES.getCode(), seriesId);
             mediaSeriesMapper.deleteById(seriesId);
+            // 实体删除后清理其收藏记录（不限用户）
+            mediaFavoriteService.deleteByOwners(MediaFavoriteOwnerType.EPISODE, episodeIds);
+            mediaFavoriteService.deleteByOwners(MediaFavoriteOwnerType.SEASON, seasonIds);
+            mediaFavoriteService.deleteByOwners(MediaFavoriteOwnerType.SERIES, List.of(seriesId));
         }
         log.info("级联删除剧 {} 部: ids={}", seriesIds.size(), seriesIds);
     }
@@ -147,6 +157,7 @@ public class MediaTvCascadeSupport {
                 removedEpisodeIds.add(episode.getId());
             }
         }
+        List<String> deletedEpisodeIds = new ArrayList<>();
         for (String episodeId : removedEpisodeIds) {
             Long remaining = mediaEpisodeFileMapper.selectCount(new LambdaQueryWrapper<MediaEpisodeFile>()
                     .eq(MediaEpisodeFile::getEpisodeId, episodeId));
@@ -155,14 +166,17 @@ public class MediaTvCascadeSupport {
             }
             deleteMetadata(MediaMetadataOwnerType.EPISODE.getCode(), episodeId);
             mediaEpisodeMapper.deleteById(episodeId);
+            deletedEpisodeIds.add(episodeId);
             log.info("即时删除消失的集: {}", episodeId);
         }
+        mediaFavoriteService.deleteByOwners(MediaFavoriteOwnerType.EPISODE, deletedEpisodeIds);
         List<String> removedSeasonIds = new ArrayList<>();
         for (MediaSeason season : existingSeasons) {
             if (!seenSeasonIds.contains(season.getId())) {
                 removedSeasonIds.add(season.getId());
             }
         }
+        List<String> deletedSeasonIds = new ArrayList<>();
         for (String seasonId : removedSeasonIds) {
             Long remaining = mediaEpisodeMapper.selectCount(new LambdaQueryWrapper<MediaEpisode>()
                     .eq(MediaEpisode::getSeasonId, seasonId));
@@ -171,8 +185,10 @@ public class MediaTvCascadeSupport {
             }
             deleteMetadata(MediaMetadataOwnerType.SEASON.getCode(), seasonId);
             mediaSeasonMapper.deleteById(seasonId);
+            deletedSeasonIds.add(seasonId);
             log.info("即时删除消失的季: {}", seasonId);
         }
+        mediaFavoriteService.deleteByOwners(MediaFavoriteOwnerType.SEASON, deletedSeasonIds);
     }
 
     /**

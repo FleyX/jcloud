@@ -3,6 +3,7 @@ package com.fleyx.jcloud.service.support;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.fleyx.jcloud.common.enums.MediaFavoriteOwnerType;
 import com.fleyx.jcloud.common.enums.MediaItemType;
 import com.fleyx.jcloud.common.enums.MediaMatchStatus;
 import com.fleyx.jcloud.common.enums.ResultCode;
@@ -14,6 +15,7 @@ import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.po.MediaOther;
 import com.fleyx.jcloud.model.vo.MediaItemDetailVo;
 import com.fleyx.jcloud.model.vo.MediaItemVo;
+import com.fleyx.jcloud.service.MediaFavoriteService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -21,6 +23,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -37,6 +40,7 @@ public class MediaOtherQuerySupport {
 
     private final MediaOtherMapper mediaOtherMapper;
     private final FileMapper fileMapper;
+    private final MediaFavoriteService mediaFavoriteService;
 
     /**
      * 其他网格列表：文件级一行一卡片，支持关键词（条目名）与媒体库过滤，按添加时间排序。
@@ -61,6 +65,12 @@ public class MediaOtherQuerySupport {
         List<MediaItemVo> vos = new ArrayList<>();
         for (MediaOther row : rows) {
             vos.add(toItemVo(row, fileNameMap.get(row.getFileNodeId())));
+        }
+        // 当前用户收藏状态批量填充（ownerType=OTHER）
+        Set<String> favoritedIds = mediaFavoriteService.listFavoritedOwnerIds(userId, MediaFavoriteOwnerType.OTHER,
+                rows.stream().map(MediaOther::getId).toList());
+        for (MediaItemVo vo : vos) {
+            vo.setFavorited(favoritedIds.contains(vo.getId()));
         }
         Page<MediaItemVo> voPage = new Page<>(result.getCurrent(), result.getSize(), result.getTotal());
         voPage.setRecords(vos);
@@ -90,6 +100,8 @@ public class MediaOtherQuerySupport {
         vo.setAudioCodec(row.getAudioCodec());
         vo.setTitle(row.getName());
         vo.setGenres(List.of());
+        vo.setFavorited(mediaFavoriteService.listFavoritedOwnerIds(userId, MediaFavoriteOwnerType.OTHER,
+                List.of(otherId)).contains(otherId));
         return vo;
     }
 

@@ -99,4 +99,9 @@ public class MediaItemVo {
      * 最近播放时间。
      */
     private LocalDateTime lastPlayTime;
+
+    /**
+     * 当前用户是否已收藏（本票填充：电影/剧集/其他海报墙、季/集列表；影视首页不填充恒为 false）。
+     */
+    private Boolean favorited = Boolean.FALSE;
 }

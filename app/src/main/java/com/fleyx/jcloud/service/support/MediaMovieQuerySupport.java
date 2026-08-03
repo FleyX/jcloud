@@ -3,6 +3,7 @@ package com.fleyx.jcloud.service.support;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.fleyx.jcloud.common.enums.MediaFavoriteOwnerType;
 import com.fleyx.jcloud.common.enums.MediaItemType;
 import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.exception.BusinessException;
@@ -18,6 +19,7 @@ import com.fleyx.jcloud.model.po.MediaMovieFile;
 import com.fleyx.jcloud.model.vo.MediaItemDetailVo;
 import com.fleyx.jcloud.model.vo.MediaItemVo;
 import com.fleyx.jcloud.model.vo.MediaMovieVersionVo;
+import com.fleyx.jcloud.service.MediaFavoriteService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -27,6 +29,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -47,6 +50,7 @@ public class MediaMovieQuerySupport {
     private final MediaMetadataMapper mediaMetadataMapper;
     private final FileMapper fileMapper;
     private final MediaItemVoSupport mediaItemVoSupport;
+    private final MediaFavoriteService mediaFavoriteService;
 
     /**
      * 电影海报墙：按电影聚合分页（新表，一部电影一张卡片），含匹配状态、进度与最近播放时间。
@@ -89,6 +93,12 @@ public class MediaMovieQuerySupport {
                 vo.setTitle(movie.getTitle());
             }
             vos.add(vo);
+        }
+        // 当前用户收藏状态批量填充（ownerType=MOVIE）
+        Set<String> favoritedIds = mediaFavoriteService.listFavoritedOwnerIds(userId, MediaFavoriteOwnerType.MOVIE,
+                movies.stream().map(MediaMovie::getId).toList());
+        for (MediaItemVo vo : vos) {
+            vo.setFavorited(favoritedIds.contains(vo.getId()));
         }
         Page<MediaItemVo> voPage = new Page<>(result.getCurrent(), result.getSize(), result.getTotal());
         voPage.setRecords(vos);
@@ -142,6 +152,8 @@ public class MediaMovieQuerySupport {
         vo.setGenres(List.of());
         vo.setVersions(toVersionVos(files));
         vo.setDefaultVersionId(resolveDefaultVersionId(movie, files));
+        vo.setFavorited(mediaFavoriteService.listFavoritedOwnerIds(userId, MediaFavoriteOwnerType.MOVIE,
+                List.of(movieId)).contains(movieId));
         return vo;
     }
 

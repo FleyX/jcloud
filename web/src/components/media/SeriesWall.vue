@@ -97,6 +97,9 @@ function resultSubtitle(series: MediaSeriesVo): string {
           :release-date="series.releaseDate"
           :unmatched="series.matchStatus === 'unmatched'"
           :incomplete="series.metadataComplete === false"
+          owner-type="series"
+          :owner-id="series.id"
+          :favorited="series.favorited"
           @play="openDetail(series)"
         />
       </div>

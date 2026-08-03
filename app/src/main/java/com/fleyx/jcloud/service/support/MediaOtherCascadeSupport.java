@@ -1,10 +1,12 @@
 package com.fleyx.jcloud.service.support;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.fleyx.jcloud.common.enums.MediaFavoriteOwnerType;
 import com.fleyx.jcloud.mapper.FileMapper;
 import com.fleyx.jcloud.mapper.MediaOtherMapper;
 import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.po.MediaOther;
+import com.fleyx.jcloud.service.MediaFavoriteService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -29,6 +31,7 @@ public class MediaOtherCascadeSupport {
     private final MediaOtherMapper mediaOtherMapper;
     private final MediaSubtitleSupport mediaSubtitleSupport;
     private final FileMapper fileMapper;
+    private final MediaFavoriteService mediaFavoriteService;
 
     /**
      * 级联删除若干 other 行：外部字幕记录 → other 行。
@@ -42,6 +45,8 @@ public class MediaOtherCascadeSupport {
         }
         mediaSubtitleSupport.deleteByFileIds(otherIds);
         mediaOtherMapper.deleteBatchIds(otherIds);
+        // 实体删除后清理其收藏记录（不限用户）
+        mediaFavoriteService.deleteByOwners(MediaFavoriteOwnerType.OTHER, otherIds);
         log.info("级联删除其他条目 {} 条: ids={}", otherIds.size(), otherIds);
     }
 
@@ -97,6 +102,8 @@ public class MediaOtherCascadeSupport {
         if (!removedIds.isEmpty()) {
             mediaSubtitleSupport.deleteByFileIds(removedIds);
             mediaOtherMapper.deleteBatchIds(removedIds);
+            // 实体删除后清理其收藏记录（不限用户）
+            mediaFavoriteService.deleteByOwners(MediaFavoriteOwnerType.OTHER, removedIds);
             log.info("即时删除消失的其他条目 {} 条: ids={}", removedIds.size(), removedIds);
         }
     }

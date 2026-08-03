@@ -150,4 +150,9 @@ public class MediaItemDetailVo {
      * 否则取版本列表中最早（create_time 升序）的明细行 ID；无版本时为空。
      */
     private String defaultVersionId;
+
+    /**
+     * 当前用户是否已收藏（电影/集/其他详情填充；详情页收藏按钮展示用）。
+     */
+    private Boolean favorited = Boolean.FALSE;
 }

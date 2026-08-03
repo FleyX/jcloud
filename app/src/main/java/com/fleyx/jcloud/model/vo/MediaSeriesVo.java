@@ -64,4 +64,9 @@ public class MediaSeriesVo {
      * 最近播放时间（用于排序）。
      */
     private LocalDateTime lastPlayTime;
+
+    /**
+     * 当前用户是否已收藏（剧集海报墙心形角标展示用）。
+     */
+    private Boolean favorited = Boolean.FALSE;
 }
