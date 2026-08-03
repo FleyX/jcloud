@@ -1,8 +1,8 @@
 <script setup lang="ts">
 /**
- * 媒体海报墙工具栏：搜索入口 + 排序切换
+ * 媒体海报墙工具栏：排序切换（搜索入口已上移到页内顶栏，工单 02）
  */
-import { Search, ArrowUp, ArrowDown } from '@lucide/vue'
+import { ArrowUp, ArrowDown } from '@lucide/vue'
 import type { MediaWallSortField } from './useMediaWall'
 import { cn } from '@/utils/cn'
 
@@ -13,21 +13,12 @@ interface Props {
 
 defineProps<Props>()
 const emit = defineEmits<{
-  openSearch: []
   sort: [field: MediaWallSortField]
 }>()
 </script>
 
 <template>
   <div class="mb-4 flex items-center gap-2">
-    <button
-      class="rounded-lg p-2 text-surface-400 transition-colors hover:bg-surface-100 hover:text-primary-600"
-      title="搜索"
-      @click="emit('openSearch')"
-    >
-      <Search class="h-4 w-4" />
-    </button>
-
     <div class="ml-auto flex items-center gap-1">
       <button
         :class="

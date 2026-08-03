@@ -12,6 +12,7 @@ import com.fleyx.jcloud.mapper.MediaMetadataMapper;
 import com.fleyx.jcloud.model.bo.FileDownloadResult;
 import com.fleyx.jcloud.model.dto.MediaDirectorySaveDto;
 import com.fleyx.jcloud.model.dto.MediaDirectoryUpdateDto;
+import com.fleyx.jcloud.model.dto.MediaFavoriteQueryDto;
 import com.fleyx.jcloud.model.dto.MediaFavoriteToggleDto;
 import com.fleyx.jcloud.model.dto.MediaMatchUpdateDto;
 import com.fleyx.jcloud.model.dto.MediaPageQueryDto;
@@ -19,6 +20,7 @@ import com.fleyx.jcloud.model.dto.MediaProgressUpdateDto;
 import com.fleyx.jcloud.model.po.MediaMetadata;
 import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.vo.MediaDirectoryVo;
+import com.fleyx.jcloud.model.vo.MediaFavoriteVo;
 import com.fleyx.jcloud.model.vo.MediaHomeVo;
 import com.fleyx.jcloud.model.vo.MediaItemDetailVo;
 import com.fleyx.jcloud.model.vo.MediaItemVo;
@@ -188,6 +190,11 @@ public class MediaController {
     @PostMapping("/favorites/toggle")
     public R<Boolean> toggleFavorite(@Valid @RequestBody MediaFavoriteToggleDto dto) {
         return R.ok(mediaFavoriteService.toggle(UserContext.get().id(), dto.getOwnerType(), dto.getOwnerId()));
+    }
+
+    @GetMapping("/favorites")
+    public R<IPage<MediaFavoriteVo>> pageFavorites(@Valid MediaFavoriteQueryDto query) {
+        return R.ok(mediaFavoriteService.pageFavorites(UserContext.get().id(), query));
     }
 
     // ---------- 播放 ----------

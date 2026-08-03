@@ -50,6 +50,13 @@ watch(
 
 const searchOpen = ref(false)
 
+/** 供库详情页顶栏搜索图标调用（复用本组件 MediaSearchModal，仅搜当前库） */
+function openSearch() {
+  searchOpen.value = true
+}
+
+defineExpose({ openSearch })
+
 function openDetail(item: MediaItemVo) {
   router.push({ name: 'MediaMovieDetail', params: { id: item.id } })
 }
@@ -67,7 +74,6 @@ function resultSubtitle(item: MediaItemVo): string {
     <MediaWallToolbar
       :sort-field="sortField"
       :sort-order="sortOrder"
-      @open-search="searchOpen = true"
       @sort="toggleSort"
     />
 

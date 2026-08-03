@@ -33,6 +33,8 @@ interface Props {
 const props = defineProps<Props>()
 const emit = defineEmits<{
   play: []
+  /** 就地取消收藏成功（服务端返回 false）后通知父级，便于收藏页移除卡片 */
+  unfavorite: []
 }>()
 
 const progressPercent = computed(() => {
@@ -67,6 +69,7 @@ async function toggle() {
   toggling.value = true
   try {
     favorited.value = await toggleFavorite(props.ownerType, props.ownerId)
+    if (!favorited.value) emit('unfavorite')
   } catch {
     favorited.value = previous
   } finally {

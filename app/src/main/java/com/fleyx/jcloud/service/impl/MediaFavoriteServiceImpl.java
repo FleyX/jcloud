@@ -1,6 +1,7 @@
 package com.fleyx.jcloud.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.fleyx.jcloud.common.enums.MediaFavoriteOwnerType;
 import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.exception.BusinessException;
@@ -10,13 +11,16 @@ import com.fleyx.jcloud.mapper.MediaMovieMapper;
 import com.fleyx.jcloud.mapper.MediaOtherMapper;
 import com.fleyx.jcloud.mapper.MediaSeasonMapper;
 import com.fleyx.jcloud.mapper.MediaSeriesMapper;
+import com.fleyx.jcloud.model.dto.MediaFavoriteQueryDto;
 import com.fleyx.jcloud.model.po.MediaEpisode;
 import com.fleyx.jcloud.model.po.MediaFavorite;
 import com.fleyx.jcloud.model.po.MediaMovie;
 import com.fleyx.jcloud.model.po.MediaOther;
 import com.fleyx.jcloud.model.po.MediaSeason;
 import com.fleyx.jcloud.model.po.MediaSeries;
+import com.fleyx.jcloud.model.vo.MediaFavoriteVo;
 import com.fleyx.jcloud.service.MediaFavoriteService;
+import com.fleyx.jcloud.service.support.MediaFavoriteQuerySupport;
 import com.fleyx.jcloud.util.IdUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -47,6 +51,7 @@ public class MediaFavoriteServiceImpl implements MediaFavoriteService {
     private final MediaSeasonMapper mediaSeasonMapper;
     private final MediaEpisodeMapper mediaEpisodeMapper;
     private final MediaOtherMapper mediaOtherMapper;
+    private final MediaFavoriteQuerySupport mediaFavoriteQuerySupport;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -107,6 +112,12 @@ public class MediaFavoriteServiceImpl implements MediaFavoriteService {
         if (deleted > 0) {
             log.info("级联清理收藏 {} 条: ownerType={} ownerIds={}", deleted, ownerType.getCode(), distinctIds);
         }
+    }
+
+    @Override
+    public IPage<MediaFavoriteVo> pageFavorites(String userId, MediaFavoriteQueryDto query) {
+        // 查询组装放在 Support（Impl 保持单文件行数约束），按收藏时间倒序 + 可选库过滤
+        return mediaFavoriteQuerySupport.pageFavorites(userId, query);
     }
 
     /**

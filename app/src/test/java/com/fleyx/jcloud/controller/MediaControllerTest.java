@@ -1,5 +1,6 @@
 package com.fleyx.jcloud.controller;
 
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fleyx.jcloud.common.context.CurrentUser;
 import com.fleyx.jcloud.common.context.UserContext;
 import com.fleyx.jcloud.common.enums.MediaMetadataOwnerType;
@@ -8,8 +9,10 @@ import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.common.exception.GlobalExceptionHandler;
 import com.fleyx.jcloud.mapper.FileMapper;
 import com.fleyx.jcloud.mapper.MediaMetadataMapper;
+import com.fleyx.jcloud.model.dto.MediaFavoriteQueryDto;
 import com.fleyx.jcloud.model.dto.MediaMatchUpdateDto;
 import com.fleyx.jcloud.model.po.MediaMetadata;
+import com.fleyx.jcloud.model.vo.MediaFavoriteVo;
 import com.fleyx.jcloud.model.vo.MediaItemVo;
 import com.fleyx.jcloud.service.MediaDirectoryService;
 import com.fleyx.jcloud.service.MediaFavoriteService;
@@ -28,6 +31,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+
+import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -176,5 +181,31 @@ class MediaControllerTest {
                 .andExpect(jsonPath("$.msg").value("元数据不存在"));
 
         verify(tmdbService, org.mockito.Mockito.never()).refreshV2(any(MediaMetadata.class));
+    }
+
+    /**
+     * 我的收藏分页：ownerType 以小写编码（movie/season…）作为 query 参数绑定，
+     * 转发当前用户与分页/库过滤入参。
+     */
+    @Test
+    void shouldPageFavoritesByOwnerType() throws Exception {
+        MediaFavoriteVo vo = new MediaFavoriteVo();
+        vo.setOwnerType("movie");
+        vo.setOwnerId("movie-1");
+        Page<MediaFavoriteVo> page = new Page<>(1, 24, 1);
+        page.setRecords(List.of(vo));
+        when(mediaFavoriteService.pageFavorites(eq("user-1"), any(MediaFavoriteQueryDto.class))).thenReturn(page);
+
+        mockMvc.perform(get("/jcloud/api/media/favorites")
+                        .param("ownerType", "movie")
+                        .param("directoryId", "dir-1")
+                        .param("pageNum", "1")
+                        .param("pageSize", "24"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.records[0].ownerType").value("movie"))
+                .andExpect(jsonPath("$.data.records[0].ownerId").value("movie-1"));
+
+        verify(mediaFavoriteService).pageFavorites(eq("user-1"), any(MediaFavoriteQueryDto.class));
     }
 }

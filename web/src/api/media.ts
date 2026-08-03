@@ -4,6 +4,8 @@ import type {
   MediaDirectorySaveDto,
   MediaDirectoryVo,
   MediaFavoriteOwnerType,
+  MediaFavoriteQuery,
+  MediaFavoriteVo,
   MediaHomeVo,
   MediaItemDetailVo,
   MediaItemVo,
@@ -196,6 +198,13 @@ export function toggleFavorite(
   ownerId: string,
 ): Promise<boolean> {
   return post<boolean>('/media/favorites/toggle', { ownerType, ownerId })
+}
+
+/**
+ * 分页查询我的收藏（按 ownerType 分区独立分页，收藏时间倒序）。
+ */
+export function fetchMediaFavorites(query: MediaFavoriteQuery): Promise<PageResult<MediaFavoriteVo>> {
+  return get<PageResult<MediaFavoriteVo>>('/media/favorites', query as unknown as Record<string, unknown>)
 }
 
 export function refreshMetadata(id: string): Promise<void> {
