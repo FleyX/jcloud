@@ -43,7 +43,7 @@ public class MediaOtherQuerySupport {
     private final MediaFavoriteService mediaFavoriteService;
 
     /**
-     * 其他网格列表：文件级一行一卡片，支持关键词（条目名）与媒体库过滤，按添加时间排序。
+     * 其他网格列表：文件级一行一卡片，支持关键词（条目名）、媒体库过滤与排序（title 按条目名，其余按添加时间）。
      */
     public IPage<MediaItemVo> listOthers(String userId, MediaPageQueryDto query) {
         Page<MediaOther> page = new Page<>(query.normalizedPageNum(), query.normalizedPageSize());
@@ -53,10 +53,11 @@ public class MediaOtherQuerySupport {
                         blankToNull(query.getDirectoryId()))
                 .like(blankToNull(query.getKeyword()) != null, MediaOther::getName,
                         blankToNull(query.getKeyword()));
-        if (query.asc()) {
-            wrapper.orderByAsc(MediaOther::getCreateTime).orderByAsc(MediaOther::getId);
+        // 排序：title 按条目名（升/降序 + id 同向兜底）；其余（含 release/rating）对无元数据库不生效，维持添加时间语义
+        if (query.sortByTitle()) {
+            orderByName(wrapper, query.asc());
         } else {
-            wrapper.orderByDesc(MediaOther::getCreateTime).orderByDesc(MediaOther::getId);
+            orderByCreateTime(wrapper, query.asc());
         }
         IPage<MediaOther> result = mediaOtherMapper.selectPage(page, wrapper);
         List<MediaOther> rows = result.getRecords();
@@ -75,6 +76,28 @@ public class MediaOtherQuerySupport {
         Page<MediaItemVo> voPage = new Page<>(result.getCurrent(), result.getSize(), result.getTotal());
         voPage.setRecords(vos);
         return voPage;
+    }
+
+    /**
+     * 按条目名 + id 同向排序。
+     */
+    private void orderByName(LambdaQueryWrapper<MediaOther> wrapper, boolean asc) {
+        if (asc) {
+            wrapper.orderByAsc(MediaOther::getName).orderByAsc(MediaOther::getId);
+        } else {
+            wrapper.orderByDesc(MediaOther::getName).orderByDesc(MediaOther::getId);
+        }
+    }
+
+    /**
+     * 按添加时间 + id 同向排序（缺省语义）。
+     */
+    private void orderByCreateTime(LambdaQueryWrapper<MediaOther> wrapper, boolean asc) {
+        if (asc) {
+            wrapper.orderByAsc(MediaOther::getCreateTime).orderByAsc(MediaOther::getId);
+        } else {
+            wrapper.orderByDesc(MediaOther::getCreateTime).orderByDesc(MediaOther::getId);
+        }
     }
 
     /**

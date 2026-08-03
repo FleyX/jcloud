@@ -20,6 +20,16 @@ public class MediaPageQueryDto {
     public static final String SORT_FIELD_RELEASE = "release";
 
     /**
+     * 排序字段：评分。
+     */
+    public static final String SORT_FIELD_RATING = "rating";
+
+    /**
+     * 排序字段：标题。
+     */
+    public static final String SORT_FIELD_TITLE = "title";
+
+    /**
      * 页码。
      */
     private Long pageNum = CommonConstant.DEFAULT_PAGE_NUM;
@@ -40,7 +50,7 @@ public class MediaPageQueryDto {
     private String directoryId;
 
     /**
-     * 排序字段：added 添加时间 / release 发行时间，默认 added。
+     * 排序字段：added 添加时间 / release 发行时间 / rating 评分 / title 标题，默认 added。
      */
     private String sortField = SORT_FIELD_ADDED;
 
@@ -78,5 +88,19 @@ public class MediaPageQueryDto {
      */
     public boolean sortByRelease() {
         return SORT_FIELD_RELEASE.equalsIgnoreCase(sortField);
+    }
+
+    /**
+     * 是否按评分排序。
+     */
+    public boolean sortByRating() {
+        return SORT_FIELD_RATING.equalsIgnoreCase(sortField);
+    }
+
+    /**
+     * 是否按标题排序。
+     */
+    public boolean sortByTitle() {
+        return SORT_FIELD_TITLE.equalsIgnoreCase(sortField);
     }
 }

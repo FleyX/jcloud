@@ -6,6 +6,7 @@ import type {
   MediaFavoriteOwnerType,
   MediaFavoriteQuery,
   MediaFavoriteVo,
+  MediaGlobalSearchResult,
   MediaHomeVo,
   MediaItemDetailVo,
   MediaItemVo,
@@ -75,6 +76,15 @@ export function fetchMediaEpisodes(seriesId: string): Promise<MediaItemVo[]> {
 
 export function fetchMediaOthers(query: MediaPageQuery): Promise<PageResult<MediaItemVo>> {
   return get<PageResult<MediaItemVo>>('/media/items/others', query as Record<string, unknown>)
+}
+
+// ---------- 全局搜索 ----------
+
+/**
+ * 全局搜索：跨该用户全部媒体库搜索，按电影/剧集/其他分组返回（各组前 N 条 + 总数）。
+ */
+export function searchMedia(keyword: string, size?: number): Promise<MediaGlobalSearchResult> {
+  return get<MediaGlobalSearchResult>('/media/search', { keyword, size })
 }
 
 // ---------- 匹配与进度 ----------

@@ -25,6 +25,7 @@ import com.fleyx.jcloud.model.vo.MediaHomeVo;
 import com.fleyx.jcloud.model.vo.MediaItemDetailVo;
 import com.fleyx.jcloud.model.vo.MediaItemVo;
 import com.fleyx.jcloud.model.vo.MediaPlaybackInfoVo;
+import com.fleyx.jcloud.model.vo.MediaSearchResultVo;
 import com.fleyx.jcloud.model.vo.MediaSeriesDetailVo;
 import com.fleyx.jcloud.model.vo.MediaSeriesVo;
 import com.fleyx.jcloud.model.vo.TmdbSearchResultVo;
@@ -41,6 +42,7 @@ import com.fleyx.jcloud.service.support.MediaMetadataCompleteSupport;
 import com.fleyx.jcloud.service.support.TranscodeSession;
 import com.fleyx.jcloud.service.support.TranscodeSessionManager;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.InputStreamResource;
 import org.springframework.http.HttpHeaders;
@@ -57,6 +59,7 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.validation.annotation.Validated;
 
 import java.io.ByteArrayInputStream;
 import java.net.URLEncoder;
@@ -72,6 +75,7 @@ import java.util.Map;
  */
 @RestController
 @RequestMapping(CommonConstant.API + "/media")
+@Validated
 @RequiredArgsConstructor
 public class MediaController {
 
@@ -152,6 +156,15 @@ public class MediaController {
     @GetMapping("/items/others")
     public R<IPage<MediaItemVo>> listOthers(MediaPageQueryDto query) {
         return R.ok(mediaItemService.listOthers(UserContext.get().id(), query));
+    }
+
+    /**
+     * 全局搜索：跨该用户全部媒体库搜索，按电影/剧集/其他分组返回。
+     */
+    @GetMapping("/search")
+    public R<MediaSearchResultVo> search(@RequestParam @NotBlank String keyword,
+                                         @RequestParam(required = false) Integer size) {
+        return R.ok(mediaItemService.search(UserContext.get().id(), keyword.trim(), size == null ? 8 : size));
     }
 
     @GetMapping("/items/by-file-node/{fileNodeId}")

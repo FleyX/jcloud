@@ -1,8 +1,8 @@
 <script setup lang="ts">
 /**
  * 影视页内顶栏菜单（PC/移动端共用）
- * - 居中 Tab（移动端可横向滚动）+ 右侧图标按钮插槽（搜索/配置等）
- * - 激活 Tab 高亮下划线，风格对齐 MediaWallToolbar 排序按钮组
+ * - 居中 Tab（移动端可横向滚动）+ 右侧图标按钮插槽（搜索/排序/配置等）
+ * - 激活 Tab 高亮下划线，风格对齐页内顶栏图标按钮
  * - Tab 状态由父组件经路由 query 承载（?tab=favorites），本组件仅负责展示与回调
  */
 import { cn } from '@/utils/cn'

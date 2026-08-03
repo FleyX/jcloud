@@ -26,6 +26,18 @@
                     <otherwise>ORDER BY md.release_date DESC NULLS LAST, m.id</otherwise>
                 </choose>
             </when>
+            <when test="sortField == 'rating'">
+                <choose>
+                    <when test="asc">ORDER BY md.vote_average ASC NULLS LAST, m.id</when>
+                    <otherwise>ORDER BY md.vote_average DESC NULLS LAST, m.id</otherwise>
+                </choose>
+            </when>
+            <when test="sortField == 'title'">
+                <choose>
+                    <when test="asc">ORDER BY COALESCE(md.title, m.title) ASC NULLS LAST, m.id</when>
+                    <otherwise>ORDER BY COALESCE(md.title, m.title) DESC NULLS LAST, m.id</otherwise>
+                </choose>
+            </when>
             <otherwise>
                 <choose>
                     <when test="asc">ORDER BY m.create_time ASC NULLS LAST, m.id</when>

@@ -25,6 +25,7 @@ import com.fleyx.jcloud.model.po.MediaOther;
 import com.fleyx.jcloud.model.po.MediaSeries;
 import com.fleyx.jcloud.model.vo.MediaItemDetailVo;
 import com.fleyx.jcloud.model.vo.MediaItemVo;
+import com.fleyx.jcloud.model.vo.MediaSearchResultVo;
 import com.fleyx.jcloud.model.vo.MediaSeriesDetailVo;
 import com.fleyx.jcloud.model.vo.MediaSeriesVo;
 import com.fleyx.jcloud.service.MediaItemService;
@@ -93,6 +94,26 @@ public class MediaItemServiceImpl implements MediaItemService {
     public IPage<MediaItemVo> listOthers(String userId, MediaPageQueryDto query) {
         // 其他库新模型网格列表（issue #19）：文件级一行一卡片
         return mediaOtherQuerySupport.listOthers(userId, query);
+    }
+
+    /**
+     * 全局搜索每组条数上限。
+     */
+    private static final int SEARCH_SIZE_MAX = 50;
+
+    @Override
+    public MediaSearchResultVo search(String userId, String keyword, int size) {
+        int pageSize = Math.max(1, Math.min(size, SEARCH_SIZE_MAX));
+        MediaPageQueryDto query = new MediaPageQueryDto();
+        query.setPageNum(1L);
+        query.setPageSize((long) pageSize);
+        query.setKeyword(keyword);
+        // 不传 directoryId 即跨库全局搜索（三条查询的 user_id 已是硬过滤），复用既有分页查询装配
+        MediaSearchResultVo result = new MediaSearchResultVo();
+        result.setMovies(listMovies(userId, query));
+        result.setSeries(listSeries(userId, query));
+        result.setOthers(listOthers(userId, query));
+        return result;
     }
 
     @Override
