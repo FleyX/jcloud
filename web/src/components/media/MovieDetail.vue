@@ -4,6 +4,7 @@
  * - 未识别条目展示文件信息简版详情，可修正匹配
  * - 多版本电影展示版本列表（分辨率/编码/大小等），点击版本进入播放页并携带 versionId；
  *   默认播放（播放按钮）不指定版本，由后端按续播语义定位；「默认」版本按后端 defaultVersionId 标记
+ * - 仅一个版本时不渲染版本列表，播放按钮直接播默认版本
  */
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -125,7 +126,6 @@ async function toggleMovieFavorite() {
         :duration-ms="detail.durationMs"
         :overview="detail.overview"
         :unmatched="unmatched"
-        :incomplete="detail.metadataComplete === false"
         :continue-ms="detail.progressMs"
         :file-info-chips="fileInfoChips"
         :show-refresh="!!detail.metadataId"
@@ -136,8 +136,9 @@ async function toggleMovieFavorite() {
         @toggle-favorite="toggleMovieFavorite"
       />
 
+      <!-- 单版本或无版本时展示文件名；单版本由播放按钮直接播默认版本 -->
       <p
-        v-if="versions.length === 0"
+        v-if="versions.length <= 1"
         class="mt-2 px-4 text-xs text-surface-400 md:px-10"
       >
         {{ detail.fileName }}

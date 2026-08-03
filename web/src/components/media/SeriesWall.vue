@@ -119,7 +119,6 @@ function resultSubtitle(series: MediaSeriesVo): string {
           :vote-average="series.voteAverage"
           :release-date="series.releaseDate"
           :unmatched="series.matchStatus === 'unmatched'"
-          :incomplete="series.metadataComplete === false"
           owner-type="series"
           :owner-id="series.id"
           :favorited="series.favorited"

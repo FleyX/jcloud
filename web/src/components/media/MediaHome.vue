@@ -10,13 +10,16 @@ import { useRoute, useRouter } from 'vue-router'
 import { Settings2, Search, Film, Tv, Clapperboard, LibraryBig } from '@lucide/vue'
 import type { Component } from 'vue'
 import type { MediaDirectoryVo, MediaHomeVo, MediaItemVo, MediaType } from '@/types/media'
-import { fetchMediaHome, withToken } from '@/api/media'
+import { fetchMediaHome, scanMediaDirectory, scrapeMediaDirectory, withToken } from '@/api/media'
+import { useNotificationStore } from '@/store/notification'
 import MediaTopMenu from './MediaTopMenu.vue'
 import MediaFavorites from './MediaFavorites.vue'
 import GlobalSearchModal from './GlobalSearchModal.vue'
+import LibraryCardMenu, { type LibraryMenuAction } from './LibraryCardMenu.vue'
 
 const route = useRoute()
 const router = useRouter()
+const notificationStore = useNotificationStore()
 
 const home = ref<MediaHomeVo | null>(null)
 const loading = ref(true)
@@ -84,6 +87,26 @@ function libraryCover(directory: MediaDirectoryVo): string | null {
 
 function openLibrary(directory: MediaDirectoryVo) {
   router.push({ name: 'MediaLibrary', params: { id: directory.id } })
+}
+
+/**
+ * 库卡片菜单动作：复用目录扫描/削刮接口提交异步任务，
+ * 成功即 toast，失败由统一请求层提示；不阻塞界面、不做任务状态轮询。
+ */
+function handleLibraryAction(directory: MediaDirectoryVo, kind: LibraryMenuAction) {
+  const task =
+    kind === 'scan'
+      ? scanMediaDirectory(directory.id)
+      : kind === 'refresh-missing'
+        ? scrapeMediaDirectory(directory.id, false)
+        : scrapeMediaDirectory(directory.id, true)
+  const message =
+    kind === 'scan'
+      ? '已提交媒体库扫描'
+      : kind === 'refresh-missing'
+        ? '已提交缺失元数据刷新'
+        : '已提交全量元数据刷新'
+  task.then(() => notificationStore.success(message)).catch(() => {})
 }
 
 function openDirectories() {
@@ -214,6 +237,16 @@ function openNextUp(item: MediaItemVo) {
                   <p class="truncate text-sm font-medium text-white">
                     {{ directory.name }}
                   </p>
+                </div>
+                <!-- 库卡片菜单按钮：PC hover 显示、移动端常驻；@click.stop 防触发卡片跳转 -->
+                <div
+                  class="absolute bottom-2 right-2 z-10 transition-opacity md:opacity-0 md:group-hover:opacity-100"
+                  @click.stop
+                >
+                  <LibraryCardMenu
+                    :media-type="directory.mediaType"
+                    @action="(kind) => handleLibraryAction(directory, kind)"
+                  />
                 </div>
               </div>
               <p class="mt-1.5 px-0.5 text-xs text-surface-400">

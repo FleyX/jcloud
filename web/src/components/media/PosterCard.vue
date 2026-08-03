@@ -3,7 +3,6 @@
  * 海报卡片
  * - 展示海报图、标题、评分、进度条
  * - 未识别条目显示角标，可触发手动匹配
- * - 元数据不完整条目显示弱标识
  * - 传入 ownerType/ownerId 时右上角显示收藏心形（已收藏实心高亮；未收藏 PC 端悬浮显现、移动端常显淡色）
  */
 import { computed, ref, watch } from 'vue'
@@ -20,8 +19,6 @@ interface Props {
   progressMs?: number
   durationMs?: number | null
   unmatched?: boolean
-  /** 元数据不完整弱标识 */
-  incomplete?: boolean
   /** 收藏归属实体类型，传入则显示收藏心形 */
   ownerType?: MediaFavoriteOwnerType
   /** 收藏归属实体 ID（心形点击切换用） */
@@ -127,12 +124,6 @@ async function toggle() {
           class="rounded-lg bg-amber-500/90 px-1.5 py-0.5 text-xs font-medium text-white"
         >
           未识别
-        </span>
-        <span
-          v-if="incomplete"
-          class="rounded-lg bg-surface-800/90 px-1.5 py-0.5 text-xs font-medium text-white"
-        >
-          不完整
         </span>
       </div>
 
