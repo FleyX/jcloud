@@ -120,7 +120,6 @@ function resultSubtitle(item: MediaItemVo): string {
           :progress-ms="item.progressMs"
           :duration-ms="item.durationMs"
           :unmatched="item.matchStatus === 'unmatched'"
-          :incomplete="item.metadataComplete === false"
           owner-type="movie"
           :owner-id="item.id"
           :favorited="item.favorited"

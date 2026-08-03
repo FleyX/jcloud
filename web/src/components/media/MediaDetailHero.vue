@@ -21,8 +21,6 @@ interface Props {
   durationMs?: number | null
   overview?: string | null
   unmatched?: boolean
-  /** 元数据不完整弱标识 */
-  incomplete?: boolean
   /** 续播位置（毫秒），>0 时显示「继续播放 + 从头播放」 */
   continueMs?: number
   /** 文件信息标签（未识别简版详情用） */
@@ -116,12 +114,6 @@ function goBack() {
               class="shrink-0 rounded-lg bg-amber-500/90 px-1.5 py-0.5 text-xs font-medium text-white"
             >
               未识别
-            </span>
-            <span
-              v-if="incomplete"
-              class="shrink-0 rounded-lg bg-surface-800/90 px-1.5 py-0.5 text-xs font-medium text-white"
-            >
-              不完整
             </span>
           </div>
           <p

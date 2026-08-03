@@ -148,7 +148,7 @@ export interface MediaItemVo {
   episodeNo: number | null
   progressMs: number
   lastPlayTime: string | null
-  /** 元数据完整性（false 时展示「不完整」弱标识），电影/剧集行有效 */
+  /** 元数据完整性（后端重算，前端已不展示弱标识），电影/剧集行有效 */
   metadataComplete: boolean
   /** 当前用户是否已收藏 */
   favorited: boolean
@@ -165,7 +165,7 @@ export interface MediaSeriesVo {
   episodeCount: number
   matchStatus: MediaMatchStatus
   lastPlayTime: string | null
-  /** 元数据完整性（false 时展示「不完整」弱标识） */
+  /** 元数据完整性（后端重算，前端已不展示弱标识） */
   metadataComplete: boolean
   /** 当前用户是否已收藏 */
   favorited: boolean
@@ -266,7 +266,7 @@ export interface MediaItemDetailVo {
   voteAverage: number | null
   posterUrl: string | null
   backdropUrl: string | null
-  /** 元数据完整性（false 时展示「不完整」弱标识），电影/剧集详情有效 */
+  /** 元数据完整性（后端重算，前端已不展示弱标识），电影/剧集详情有效 */
   metadataComplete: boolean
   /** 后端缺省播放版本 ID（电影：last_play_file_id 非空时取它，否则最早版本） */
   defaultVersionId?: string
@@ -322,7 +322,7 @@ export interface MediaSeriesDetailVo {
   posterUrl: string | null
   backdropUrl: string | null
   seasons: MediaSeriesSeasonVo[]
-  /** 元数据完整性（false 时展示「不完整」弱标识） */
+  /** 元数据完整性（后端重算，前端已不展示弱标识） */
   metadataComplete: boolean
   /** 当前用户是否已收藏 */
   favorited: boolean

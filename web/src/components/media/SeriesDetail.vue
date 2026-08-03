@@ -247,7 +247,6 @@ async function toggleEpisodeFavorite(episode: MediaItemVo) {
         :genres="detail.genres"
         :overview="detail.overview"
         :unmatched="unmatched"
-        :incomplete="detail.metadataComplete === false"
         :continue-ms="continueMs"
         :show-refresh="!!detail.metadataId"
         :favorited="detail.favorited"
