@@ -7,7 +7,7 @@
  */
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Search, Settings2 } from '@lucide/vue'
+import { ArrowUpDown, Search, Settings2 } from '@lucide/vue'
 import type { MediaDirectoryVo, MediaType } from '@/types/media'
 import { fetchMediaDirectories } from '@/api/media'
 import MediaTopMenu from './MediaTopMenu.vue'
@@ -28,8 +28,8 @@ const router = useRouter()
 const directoryId = computed(() => route.params.id as string)
 const directory = ref<MediaDirectoryVo | null>(null)
 const loading = ref(true)
-/** 当前渲染的墙组件（仅一个挂载），搜索入口经其 expose 的 openSearch 打开既有搜索弹窗 */
-const wallRef = ref<{ openSearch?: () => void } | null>(null)
+/** 当前渲染的墙组件（仅一个挂载），搜索/排序入口经其 expose 的 openSearch/openSort 打开对应弹窗 */
+const wallRef = ref<{ openSearch?: () => void; openSort?: () => void } | null>(null)
 
 watch(directoryId, load, { immediate: true })
 
@@ -70,6 +70,11 @@ function openSearch() {
   wallRef.value?.openSearch?.()
 }
 
+/** 库内排序：调当前墙组件 openSort（排序弹窗由墙组件持有，作用于主墙） */
+function openSort() {
+  wallRef.value?.openSort?.()
+}
+
 function openDirectories() {
   router.push({ name: 'MediaDirectories' })
 }
@@ -88,6 +93,13 @@ function openDirectories() {
         @click="openSearch"
       >
         <Search class="h-4 w-4" />
+      </button>
+      <button
+        class="rounded-lg p-2 text-surface-400 transition-colors hover:bg-surface-100 hover:text-primary-600"
+        title="排序"
+        @click="openSort"
+      >
+        <ArrowUpDown class="h-4 w-4" />
       </button>
       <button
         class="rounded-lg p-2 text-surface-400 transition-colors hover:bg-surface-100 hover:text-primary-600"

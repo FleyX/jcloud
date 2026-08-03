@@ -7,12 +7,13 @@
  */
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Settings2, Film, Tv, Clapperboard, LibraryBig } from '@lucide/vue'
+import { Settings2, Search, Film, Tv, Clapperboard, LibraryBig } from '@lucide/vue'
 import type { Component } from 'vue'
 import type { MediaDirectoryVo, MediaHomeVo, MediaItemVo, MediaType } from '@/types/media'
 import { fetchMediaHome, withToken } from '@/api/media'
 import MediaTopMenu from './MediaTopMenu.vue'
 import MediaFavorites from './MediaFavorites.vue'
+import GlobalSearchModal from './GlobalSearchModal.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -89,6 +90,9 @@ function openDirectories() {
   router.push({ name: 'MediaDirectories' })
 }
 
+/** 全局搜索弹窗开关 */
+const searchOpen = ref(false)
+
 /** 继续观看：断点续播 */
 function resume(item: MediaItemVo) {
   router.push({
@@ -118,12 +122,24 @@ function openNextUp(item: MediaItemVo) {
     >
       <button
         class="rounded-lg p-2 text-surface-400 transition-colors hover:bg-surface-100 hover:text-primary-600"
+        title="全局搜索"
+        @click="searchOpen = true"
+      >
+        <Search class="h-4 w-4" />
+      </button>
+      <button
+        class="rounded-lg p-2 text-surface-400 transition-colors hover:bg-surface-100 hover:text-primary-600"
         title="目录管理"
         @click="openDirectories"
       >
         <Settings2 class="h-4 w-4" />
       </button>
     </MediaTopMenu>
+
+    <GlobalSearchModal
+      :open="searchOpen"
+      @close="searchOpen = false"
+    />
 
     <MediaFavorites v-if="activeTab === 'favorites'" />
 

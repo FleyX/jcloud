@@ -1,15 +1,15 @@
 /**
  * 媒体海报墙分页/排序组合式函数
  * - 滚动到底自动加载下一页（IntersectionObserver 哨兵）
- * - 排序选择记忆到 localStorage
- * - 搜索由 MediaSearchModal 独立完成，不再作用于海报墙
+ * - 排序选择记忆到 localStorage（key 与值结构不变，字段枚举随工单 03 扩展）
+ * - 搜索由 MediaSearchModal/GlobalSearchModal 独立完成，不再作用于海报墙
  */
 import { onBeforeUnmount, onMounted, ref, watch, type Ref } from 'vue'
 import type { PageResult } from '@/types/auth'
 import type { MediaPageQuery } from '@/types/media'
 
 export type MediaWallFetcher<T> = (query: MediaPageQuery) => Promise<PageResult<T>>
-export type MediaWallSortField = 'added' | 'release'
+export type MediaWallSortField = 'added' | 'release' | 'rating' | 'title'
 
 const PAGE_SIZE = 48
 
@@ -84,13 +84,9 @@ export function useMediaWall<T>(storageKey: string, fetcher: MediaWallFetcher<T>
     })
   }
 
-  function toggleSort(field: MediaWallSortField) {
-    if (sortField.value === field) {
-      sortOrder.value = sortOrder.value === 'desc' ? 'asc' : 'desc'
-    } else {
-      sortField.value = field
-      sortOrder.value = 'desc'
-    }
+  function setSort(field: MediaWallSortField, order: 'asc' | 'desc') {
+    sortField.value = field
+    sortOrder.value = order
     persistSort()
     reload()
   }
@@ -101,7 +97,14 @@ export function useMediaWall<T>(storageKey: string, fetcher: MediaWallFetcher<T>
         sortField?: MediaWallSortField
         sortOrder?: 'asc' | 'desc'
       } | null
-      if (saved?.sortField === 'added' || saved?.sortField === 'release') sortField.value = saved.sortField
+      if (
+        saved?.sortField === 'added' ||
+        saved?.sortField === 'release' ||
+        saved?.sortField === 'rating' ||
+        saved?.sortField === 'title'
+      ) {
+        sortField.value = saved.sortField
+      }
       if (saved?.sortOrder === 'asc' || saved?.sortOrder === 'desc') sortOrder.value = saved.sortOrder
     } catch {
       // 忽略损坏的本地缓存
@@ -133,6 +136,6 @@ export function useMediaWall<T>(storageKey: string, fetcher: MediaWallFetcher<T>
     sentinel,
     setSentinel,
     reload,
-    toggleSort,
+    setSort,
   }
 }

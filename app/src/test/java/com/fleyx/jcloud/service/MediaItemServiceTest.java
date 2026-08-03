@@ -2,21 +2,29 @@ package com.fleyx.jcloud.service;
 
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.fleyx.jcloud.common.enums.MediaMatchStatus;
+import com.fleyx.jcloud.common.enums.MediaMetadataOwnerType;
+import com.fleyx.jcloud.common.enums.MediaMetadataSource;
+import com.fleyx.jcloud.common.enums.MediaPersistStatus;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.MediaEpisodeMapper;
+import com.fleyx.jcloud.mapper.MediaMetadataMapper;
 import com.fleyx.jcloud.mapper.MediaMovieFileMapper;
 import com.fleyx.jcloud.mapper.MediaMovieMapper;
+import com.fleyx.jcloud.mapper.MediaOtherMapper;
 import com.fleyx.jcloud.mapper.MediaSeasonMapper;
 import com.fleyx.jcloud.mapper.MediaSeriesMapper;
 import com.fleyx.jcloud.model.dto.MediaPageQueryDto;
 import com.fleyx.jcloud.model.po.MediaEpisode;
+import com.fleyx.jcloud.model.po.MediaMetadata;
 import com.fleyx.jcloud.model.po.MediaMovie;
 import com.fleyx.jcloud.model.po.MediaMovieFile;
+import com.fleyx.jcloud.model.po.MediaOther;
 import com.fleyx.jcloud.model.po.MediaSeason;
 import com.fleyx.jcloud.model.po.MediaSeries;
 import com.fleyx.jcloud.model.vo.MediaItemDetailVo;
 import com.fleyx.jcloud.model.vo.MediaItemVo;
 import com.fleyx.jcloud.model.vo.MediaMovieVersionVo;
+import com.fleyx.jcloud.model.vo.MediaSearchResultVo;
 import com.fleyx.jcloud.model.vo.MediaSeriesDetailVo;
 import com.fleyx.jcloud.model.vo.MediaSeriesVo;
 import com.fleyx.jcloud.util.IdUtil;
@@ -61,6 +69,12 @@ class MediaItemServiceTest {
 
     @Autowired
     private MediaMovieFileMapper mediaMovieFileMapper;
+
+    @Autowired
+    private MediaOtherMapper mediaOtherMapper;
+
+    @Autowired
+    private MediaMetadataMapper mediaMetadataMapper;
 
     /**
      * 剧详情返回季卡片：季号升序、未知季排最后，含集数与观看进度标记。
@@ -180,6 +194,172 @@ class MediaItemServiceTest {
                 resumed.getVersions().stream().map(MediaMovieVersionVo::getId).toList());
     }
 
+    /**
+     * 全局搜索：跨库按电影/剧集/其他分组，关键词分别命中电影标题/元数据标题/原始标题/简介/剧名/其他条目名；
+     * 用户隔离（user-2 查不到）。
+     */
+    @Test
+    void shouldSearchGloballyGroupedAndIsolated() {
+        // 电影标题命中
+        insertMovie("user-1", "dir-1", "星际穿越");
+        // 元数据标题 / 原始标题 / 简介命中（同一部电影）
+        MediaMovie matrix = insertMovie("user-1", "dir-2", "无关电影");
+        MediaMetadata matrixMd = insertMetadata("user-1", MediaMetadataOwnerType.MOVIE.getCode(), matrix.getId());
+        matrixMd.setTitle("黑客帝国");
+        matrixMd.setOriginalTitle("the matrix");
+        matrixMd.setOverview("讲述星际航行与数字世界的电影");
+        mediaMetadataMapper.updateById(matrixMd);
+        matrix.setMetadataId(matrixMd.getId());
+        mediaMovieMapper.updateById(matrix);
+        // 剧名命中
+        insertSeries("user-1", "dir-1", "疑犯追踪");
+        // 其他条目名命中
+        insertOther("user-1", "dir-2", "星际纪录片.mp4");
+
+        MediaSearchResultVo byMovieTitle = mediaItemService.search("user-1", "星际穿越", 8);
+        assertEquals(1L, byMovieTitle.getMovies().getTotal());
+        assertEquals(0L, byMovieTitle.getSeries().getTotal());
+        assertEquals(0L, byMovieTitle.getOthers().getTotal());
+
+        MediaSearchResultVo byMetadataTitle = mediaItemService.search("user-1", "黑客帝国", 8);
+        assertEquals(1L, byMetadataTitle.getMovies().getTotal());
+
+        MediaSearchResultVo byOriginalTitle = mediaItemService.search("user-1", "the matrix", 8);
+        assertEquals(1L, byOriginalTitle.getMovies().getTotal());
+
+        MediaSearchResultVo byOverview = mediaItemService.search("user-1", "数字世界", 8);
+        assertEquals(1L, byOverview.getMovies().getTotal());
+
+        MediaSearchResultVo bySeriesName = mediaItemService.search("user-1", "疑犯", 8);
+        assertEquals(1L, bySeriesName.getSeries().getTotal());
+        assertEquals("疑犯追踪", bySeriesName.getSeries().getRecords().getFirst().getSeriesName());
+
+        MediaSearchResultVo byOtherName = mediaItemService.search("user-1", "纪录片", 8);
+        assertEquals(1L, byOtherName.getOthers().getTotal());
+
+        // 跨库：一个关键词同时命中两个库的电影（电影标题 + 元数据简介）与其他条目
+        MediaSearchResultVo crossLibrary = mediaItemService.search("user-1", "星际", 8);
+        assertEquals(2L, crossLibrary.getMovies().getTotal());
+        assertEquals(1L, crossLibrary.getOthers().getTotal());
+
+        // 用户隔离：user-2 查不到任何分组
+        MediaSearchResultVo foreign = mediaItemService.search("user-2", "星际", 8);
+        assertEquals(0L, foreign.getMovies().getTotal());
+        assertEquals(0L, foreign.getSeries().getTotal());
+        assertEquals(0L, foreign.getOthers().getTotal());
+    }
+
+    /**
+     * 全局搜索 size 截断：records 长度 = size，total 为真实命中数。
+     */
+    @Test
+    void shouldSearchTruncateRecordsBySize() {
+        insertMovie("user-1", "dir-1", "星际A");
+        insertMovie("user-1", "dir-1", "星际B");
+        insertMovie("user-1", "dir-1", "星际C");
+
+        MediaSearchResultVo result = mediaItemService.search("user-1", "星际", 2);
+
+        assertEquals(3L, result.getMovies().getTotal());
+        assertEquals(2, result.getMovies().getRecords().size());
+        assertEquals(2L, result.getMovies().getSize());
+    }
+
+    /**
+     * 电影按评分排序：vote_average 为空的电影始终沉底（NULLS LAST），升降序均验证。
+     */
+    @Test
+    void shouldSortMoviesByRatingNullsLast() {
+        MediaMovie high = insertMovie("user-1", "dir-1", "高分电影");
+        bindRating(high, 9.0);
+        MediaMovie none = insertMovie("user-1", "dir-1", "无评分电影");
+        bindRating(none, null);
+        MediaMovie mid = insertMovie("user-1", "dir-1", "中分电影");
+        bindRating(mid, 7.0);
+
+        MediaPageQueryDto descQuery = new MediaPageQueryDto();
+        descQuery.setSortField(MediaPageQueryDto.SORT_FIELD_RATING);
+        assertEquals(List.of(high.getId(), mid.getId(), none.getId()),
+                idsOf(mediaItemService.listMovies("user-1", descQuery).getRecords()));
+
+        MediaPageQueryDto ascQuery = new MediaPageQueryDto();
+        ascQuery.setSortField(MediaPageQueryDto.SORT_FIELD_RATING);
+        ascQuery.setSortOrder("asc");
+        assertEquals(List.of(mid.getId(), high.getId(), none.getId()),
+                idsOf(mediaItemService.listMovies("user-1", ascQuery).getRecords()));
+    }
+
+    /**
+     * 电影按标题排序：元数据标题优先、无元数据回退电影标题（COALESCE 混排）。
+     */
+    @Test
+    void shouldSortMoviesByTitleWithMetadataFallback() {
+        MediaMovie metaFirst = insertMovie("user-1", "dir-1", "movie-z");
+        bindTitle(metaFirst, "movie-a");
+        MediaMovie fallback = insertMovie("user-1", "dir-1", "movie-b");
+        MediaMovie metaLast = insertMovie("user-1", "dir-1", "movie-c");
+        bindTitle(metaLast, "movie-d");
+
+        MediaPageQueryDto ascQuery = new MediaPageQueryDto();
+        ascQuery.setSortField(MediaPageQueryDto.SORT_FIELD_TITLE);
+        ascQuery.setSortOrder("asc");
+        assertEquals(List.of(metaFirst.getId(), fallback.getId(), metaLast.getId()),
+                idsOf(mediaItemService.listMovies("user-1", ascQuery).getRecords()));
+
+        MediaPageQueryDto descQuery = new MediaPageQueryDto();
+        descQuery.setSortField(MediaPageQueryDto.SORT_FIELD_TITLE);
+        assertEquals(List.of(metaLast.getId(), fallback.getId(), metaFirst.getId()),
+                idsOf(mediaItemService.listMovies("user-1", descQuery).getRecords()));
+    }
+
+    /**
+     * 剧集按标题排序：元数据标题优先、无元数据回退剧名（COALESCE 混排）。
+     */
+    @Test
+    void shouldSortSeriesByTitleWithMetadataFallback() {
+        MediaSeries metaFirst = insertSeries("user-1", "dir-1", "series-z");
+        bindSeriesTitle(metaFirst, "series-a");
+        MediaSeries fallback = insertSeries("user-1", "dir-1", "series-b");
+
+        MediaPageQueryDto query = new MediaPageQueryDto();
+        query.setSortField(MediaPageQueryDto.SORT_FIELD_TITLE);
+        query.setSortOrder("asc");
+        List<MediaSeriesVo> asc = mediaItemService.listSeries("user-1", query).getRecords();
+
+        assertEquals(List.of(metaFirst.getId(), fallback.getId()),
+                asc.stream().map(MediaSeriesVo::getId).toList());
+    }
+
+    /**
+     * 其他库按标题（条目名）排序；release/rating 对其不生效，回落添加时间不报错。
+     */
+    @Test
+    void shouldSortOthersByTitleAndIgnoreUnsupportedFields() {
+        insertOther("user-1", "dir-1", "apple.mp4");
+        insertOther("user-1", "dir-1", "banana.mp4");
+        insertOther("user-1", "dir-1", "cherry.mp4");
+
+        MediaPageQueryDto ascQuery = new MediaPageQueryDto();
+        ascQuery.setSortField(MediaPageQueryDto.SORT_FIELD_TITLE);
+        ascQuery.setSortOrder("asc");
+        assertEquals(List.of("apple.mp4", "banana.mp4", "cherry.mp4"),
+                mediaItemService.listOthers("user-1", ascQuery).getRecords().stream()
+                        .map(MediaItemVo::getTitle).toList());
+
+        MediaPageQueryDto descQuery = new MediaPageQueryDto();
+        descQuery.setSortField(MediaPageQueryDto.SORT_FIELD_TITLE);
+        assertEquals(List.of("cherry.mp4", "banana.mp4", "apple.mp4"),
+                mediaItemService.listOthers("user-1", descQuery).getRecords().stream()
+                        .map(MediaItemVo::getTitle).toList());
+
+        // release/rating 对其他库不生效：回落添加时间，不报错且全部返回
+        for (String unsupported : List.of(MediaPageQueryDto.SORT_FIELD_RELEASE, MediaPageQueryDto.SORT_FIELD_RATING)) {
+            MediaPageQueryDto query = new MediaPageQueryDto();
+            query.setSortField(unsupported);
+            assertEquals(3L, mediaItemService.listOthers("user-1", query).getTotal());
+        }
+    }
+
     private MediaSeries insertSeries(String userId, String directoryId, String seriesName) {
         MediaSeries series = new MediaSeries();
         series.setUserId(userId);
@@ -210,14 +390,19 @@ class MediaItemServiceTest {
     }
 
     private void insertMovie(String userId, String directoryId) {
+        insertMovie(userId, directoryId, "测试电影");
+    }
+
+    private MediaMovie insertMovie(String userId, String directoryId, String title) {
         MediaMovie movie = new MediaMovie();
         movie.setUserId(userId);
         movie.setDirectoryId(directoryId);
         movie.setFolderNodeId(IdUtil.nextId());
-        movie.setTitle("测试电影");
+        movie.setTitle(title);
         movie.setMatchStatus(MediaMatchStatus.UNMATCHED.getCode());
         movie.setMetadataComplete(false);
         mediaMovieMapper.insert(movie);
+        return movie;
     }
 
     /**
@@ -244,5 +429,57 @@ class MediaItemServiceTest {
         file.setFileNodeId(IdUtil.nextId());
         file.setCreateTime(createTime);
         mediaMovieFileMapper.insert(file);
+    }
+
+    private MediaOther insertOther(String userId, String directoryId, String name) {
+        MediaOther other = new MediaOther();
+        other.setUserId(userId);
+        other.setDirectoryId(directoryId);
+        other.setFileNodeId(IdUtil.nextId());
+        other.setName(name);
+        mediaOtherMapper.insert(other);
+        return other;
+    }
+
+    private MediaMetadata insertMetadata(String userId, String ownerType, String ownerId) {
+        MediaMetadata metadata = new MediaMetadata();
+        metadata.setUserId(userId);
+        metadata.setOwnerType(ownerType);
+        metadata.setOwnerId(ownerId);
+        metadata.setSource(MediaMetadataSource.TMDB.getCode());
+        metadata.setPersistStatus(MediaPersistStatus.PERSISTED.getCode());
+        mediaMetadataMapper.insert(metadata);
+        return metadata;
+    }
+
+    /** 给电影绑定指定评分的元数据。 */
+    private void bindRating(MediaMovie movie, Double voteAverage) {
+        MediaMetadata metadata = insertMetadata(movie.getUserId(), MediaMetadataOwnerType.MOVIE.getCode(), movie.getId());
+        metadata.setVoteAverage(voteAverage);
+        mediaMetadataMapper.updateById(metadata);
+        movie.setMetadataId(metadata.getId());
+        mediaMovieMapper.updateById(movie);
+    }
+
+    /** 给电影绑定指定标题的元数据。 */
+    private void bindTitle(MediaMovie movie, String title) {
+        MediaMetadata metadata = insertMetadata(movie.getUserId(), MediaMetadataOwnerType.MOVIE.getCode(), movie.getId());
+        metadata.setTitle(title);
+        mediaMetadataMapper.updateById(metadata);
+        movie.setMetadataId(metadata.getId());
+        mediaMovieMapper.updateById(movie);
+    }
+
+    /** 给剧集绑定指定标题的元数据。 */
+    private void bindSeriesTitle(MediaSeries series, String title) {
+        MediaMetadata metadata = insertMetadata(series.getUserId(), MediaMetadataOwnerType.SERIES.getCode(), series.getId());
+        metadata.setTitle(title);
+        mediaMetadataMapper.updateById(metadata);
+        series.setMetadataId(metadata.getId());
+        mediaSeriesMapper.updateById(series);
+    }
+
+    private List<String> idsOf(List<MediaItemVo> vos) {
+        return vos.stream().map(MediaItemVo::getId).toList();
     }
 }

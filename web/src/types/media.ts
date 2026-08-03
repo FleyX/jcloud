@@ -1,6 +1,7 @@
 /**
  * 视频媒体库相关类型定义
  */
+import type { PageResult } from '@/types/auth'
 
 export type MediaType = 'movie' | 'tv' | 'other'
 export type MediaItemType = 'movie' | 'episode' | 'other' | 'series'
@@ -60,8 +61,17 @@ export interface MediaPageQuery {
   keyword?: string
   /** 媒体库 ID 过滤，为空表示跨库 */
   directoryId?: string
-  sortField?: 'added' | 'release'
+  sortField?: 'added' | 'release' | 'rating' | 'title'
   sortOrder?: 'asc' | 'desc'
+}
+
+/**
+ * 全局搜索结果：跨全部媒体库搜索，按电影/剧集/其他分组（各组前 N 条 + 总数）
+ */
+export interface MediaGlobalSearchResult {
+  movies: PageResult<MediaItemVo>
+  series: PageResult<MediaSeriesVo>
+  others: PageResult<MediaItemVo>
 }
 
 export interface MediaDirectorySourceVo {
