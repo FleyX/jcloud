@@ -11,6 +11,47 @@ export type MediaSourceType = 'local' | 'remote'
 export type MediaFavoriteOwnerType = 'movie' | 'series' | 'season' | 'episode' | 'other'
 
 /**
+ * 我的收藏条目视图（收藏页卡片，后端 Long 字段序列化为 string）
+ */
+export interface MediaFavoriteVo {
+  /** 归属实体类型：movie / series / season / episode / other */
+  ownerType: MediaFavoriteOwnerType
+  /** 归属实体 ID */
+  ownerId: string
+  /** 收藏状态（收藏页恒为 true，心形取消后前端移除卡片） */
+  favorited: boolean
+  /** 收藏时间 */
+  favoriteTime: string
+  /** 展示标题（元数据标题或条目名；季/集由前端组合标题，可为空） */
+  title: string | null
+  /** 文件名/条目名（other 有效） */
+  fileName: string | null
+  posterUrl: string | null
+  /** 关联文件节点 ID（other 有效，缩略图回退与播放用） */
+  fileNodeId: string | null
+  /** 时长（毫秒，other 有效） */
+  durationMs: string | null
+  releaseDate: string | null
+  voteAverage: number | null
+  matchStatus: MediaMatchStatus | null
+  seriesId: string | null
+  seriesName: string | null
+  seasonNo: number | null
+  episodeNo: number | null
+}
+
+/**
+ * 我的收藏分页查询参数（按归属实体类型独立分页）
+ */
+export interface MediaFavoriteQuery {
+  ownerType: MediaFavoriteOwnerType
+  /** 媒体库 ID 过滤，为空表示全部收藏 */
+  directoryId?: string
+  pageNum?: number
+  pageSize?: number
+}
+
+/**
  * 媒体列表分页查询参数（电影/电视/其他通用）
  */
 export interface MediaPageQuery {

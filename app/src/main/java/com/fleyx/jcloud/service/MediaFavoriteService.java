@@ -1,6 +1,9 @@
 package com.fleyx.jcloud.service;
 
+import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.fleyx.jcloud.common.enums.MediaFavoriteOwnerType;
+import com.fleyx.jcloud.model.dto.MediaFavoriteQueryDto;
+import com.fleyx.jcloud.model.vo.MediaFavoriteVo;
 
 import java.util.Collection;
 import java.util.Set;
@@ -39,4 +42,13 @@ public interface MediaFavoriteService {
      * @param ownerIds  实体 ID 集合
      */
     void deleteByOwners(MediaFavoriteOwnerType ownerType, Collection<String> ownerIds);
+
+    /**
+     * 分页查询当前用户某类实体的收藏（按收藏时间倒序），供「我的收藏」页分区加载。
+     *
+     * @param userId 用户 ID
+     * @param query  查询入参（ownerType 必填，directoryId 可选库过滤）
+     * @return 收藏条目分页视图
+     */
+    IPage<MediaFavoriteVo> pageFavorites(String userId, MediaFavoriteQueryDto query);
 }
