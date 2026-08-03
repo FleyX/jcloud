@@ -29,8 +29,8 @@ import java.util.List;
  * 写回为正式 FileNode（复用 {@link MediaArtworkPersistSupport} 的原语）：本地来源写物理文件 + 插入/覆盖
  * FileNode；远程来源经远程上传通道落盘。local_nfo 来源的内容为用户提供、已在视频目录，跳过本级写回并标记
  * persisted。任一步失败仅将对应元数据标记 persist_status=failed，不影响削刮主流程。
- * 电影以代表视频文件主名写 {@code <主文件名>.nfo} + poster/fanart；剧写 tvshow.nfo + poster/fanart +
- * 季海报（seasonXX-poster.jpg）+ 逐集 nfo 与剧照（{@code <视频名>-thumb.jpg}）。
+ * 电影以代表视频文件主名写 {@code <主文件名>.nfo} + folder.jpg/backdrop.jpg（ADR 0022）；剧写
+ * tvshow.nfo + folder.jpg/backdrop.jpg + 季海报（seasonXX-poster.jpg）+ 逐集 nfo 与剧照（{@code <视频名>-thumb.jpg}）。
  */
 @Slf4j
 @Component
@@ -47,7 +47,7 @@ public class MediaArtworkPersistV2Support {
     private final MediaArtworkPersistSupport persistSupport;
 
     /**
-     * 写回电影级元数据：{@code <代表视频主文件名>.nfo} + poster/fanart 到电影文件夹。
+     * 写回电影级元数据：{@code <代表视频主文件名>.nfo} + folder.jpg/backdrop.jpg 到电影文件夹。
      * local_nfo 来源跳过写回；任一步失败仅标记 failed 不影响削刮结果。
      */
     public void persistMovieV2(MediaMovie movie, MediaMetadata metadata) {
@@ -67,9 +67,9 @@ public class MediaArtworkPersistV2Support {
             }
             persistSupport.writeNfoXml(folder, nfoSupport.nfoNameOf(video.getName()),
                     nfoSupport.generate(metadata, null, null));
-            FileNode poster = persistSupport.ensureArtwork(folder, MediaNfoSupport.POSTER_JPG,
+            FileNode poster = persistSupport.ensureArtwork(folder, MediaNfoSupport.POSTER_WRITE_NAME,
                     metadata.getRawJson(), "poster_path", "poster");
-            FileNode fanart = persistSupport.ensureArtwork(folder, MediaNfoSupport.FANART_JPG,
+            FileNode fanart = persistSupport.ensureArtwork(folder, MediaNfoSupport.BACKDROP_WRITE_NAME,
                     metadata.getRawJson(), "backdrop_path", "backdrop");
             if (poster != null) {
                 metadata.setPosterFileNodeId(poster.getId());
@@ -87,7 +87,7 @@ public class MediaArtworkPersistV2Support {
     }
 
     /**
-     * 写回剧级元数据：tvshow.nfo + poster/fanart（剧文件夹）、季海报、逐集 nfo 与剧照。
+     * 写回剧级元数据：tvshow.nfo + folder.jpg/backdrop.jpg（剧文件夹）、季海报、逐集 nfo 与剧照。
      * 各级别独立成败：剧级失败不影响季/集继续写回；各级别来源为 local_nfo 时跳过本级写回。
      */
     public void persistSeriesV2(MediaSeries series, MediaMetadata seriesMetadata) {
@@ -101,9 +101,9 @@ public class MediaArtworkPersistV2Support {
             if (!MediaMetadataSource.LOCAL_NFO.getCode().equals(seriesMetadata.getSource())) {
                 persistSupport.writeNfoXml(seriesFolder, MediaNfoSupport.TVSHOW_NFO,
                         nfoSupport.generate(seriesMetadata, null, null));
-                FileNode poster = persistSupport.ensureArtwork(seriesFolder, MediaNfoSupport.POSTER_JPG,
+                FileNode poster = persistSupport.ensureArtwork(seriesFolder, MediaNfoSupport.POSTER_WRITE_NAME,
                         seriesMetadata.getRawJson(), "poster_path", "poster");
-                FileNode fanart = persistSupport.ensureArtwork(seriesFolder, MediaNfoSupport.FANART_JPG,
+                FileNode fanart = persistSupport.ensureArtwork(seriesFolder, MediaNfoSupport.BACKDROP_WRITE_NAME,
                         seriesMetadata.getRawJson(), "backdrop_path", "backdrop");
                 if (poster != null) {
                     seriesMetadata.setPosterFileNodeId(poster.getId());

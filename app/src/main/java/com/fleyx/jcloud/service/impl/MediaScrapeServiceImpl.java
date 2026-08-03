@@ -210,7 +210,7 @@ public class MediaScrapeServiceImpl implements MediaScrapeService {
 
     /**
      * 电影本地优先削刮：视频同目录存在与视频同名的 .nfo 时完全信任本地内容，不请求 TMDB；
-     * 无 NFO 但存在本地图片（poster.jpg/fanart.jpg）时同样本地优先，构建缺失文本字段的
+     * 无 NFO 但存在本地图片（按海报/背景识别链，ADR 0022）时同样本地优先，构建缺失文本字段的
      * local_nfo 元数据（标记不完整），图片绑定本地文件。
      *
      * @return 已绑定 owner 的本地元数据，无 NFO 且无本地图片时返回 null
@@ -226,8 +226,8 @@ public class MediaScrapeServiceImpl implements MediaScrapeService {
         FileNode nfoNode = persistSupport.findChildFile(userId, folder.getId(),
                 mediaNfoSupport.nfoNameOf(video.getName()));
         MediaNfoSupport.NfoData data = nfoNode == null ? null : readNfo(nfoNode);
-        FileNode poster = persistSupport.findChildFile(userId, folder.getId(), MediaNfoSupport.POSTER_JPG);
-        FileNode fanart = persistSupport.findChildFile(userId, folder.getId(), MediaNfoSupport.FANART_JPG);
+        FileNode poster = persistSupport.findFirstChildFile(userId, folder.getId(), MediaNfoSupport.MOVIE_POSTER_NAMES);
+        FileNode fanart = persistSupport.findFirstChildFile(userId, folder.getId(), MediaNfoSupport.BACKDROP_NAMES);
         if (data == null && poster == null && fanart == null) {
             return null;
         }

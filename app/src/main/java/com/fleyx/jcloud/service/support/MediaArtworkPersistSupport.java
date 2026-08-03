@@ -64,6 +64,19 @@ public class MediaArtworkPersistSupport {
     }
 
     /**
+     * 按名称顺序查找目录下第一个存在的子文件节点，全部不存在返回 null。
+     */
+    public FileNode findFirstChildFile(String userId, String parentId, List<String> names) {
+        for (String name : names) {
+            FileNode node = findChildFile(userId, parentId, name);
+            if (node != null) {
+                return node;
+            }
+        }
+        return null;
+    }
+
+    /**
      * 读取文件节点字节（本地直读，远程经适配器下载），失败返回 null。
      */
     public byte[] readFileBytes(FileNode node) {

@@ -25,8 +25,12 @@ import org.xml.sax.InputSource;
 /**
  * 媒体 NFO 支撑组件：Jellyfin/Kodi 兼容 NFO 的解析、生成与本地来源元数据落库。
  * <p>
- * 命名约定（ADR 0020）：电影/集为与视频同名的 {@code .nfo}，剧文件夹为 {@code tvshow.nfo}；
- * 图片为 {@code poster.jpg}、{@code fanart.jpg}、{@code seasonXX-poster.jpg}、集剧照 {@code <视频名>-thumb.jpg}。
+ * 命名约定（ADR 0020）：电影/集为与视频同名的 {@code .nfo}，剧文件夹为 {@code tvshow.nfo}。
+ * 本地媒体图片命名（ADR 0022）：海报/背景按识别链取目录中第一个存在的文件——电影海报
+ * {@code folder.jpg→poster.jpg→cover.jpg→default.jpg→movie.jpg}、剧集海报
+ * {@code folder.jpg→poster.jpg→cover.jpg→default.jpg→show.jpg}、背景
+ * {@code backdrop.jpg→fanart.jpg→background.jpg→art.jpg}；写回统一产出 {@code folder.jpg}/{@code backdrop.jpg}。
+ * 季海报 {@code seasonXX-poster.jpg}、集剧照 {@code <视频名>-thumb.jpg} 命名不变。
  * 解析容错：非法 XML 返回 null，缺字段返回部分解析结果，均不抛业务异常。
  */
 @Slf4j
@@ -40,14 +44,28 @@ public class MediaNfoSupport {
     public static final String TVSHOW_NFO = "tvshow.nfo";
 
     /**
-     * 海报图片文件名。
+     * 海报识别链（电影）：按序取目录中第一个存在的文件。
      */
-    public static final String POSTER_JPG = "poster.jpg";
+    public static final List<String> MOVIE_POSTER_NAMES =
+            List.of("folder.jpg", "poster.jpg", "cover.jpg", "default.jpg", "movie.jpg");
 
     /**
-     * 背景图片文件名。
+     * 海报识别链（剧集）。
      */
-    public static final String FANART_JPG = "fanart.jpg";
+    public static final List<String> TV_POSTER_NAMES =
+            List.of("folder.jpg", "poster.jpg", "cover.jpg", "default.jpg", "show.jpg");
+
+    /**
+     * 背景识别链（电影/剧集共用）。
+     */
+    public static final List<String> BACKDROP_NAMES =
+            List.of("backdrop.jpg", "fanart.jpg", "background.jpg", "art.jpg");
+
+    /**
+     * 海报/背景写回文件名（均置于各自识别链首，保证写读自洽）。
+     */
+    public static final String POSTER_WRITE_NAME = "folder.jpg";
+    public static final String BACKDROP_WRITE_NAME = "backdrop.jpg";
 
     private static final String NFO_MIME = "application/xml";
 

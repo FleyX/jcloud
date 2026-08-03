@@ -4,6 +4,8 @@ import com.fleyx.jcloud.common.enums.MediaMetadataOwnerType;
 import com.fleyx.jcloud.model.po.MediaMetadata;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
@@ -225,5 +227,24 @@ class MediaNfoSupportTest {
         assertEquals("season01-poster.jpg", nfoSupport.seasonPosterName(1));
         assertEquals("season12-poster.jpg", nfoSupport.seasonPosterName(12));
         assertEquals("无名", nfoSupport.mainNameOf("无名"));
+    }
+
+    /**
+     * 本地媒体图片命名链常量（ADR 0022）：海报/背景识别链内容完整有序，写回名为各自链首。
+     */
+    @Test
+    void shouldExposeArtworkNameChains() {
+        assertEquals(List.of("folder.jpg", "poster.jpg", "cover.jpg", "default.jpg", "movie.jpg"),
+                MediaNfoSupport.MOVIE_POSTER_NAMES);
+        assertEquals(List.of("folder.jpg", "poster.jpg", "cover.jpg", "default.jpg", "show.jpg"),
+                MediaNfoSupport.TV_POSTER_NAMES);
+        assertEquals(List.of("backdrop.jpg", "fanart.jpg", "background.jpg", "art.jpg"),
+                MediaNfoSupport.BACKDROP_NAMES);
+        assertEquals("folder.jpg", MediaNfoSupport.POSTER_WRITE_NAME);
+        assertEquals("backdrop.jpg", MediaNfoSupport.BACKDROP_WRITE_NAME);
+        // 写回名置于识别链首：保证写读自洽（重新削刮读到的是自己写回的图）
+        assertEquals(MediaNfoSupport.POSTER_WRITE_NAME, MediaNfoSupport.MOVIE_POSTER_NAMES.get(0));
+        assertEquals(MediaNfoSupport.POSTER_WRITE_NAME, MediaNfoSupport.TV_POSTER_NAMES.get(0));
+        assertEquals(MediaNfoSupport.BACKDROP_WRITE_NAME, MediaNfoSupport.BACKDROP_NAMES.get(0));
     }
 }

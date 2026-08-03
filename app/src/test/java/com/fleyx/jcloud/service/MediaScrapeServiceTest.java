@@ -470,6 +470,163 @@ class MediaScrapeServiceTest {
         assertEquals(queryChildNode(parentFolder.getId(), "fanart.jpg").getId(), metadata.getBackdropFileNodeId());
     }
 
+    // ---------- 验收 7：本地图片命名兼容（ADR 0022） ----------
+
+    /**
+     * 电影本地优先（回归用例）：目录仅有 folder.jpg/backdrop.jpg（Emby 命名，无 NFO）时
+     * 同样本地优先、不请求 TMDB，海报与背景绑定这两张图。
+     */
+    @Test
+    void shouldScrapeMovieFromFolderArtworkNames() {
+        UserVo user = prepareUserWithStorageSpace();
+        FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
+        FileNodeVo parentFolder = createFolder(user.getId(), movieFolder.getId(), "Iron Man 2008");
+        FileNodeVo videoFile = fileService.upload(buildFile("Iron.Man.2008.1080p.mkv"), user.getId(), parentFolder.getId(), null);
+        fileService.upload(buildFile("folder.jpg"), user.getId(), parentFolder.getId(), null);
+        fileService.upload(buildFile("backdrop.jpg"), user.getId(), parentFolder.getId(), null);
+        MediaDirectory directory = createDirectory(user.getId(), movieFolder.getId(), "movie");
+        MediaMovie movie = seedMovie(directory, user.getId(), parentFolder.getId(), "Iron Man", 2008, videoFile.getId());
+
+        scrapeAwaitIdle(directory, user.getId(), false);
+
+        verify(tmdbService, never()).autoMatchV2(any(), anyString(), anyString(), any());
+        MediaMetadata metadata = mediaMetadataMapper.selectOne(owner("movie", movie.getId()));
+        assertEquals("local_nfo", metadata.getSource());
+        assertEquals(queryChildNode(parentFolder.getId(), "folder.jpg").getId(), metadata.getPosterFileNodeId());
+        assertEquals(queryChildNode(parentFolder.getId(), "backdrop.jpg").getId(), metadata.getBackdropFileNodeId());
+    }
+
+    /**
+     * 电视剧本地优先（回归用例）：剧文件夹仅有 folder.jpg/backdrop.jpg（无 NFO、无季海报）时
+     * 本地优先、不请求 TMDB，剧级海报与背景绑定这两张图。
+     */
+    @Test
+    void shouldScrapeSeriesFromFolderArtworkNames() {
+        UserVo user = prepareUserWithStorageSpace();
+        FileNodeVo tvFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电视");
+        FileNodeVo seriesFolder = createFolder(user.getId(), tvFolder.getId(), "亮剑");
+        FileNodeVo seasonFolder = createFolder(user.getId(), seriesFolder.getId(), "Season 1");
+        FileNodeVo episodeFile = fileService.upload(buildFile("亮剑.S01E01.1080p.mkv"), user.getId(), seasonFolder.getId(), null);
+        fileService.upload(buildFile("folder.jpg"), user.getId(), seriesFolder.getId(), null);
+        fileService.upload(buildFile("backdrop.jpg"), user.getId(), seriesFolder.getId(), null);
+        MediaDirectory directory = createDirectory(user.getId(), tvFolder.getId(), "tv");
+        MediaSeries series = seedSeries(directory, user.getId(), seriesFolder.getId(), "亮剑", null);
+        seedEpisode(series.getId(), seedSeason(series.getId(), seasonFolder.getId(), 1).getId(), 1, episodeFile.getId());
+
+        scrapeAwaitIdle(directory, user.getId(), false);
+
+        verify(tmdbService, never()).autoMatchV2(any(), anyString(), anyString(), any());
+        MediaMetadata seriesMetadata = mediaMetadataMapper.selectOne(owner("series", series.getId()));
+        assertEquals("local_nfo", seriesMetadata.getSource());
+        assertEquals(queryChildNode(seriesFolder.getId(), "folder.jpg").getId(), seriesMetadata.getPosterFileNodeId());
+        assertEquals(queryChildNode(seriesFolder.getId(), "backdrop.jpg").getId(), seriesMetadata.getBackdropFileNodeId());
+    }
+
+    /**
+     * 优先级：电影目录 poster.jpg 与 folder.jpg 并存时链首 folder.jpg 胜出（结果可预期）。
+     */
+    @Test
+    void shouldPreferFolderJpgWhenMultiplePosterNamesExist() {
+        UserVo user = prepareUserWithStorageSpace();
+        FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
+        FileNodeVo parentFolder = createFolder(user.getId(), movieFolder.getId(), "Iron Man 2008");
+        FileNodeVo videoFile = fileService.upload(buildFile("Iron.Man.2008.1080p.mkv"), user.getId(), parentFolder.getId(), null);
+        fileService.upload(buildFile("poster.jpg"), user.getId(), parentFolder.getId(), null);
+        fileService.upload(buildFile("folder.jpg"), user.getId(), parentFolder.getId(), null);
+        fileService.upload(buildFile("fanart.jpg"), user.getId(), parentFolder.getId(), null);
+        fileService.upload(buildFile("backdrop.jpg"), user.getId(), parentFolder.getId(), null);
+        MediaDirectory directory = createDirectory(user.getId(), movieFolder.getId(), "movie");
+        MediaMovie movie = seedMovie(directory, user.getId(), parentFolder.getId(), "Iron Man", 2008, videoFile.getId());
+
+        scrapeAwaitIdle(directory, user.getId(), false);
+
+        verify(tmdbService, never()).autoMatchV2(any(), anyString(), anyString(), any());
+        MediaMetadata metadata = mediaMetadataMapper.selectOne(owner("movie", movie.getId()));
+        assertEquals(queryChildNode(parentFolder.getId(), "folder.jpg").getId(), metadata.getPosterFileNodeId());
+        assertEquals(queryChildNode(parentFolder.getId(), "backdrop.jpg").getId(), metadata.getBackdropFileNodeId());
+    }
+
+    /**
+     * 别名识别：电影目录仅 cover.jpg、default.jpg 或 movie.jpg 时仍可识别海报（链序在后）。
+     */
+    @Test
+    void shouldRecognizeMoviePosterAliases() {
+        UserVo user = prepareUserWithStorageSpace();
+        FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
+        FileNodeVo coverFolder = createFolder(user.getId(), movieFolder.getId(), "Cover 2008");
+        FileNodeVo coverVideo = fileService.upload(buildFile("Cover.2008.mkv"), user.getId(), coverFolder.getId(), null);
+        fileService.upload(buildFile("cover.jpg"), user.getId(), coverFolder.getId(), null);
+        FileNodeVo defaultFolder = createFolder(user.getId(), movieFolder.getId(), "Default 2010");
+        FileNodeVo defaultVideo = fileService.upload(buildFile("Default.2010.mkv"), user.getId(), defaultFolder.getId(), null);
+        fileService.upload(buildFile("default.jpg"), user.getId(), defaultFolder.getId(), null);
+        FileNodeVo movieJpgFolder = createFolder(user.getId(), movieFolder.getId(), "MovieJpg 2009");
+        FileNodeVo movieJpgVideo = fileService.upload(buildFile("MovieJpg.2009.mkv"), user.getId(), movieJpgFolder.getId(), null);
+        fileService.upload(buildFile("movie.jpg"), user.getId(), movieJpgFolder.getId(), null);
+        MediaDirectory directory = createDirectory(user.getId(), movieFolder.getId(), "movie");
+        MediaMovie coverMovie = seedMovie(directory, user.getId(), coverFolder.getId(), "Cover", 2008, coverVideo.getId());
+        MediaMovie defaultMovie = seedMovie(directory, user.getId(), defaultFolder.getId(), "Default", 2010, defaultVideo.getId());
+        MediaMovie movieJpgMovie = seedMovie(directory, user.getId(), movieJpgFolder.getId(), "MovieJpg", 2009, movieJpgVideo.getId());
+
+        scrapeAwaitIdle(directory, user.getId(), false);
+
+        MediaMetadata coverMeta = mediaMetadataMapper.selectOne(owner("movie", coverMovie.getId()));
+        assertEquals("local_nfo", coverMeta.getSource());
+        assertEquals(queryChildNode(coverFolder.getId(), "cover.jpg").getId(), coverMeta.getPosterFileNodeId());
+        MediaMetadata defaultMeta = mediaMetadataMapper.selectOne(owner("movie", defaultMovie.getId()));
+        assertEquals(queryChildNode(defaultFolder.getId(), "default.jpg").getId(), defaultMeta.getPosterFileNodeId());
+        MediaMetadata movieJpgMeta = mediaMetadataMapper.selectOne(owner("movie", movieJpgMovie.getId()));
+        assertEquals(queryChildNode(movieJpgFolder.getId(), "movie.jpg").getId(), movieJpgMeta.getPosterFileNodeId());
+    }
+
+    /**
+     * 别名识别：背景目录仅 background.jpg 或 art.jpg 时仍可识别（链序在后）。
+     */
+    @Test
+    void shouldRecognizeBackdropAliases() {
+        UserVo user = prepareUserWithStorageSpace();
+        FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
+        FileNodeVo bgFolder = createFolder(user.getId(), movieFolder.getId(), "Bg 2008");
+        FileNodeVo bgVideo = fileService.upload(buildFile("Bg.2008.mkv"), user.getId(), bgFolder.getId(), null);
+        fileService.upload(buildFile("background.jpg"), user.getId(), bgFolder.getId(), null);
+        FileNodeVo artFolder = createFolder(user.getId(), movieFolder.getId(), "Art 2009");
+        FileNodeVo artVideo = fileService.upload(buildFile("Art.2009.mkv"), user.getId(), artFolder.getId(), null);
+        fileService.upload(buildFile("art.jpg"), user.getId(), artFolder.getId(), null);
+        MediaDirectory directory = createDirectory(user.getId(), movieFolder.getId(), "movie");
+        MediaMovie bgMovie = seedMovie(directory, user.getId(), bgFolder.getId(), "Bg", 2008, bgVideo.getId());
+        MediaMovie artMovie = seedMovie(directory, user.getId(), artFolder.getId(), "Art", 2009, artVideo.getId());
+
+        scrapeAwaitIdle(directory, user.getId(), false);
+
+        MediaMetadata bgMeta = mediaMetadataMapper.selectOne(owner("movie", bgMovie.getId()));
+        assertEquals("local_nfo", bgMeta.getSource());
+        assertEquals(queryChildNode(bgFolder.getId(), "background.jpg").getId(), bgMeta.getBackdropFileNodeId());
+        MediaMetadata artMeta = mediaMetadataMapper.selectOne(owner("movie", artMovie.getId()));
+        assertEquals(queryChildNode(artFolder.getId(), "art.jpg").getId(), artMeta.getBackdropFileNodeId());
+    }
+
+    /**
+     * 别名识别：剧文件夹仅 show.jpg 时仍可识别剧集海报（链序在后）。
+     */
+    @Test
+    void shouldRecognizeSeriesShowJpgAlias() {
+        UserVo user = prepareUserWithStorageSpace();
+        FileNodeVo tvFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电视");
+        FileNodeVo seriesFolder = createFolder(user.getId(), tvFolder.getId(), "亮剑");
+        FileNodeVo seasonFolder = createFolder(user.getId(), seriesFolder.getId(), "Season 1");
+        FileNodeVo episodeFile = fileService.upload(buildFile("亮剑.S01E01.1080p.mkv"), user.getId(), seasonFolder.getId(), null);
+        fileService.upload(buildFile("show.jpg"), user.getId(), seriesFolder.getId(), null);
+        MediaDirectory directory = createDirectory(user.getId(), tvFolder.getId(), "tv");
+        MediaSeries series = seedSeries(directory, user.getId(), seriesFolder.getId(), "亮剑", null);
+        seedEpisode(series.getId(), seedSeason(series.getId(), seasonFolder.getId(), 1).getId(), 1, episodeFile.getId());
+
+        scrapeAwaitIdle(directory, user.getId(), false);
+
+        verify(tmdbService, never()).autoMatchV2(any(), anyString(), anyString(), any());
+        MediaMetadata seriesMetadata = mediaMetadataMapper.selectOne(owner("series", series.getId()));
+        assertEquals("local_nfo", seriesMetadata.getSource());
+        assertEquals(queryChildNode(seriesFolder.getId(), "show.jpg").getId(), seriesMetadata.getPosterFileNodeId());
+    }
+
     // ---------- 验收 5：级联删除无孤儿（owner 指针反查） ----------
 
     /**
@@ -649,7 +806,7 @@ class MediaScrapeServiceTest {
     }
 
     /**
-     * 电影削刮 TMDB 路径写回：匹配成功后下载图片并写入视频目录（poster.jpg/fanart.jpg + 同名 nfo）。
+     * 电影削刮 TMDB 路径写回：匹配成功后下载图片并写入视频目录（folder.jpg/backdrop.jpg + 同名 nfo）。
      */
     @Test
     void shouldPersistArtworkAfterTmdbScrape() {
@@ -670,8 +827,8 @@ class MediaScrapeServiceTest {
         MediaMovie after = mediaMovieMapper.selectById(movie.getId());
         MediaMetadata meta = mediaMetadataMapper.selectOne(owner("movie", movie.getId()));
         assertEquals("persisted", meta.getPersistStatus());
-        FileNode poster = queryChildNode(movieFolder.getId(), "poster.jpg");
-        FileNode fanart = queryChildNode(movieFolder.getId(), "fanart.jpg");
+        FileNode poster = queryChildNode(movieFolder.getId(), "folder.jpg");
+        FileNode fanart = queryChildNode(movieFolder.getId(), "backdrop.jpg");
         FileNode nfo = queryChildNode(movieFolder.getId(), "Iron.Man.2008.1080p.nfo");
         assertEquals(poster.getId(), meta.getPosterFileNodeId());
         assertEquals(fanart.getId(), meta.getBackdropFileNodeId());
