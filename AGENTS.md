@@ -159,6 +159,8 @@ const className = cn('base-class', isActive && 'active-class')
 ## Agent 技能配置
 
 **全程使用中文交互**
+**实际开发任务使用primary_model生成开发文档，然后交给secondary_model开发.**
+**统筹管理以及code-review交给primary_model执行**
 
 ### Issue tracker
 
