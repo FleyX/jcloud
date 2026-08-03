@@ -15,6 +15,7 @@ import MediaSearchModal from './MediaSearchModal.vue'
 import MediaSearchResultRow from './MediaSearchResultRow.vue'
 import { useMediaWall, type MediaWallFetcher, type MediaWallSortField } from './useMediaWall'
 import { cn } from '@/utils/cn'
+import { formatDuration } from '@/utils/format'
 
 interface Props {
   dense?: boolean
@@ -75,14 +76,6 @@ function handlePlay(item: MediaItemVo) {
 
 function thumbUrl(item: MediaItemVo): string {
   return `/jcloud/api/files/${item.fileNodeId}/preview?type=poster`
-}
-
-function formatDuration(ms: number | null): string | null {
-  if (!ms) return null
-  const totalMinutes = Math.floor(ms / 60000)
-  const hours = Math.floor(totalMinutes / 60)
-  const minutes = totalMinutes % 60
-  return hours > 0 ? `${hours}小时${minutes}分` : `${minutes}分钟`
 }
 </script>
 

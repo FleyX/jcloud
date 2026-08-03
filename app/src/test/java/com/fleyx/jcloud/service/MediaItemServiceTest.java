@@ -524,6 +524,31 @@ class MediaItemServiceTest {
         assertEquals(sciFi.getId(), page.getRecords().getFirst().getId());
     }
 
+    /**
+     * NFO 来源类型串可能含空格（如 "动作, 冒险 "）：筛选与聚合两侧均需逐元素 trim，
+     * 保证类型卡片与筛选结果一致。
+     */
+    @Test
+    void shouldTrimGenreElementsInFilterAndAggregation() {
+        MediaDirectory directory = insertDirectory("user-1", MediaType.MOVIE.getCode());
+        MediaMovie spaced = insertMovie("user-1", directory.getId(), "带空格类型电影");
+        bindMovieGenres(spaced, " 动作, 冒险 ", "poster-trim");
+
+        MediaPageQueryDto filter = new MediaPageQueryDto();
+        filter.setDirectoryId(directory.getId());
+        filter.setGenre("冒险");
+        assertEquals(1L, mediaItemService.listMovies("user-1", filter).getTotal());
+
+        filter.setGenre("动作");
+        assertEquals(1L, mediaItemService.listMovies("user-1", filter).getTotal());
+
+        List<MediaGenreVo> genres = mediaItemService.listGenres("user-1", directory.getId());
+        assertEquals(2, genres.size());
+        // 同条目数按名称升序（Java 码位序：冒险 < 动作）
+        assertEquals(List.of("冒险", "动作"), genres.stream().map(MediaGenreVo::getName).toList());
+        assertEquals(1L, genres.getFirst().getItemCount());
+    }
+
     private MediaDirectory insertDirectory(String userId, String mediaType) {
         MediaDirectory directory = new MediaDirectory();
         directory.setUserId(userId);

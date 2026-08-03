@@ -267,6 +267,8 @@ class MediaFavoriteQueryTest {
         mediaMovieMapper.deleteById(movie.getId());
 
         IPage<MediaFavoriteVo> page = query("user-1", MediaFavoriteOwnerType.MOVIE, null, 1, 24);
+        // EXISTS 归属过滤：total 与 records 一致，残留孤儿收藏不计入总数
+        assertEquals(0L, page.getTotal());
         assertTrue(page.getRecords().isEmpty());
     }
 

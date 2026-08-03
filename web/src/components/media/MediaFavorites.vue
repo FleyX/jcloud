@@ -9,6 +9,7 @@ import { computed, onMounted, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import type { MediaFavoriteOwnerType, MediaFavoriteVo } from '@/types/media'
 import { fetchMediaFavorites } from '@/api/media'
+import { formatDuration } from '@/utils/format'
 import PosterCard from './PosterCard.vue'
 
 interface Props {
@@ -135,14 +136,6 @@ function cardPoster(type: MediaFavoriteOwnerType, item: MediaFavoriteVo): string
     return item.posterUrl ?? (item.fileNodeId ? `/jcloud/api/files/${item.fileNodeId}/preview?type=poster` : null)
   }
   return item.posterUrl
-}
-
-function formatDuration(ms: string | null): string | null {
-  if (!ms) return null
-  const totalMinutes = Math.floor(Number(ms) / 60000)
-  const hours = Math.floor(totalMinutes / 60)
-  const minutes = totalMinutes % 60
-  return hours > 0 ? `${hours}小时${minutes}分` : `${minutes}分钟`
 }
 
 function openItem(type: MediaFavoriteOwnerType, item: MediaFavoriteVo) {

@@ -11,6 +11,7 @@ import { X, Search, Film, Tv, Clapperboard } from '@lucide/vue'
 import type { Component } from 'vue'
 import type { MediaItemVo, MediaSeriesVo } from '@/types/media'
 import { fetchMediaMovies, fetchMediaOthers, fetchMediaSeries, searchMedia } from '@/api/media'
+import { formatDuration } from '@/utils/format'
 import MediaSearchResultRow from './MediaSearchResultRow.vue'
 
 /** 每组首屏条数（与后端 /media/search 默认 size 一致） */
@@ -186,14 +187,6 @@ function seriesSubtitle(item: MediaSeriesVo): string {
   if (item.voteAverage != null && item.voteAverage > 0) parts.push(`评分 ${item.voteAverage.toFixed(1)}`)
   parts.push(`共 ${item.episodeCount} 集`)
   return parts.join(' · ')
-}
-
-function formatDuration(ms: number | null): string | null {
-  if (!ms) return null
-  const totalMinutes = Math.floor(ms / 60000)
-  const hours = Math.floor(totalMinutes / 60)
-  const minutes = totalMinutes % 60
-  return hours > 0 ? `${hours}小时${minutes}分` : `${minutes}分钟`
 }
 </script>
 
