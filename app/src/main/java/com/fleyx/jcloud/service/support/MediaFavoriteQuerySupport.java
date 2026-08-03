@@ -67,6 +67,8 @@ public class MediaFavoriteQuerySupport {
                 .eq(MediaFavorite::getOwnerType, ownerType.getCode())
                 .orderByDesc(MediaFavorite::getCreateTime)
                 .orderByDesc(MediaFavorite::getId);
+        // 归属实体仍存在的过滤：total/records 与级联清理后可能残留的孤儿收藏保持一致（与用户隔离同一语义）
+        wrapper.apply(ownerExistsSql(ownerType), userId);
         List<String> allowedOwnerIds = resolveAllowedOwnerIds(userId, ownerType, query.getDirectoryId());
         if (allowedOwnerIds != null) {
             if (allowedOwnerIds.isEmpty()) {
@@ -80,6 +82,20 @@ public class MediaFavoriteQuerySupport {
         Page<MediaFavoriteVo> voPage = new Page<>(result.getCurrent(), result.getSize(), result.getTotal());
         voPage.setRecords(vos);
         return voPage;
+    }
+
+    /**
+     * 归属实体仍存在的 EXISTS 子查询（按类型对应用户隔离，{0} 为 userId）。
+     * 季/集表无 user_id 列，经所属剧 t_media_series 归属判定。
+     */
+    private String ownerExistsSql(MediaFavoriteOwnerType ownerType) {
+        return switch (ownerType) {
+            case MOVIE -> "EXISTS (SELECT 1 FROM t_media_movie m WHERE m.id = t_media_favorite.owner_id AND m.user_id = {0})";
+            case SERIES -> "EXISTS (SELECT 1 FROM t_media_series s WHERE s.id = t_media_favorite.owner_id AND s.user_id = {0})";
+            case SEASON -> "EXISTS (SELECT 1 FROM t_media_season s JOIN t_media_series srs ON srs.id = s.series_id WHERE s.id = t_media_favorite.owner_id AND srs.user_id = {0})";
+            case EPISODE -> "EXISTS (SELECT 1 FROM t_media_episode e JOIN t_media_series srs ON srs.id = e.series_id WHERE e.id = t_media_favorite.owner_id AND srs.user_id = {0})";
+            case OTHER -> "EXISTS (SELECT 1 FROM t_media_other o WHERE o.id = t_media_favorite.owner_id AND o.user_id = {0})";
+        };
     }
 
     /**

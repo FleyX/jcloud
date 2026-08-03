@@ -60,7 +60,7 @@ public class MediaMovieQuerySupport {
         IPage<MediaMovie> result = mediaMovieMapper.selectMoviePage(page, userId,
                 blankToNull(query.getKeyword()), blankToNull(query.getDirectoryId()),
                 blankToNull(query.getGenre()),
-                resolveSortField(query), query.asc());
+                query.resolveSortField(), query.asc());
         List<MediaMovie> movies = result.getRecords();
         Map<String, MediaMetadata> metadataMap = loadMetadataMap(
                 movies.stream().map(MediaMovie::getMetadataId).toList());
@@ -103,22 +103,6 @@ public class MediaMovieQuerySupport {
         Page<MediaItemVo> voPage = new Page<>(result.getCurrent(), result.getSize(), result.getTotal());
         voPage.setRecords(vos);
         return voPage;
-    }
-
-    /**
-     * 排序字段解析：release / rating / title 透传，其余（含非法值）回退 added。
-     */
-    private String resolveSortField(MediaPageQueryDto query) {
-        if (query.sortByRelease()) {
-            return MediaPageQueryDto.SORT_FIELD_RELEASE;
-        }
-        if (query.sortByRating()) {
-            return MediaPageQueryDto.SORT_FIELD_RATING;
-        }
-        if (query.sortByTitle()) {
-            return MediaPageQueryDto.SORT_FIELD_TITLE;
-        }
-        return MediaPageQueryDto.SORT_FIELD_ADDED;
     }
 
     /**

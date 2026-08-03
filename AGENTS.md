@@ -66,7 +66,7 @@ resources/mapper 存放数据库 XML 文件
 
 ## 开发要求
 
-1. 单个 Java 文件不要超过 400 行，单个方法不要超过 100 行。
+1. 单个 Java 文件不要超过 400 行，单个方法不要超过 100 行(单元测试文件不包含）。
 2. 新增、修改代码时需要有对应的单元测试代码,单元测试配置文件为main目录下的application-test.yml
 3. 工具类优先使用 Hutool 中的，文档：https://doc.hutool.cn/module/core/
 4. 依赖包优先使用可用的最新版。
@@ -150,11 +150,10 @@ const className = cn('base-class', isActive && 'active-class')
 ## 其他规范
 
 1. 单个 Vue 文件最大 500 行，超过 500 行进行组件拆分；可复用组件放到 `src/components`，非复用组件放到当前目录的 `components`。
-2. 后端 `long` 类型返回前端会自动转换为 `string`，注意类型定义为 `string`。
-3. 编写前端代码需考虑美观，简约风。
-4. 除特殊说明外，前端只考虑页面权限，无须到按钮级别。
-5. 禁止通过组件属性（Props）进行多层级的状态透传（Props Drilling），须使用 Pinia；单层级可使用 Props 传递。
-6. 已统一展示请求异常，无需在业务代码中再次展示。
+2. 编写前端代码需考虑美观，简约风。
+3. 除特殊说明外，前端只考虑页面权限，无须到按钮级别。
+4. 禁止通过组件属性（Props）进行多层级的状态透传（Props Drilling），须使用 Pinia；单层级可使用 Props 传递。
+5. 已统一展示请求异常，无需在业务代码中再次展示。
 
 ## Agent 技能配置
 

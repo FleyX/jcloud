@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * 库内海报墙（PC/移动端共用）
- * - 顶部影视菜单：{库类型名 / 我的收藏 / 类型} Tab + 右侧库内搜索图标（复用墙组件内 MediaSearchModal，仅搜当前库）+ 配置图标
+ * - 顶部影视菜单：{库类型名 / 我的收藏 / 类型} Tab + 右侧图标（搜索/排序仅海报墙 Tab 显示，避免在收藏/类型页静默失效）+ 配置图标
  * - Tab 状态经路由 query（?tab=favorites / ?tab=genres）承载，刷新可还原
  * - tab=favorites 渲染我的收藏（限定该库）；tab=genres 渲染类型页（电影/剧集库）
  * - ?genre= 筛选态归属库 Tab：渲染带类型筛选的海报墙，筛选条可清除
@@ -121,6 +121,7 @@ function openDirectories() {
       @select="selectTab"
     >
       <button
+        v-if="activeTab === 'library'"
         class="rounded-lg p-2 text-surface-400 transition-colors hover:bg-surface-100 hover:text-primary-600"
         title="搜索当前媒体库"
         @click="openSearch"
@@ -128,6 +129,7 @@ function openDirectories() {
         <Search class="h-4 w-4" />
       </button>
       <button
+        v-if="activeTab === 'library'"
         class="rounded-lg p-2 text-surface-400 transition-colors hover:bg-surface-100 hover:text-primary-600"
         title="排序"
         @click="openSort"

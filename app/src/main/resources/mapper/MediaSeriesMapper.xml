@@ -20,7 +20,12 @@
           )
         </if>
         <if test="genre != null and genre != ''">
-          AND #{genre} = ANY (string_to_array(m.genres, ','))
+          <!-- 逐元素 trim 后精确匹配，与类型聚合侧（Java 拆分 trim）保持一致，兼容 NFO 来源含空格的类型串 -->
+          AND EXISTS (
+              SELECT 1
+              FROM unnest(string_to_array(m.genres, ',')) AS g(genre)
+              WHERE trim(g.genre) = #{genre}
+          )
         </if>
         <choose>
             <when test="sortField == 'release'">

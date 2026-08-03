@@ -108,4 +108,21 @@ public class MediaPageQueryDto {
     public boolean sortByTitle() {
         return SORT_FIELD_TITLE.equalsIgnoreCase(sortField);
     }
+
+    /**
+     * 归一化排序字段：release / rating / title 透传，其余（含非法值）回退 added。
+     * 供 SQL 映射层统一使用，避免各查询支撑组件各自解析。
+     */
+    public String resolveSortField() {
+        if (sortByRelease()) {
+            return SORT_FIELD_RELEASE;
+        }
+        if (sortByRating()) {
+            return SORT_FIELD_RATING;
+        }
+        if (sortByTitle()) {
+            return SORT_FIELD_TITLE;
+        }
+        return SORT_FIELD_ADDED;
+    }
 }
