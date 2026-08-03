@@ -61,8 +61,22 @@ export interface MediaPageQuery {
   keyword?: string
   /** 媒体库 ID 过滤，为空表示跨库 */
   directoryId?: string
+  /** 类型筛选：匹配元数据 genres 拆分后包含该值的条目 */
+  genre?: string
   sortField?: 'added' | 'release' | 'rating' | 'title'
   sortOrder?: 'asc' | 'desc'
+}
+
+/**
+ * 类型聚合视图（类型页卡片）：Long 字段序列化为 string
+ */
+export interface MediaGenreVo {
+  /** 类型名 */
+  name: string
+  /** 该类型下的条目数 */
+  itemCount: string
+  /** 代表海报 URL（该类型下任一条目的元数据海报，无海报为 null） */
+  posterUrl: string | null
 }
 
 /**

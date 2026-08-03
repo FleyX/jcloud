@@ -59,6 +59,7 @@ public class MediaMovieQuerySupport {
         Page<MediaMovie> page = new Page<>(query.normalizedPageNum(), query.normalizedPageSize());
         IPage<MediaMovie> result = mediaMovieMapper.selectMoviePage(page, userId,
                 blankToNull(query.getKeyword()), blankToNull(query.getDirectoryId()),
+                blankToNull(query.getGenre()),
                 resolveSortField(query), query.asc());
         List<MediaMovie> movies = result.getRecords();
         Map<String, MediaMetadata> metadataMap = loadMetadataMap(

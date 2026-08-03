@@ -21,6 +21,7 @@ import com.fleyx.jcloud.model.po.MediaMetadata;
 import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.vo.MediaDirectoryVo;
 import com.fleyx.jcloud.model.vo.MediaFavoriteVo;
+import com.fleyx.jcloud.model.vo.MediaGenreVo;
 import com.fleyx.jcloud.model.vo.MediaHomeVo;
 import com.fleyx.jcloud.model.vo.MediaItemDetailVo;
 import com.fleyx.jcloud.model.vo.MediaItemVo;
@@ -136,6 +137,14 @@ public class MediaController {
     @GetMapping("/home")
     public R<MediaHomeVo> home() {
         return R.ok(mediaHomeService.getHome(UserContext.get().id()));
+    }
+
+    /**
+     * 聚合媒体库类型列表（类型页）。
+     */
+    @GetMapping("/libraries/{id}/genres")
+    public R<List<MediaGenreVo>> listGenres(@PathVariable String id) {
+        return R.ok(mediaItemService.listGenres(UserContext.get().id(), id));
     }
 
     @GetMapping("/items/movies")

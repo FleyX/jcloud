@@ -18,6 +18,7 @@ import com.fleyx.jcloud.model.po.MediaOther;
 import com.fleyx.jcloud.model.po.MediaSeries;
 import com.fleyx.jcloud.service.TmdbService;
 import com.fleyx.jcloud.service.support.MediaArtworkPersistV2Support;
+import com.fleyx.jcloud.service.support.MediaGenreSupport;
 import com.fleyx.jcloud.service.support.MediaMetadataCompleteSupport;
 import com.fleyx.jcloud.service.support.MediaMetadataSupport;
 import com.fleyx.jcloud.service.support.MediaMovieQuerySupport;
@@ -54,13 +55,14 @@ class MediaItemServiceImplTest {
     private final MediaMetadataCompleteSupport metadataCompleteSupport = mock(MediaMetadataCompleteSupport.class);
     private final MediaTvScrapeSupport mediaTvScrapeSupport = mock(MediaTvScrapeSupport.class);
     private final MediaArtworkPersistV2Support artworkPersistV2Support = mock(MediaArtworkPersistV2Support.class);
+    private final MediaGenreSupport mediaGenreSupport = mock(MediaGenreSupport.class);
 
     private final MediaItemServiceImpl mediaItemService = new MediaItemServiceImpl(
             mediaSeriesMapper, mediaMovieMapper, mediaMovieFileMapper,
             mediaEpisodeMapper, mediaEpisodeFileMapper, mediaOtherMapper,
             tmdbService, mediaTvQuerySupport, mediaMovieQuerySupport, mediaOtherQuerySupport,
             mediaPlaybackResolveSupport, metadataSupport, metadataCompleteSupport,
-            mediaTvScrapeSupport, artworkPersistV2Support);
+            mediaTvScrapeSupport, artworkPersistV2Support, mediaGenreSupport);
 
     /**
      * 按文件节点 ID 反查：其他库文件命中 other 行时返回 other 行 ID。

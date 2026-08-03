@@ -20,6 +20,8 @@ interface Props {
   dense?: boolean
   /** 限定单个媒体库，为空表示跨库 */
   directoryId?: string
+  /** 类型筛选（元数据 genres 拆分后包含该值），为空表示不过滤 */
+  genre?: string
 }
 
 const props = defineProps<Props>()
@@ -27,7 +29,7 @@ const props = defineProps<Props>()
 const router = useRouter()
 
 const fetcher: MediaWallFetcher<MediaItemVo> = (query) =>
-  fetchMediaMovies({ ...query, directoryId: props.directoryId })
+  fetchMediaMovies({ ...query, directoryId: props.directoryId, genre: props.genre })
 
 const {
   items: movies,
@@ -53,6 +55,13 @@ watch(
   () => props.directoryId,
   (id, prev) => {
     if (id !== prev) reload()
+  },
+)
+
+watch(
+  () => props.genre,
+  (genre, prev) => {
+    if (genre !== prev) reload()
   },
 )
 

@@ -5,7 +5,9 @@ import com.fleyx.jcloud.common.enums.MediaMatchStatus;
 import com.fleyx.jcloud.common.enums.MediaMetadataOwnerType;
 import com.fleyx.jcloud.common.enums.MediaMetadataSource;
 import com.fleyx.jcloud.common.enums.MediaPersistStatus;
+import com.fleyx.jcloud.common.enums.MediaType;
 import com.fleyx.jcloud.common.exception.BusinessException;
+import com.fleyx.jcloud.mapper.MediaDirectoryMapper;
 import com.fleyx.jcloud.mapper.MediaEpisodeMapper;
 import com.fleyx.jcloud.mapper.MediaMetadataMapper;
 import com.fleyx.jcloud.mapper.MediaMovieFileMapper;
@@ -14,6 +16,7 @@ import com.fleyx.jcloud.mapper.MediaOtherMapper;
 import com.fleyx.jcloud.mapper.MediaSeasonMapper;
 import com.fleyx.jcloud.mapper.MediaSeriesMapper;
 import com.fleyx.jcloud.model.dto.MediaPageQueryDto;
+import com.fleyx.jcloud.model.po.MediaDirectory;
 import com.fleyx.jcloud.model.po.MediaEpisode;
 import com.fleyx.jcloud.model.po.MediaMetadata;
 import com.fleyx.jcloud.model.po.MediaMovie;
@@ -21,6 +24,7 @@ import com.fleyx.jcloud.model.po.MediaMovieFile;
 import com.fleyx.jcloud.model.po.MediaOther;
 import com.fleyx.jcloud.model.po.MediaSeason;
 import com.fleyx.jcloud.model.po.MediaSeries;
+import com.fleyx.jcloud.model.vo.MediaGenreVo;
 import com.fleyx.jcloud.model.vo.MediaItemDetailVo;
 import com.fleyx.jcloud.model.vo.MediaItemVo;
 import com.fleyx.jcloud.model.vo.MediaMovieVersionVo;
@@ -75,6 +79,9 @@ class MediaItemServiceTest {
 
     @Autowired
     private MediaMetadataMapper mediaMetadataMapper;
+
+    @Autowired
+    private MediaDirectoryMapper mediaDirectoryMapper;
 
     /**
      * 剧详情返回季卡片：季号升序、未知季排最后，含集数与观看进度标记。
@@ -360,6 +367,172 @@ class MediaItemServiceTest {
         }
     }
 
+    /**
+     * 类型聚合（电影库）：元数据 genres 逗号拆分计数、条目数降序（同数按名称升序）、
+     * 代表海报取自首个有海报条目的元数据；无元数据行不计入。
+     */
+    @Test
+    void shouldAggregateMovieGenres() {
+        MediaDirectory directory = insertDirectory("user-1", MediaType.MOVIE.getCode());
+        MediaMovie actionSciFi = insertMovie("user-1", directory.getId(), "电影A");
+        bindMovieGenres(actionSciFi, "动作,科幻", "poster-1");
+        MediaMovie action = insertMovie("user-1", directory.getId(), "电影B");
+        bindMovieGenres(action, "动作", "poster-2");
+        insertMovie("user-1", directory.getId(), "电影C"); // 无元数据行，不计入
+
+        List<MediaGenreVo> genres = mediaItemService.listGenres("user-1", directory.getId());
+
+        assertEquals(List.of("动作", "科幻"), genres.stream().map(MediaGenreVo::getName).toList());
+        assertEquals(List.of(2L, 1L), genres.stream().map(MediaGenreVo::getItemCount).toList());
+        // 代表海报非空：取该类型下首个有海报条目的元数据海报地址
+        assertTrue(genres.stream().allMatch(g -> g.getPosterUrl() != null && g.getPosterUrl().endsWith("/poster")));
+    }
+
+    /**
+     * 类型聚合（剧集库）：走剧集行元数据，同理拆分计数。
+     */
+    @Test
+    void shouldAggregateSeriesGenres() {
+        MediaDirectory directory = insertDirectory("user-1", MediaType.TV.getCode());
+        MediaSeries sciFi = insertSeries("user-1", directory.getId(), "剧一");
+        bindSeriesGenres(sciFi, "科幻", "poster-1");
+        MediaSeries thriller = insertSeries("user-1", directory.getId(), "剧二");
+        bindSeriesGenres(thriller, "科幻,悬疑", "poster-2");
+
+        List<MediaGenreVo> genres = mediaItemService.listGenres("user-1", directory.getId());
+
+        assertEquals(List.of("科幻", "悬疑"), genres.stream().map(MediaGenreVo::getName).toList());
+        assertEquals(2L, genres.get(0).getItemCount());
+        assertEquals(1L, genres.get(1).getItemCount());
+        assertTrue(genres.get(0).getPosterUrl() != null && genres.get(0).getPosterUrl().endsWith("/poster"));
+    }
+
+    /**
+     * 其他库无类型概念：返回空列表。
+     */
+    @Test
+    void shouldReturnEmptyGenresForOtherDirectory() {
+        MediaDirectory directory = insertDirectory("user-1", MediaType.OTHER.getCode());
+        insertOther("user-1", directory.getId(), "记录片.mp4");
+
+        assertTrue(mediaItemService.listGenres("user-1", directory.getId()).isEmpty());
+    }
+
+    /**
+     * 类型聚合越权：目录不属于该用户或不存在时抛业务异常。
+     */
+    @Test
+    void shouldThrowWhenGenresDirectoryNotOwnedOrMissing() {
+        MediaDirectory directory = insertDirectory("user-1", MediaType.MOVIE.getCode());
+
+        assertThrows(BusinessException.class,
+                () -> mediaItemService.listGenres("user-2", directory.getId()));
+        assertThrows(BusinessException.class,
+                () -> mediaItemService.listGenres("user-1", "not-exists"));
+    }
+
+    /**
+     * 电影墙 genre 筛选：精确匹配元数据 genres 拆分后的值，「动作片」这类子串不误中。
+     */
+    @Test
+    void shouldFilterMoviesByGenreExactMatch() {
+        MediaDirectory directory = insertDirectory("user-1", MediaType.MOVIE.getCode());
+        MediaMovie action = insertMovie("user-1", directory.getId(), "动作电影");
+        bindMovieGenres(action, "动作", null);
+        MediaMovie actionSubstring = insertMovie("user-1", directory.getId(), "动作片");
+        bindMovieGenres(actionSubstring, "动作片", null);
+        MediaMovie drama = insertMovie("user-1", directory.getId(), "剧情片");
+        bindMovieGenres(drama, "剧情", null);
+
+        MediaPageQueryDto query = new MediaPageQueryDto();
+        query.setDirectoryId(directory.getId());
+        query.setGenre("动作");
+
+        IPage<MediaItemVo> page = mediaItemService.listMovies("user-1", query);
+
+        assertEquals(1L, page.getTotal());
+        assertEquals(action.getId(), page.getRecords().getFirst().getId());
+    }
+
+    /**
+     * 电影墙 genre 与 keyword 叠加：两者同时收窄。
+     */
+    @Test
+    void shouldCombineGenreWithKeywordFilter() {
+        MediaDirectory directory = insertDirectory("user-1", MediaType.MOVIE.getCode());
+        MediaMovie avatar = insertMovie("user-1", directory.getId(), "阿凡达");
+        bindMovieGenres(avatar, "科幻", null);
+        MediaMovie interstellar = insertMovie("user-1", directory.getId(), "星际穿越");
+        bindMovieGenres(interstellar, "科幻", null);
+        MediaMovie avatar2 = insertMovie("user-1", directory.getId(), "阿凡达2");
+        bindMovieGenres(avatar2, "动作", null);
+
+        MediaPageQueryDto query = new MediaPageQueryDto();
+        query.setDirectoryId(directory.getId());
+        query.setGenre("科幻");
+        query.setKeyword("阿凡达");
+
+        IPage<MediaItemVo> page = mediaItemService.listMovies("user-1", query);
+
+        assertEquals(1L, page.getTotal());
+        assertEquals(avatar.getId(), page.getRecords().getFirst().getId());
+    }
+
+    /**
+     * 电影墙 genre 与 sortField=title 叠加：仅筛选出的条目参与排序。
+     */
+    @Test
+    void shouldCombineGenreWithTitleSort() {
+        MediaDirectory directory = insertDirectory("user-1", MediaType.MOVIE.getCode());
+        MediaMovie zeta = insertMovie("user-1", directory.getId(), "zeta");
+        bindMovieGenres(zeta, "科幻", null);
+        MediaMovie alpha = insertMovie("user-1", directory.getId(), "alpha");
+        bindMovieGenres(alpha, "科幻", null);
+        MediaMovie gamma = insertMovie("user-1", directory.getId(), "gamma");
+        bindMovieGenres(gamma, "动作", null);
+
+        MediaPageQueryDto query = new MediaPageQueryDto();
+        query.setDirectoryId(directory.getId());
+        query.setGenre("科幻");
+        query.setSortField(MediaPageQueryDto.SORT_FIELD_TITLE);
+        query.setSortOrder("asc");
+
+        IPage<MediaItemVo> page = mediaItemService.listMovies("user-1", query);
+
+        assertEquals(2L, page.getTotal());
+        assertEquals(List.of(alpha.getId(), zeta.getId()), idsOf(page.getRecords()));
+    }
+
+    /**
+     * 剧集墙 genre 筛选：精确匹配剧集行元数据 genres。
+     */
+    @Test
+    void shouldFilterSeriesByGenre() {
+        MediaDirectory directory = insertDirectory("user-1", MediaType.TV.getCode());
+        MediaSeries sciFi = insertSeries("user-1", directory.getId(), "科幻剧");
+        bindSeriesGenres(sciFi, "科幻", null);
+        MediaSeries thriller = insertSeries("user-1", directory.getId(), "悬疑剧");
+        bindSeriesGenres(thriller, "悬疑", null);
+
+        MediaPageQueryDto query = new MediaPageQueryDto();
+        query.setDirectoryId(directory.getId());
+        query.setGenre("科幻");
+
+        IPage<MediaSeriesVo> page = mediaItemService.listSeries("user-1", query);
+
+        assertEquals(1L, page.getTotal());
+        assertEquals(sciFi.getId(), page.getRecords().getFirst().getId());
+    }
+
+    private MediaDirectory insertDirectory(String userId, String mediaType) {
+        MediaDirectory directory = new MediaDirectory();
+        directory.setUserId(userId);
+        directory.setName("测试媒体库");
+        directory.setMediaType(mediaType);
+        mediaDirectoryMapper.insert(directory);
+        return directory;
+    }
+
     private MediaSeries insertSeries(String userId, String directoryId, String seriesName) {
         MediaSeries series = new MediaSeries();
         series.setUserId(userId);
@@ -474,6 +647,26 @@ class MediaItemServiceTest {
     private void bindSeriesTitle(MediaSeries series, String title) {
         MediaMetadata metadata = insertMetadata(series.getUserId(), MediaMetadataOwnerType.SERIES.getCode(), series.getId());
         metadata.setTitle(title);
+        mediaMetadataMapper.updateById(metadata);
+        series.setMetadataId(metadata.getId());
+        mediaSeriesMapper.updateById(series);
+    }
+
+    /** 给电影绑定指定 genres 的元数据（posterFileNodeId 非空时代表海报可被聚合命中）。 */
+    private void bindMovieGenres(MediaMovie movie, String genres, String posterFileNodeId) {
+        MediaMetadata metadata = insertMetadata(movie.getUserId(), MediaMetadataOwnerType.MOVIE.getCode(), movie.getId());
+        metadata.setGenres(genres);
+        metadata.setPosterFileNodeId(posterFileNodeId);
+        mediaMetadataMapper.updateById(metadata);
+        movie.setMetadataId(metadata.getId());
+        mediaMovieMapper.updateById(movie);
+    }
+
+    /** 给剧集绑定指定 genres 的元数据（posterFileNodeId 非空时代表海报可被聚合命中）。 */
+    private void bindSeriesGenres(MediaSeries series, String genres, String posterFileNodeId) {
+        MediaMetadata metadata = insertMetadata(series.getUserId(), MediaMetadataOwnerType.SERIES.getCode(), series.getId());
+        metadata.setGenres(genres);
+        metadata.setPosterFileNodeId(posterFileNodeId);
         mediaMetadataMapper.updateById(metadata);
         series.setMetadataId(metadata.getId());
         mediaSeriesMapper.updateById(series);

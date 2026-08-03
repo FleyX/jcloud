@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.fleyx.jcloud.model.dto.MediaMatchUpdateDto;
 import com.fleyx.jcloud.model.dto.MediaPageQueryDto;
 import com.fleyx.jcloud.model.dto.MediaProgressUpdateDto;
+import com.fleyx.jcloud.model.vo.MediaGenreVo;
 import com.fleyx.jcloud.model.vo.MediaItemDetailVo;
 import com.fleyx.jcloud.model.vo.MediaItemVo;
 import com.fleyx.jcloud.model.vo.MediaSearchResultVo;
@@ -121,4 +122,13 @@ public interface MediaItemService {
      * @throws BusinessException 未找到时抛出
      */
     String getItemIdByFileNodeId(String fileNodeId, String userId);
+
+    /**
+     * 聚合媒体库类型列表（类型页）。
+     *
+     * @param userId      用户 ID
+     * @param directoryId 媒体库 ID
+     * @return 类型列表（名称 + 条目数 + 代表海报），其他库返回空列表
+     */
+    List<MediaGenreVo> listGenres(String userId, String directoryId);
 }
