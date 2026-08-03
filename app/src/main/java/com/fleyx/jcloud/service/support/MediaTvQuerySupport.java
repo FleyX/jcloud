@@ -66,6 +66,7 @@ public class MediaTvQuerySupport {
         Page<MediaSeries> page = new Page<>(query.normalizedPageNum(), query.normalizedPageSize());
         IPage<MediaSeries> result = mediaSeriesMapper.selectSeriesPage(page, userId,
                 blankToNull(query.getKeyword()), blankToNull(query.getDirectoryId()),
+                blankToNull(query.getGenre()),
                 resolveSortField(query), query.asc());
         List<MediaSeries> seriesList = result.getRecords();
         Map<String, MediaMetadata> metadataMap = loadMetadataMap(

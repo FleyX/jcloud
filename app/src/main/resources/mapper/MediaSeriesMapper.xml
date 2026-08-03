@@ -19,6 +19,9 @@
               OR m.overview ILIKE CONCAT('%', #{keyword}, '%')
           )
         </if>
+        <if test="genre != null and genre != ''">
+          AND #{genre} = ANY (string_to_array(m.genres, ','))
+        </if>
         <choose>
             <when test="sortField == 'release'">
                 <choose>

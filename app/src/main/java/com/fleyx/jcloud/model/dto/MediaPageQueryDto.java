@@ -45,6 +45,11 @@ public class MediaPageQueryDto {
     private String keyword;
 
     /**
+     * 类型筛选：匹配元数据 genres 拆分后包含该值的条目。
+     */
+    private String genre;
+
+    /**
      * 媒体库 ID 过滤，可为空（为空表示跨库）。
      */
     private String directoryId;

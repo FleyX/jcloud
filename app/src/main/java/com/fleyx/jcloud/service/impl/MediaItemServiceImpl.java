@@ -23,6 +23,7 @@ import com.fleyx.jcloud.model.po.MediaMovie;
 import com.fleyx.jcloud.model.po.MediaMovieFile;
 import com.fleyx.jcloud.model.po.MediaOther;
 import com.fleyx.jcloud.model.po.MediaSeries;
+import com.fleyx.jcloud.model.vo.MediaGenreVo;
 import com.fleyx.jcloud.model.vo.MediaItemDetailVo;
 import com.fleyx.jcloud.model.vo.MediaItemVo;
 import com.fleyx.jcloud.model.vo.MediaSearchResultVo;
@@ -31,6 +32,7 @@ import com.fleyx.jcloud.model.vo.MediaSeriesVo;
 import com.fleyx.jcloud.service.MediaItemService;
 import com.fleyx.jcloud.service.TmdbService;
 import com.fleyx.jcloud.service.support.MediaArtworkPersistV2Support;
+import com.fleyx.jcloud.service.support.MediaGenreSupport;
 import com.fleyx.jcloud.service.support.MediaMetadataCompleteSupport;
 import com.fleyx.jcloud.service.support.MediaMetadataSupport;
 import com.fleyx.jcloud.service.support.MediaMovieQuerySupport;
@@ -73,6 +75,7 @@ public class MediaItemServiceImpl implements MediaItemService {
     private final MediaMetadataCompleteSupport metadataCompleteSupport;
     private final MediaTvScrapeSupport mediaTvScrapeSupport;
     private final MediaArtworkPersistV2Support artworkPersistV2Support;
+    private final MediaGenreSupport mediaGenreSupport;
 
     @Override
     public IPage<MediaItemVo> listMovies(String userId, MediaPageQueryDto query) {
@@ -282,5 +285,10 @@ public class MediaItemServiceImpl implements MediaItemService {
             }
         }
         throw new BusinessException(ResultCode.NOT_FOUND, "媒体条目不存在");
+    }
+
+    @Override
+    public List<MediaGenreVo> listGenres(String userId, String directoryId) {
+        return mediaGenreSupport.listGenres(userId, directoryId);
     }
 }

@@ -6,6 +6,7 @@ import type {
   MediaFavoriteOwnerType,
   MediaFavoriteQuery,
   MediaFavoriteVo,
+  MediaGenreVo,
   MediaGlobalSearchResult,
   MediaHomeVo,
   MediaItemDetailVo,
@@ -76,6 +77,15 @@ export function fetchMediaEpisodes(seriesId: string): Promise<MediaItemVo[]> {
 
 export function fetchMediaOthers(query: MediaPageQuery): Promise<PageResult<MediaItemVo>> {
   return get<PageResult<MediaItemVo>>('/media/items/others', query as Record<string, unknown>)
+}
+
+// ---------- 类型 ----------
+
+/**
+ * 聚合媒体库类型列表（类型页）：名称 + 条目数 + 代表海报。
+ */
+export function fetchMediaGenres(directoryId: string): Promise<MediaGenreVo[]> {
+  return get<MediaGenreVo[]>(`/media/libraries/${directoryId}/genres`)
 }
 
 // ---------- 全局搜索 ----------
