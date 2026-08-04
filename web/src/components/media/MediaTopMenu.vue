@@ -1,7 +1,8 @@
 <script setup lang="ts">
 /**
  * 影视页内顶栏菜单（PC/移动端共用）
- * - 居中 Tab（移动端可横向滚动）+ 右侧图标按钮插槽（搜索/排序/配置等）
+ * - 移动端：Tab 靠左、单行不换行、超出宽度横向滚动；操作插槽参与布局占位，不覆盖 Tab
+ * - PC 端：操作插槽脱离 Tab 流固定右置，Tab 以整行宽度为基准居中
  * - 激活 Tab 高亮下划线，风格对齐页内顶栏图标按钮
  * - Tab 状态由父组件经路由 query 承载（?tab=favorites），本组件仅负责展示与回调
  */
@@ -26,9 +27,9 @@ const emit = defineEmits<{
 <template>
   <div class="sticky top-0 z-20 border-b border-surface-100 bg-white/95 backdrop-blur">
     <div class="relative flex items-center px-2 md:px-4">
-      <!-- 居中 Tab：flex-1 撑满 + justify-center，overflow-x-auto 支持移动端横滑 -->
-      <div class="flex min-w-0 flex-1 justify-center overflow-x-auto whitespace-nowrap">
-        <div class="flex items-center gap-1">
+      <!-- Tab 区：移动端靠左、单行不换行、超出横向滚动；PC 端以整行宽度为基准居中 -->
+      <div class="flex min-w-0 flex-1 justify-start overflow-x-auto whitespace-nowrap md:justify-center">
+        <div class="flex w-max shrink-0 items-center gap-1">
           <button
             v-for="tab in tabs"
             :key="tab.key"
@@ -48,8 +49,8 @@ const emit = defineEmits<{
           </button>
         </div>
       </div>
-      <!-- 右侧图标按钮：绝对定位避免挤压 Tab 居中 -->
-      <div class="absolute right-2 flex items-center gap-1 md:right-4">
+      <!-- 右侧操作插槽：移动端参与布局占位且不收缩，避免覆盖 Tab；PC 端脱离 Tab 流固定右置 -->
+      <div class="flex shrink-0 items-center gap-1 md:absolute md:inset-y-0 md:right-4">
         <slot />
       </div>
     </div>
