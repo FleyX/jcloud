@@ -4,6 +4,27 @@
     <meta charset="UTF-8" />
 
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      (function () {
+        var storageKey = 'jcloud_theme_mode'
+        var mode = 'system'
+        try {
+          var stored = localStorage.getItem(storageKey)
+          if (stored === 'system' || stored === 'light' || stored === 'dark') {
+            mode = stored
+          }
+        } catch (_) {}
+
+        var isPlayerRoute = window.location.pathname.startsWith('/media/play/')
+        var isDark = !isPlayerRoute && mode === 'dark'
+        if (!isPlayerRoute && mode === 'system') {
+          try {
+            isDark = window.matchMedia('(prefers-color-scheme: dark)').matches
+          } catch (_) {}
+        }
+        document.documentElement.classList.toggle('dark', isDark)
+      })()
+    </script>
     <title>JCloud - 个人网盘</title>
   </head>
   <body class="bg-surface-50 text-surface-900 antialiased">
