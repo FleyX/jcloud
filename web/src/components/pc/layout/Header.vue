@@ -7,13 +7,15 @@ import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMenuStore, type PrimaryModule } from '@/store/menu'
 import { useUserStore } from '@/store/user'
-import { Cloud, Film, Settings, LogOut, User } from '@lucide/vue'
+import { Cloud, Film, Settings, LogOut, User, Sun, Moon, Monitor } from '@lucide/vue'
 import { cn } from '@/utils/cn'
 import type { Component } from 'vue'
+import { useThemeStore, type ThemeMode } from '@/store/theme'
 
 const router = useRouter()
 const menuStore = useMenuStore()
 const userStore = useUserStore()
+const themeStore = useThemeStore()
 
 interface PrimaryModuleItem {
   key: PrimaryModule
@@ -48,6 +50,26 @@ function handlePrimaryClick(module: PrimaryModule) {
 function handlePersonSettings() {
   router.push('/person')
 }
+
+const themeIcons: Record<ThemeMode, Component> = {
+  system: Monitor,
+  light: Sun,
+  dark: Moon,
+}
+
+const themeModeLabels: Record<ThemeMode, string> = {
+  system: '跟随系统',
+  light: '浅色',
+  dark: '深色',
+}
+
+const themeButtonLabel = computed(() => {
+  const configured = themeModeLabels[themeStore.mode]
+  const effective = themeStore.isDark ? '深色' : '浅色'
+  return themeStore.mode === 'system'
+    ? `主题：${configured}（当前${effective}），点击切换`
+    : `主题：${configured}，点击切换`
+})
 </script>
 
 <template>
@@ -89,9 +111,21 @@ function handlePersonSettings() {
 
     <!-- 右侧：用户菜单 -->
     <div class="flex items-center gap-3">
+      <button
+        type="button"
+        class="flex h-9 w-9 items-center justify-center rounded-xl text-surface-600 transition-colors hover:bg-surface-100 hover:text-surface-900"
+        :title="themeButtonLabel"
+        :aria-label="themeButtonLabel"
+        @click="themeStore.cycleMode"
+      >
+        <component
+          :is="themeIcons[themeStore.mode]"
+          class="h-4 w-4"
+        />
+      </button>
       <div class="group relative pb-2">
         <button
-          class="flex h-9 w-9 items-center justify-center rounded-full bg-primary-100 text-primary-700 ring-2 ring-white transition-shadow hover:shadow-soft"
+          class="flex h-9 w-9 items-center justify-center rounded-full bg-primary-100 text-primary-700 ring-2 ring-surface-50 transition-shadow hover:shadow-soft"
         >
           <span class="text-sm font-bold">{{ userStore.userInfo?.username?.charAt(0).toUpperCase() || 'U' }}</span>
         </button>
