@@ -150,7 +150,7 @@ function resume(item: MediaItemVo) {
   router.push({
     name: 'MediaPlay',
     params: { id: item.id },
-    query: item.progressMs > 0 ? { startMs: item.progressMs } : {},
+    query: item.progressMs != null && item.progressMs > 0 ? { startMs: item.progressMs } : {},
   })
 }
 

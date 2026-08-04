@@ -110,7 +110,6 @@ export const useThemeStore = defineStore('theme', () => {
     mode,
     isDark,
     cycleMode,
-    initialize,
     setThemeEnabled,
   }
 })

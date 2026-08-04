@@ -137,7 +137,8 @@ export interface MediaItemVo {
   /** 关联文件节点 ID；剧集聚合卡等无代表文件的标题卡为 null */
   fileNodeId: string | null
   itemType: MediaItemType
-  fileName: string
+  /** 文件名；无代表文件的标题卡（剧集聚合卡）为 null */
+  fileName: string | null
   matchStatus: MediaMatchStatus
   metadataId: string | null
   /** 所属剧 ID，仅 episode 有效 */
@@ -151,7 +152,8 @@ export interface MediaItemVo {
   durationMs: number | null
   seasonNo: number | null
   episodeNo: number | null
-  progressMs: number
+  /** 观看进度（毫秒），无进度记录为 null */
+  progressMs: number | null
   lastPlayTime: string | null
   /** 入库时间（后端 yyyy-MM-dd HH:mm:ss，GMT+8）；最新电影为电影入库时间，最新剧集为剧集最近入库时间 */
   addedTime: string | null

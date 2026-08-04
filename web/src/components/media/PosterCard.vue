@@ -16,7 +16,7 @@ interface Props {
   posterUrl?: string | null
   voteAverage?: number | null
   releaseDate?: string | null
-  progressMs?: number
+  progressMs?: number | null
   durationMs?: number | null
   unmatched?: boolean
   /** 收藏归属实体类型，传入则显示收藏心形 */

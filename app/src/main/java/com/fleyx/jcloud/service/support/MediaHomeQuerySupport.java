@@ -58,11 +58,14 @@ public class MediaHomeQuerySupport {
 
     /**
      * 首页聚合条目（标题级行 + 代表文件事实）。
+     *
+     * @param posterFallbackFileNodeId 海报回退文件节点（最新剧集卡无代表文件时用于文件预览海报），
+     *                                 不复制到 {@code MediaItemVo.fileNodeId}，不参与排序与时间计算
      */
     public record HomeItem(String id, String fileNodeId, String itemType, String title, String fileName,
                            String metadataId, String seriesId, String seriesName, String seriesMetadataId,
                            Integer seasonNo, Integer episodeNo, Long durationMs, Long progressMs,
-                           LocalDateTime lastPlayTime, LocalDateTime addedTime) {
+                           LocalDateTime lastPlayTime, LocalDateTime addedTime, String posterFallbackFileNodeId) {
     }
 
     /**
@@ -150,12 +153,13 @@ public class MediaHomeQuerySupport {
             return new HomeItem(movie.getId(), fileNodeId, MediaItemType.MOVIE.getCode(),
                     movie.getTitle(), fileNodeId == null ? null : fileNameMap.get(fileNodeId),
                     movie.getMetadataId(), null, null, null, null, null,
-                    null, movie.getProgressMs(), movie.getLastPlayTime(), movie.getAddedTime());
+                    null, movie.getProgressMs(), movie.getLastPlayTime(), movie.getAddedTime(), null);
         }).toList();
     }
 
     /**
      * 最新剧集：按剧实体最近入库时间倒序，每部剧只返回一张聚合卡片。
+     * 卡片无代表文件（fileNodeId 恒为 null），海报回退文件节点按剧内季/集顺序取第一个有代表文件的集。
      */
     public List<HomeItem> listLatestSeries(String userId, int limit) {
         List<MediaSeries> seriesList = mediaSeriesMapper.selectList(new LambdaQueryWrapper<MediaSeries>()
@@ -164,10 +168,15 @@ public class MediaHomeQuerySupport {
                 .orderByDesc(MediaSeries::getLatestAddedTime)
                 .orderByDesc(MediaSeries::getId)
                 .last("LIMIT " + boundedLimit(limit)));
+        if (seriesList.isEmpty()) {
+            return List.of();
+        }
+        Map<String, String> posterFallbackBySeries = loadPosterFallbackFileNodes(seriesList);
         return seriesList.stream().map(series -> new HomeItem(
                 series.getId(), null, MediaItemType.SERIES.getCode(), series.getSeriesName(), null,
                 series.getMetadataId(), series.getId(), series.getSeriesName(), null,
-                null, null, null, null, null, series.getLatestAddedTime())).toList();
+                null, null, null, null, null, series.getLatestAddedTime(),
+                posterFallbackBySeries.get(series.getId()))).toList();
     }
 
     /**
@@ -194,7 +203,7 @@ public class MediaHomeQuerySupport {
             result.add(new HomeItem(movie.getId(), file.getFileNodeId(), MediaItemType.MOVIE.getCode(),
                     movie.getTitle(), fileNameMap.get(file.getFileNodeId()), movie.getMetadataId(),
                     null, null, null, null, null,
-                    file.getDurationMs(), movie.getProgressMs(), movie.getLastPlayTime(), null));
+                    file.getDurationMs(), movie.getProgressMs(), movie.getLastPlayTime(), null, null));
         }
         return result;
     }
@@ -249,7 +258,7 @@ public class MediaHomeQuerySupport {
         return others.stream().map(o -> new HomeItem(o.getId(), o.getFileNodeId(), MediaItemType.OTHER.getCode(),
                         o.getName(), fileNameMap.get(o.getFileNodeId()), null,
                         null, null, null, null, null,
-                        o.getDurationMs(), o.getProgressMs(), o.getLastPlayTime(), null))
+                        o.getDurationMs(), o.getProgressMs(), o.getLastPlayTime(), null, null))
                 .toList();
     }
 
@@ -262,10 +271,41 @@ public class MediaHomeQuerySupport {
                 series.getSeriesName(), fileNameMap.get(file.getFileNodeId()), episode.getMetadataId(),
                 series.getId(), series.getSeriesName(), series.getMetadataId(),
                 season == null ? null : season.getSeasonNo(), episode.getEpisodeNo(),
-                file.getDurationMs(), episode.getProgressMs(), episode.getLastPlayTime(), null);
+                file.getDurationMs(), episode.getProgressMs(), episode.getLastPlayTime(), null, null);
     }
 
     private record SeriesNextUp(HomeItem item, LocalDateTime lastPlayTime) {
+    }
+
+    /**
+     * 各剧的海报回退文件节点：按季/集顺序取第一个有代表文件的集。
+     * 仅用于最新剧集卡无海报时的文件预览兜底，不参与排序与时间计算。
+     */
+    private Map<String, String> loadPosterFallbackFileNodes(List<MediaSeries> seriesList) {
+        List<String> seriesIds = seriesList.stream().map(MediaSeries::getId).toList();
+        List<MediaEpisode> episodes = mediaEpisodeMapper.selectList(
+                new LambdaQueryWrapper<MediaEpisode>().in(MediaEpisode::getSeriesId, seriesIds));
+        if (episodes.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, MediaEpisodeFile> fileMap = representativeFiles(episodes);
+        Map<String, MediaSeason> seasonMap = mediaSeasonMapper.selectBatchIds(
+                        episodes.stream().map(MediaEpisode::getSeasonId).distinct().toList())
+                .stream().collect(Collectors.toMap(MediaSeason::getId, Function.identity()));
+        Map<String, String> result = new HashMap<>();
+        for (Map.Entry<String, List<MediaEpisode>> entry : episodes.stream()
+                .collect(Collectors.groupingBy(MediaEpisode::getSeriesId)).entrySet()) {
+            List<MediaEpisode> seriesEpisodes = new ArrayList<>(entry.getValue());
+            seriesEpisodes.sort(seasonEpisodeOrder(seasonMap));
+            seriesEpisodes.stream()
+                    .map(episode -> fileMap.get(episode.getId()))
+                    .filter(Objects::nonNull)
+                    .map(MediaEpisodeFile::getFileNodeId)
+                    .filter(Objects::nonNull)
+                    .findFirst()
+                    .ifPresent(fileNodeId -> result.put(entry.getKey(), fileNodeId));
+        }
+        return result;
     }
 
     /**

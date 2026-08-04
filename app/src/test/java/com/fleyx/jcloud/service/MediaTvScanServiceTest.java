@@ -461,6 +461,12 @@ class MediaTvScanServiceTest {
         MediaSeries afterDelete = querySingleSeries(directory.getId());
         assertEquals(series.getId(), afterDelete.getId());
         assertEquals(secondAdded, afterDelete.getLatestAddedTime());
+
+        // 删除全部集文件后重扫：剧文件夹已无视频，剧行被批次清理（V14 语义：无明细不残留最近入库时间）
+        fileMapper.deleteById(first.getId());
+        fileMapper.deleteById(second.getId());
+        mediaScanService.scan(directory.getId());
+        assertNull(mediaSeriesMapper.selectById(series.getId()));
     }
 
     /**

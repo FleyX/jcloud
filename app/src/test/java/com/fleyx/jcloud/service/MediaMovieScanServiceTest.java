@@ -359,6 +359,12 @@ class MediaMovieScanServiceTest {
         MediaMovie afterDelete = querySingleMovie(directory.getId());
         assertEquals(movie.getId(), afterDelete.getId());
         assertEquals(remaining, afterDelete.getAddedTime());
+
+        // 删除最后一个文件明细后重扫：电影文件夹已无视频，电影行被批次清理（V14 语义：无明细不残留入库时间）
+        fileMapper.deleteById(second.getId());
+        fileMapper.deleteById(later.getId());
+        mediaScanService.scan(directory.getId());
+        assertNull(mediaMovieMapper.selectById(movie.getId()));
     }
 
     /**
