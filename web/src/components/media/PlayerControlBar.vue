@@ -85,6 +85,9 @@ const {
 const dragging = ref(false)
 const dragTime = ref(0)
 
+/** 控制栏显示条件：既有显隐状态叠加本地拖拽状态，拖拽中即使隐藏计时器到期也保持可见 */
+const barVisible = computed(() => controlsVisible.value || dragging.value)
+
 const displayTime = computed(() => (dragging.value ? dragTime.value : currentTime.value))
 const progressPercent = computed(() => (duration.value > 0 ? (displayTime.value / duration.value) * 100 : 0))
 const bufferedPercent = computed(() => {
@@ -100,6 +103,8 @@ function updateDrag(event: PointerEvent) {
 }
 
 function onPointerDown(event: PointerEvent) {
+  // 隐藏态首击即可唤醒控制栏并完成对应位置的跳转
+  props.controls.wake()
   if (duration.value <= 0) return
   dragging.value = true
   ;(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId)
@@ -107,7 +112,10 @@ function onPointerDown(event: PointerEvent) {
 }
 
 function onPointerMove(event: PointerEvent) {
-  if (dragging.value) updateDrag(event)
+  if (!dragging.value) return
+  // 拖拽移动期间刷新唤醒计时器，避免拖拽中触发自动隐藏
+  props.controls.wake()
+  updateDrag(event)
 }
 
 function onPointerUp(event: PointerEvent) {
@@ -115,10 +123,14 @@ function onPointerUp(event: PointerEvent) {
   updateDrag(event)
   emit('seek', dragTime.value)
   dragging.value = false
+  // 松手后重新按播放状态启动隐藏倒计时
+  props.controls.wake()
 }
 
 function onPointerCancel() {
+  if (!dragging.value) return
   dragging.value = false
+  props.controls.wake()
 }
 
 // ---------- 弹层选项 ----------
@@ -197,13 +209,13 @@ const buttonClass = 'rounded-full p-2 text-white transition-colors hover:bg-whit
   <div
     :class="cn(
       'absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black/80 via-black/40 to-transparent px-3 pb-2.5 pt-10 transition-opacity duration-300 md:px-4',
-      controlsVisible ? 'opacity-100' : 'pointer-events-none opacity-0'
+      barVisible ? 'opacity-100' : 'pointer-events-none opacity-0'
     )"
   >
     <!-- 上排：整条进度条 + 时间 -->
     <div class="flex items-center gap-3">
       <div
-        class="group relative flex h-5 min-w-0 flex-1 cursor-pointer touch-none items-center"
+        class="group relative flex h-5 min-w-0 flex-1 cursor-pointer touch-none items-center pointer-events-auto"
         @pointerdown="onPointerDown"
         @pointermove="onPointerMove"
         @pointerup="onPointerUp"
