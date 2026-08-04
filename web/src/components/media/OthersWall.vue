@@ -100,7 +100,7 @@ function thumbUrl(item: MediaItemVo): string {
         <PosterCard
           v-for="item in items"
           :key="item.id"
-          :title="item.fileName"
+          :title="item.fileName ?? item.title"
           :poster-url="thumbUrl(item)"
           :release-date="formatDuration(item.durationMs)"
           :progress-ms="item.progressMs"
@@ -138,7 +138,7 @@ function thumbUrl(item: MediaItemVo): string {
     >
       <template #row="{ item }">
         <MediaSearchResultRow
-          :title="item.fileName"
+          :title="item.fileName ?? item.title"
           :poster-url="thumbUrl(item)"
           :subtitle="formatDuration(item.durationMs)"
         />

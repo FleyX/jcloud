@@ -253,6 +253,33 @@ class MediaHomeServiceTest {
     }
 
     /**
+     * 最新剧集元数据存在但没有海报文件时：不返回不可用的元数据海报 URL，
+     * 回退到某个集文件的预览 URL（posterFallbackFileNodeId），外部卡片 fileNodeId 保持 null。
+     */
+    @Test
+    void shouldFallbackToFilePreviewPosterWhenSeriesMetadataHasNoPoster() {
+        LocalDateTime latest = playTime(20);
+        MediaSeries series = insertSeries("无海报剧", latest);
+        MediaEpisode firstEpisode = insertEpisode(series, 1, 1, 0L, 100_000L, null);
+        insertEpisode(series, 1, 2, 0L, 100_000L, null);
+        attachMetadata(series, "md00000000003", MediaMetadataOwnerType.SERIES,
+                "无海报元数据剧", "2023-05-06", 7.2, null);
+        MediaEpisodeFile firstFile = mediaEpisodeFileMapper.selectOne(
+                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<MediaEpisodeFile>()
+                        .eq(MediaEpisodeFile::getEpisodeId, firstEpisode.getId()));
+
+        MediaHomeVo home = mediaHomeService.getHome(USER_ID);
+
+        assertEquals(1, home.getLatestSeries().size());
+        MediaItemVo latestSeries = home.getLatestSeries().getFirst();
+        assertEquals(series.getId(), latestSeries.getId());
+        assertNull(latestSeries.getFileNodeId());
+        assertEquals("无海报元数据剧", latestSeries.getTitle());
+        assertEquals("/jcloud/api/files/" + firstFile.getFileNodeId() + "/preview?type=poster",
+                latestSeries.getPosterUrl());
+    }
+
+    /**
      * 最新电影与最新剧集各自最多返回 16 条，并在时间相同时按实体 ID 倒序。
      */
     @Test

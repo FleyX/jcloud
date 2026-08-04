@@ -80,15 +80,22 @@ public class MediaHomeServiceImpl implements MediaHomeService {
             MediaMetadata metadata = item.metadataId() == null ? null : metadataMap.get(item.metadataId());
             MediaMetadata seriesMetadata = item.seriesMetadataId() == null
                     ? null : seriesMetadataMap.get(item.seriesMetadataId());
-            MediaMetadata posterMetadata = metadata != null && metadata.getPosterFileNodeId() != null
-                    ? metadata : seriesMetadata;
             if (metadata != null) {
                 vo.setTitle(metadata.getTitle());
                 vo.setReleaseDate(metadata.getReleaseDate());
                 vo.setVoteAverage(metadata.getVoteAverage());
             }
+            // 仅当所选元数据实际存在海报文件时才下发元数据海报；否则用文件预览兜底（不伪造代表文件 ID）
+            MediaMetadata posterMetadata = null;
+            if (metadata != null && metadata.getPosterFileNodeId() != null) {
+                posterMetadata = metadata;
+            } else if (seriesMetadata != null && seriesMetadata.getPosterFileNodeId() != null) {
+                posterMetadata = seriesMetadata;
+            }
             if (posterMetadata != null) {
                 vo.setPosterUrl(mediaItemVoSupport.metadataPosterUrl(posterMetadata.getId()));
+            } else if (item.posterFallbackFileNodeId() != null) {
+                vo.setPosterUrl(mediaItemVoSupport.filePreviewPosterUrl(item.posterFallbackFileNodeId()));
             }
             if (vo.getTitle() == null) {
                 vo.setTitle(item.title());
