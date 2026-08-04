@@ -51,8 +51,10 @@ export function usePlayerControls(
   const subtitleMenuOpen = ref(false)
   const bitrateMenuOpen = ref(false)
   const audioMenuOpen = ref(false)
+  const versionMenuOpen = ref(false)
   const anyMenuOpen = computed(
-    () => rateMenuOpen.value || subtitleMenuOpen.value || bitrateMenuOpen.value || audioMenuOpen.value,
+    () => rateMenuOpen.value || subtitleMenuOpen.value || bitrateMenuOpen.value || audioMenuOpen.value
+      || versionMenuOpen.value,
   )
   const controlsVisible = ref(true)
   const pipSupported = typeof document !== 'undefined'
@@ -315,6 +317,7 @@ export function usePlayerControls(
     subtitleMenuOpen,
     bitrateMenuOpen,
     audioMenuOpen,
+    versionMenuOpen,
     anyMenuOpen,
     controlsVisible,
     wake,

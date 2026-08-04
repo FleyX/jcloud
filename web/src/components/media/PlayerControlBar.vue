@@ -12,6 +12,7 @@ import {
   AudioLines,
   Captions,
   Gauge,
+  Layers,
   ListVideo,
   Maximize,
   Minimize,
@@ -21,7 +22,7 @@ import {
   Volume2,
   VolumeX,
 } from '@lucide/vue'
-import type { MediaPlaybackInfoVo, MediaTrack } from '@/types/media'
+import type { MediaMovieVersionVo, MediaPlaybackInfoVo, MediaTrack } from '@/types/media'
 import type { PlayerControls } from '@/composables/usePlayerControls'
 import { SPEED_OPTIONS } from '@/composables/usePlayerControls'
 import { BITRATE_TIERS, subtitleItemKey } from '@/composables/useMediaPlayback'
@@ -36,13 +37,21 @@ interface Props {
   bitrateTierKey: string
   isEpisode: boolean
   episodePanelOpen: boolean
+  /** 电影版本列表（仅电影有效），多于 1 个时显示版本切换入口 */
+  versions?: MediaMovieVersionVo[]
+  /** 当前播放版本 ID */
+  currentVersionId?: string | null
 }
 
-const props = defineProps<Props>()
+const props = withDefaults(defineProps<Props>(), {
+  versions: () => [],
+  currentVersionId: null,
+})
 const emit = defineEmits<{
   selectAudio: [index: number | null]
   selectSubtitle: [key: string | null]
   selectBitrate: [key: string]
+  selectVersion: [versionId: string]
   toggleEpisodePanel: []
   /** 拖拽/点击进度条跳转，绝对秒数（含转码偏移） */
   seek: [seconds: number]
@@ -62,6 +71,7 @@ const {
   subtitleMenuOpen,
   bitrateMenuOpen,
   audioMenuOpen,
+  versionMenuOpen,
   controlsVisible,
   togglePlay,
   setVolume,
@@ -74,6 +84,9 @@ const {
 
 const dragging = ref(false)
 const dragTime = ref(0)
+
+/** 控制栏显示条件：既有显隐状态叠加本地拖拽状态，拖拽中即使隐藏计时器到期也保持可见 */
+const barVisible = computed(() => controlsVisible.value || dragging.value)
 
 const displayTime = computed(() => (dragging.value ? dragTime.value : currentTime.value))
 const progressPercent = computed(() => (duration.value > 0 ? (displayTime.value / duration.value) * 100 : 0))
@@ -90,6 +103,8 @@ function updateDrag(event: PointerEvent) {
 }
 
 function onPointerDown(event: PointerEvent) {
+  // 隐藏态首击即可唤醒控制栏并完成对应位置的跳转
+  props.controls.wake()
   if (duration.value <= 0) return
   dragging.value = true
   ;(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId)
@@ -97,7 +112,10 @@ function onPointerDown(event: PointerEvent) {
 }
 
 function onPointerMove(event: PointerEvent) {
-  if (dragging.value) updateDrag(event)
+  if (!dragging.value) return
+  // 拖拽移动期间刷新唤醒计时器，避免拖拽中触发自动隐藏
+  props.controls.wake()
+  updateDrag(event)
 }
 
 function onPointerUp(event: PointerEvent) {
@@ -105,10 +123,14 @@ function onPointerUp(event: PointerEvent) {
   updateDrag(event)
   emit('seek', dragTime.value)
   dragging.value = false
+  // 松手后重新按播放状态启动隐藏倒计时
+  props.controls.wake()
 }
 
 function onPointerCancel() {
+  if (!dragging.value) return
   dragging.value = false
+  props.controls.wake()
 }
 
 // ---------- 弹层选项 ----------
@@ -152,6 +174,12 @@ const audioOptions = computed<MenuOption[]>(() => [
   })),
 ])
 
+const versionOptions = computed<MenuOption[]>(() => props.versions.map((version) => ({
+  key: version.id,
+  label: version.fileName ?? '未知版本',
+  checked: version.id === props.currentVersionId,
+})))
+
 function audioTrackLabel(track: MediaTrack): string {
   return `${track.title || track.language || `音轨 ${track.index + 1}`}（${track.codec}）`
 }
@@ -181,13 +209,13 @@ const buttonClass = 'rounded-full p-2 text-white transition-colors hover:bg-whit
   <div
     :class="cn(
       'absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black/80 via-black/40 to-transparent px-3 pb-2.5 pt-10 transition-opacity duration-300 md:px-4',
-      controlsVisible ? 'opacity-100' : 'pointer-events-none opacity-0'
+      barVisible ? 'opacity-100' : 'pointer-events-none opacity-0'
     )"
   >
     <!-- 上排：整条进度条 + 时间 -->
     <div class="flex items-center gap-3">
       <div
-        class="group relative flex h-5 min-w-0 flex-1 cursor-pointer touch-none items-center"
+        class="group relative flex h-5 min-w-0 flex-1 cursor-pointer touch-none items-center pointer-events-auto"
         @pointerdown="onPointerDown"
         @pointermove="onPointerMove"
         @pointerup="onPointerUp"
@@ -292,6 +320,19 @@ const buttonClass = 'rounded-full p-2 text-white transition-colors hover:bg-whit
       >
         <button :class="buttonClass" title="音轨">
           <AudioLines class="h-5 w-5" />
+        </button>
+      </PlayerOptionMenu>
+
+      <!-- 版本（仅电影多版本时显示） -->
+      <PlayerOptionMenu
+        v-if="!isEpisode && versions.length > 1"
+        v-model:open="versionMenuOpen"
+        title="版本"
+        :options="versionOptions"
+        @select="emit('selectVersion', $event)"
+      >
+        <button :class="buttonClass" title="版本">
+          <Layers class="h-5 w-5" />
         </button>
       </PlayerOptionMenu>
 

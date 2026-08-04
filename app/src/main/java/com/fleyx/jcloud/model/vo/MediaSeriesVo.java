@@ -56,7 +56,17 @@ public class MediaSeriesVo {
     private String matchStatus;
 
     /**
+     * 元数据完整性标志（剧集行，聚合语义），未匹配无元数据时为 false。
+     */
+    private Boolean metadataComplete;
+
+    /**
      * 最近播放时间（用于排序）。
      */
     private LocalDateTime lastPlayTime;
+
+    /**
+     * 当前用户是否已收藏（剧集海报墙心形角标展示用）。
+     */
+    private Boolean favorited = Boolean.FALSE;
 }

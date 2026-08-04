@@ -28,6 +28,7 @@ const {
   loading,
   errorMsg,
   playbackInfo,
+  currentVersionId,
   audioIndex,
   subtitleKey,
   bitrateTierKey,
@@ -44,6 +45,7 @@ const {
   selectAudioTrack,
   selectSubtitle,
   selectBitrateTier,
+  selectVersion,
 } = useMediaPlayback(videoRef)
 
 // 选集面板打开时钉住控制栏，不自动隐藏
@@ -57,10 +59,12 @@ const timeline = computed<PlayerTimeline>(() => ({
 }))
 
 const controls = usePlayerControls(videoRef, pinned, timeline)
-const { controlsVisible, wake, toggleControls } = controls
+const { controlsVisible, wake } = controls
 
 const itemId = computed(() => route.params.id as string)
 const isEpisode = computed(() => detail.value?.itemType === 'episode')
+/** 电影版本列表（仅电影有效），多于 1 个时播放页内可切换版本 */
+const movieVersions = computed(() => detail.value?.versions ?? [])
 const title = computed(() => {
   const d = detail.value
   if (!d) return ''
@@ -105,7 +109,13 @@ async function init(id: string) {
   }
   const queryStart = Number(route.query.startMs)
   const startMs = Number.isFinite(queryStart) && queryStart > 0 ? queryStart : undefined
-  await start(id, startMs)
+  await start(id, startMs, versionIdFromQuery())
+}
+
+/** 路由 query 中的电影版本 ID（详情页点击版本进入时携带） */
+function versionIdFromQuery(): string | undefined {
+  const raw = route.query.versionId
+  return typeof raw === 'string' && raw ? raw : undefined
 }
 
 // ---------- 选集与连播 ----------
@@ -162,7 +172,7 @@ function handleBack() {
       class="absolute inset-0 h-full w-full object-contain"
       playsinline
       crossorigin="use-credentials"
-      @click="toggleControls"
+      @click="wake"
       @seeking="handleSeeking"
       @pause="reportProgress"
       @ended="handleEnded"
@@ -220,9 +230,12 @@ function handleBack() {
       :bitrate-tier-key="bitrateTierKey"
       :is-episode="isEpisode"
       :episode-panel-open="episodePanelOpen"
+      :versions="movieVersions"
+      :current-version-id="currentVersionId"
       @select-audio="selectAudioTrack"
       @select-subtitle="selectSubtitle"
       @select-bitrate="selectBitrateTier"
+      @select-version="selectVersion"
       @toggle-episode-panel="episodePanelOpen = !episodePanelOpen"
       @seek="handleSeek"
     />

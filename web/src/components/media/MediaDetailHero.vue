@@ -5,9 +5,10 @@
  */
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { ArrowLeft, Film, Pencil, Play, RotateCcw, RefreshCw, Star } from '@lucide/vue'
+import { ArrowLeft, Film, Heart, Pencil, Play, RotateCcw, RefreshCw, Star } from '@lucide/vue'
 import { withToken } from '@/api/media'
 import { formatDurationText, formatPosition } from './format'
+import { cn } from '@/utils/cn'
 
 interface Props {
   title: string
@@ -26,18 +27,22 @@ interface Props {
   fileInfoChips?: string[]
   /** 是否显示刷新元数据按钮 */
   showRefresh?: boolean
+  /** 是否已收藏（显示收藏按钮） */
+  favorited?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
   genres: () => [],
   fileInfoChips: () => [],
   continueMs: 0,
+  favorited: false,
 })
 
 const emit = defineEmits<{
   play: [startMs: number]
   rematch: []
   refresh: []
+  'toggle-favorite': []
 }>()
 
 const yearText = computed(() => (props.releaseDate ? props.releaseDate.slice(0, 4) : null))
@@ -166,6 +171,22 @@ function goBack() {
               @click="emit('rematch')"
             >
               <Pencil class="h-4 w-4" />
+            </button>
+            <button
+              class="flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm text-white transition-colors"
+              :class="cn(
+                favorited
+                  ? 'bg-rose-500/20 text-rose-300 hover:bg-rose-500/30'
+                  : 'bg-white/10 hover:bg-white/20'
+              )"
+              :title="favorited ? '取消收藏' : '收藏'"
+              @click="emit('toggle-favorite')"
+            >
+              <Heart
+                class="h-4 w-4"
+                :class="favorited && 'fill-rose-400'"
+              />
+              {{ favorited ? '已收藏' : '收藏' }}
             </button>
             <button
               v-if="showRefresh"

@@ -1,17 +1,19 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Cloud } from '@lucide/vue'
+import { Cloud, Sun, Moon, Monitor } from '@lucide/vue'
 import { useMenuStore, resolvePrimaryModuleByRoute, primaryModuleList, isSidebarHidden, type PrimaryModule } from '@/store/menu'
 import { useUserStore } from '@/store/user'
 import MobileDrawer from './MobileDrawer.vue'
 import type { SecondaryMenuItem } from '@/store/menu'
+import { useThemeStore, type ThemeMode } from '@/store/theme'
 
 
 const router = useRouter()
 const route = useRoute()
 const menuStore = useMenuStore()
 const userStore = useUserStore()
+const themeStore = useThemeStore()
 
 const primaryLabels: Record<PrimaryModule, string> = {
   files: '文件',
@@ -73,6 +75,26 @@ function handleDrawerSelect(item: SecondaryMenuItem) {
     router.replace(item.route)
   }
 }
+
+const themeIcons: Record<ThemeMode, typeof Monitor> = {
+  system: Monitor,
+  light: Sun,
+  dark: Moon,
+}
+
+const themeModeLabels: Record<ThemeMode, string> = {
+  system: '跟随系统',
+  light: '浅色',
+  dark: '深色',
+}
+
+const themeButtonLabel = computed(() => {
+  const configured = themeModeLabels[themeStore.mode]
+  const effective = themeStore.isDark ? '深色' : '浅色'
+  return themeStore.mode === 'system'
+    ? `主题：${configured}（当前${effective}），点击切换`
+    : `主题：${configured}，点击切换`
+})
 </script>
 
 <template>
@@ -101,13 +123,28 @@ function handleDrawerSelect(item: SecondaryMenuItem) {
       >▼</span>
     </button>
 
-    <!-- 右侧：头像 -->
-    <button
-      class="flex h-9 w-9 items-center justify-center rounded-full bg-primary-100 text-sm font-bold text-primary-700 ring-2 ring-white"
-      @click="handleAvatarClick"
-    >
-      {{ userStore.userInfo?.username?.charAt(0).toUpperCase() || 'U' }}
-    </button>
+    <!-- 右侧：主题与头像 -->
+    <div class="flex items-center gap-2">
+      <button
+        type="button"
+        class="flex h-9 w-9 items-center justify-center rounded-xl text-surface-600 transition-colors hover:bg-surface-100 hover:text-surface-900"
+        :title="themeButtonLabel"
+        :aria-label="themeButtonLabel"
+        @click="themeStore.cycleMode"
+      >
+        <component
+          :is="themeIcons[themeStore.mode]"
+          class="h-4 w-4"
+        />
+      </button>
+      <button
+        type="button"
+        class="flex h-9 w-9 items-center justify-center rounded-full bg-primary-100 text-sm font-bold text-primary-700 ring-2 ring-surface-50"
+        @click="handleAvatarClick"
+      >
+        {{ userStore.userInfo?.username?.charAt(0).toUpperCase() || 'U' }}
+      </button>
+    </div>
   </header>
 
   <MobileDrawer

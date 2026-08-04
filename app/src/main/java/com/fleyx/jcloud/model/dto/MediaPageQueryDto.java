@@ -20,6 +20,16 @@ public class MediaPageQueryDto {
     public static final String SORT_FIELD_RELEASE = "release";
 
     /**
+     * 排序字段：评分。
+     */
+    public static final String SORT_FIELD_RATING = "rating";
+
+    /**
+     * 排序字段：标题。
+     */
+    public static final String SORT_FIELD_TITLE = "title";
+
+    /**
      * 页码。
      */
     private Long pageNum = CommonConstant.DEFAULT_PAGE_NUM;
@@ -35,12 +45,17 @@ public class MediaPageQueryDto {
     private String keyword;
 
     /**
+     * 类型筛选：匹配元数据 genres 拆分后包含该值的条目。
+     */
+    private String genre;
+
+    /**
      * 媒体库 ID 过滤，可为空（为空表示跨库）。
      */
     private String directoryId;
 
     /**
-     * 排序字段：added 添加时间 / release 发行时间，默认 added。
+     * 排序字段：added 添加时间 / release 发行时间 / rating 评分 / title 标题，默认 added。
      */
     private String sortField = SORT_FIELD_ADDED;
 
@@ -78,5 +93,36 @@ public class MediaPageQueryDto {
      */
     public boolean sortByRelease() {
         return SORT_FIELD_RELEASE.equalsIgnoreCase(sortField);
+    }
+
+    /**
+     * 是否按评分排序。
+     */
+    public boolean sortByRating() {
+        return SORT_FIELD_RATING.equalsIgnoreCase(sortField);
+    }
+
+    /**
+     * 是否按标题排序。
+     */
+    public boolean sortByTitle() {
+        return SORT_FIELD_TITLE.equalsIgnoreCase(sortField);
+    }
+
+    /**
+     * 归一化排序字段：release / rating / title 透传，其余（含非法值）回退 added。
+     * 供 SQL 映射层统一使用，避免各查询支撑组件各自解析。
+     */
+    public String resolveSortField() {
+        if (sortByRelease()) {
+            return SORT_FIELD_RELEASE;
+        }
+        if (sortByRating()) {
+            return SORT_FIELD_RATING;
+        }
+        if (sortByTitle()) {
+            return SORT_FIELD_TITLE;
+        }
+        return SORT_FIELD_ADDED;
     }
 }

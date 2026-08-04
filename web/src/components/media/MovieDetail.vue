@@ -2,13 +2,19 @@
 /**
  * 电影详情页（PC/移动端共用）
  * - 未识别条目展示文件信息简版详情，可修正匹配
+ * - 多版本电影展示版本列表（分辨率/编码/大小等），点击版本进入播放页并携带 versionId；
+ *   默认播放（播放按钮）不指定版本，由后端按续播语义定位；「默认」版本按后端 defaultVersionId 标记
+ * - 仅一个版本时不渲染版本列表，播放按钮直接播默认版本
  */
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import type { MediaItemDetailVo, TmdbSearchResultVo } from '@/types/media'
-import { fetchItemDetail, refreshMetadata, updateMediaMatch } from '@/api/media'
+import { Clapperboard, Play } from '@lucide/vue'
+import type { MediaItemDetailVo, MediaMovieVersionVo, TmdbSearchResultVo } from '@/types/media'
+import { fetchItemDetail, refreshMetadata, toggleFavorite, updateMediaMatch } from '@/api/media'
 import { formatSize } from '@/utils/fileDisplay'
+import { cn } from '@/utils/cn'
 import { useNotificationStore } from '@/store/notification'
+import { formatDurationText } from './format'
 import MediaDetailHero from './MediaDetailHero.vue'
 import TmdbMatchModal from './TmdbMatchModal.vue'
 
@@ -34,6 +40,8 @@ async function load() {
 
 const unmatched = computed(() => detail.value?.matchStatus === 'unmatched')
 
+const versions = computed(() => detail.value?.versions ?? [])
+
 const fileInfoChips = computed(() => {
   const d = detail.value
   if (!d || !unmatched.value) return []
@@ -45,8 +53,31 @@ const fileInfoChips = computed(() => {
   return chips
 })
 
+/** 版本文件事实标签：分辨率/封装/编码/大小/时长 */
+function versionChips(version: MediaMovieVersionVo): string {
+  const parts: string[] = []
+  if (version.width && version.height) parts.push(`${version.width}×${version.height}`)
+  if (version.container) parts.push(version.container.toUpperCase())
+  if (version.videoCodec) parts.push(version.videoCodec.toUpperCase())
+  if (version.audioCodec) parts.push(version.audioCodec.toUpperCase())
+  if (version.fileSize) parts.push(formatSize(version.fileSize))
+  const duration = formatDurationText(version.durationMs ? Number(version.durationMs) : null)
+  if (duration) parts.push(duration)
+  return parts.join(' · ')
+}
+
 function handlePlay(startMs: number) {
   router.push({ name: 'MediaPlay', params: { id: itemId }, query: startMs > 0 ? { startMs } : {} })
+}
+
+/** 播放指定版本：进入播放页并携带 versionId，后端用该版本文件事实播放 */
+function playVersion(version: MediaMovieVersionVo) {
+  router.push({ name: 'MediaPlay', params: { id: itemId }, query: { versionId: version.id } })
+}
+
+/** 是否为后端缺省播放版本（defaultVersionId 匹配） */
+function isDefaultVersion(version: MediaMovieVersionVo): boolean {
+  return detail.value?.defaultVersionId === version.id
 }
 
 async function handleMatched(result: TmdbSearchResultVo) {
@@ -60,6 +91,18 @@ async function handleRefresh() {
   await refreshMetadata(detail.value.metadataId)
   notificationStore.success('元数据已刷新')
   await load()
+}
+
+/** 收藏/取消收藏：本地先翻转，成功后以服务端结果为准，失败回滚（异常提示由统一请求层处理） */
+async function toggleMovieFavorite() {
+  if (!detail.value) return
+  const previous = detail.value.favorited
+  detail.value.favorited = !previous
+  try {
+    detail.value.favorited = await toggleFavorite('movie', itemId)
+  } catch {
+    detail.value.favorited = previous
+  }
 }
 </script>
 
@@ -86,13 +129,63 @@ async function handleRefresh() {
         :continue-ms="detail.progressMs"
         :file-info-chips="fileInfoChips"
         :show-refresh="!!detail.metadataId"
+        :favorited="detail.favorited"
         @play="handlePlay"
         @rematch="matchOpen = true"
         @refresh="handleRefresh"
+        @toggle-favorite="toggleMovieFavorite"
       />
-      <p class="mt-2 px-4 text-xs text-surface-400 md:px-10">
+
+      <!-- 单版本或无版本时展示文件名；单版本由播放按钮直接播默认版本 -->
+      <p
+        v-if="versions.length <= 1"
+        class="mt-2 px-4 text-xs text-surface-400 md:px-10"
+      >
         {{ detail.fileName }}
       </p>
+
+      <!-- 版本列表（电影多版本）：点击播放该版本，默认版本按后端 defaultVersionId 标记 -->
+      <div
+        v-else
+        class="mt-4 px-4 pb-2 md:px-10"
+      >
+        <h2 class="text-base font-semibold text-surface-900">
+          版本（{{ versions.length }}）
+        </h2>
+        <div class="mt-3 divide-y divide-surface-100 rounded-2xl border border-surface-100">
+          <button
+            v-for="version in versions"
+            :key="version.id"
+            :class="cn(
+              'group flex w-full items-center gap-3 px-3 py-3 text-left transition-colors hover:bg-surface-50 md:gap-4 md:px-4',
+              isDefaultVersion(version) && 'bg-primary-50/60'
+            )"
+            @click="playVersion(version)"
+          >
+            <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-surface-100 text-surface-400">
+              <Clapperboard class="h-5 w-5" />
+            </div>
+            <div class="min-w-0 flex-1">
+              <p class="flex items-center gap-1.5 truncate text-sm font-medium text-surface-800">
+                <span class="truncate">{{ version.fileName }}</span>
+                <span
+                  v-if="isDefaultVersion(version)"
+                  class="shrink-0 rounded-md bg-primary-500/10 px-1.5 py-0.5 text-[10px] font-medium text-primary-600"
+                >
+                  默认
+                </span>
+              </p>
+              <p
+                v-if="versionChips(version)"
+                class="mt-0.5 truncate text-xs text-surface-400"
+              >
+                {{ versionChips(version) }}
+              </p>
+            </div>
+            <Play class="h-4 w-4 shrink-0 text-surface-800/40 group-hover:text-primary-500" />
+          </button>
+        </div>
+      </div>
     </template>
 
     <TmdbMatchModal

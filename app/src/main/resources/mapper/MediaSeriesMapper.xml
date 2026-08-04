@@ -2,17 +2,14 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.fleyx.jcloud.mapper.MediaSeriesMapper">
 
-    <!-- 分页查询电视剧：关键词命中剧名或元数据标题/原始标题/简介；发行时间为空的剧始终沉底 -->
+    <!-- 分页查询电视剧（新模型）：关键词命中剧名或元数据标题/原始标题/简介；发行时间为空的剧始终沉底 -->
     <select id="selectSeriesPage" resultType="com.fleyx.jcloud.model.po.MediaSeries">
         SELECT s.*
         FROM t_media_series s
         LEFT JOIN t_media_metadata m ON m.id = s.metadata_id
         WHERE s.user_id = #{userId}
         <if test="directoryId != null and directoryId != ''">
-          AND EXISTS (
-              SELECT 1 FROM t_media_item i
-              WHERE i.series_id = s.id AND i.directory_id = #{directoryId}
-          )
+          AND s.directory_id = #{directoryId}
         </if>
         <if test="keyword != null and keyword != ''">
           AND (
@@ -22,11 +19,31 @@
               OR m.overview ILIKE CONCAT('%', #{keyword}, '%')
           )
         </if>
+        <if test="genre != null and genre != ''">
+          <!-- 逐元素 trim 后精确匹配，与类型聚合侧（Java 拆分 trim）保持一致，兼容 NFO 来源含空格的类型串 -->
+          AND EXISTS (
+              SELECT 1
+              FROM unnest(string_to_array(m.genres, ',')) AS g(genre)
+              WHERE trim(g.genre) = #{genre}
+          )
+        </if>
         <choose>
             <when test="sortField == 'release'">
                 <choose>
                     <when test="asc">ORDER BY m.release_date ASC NULLS LAST, s.id</when>
                     <otherwise>ORDER BY m.release_date DESC NULLS LAST, s.id</otherwise>
+                </choose>
+            </when>
+            <when test="sortField == 'rating'">
+                <choose>
+                    <when test="asc">ORDER BY m.vote_average ASC NULLS LAST, s.id</when>
+                    <otherwise>ORDER BY m.vote_average DESC NULLS LAST, s.id</otherwise>
+                </choose>
+            </when>
+            <when test="sortField == 'title'">
+                <choose>
+                    <when test="asc">ORDER BY COALESCE(m.title, s.series_name) ASC NULLS LAST, s.id</when>
+                    <otherwise>ORDER BY COALESCE(m.title, s.series_name) DESC NULLS LAST, s.id</otherwise>
                 </choose>
             </when>
             <otherwise>

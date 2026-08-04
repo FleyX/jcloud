@@ -3,6 +3,11 @@ import type { PageResult } from '@/types/auth'
 import type {
   MediaDirectorySaveDto,
   MediaDirectoryVo,
+  MediaFavoriteOwnerType,
+  MediaFavoriteQuery,
+  MediaFavoriteVo,
+  MediaGenreVo,
+  MediaGlobalSearchResult,
   MediaHomeVo,
   MediaItemDetailVo,
   MediaItemVo,
@@ -74,24 +79,53 @@ export function fetchMediaOthers(query: MediaPageQuery): Promise<PageResult<Medi
   return get<PageResult<MediaItemVo>>('/media/items/others', query as Record<string, unknown>)
 }
 
+// ---------- 类型 ----------
+
+/**
+ * 聚合媒体库类型列表（类型页）：名称 + 条目数 + 代表海报。
+ */
+export function fetchMediaGenres(directoryId: string): Promise<MediaGenreVo[]> {
+  return get<MediaGenreVo[]>(`/media/libraries/${directoryId}/genres`)
+}
+
+// ---------- 全局搜索 ----------
+
+/**
+ * 全局搜索：跨该用户全部媒体库搜索，按电影/剧集/其他分组返回（各组前 N 条 + 总数）。
+ */
+export function searchMedia(keyword: string, size?: number): Promise<MediaGlobalSearchResult> {
+  return get<MediaGlobalSearchResult>('/media/search', { keyword, size })
+}
+
 // ---------- 匹配与进度 ----------
 
+/**
+ * 手动修正匹配：id 为电影行或剧集行 ID（集级修正已下线，集 ID 会触发业务异常）。
+ */
 export function updateMediaMatch(id: string, tmdbId: number, mediaType: 'movie' | 'tv'): Promise<MediaItemVo> {
   return put<MediaItemVo>(`/media/items/${id}/match`, { tmdbId, mediaType })
 }
 
-export function updateSeriesMatch(seriesName: string, tmdbId: number): Promise<void> {
-  return put<void>('/media/items/series/match', { tmdbId, mediaType: 'tv' }, { seriesName })
+/** 播放进度上报入参（versionId 非空时后端记为该次播放版本，续播据此定位；剧集/其他忽略） */
+export interface MediaProgressUpdateDto {
+  progressMs: number
+  versionId?: string
 }
 
-export function updateMediaProgress(id: string, progressMs: number): Promise<void> {
-  return put<void>(`/media/items/${id}/progress`, { progressMs })
+export function updateMediaProgress(id: string, progressMs: number, versionId?: string): Promise<void> {
+  const body: MediaProgressUpdateDto = { progressMs }
+  if (versionId) body.versionId = versionId
+  return put<void>(`/media/items/${id}/progress`, body)
 }
 
 // ---------- 播放 ----------
 
-export function fetchPlaybackInfo(id: string): Promise<MediaPlaybackInfoVo> {
-  return get<MediaPlaybackInfoVo>(`/media/items/${id}/playback`)
+/**
+ * 拉取播放信息。versionId 为电影版本明细行 ID（可选）：指定时用该版本文件事实，
+ * 缺省时后端按续播语义定位（last_play_file_id 优先，缺省最早版本）。
+ */
+export function fetchPlaybackInfo(id: string, versionId?: string): Promise<MediaPlaybackInfoVo> {
+  return get<MediaPlaybackInfoVo>(`/media/items/${id}/playback`, versionId ? { versionId } : undefined)
 }
 
 /**
@@ -112,8 +146,9 @@ export function createTranscodeSession(
   id: string,
   startMs: number,
   options: TranscodeSessionOptions = {},
+  versionId?: string,
 ): Promise<MediaTranscodeSessionVo> {
-  return post<MediaTranscodeSessionVo>(`/media/items/${id}/transcode`, undefined, { startMs, ...options })
+  return post<MediaTranscodeSessionVo>(`/media/items/${id}/transcode`, undefined, { startMs, ...options, versionId })
 }
 
 /**
@@ -143,12 +178,30 @@ export function transcodeCloseBeaconUrl(sessionId: string): string {
   return withToken(`/jcloud/api/media/transcode/${sessionId}/close`)
 }
 
-export function subtitleUrl(id: string, index: number): string {
-  return withToken(`/jcloud/api/media/items/${id}/subtitles/${index}`)
+/**
+ * 构建字幕资源查询参数：版本参数与转码时间偏移可共存，offset 为 0 时不发送偏移参数。
+ */
+function buildSubtitleQuery(versionId?: string, offsetMs?: number): string {
+  const params: string[] = []
+  if (versionId) params.push(`versionId=${encodeURIComponent(versionId)}`)
+  if (offsetMs && offsetMs > 0) params.push(`offsetMs=${offsetMs}`)
+  return params.length > 0 ? `?${params.join('&')}` : ''
 }
 
-export function externalSubtitleUrl(id: string, subtitleId: string): string {
-  return withToken(`/jcloud/api/media/items/${id}/subtitles/external/${subtitleId}`)
+/**
+ * 内嵌字幕 URL。offsetMs 为转码会话起点（毫秒），直放时不传（0）。
+ */
+export function subtitleUrl(id: string, index: number, versionId?: string, offsetMs?: number): string {
+  const base = `/jcloud/api/media/items/${id}/subtitles/${index}`
+  return withToken(`${base}${buildSubtitleQuery(versionId, offsetMs)}`)
+}
+
+/**
+ * 外置字幕 URL。offsetMs 为转码会话起点（毫秒），直放时不传（0）。
+ */
+export function externalSubtitleUrl(id: string, subtitleId: string, versionId?: string, offsetMs?: number): string {
+  const base = `/jcloud/api/media/items/${id}/subtitles/external/${subtitleId}`
+  return withToken(`${base}${buildSubtitleQuery(versionId, offsetMs)}`)
 }
 
 // ---------- 元数据 ----------
@@ -169,6 +222,25 @@ export function fetchSeriesDetail(id: string): Promise<MediaSeriesDetailVo> {
 
 export function fetchSeasonEpisodes(seriesId: string, seasonId: string): Promise<MediaItemVo[]> {
   return get<MediaItemVo[]>(`/media/series/${seriesId}/seasons/${seasonId}/episodes`)
+}
+
+// ---------- 收藏 ----------
+
+/**
+ * 收藏/取消收藏切换：返回切换后的收藏状态（true 已收藏 / false 未收藏）。
+ */
+export function toggleFavorite(
+  ownerType: MediaFavoriteOwnerType,
+  ownerId: string,
+): Promise<boolean> {
+  return post<boolean>('/media/favorites/toggle', { ownerType, ownerId })
+}
+
+/**
+ * 分页查询我的收藏（按 ownerType 分区独立分页，收藏时间倒序）。
+ */
+export function fetchMediaFavorites(query: MediaFavoriteQuery): Promise<PageResult<MediaFavoriteVo>> {
+  return get<PageResult<MediaFavoriteVo>>('/media/favorites', query as unknown as Record<string, unknown>)
 }
 
 export function refreshMetadata(id: string): Promise<void> {

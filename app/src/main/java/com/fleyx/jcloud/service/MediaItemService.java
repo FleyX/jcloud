@@ -4,8 +4,10 @@ import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.fleyx.jcloud.model.dto.MediaMatchUpdateDto;
 import com.fleyx.jcloud.model.dto.MediaPageQueryDto;
 import com.fleyx.jcloud.model.dto.MediaProgressUpdateDto;
+import com.fleyx.jcloud.model.vo.MediaGenreVo;
 import com.fleyx.jcloud.model.vo.MediaItemDetailVo;
 import com.fleyx.jcloud.model.vo.MediaItemVo;
+import com.fleyx.jcloud.model.vo.MediaSearchResultVo;
 import com.fleyx.jcloud.model.vo.MediaSeriesDetailVo;
 import com.fleyx.jcloud.model.vo.MediaSeriesVo;
 
@@ -53,23 +55,26 @@ public interface MediaItemService {
     IPage<MediaItemVo> listOthers(String userId, MediaPageQueryDto query);
 
     /**
-     * 手动修正条目匹配。
+     * 全局搜索：跨该用户全部媒体库搜索，按电影/剧集/其他分组返回（各组前 N 条 + 总数）。
+     * 搜索字段与墙内搜索一致：文件名/剧名/元数据标题/原始标题/简介。
      *
-     * @param itemId 条目 ID
+     * @param userId  用户 ID
+     * @param keyword 搜索关键词
+     * @param size    每组条数（内部收敛到 [1, 50]，默认 8 由调用方决定）
+     * @return 分组搜索结果
+     */
+    MediaSearchResultVo search(String userId, String keyword, int size);
+
+    /**
+     * 手动修正条目匹配（统一按行 ID，issue #21）：id 为电影行或剧集行 ID；
+     * 剧集行 ID 时整剧应用（等效原系列级修正语义）。集级手动修正已下线。
+     *
+     * @param itemId 条目行 ID（电影行或剧集行）
      * @param dto    入参
      * @param userId 用户 ID
      * @return 更新后的条目视图
      */
     MediaItemVo updateMatch(String itemId, MediaMatchUpdateDto dto, String userId);
-
-    /**
-     * 对整部剧批量修正匹配。
-     *
-     * @param seriesName 剧名
-     * @param dto        入参
-     * @param userId     用户 ID
-     */
-    void updateSeriesMatch(String seriesName, MediaMatchUpdateDto dto, String userId);
 
     /**
      * 上报播放进度。
@@ -117,4 +122,13 @@ public interface MediaItemService {
      * @throws BusinessException 未找到时抛出
      */
     String getItemIdByFileNodeId(String fileNodeId, String userId);
+
+    /**
+     * 聚合媒体库类型列表（类型页）。
+     *
+     * @param userId      用户 ID
+     * @param directoryId 媒体库 ID
+     * @return 类型列表（名称 + 条目数 + 代表海报），其他库返回空列表
+     */
+    List<MediaGenreVo> listGenres(String userId, String directoryId);
 }

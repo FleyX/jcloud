@@ -129,4 +129,24 @@ describe('MobileHeader', () => {
     const drawer = wrapper.findComponent(MobileDrawer)
     expect(drawer.props('activeKey')).toBe('all')
   })
+
+  it('cycles the theme mode through system, light, and dark with matching labels', async () => {
+    const { wrapper } = await mountHeader('/files')
+
+    const button = wrapper.find('button[aria-label^="主题"]')
+    expect(button.exists()).toBe(true)
+    expect(button.attributes('aria-label')).toContain('跟随系统')
+
+    await button.trigger('click')
+    await wrapper.vm.$nextTick()
+    expect(button.attributes('aria-label')).toContain('浅色')
+
+    await button.trigger('click')
+    await wrapper.vm.$nextTick()
+    expect(button.attributes('aria-label')).toContain('深色')
+
+    await button.trigger('click')
+    await wrapper.vm.$nextTick()
+    expect(button.attributes('aria-label')).toContain('跟随系统')
+  })
 })

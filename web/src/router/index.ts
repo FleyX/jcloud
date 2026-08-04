@@ -258,7 +258,11 @@ router.beforeEach(async (to, _from, next) => {
       // 重新解析目标路由
       return next({ ...to, replace: true })
     } catch {
-      userStore.logoutAction()
+      // 后端启动中或网络暂时不可用时保留本地 token，避免重启竞态导致用户被迫重新登录。
+      // 401 由 request 层确认 token 无效并清空后，再进入登录页。
+      if (userStore.token) {
+        return next(false)
+      }
       return next('/login')
     }
   }

@@ -86,6 +86,8 @@ export function useMediaPlayback(videoRef: Ref<HTMLVideoElement | null>) {
   // 规避复用的 track 元素在 video.src 变更后卡住 0 cues 的浏览器状态问题
   const sourceEpoch = ref(0)
   const bitrateTierKey = ref(localStorage.getItem(BITRATE_TIER_STORAGE_KEY) || 'original')
+  /** 当前播放版本（电影为文件明细行 ID，取播放信息响应 versionId；剧集/其他为 null） */
+  const currentVersionId = ref<string | null>(null)
   /** 当前是否处于转码播放（直放切音轨/限码率后转入转码并停留） */
   const transcodeActive = ref(false)
 
@@ -139,10 +141,13 @@ export function useMediaPlayback(videoRef: Ref<HTMLVideoElement | null>) {
     if (!key || !id) return null
     const item = subtitles.value.find((s) => subtitleItemKey(s) === key)
     if (!item) return null
+    const versionId = currentVersionId.value ?? undefined
+    // 转码播放的字幕时间轴相对当前转码会话起点偏移，直放使用原片时间轴（offset 0）
+    const offsetMs = transcodeActive.value ? transcodeBaseMs.value : 0
     const src = item.type === 'embedded' && item.index !== null
-      ? subtitleUrl(id, item.index)
+      ? subtitleUrl(id, item.index, versionId, offsetMs)
       : item.subtitleId
-        ? externalSubtitleUrl(id, item.subtitleId)
+        ? externalSubtitleUrl(id, item.subtitleId, versionId, offsetMs)
         : null
     return src ? { key, label: item.label, src } : null
   })
@@ -188,7 +193,8 @@ export function useMediaPlayback(videoRef: Ref<HTMLVideoElement | null>) {
     const id = itemId.value
     if (!info || !id) return
     destroyHls()
-    const session = await createTranscodeSession(id, Math.floor(startMs), buildTranscodeOptions(info))
+    const session = await createTranscodeSession(id, Math.floor(startMs), buildTranscodeOptions(info),
+      currentVersionId.value ?? undefined)
     const video = videoRef.value
     if (!video || destroyed) return
     startHeartbeat(session.sessionId)
@@ -250,16 +256,19 @@ export function useMediaPlayback(videoRef: Ref<HTMLVideoElement | null>) {
 
   /**
    * 加载播放信息并初始化播放。startMs 为空时按历史进度续播。
+   * versionId 为电影版本明细行 ID（可选）：指定时播放该版本，缺省时后端按续播语义定位。
    */
-  async function start(id: string, startMs?: number) {
+  async function start(id: string, startMs?: number, versionId?: string) {
     destroyed = false
     teardown()
     loading.value = true
     errorMsg.value = ''
     try {
-      playbackInfo.value = await fetchPlaybackInfo(id)
+      playbackInfo.value = await fetchPlaybackInfo(id, versionId)
       if (destroyed) return
       itemId.value = id
+      // 以响应解析的实际版本为准：缺省请求时后端按续播语义定位，剧集/其他可能为 null
+      currentVersionId.value = playbackInfo.value?.versionId ?? null
       applyDefaultSubtitle(playbackInfo.value.subtitles ?? [])
       const durationMs = Number(playbackInfo.value.durationMs ?? 0)
       let resumeMs = startMs ?? Number(playbackInfo.value.progressMs ?? 0)
@@ -290,6 +299,7 @@ export function useMediaPlayback(videoRef: Ref<HTMLVideoElement | null>) {
     teardown()
     loading.value = true
     errorMsg.value = ''
+    currentVersionId.value = null
   }
 
   function selectAudioTrack(index: number | null) {
@@ -316,6 +326,16 @@ export function useMediaPlayback(videoRef: Ref<HTMLVideoElement | null>) {
     reconcilePlayback().catch((e) => {
       errorMsg.value = e instanceof Error ? e.message : '码率切换失败'
     })
+  }
+
+  /**
+   * 切换播放版本（仅电影多版本有效）：以当前观看位置为续播点，按新版本重拉播放信息并换流。
+   * 进度共享在电影行；start 初始化时经 teardown 顺带上报当前版本进度，续播语义不变。
+   */
+  async function selectVersion(versionId: string) {
+    const id = itemId.value
+    if (!id || versionId === currentVersionId.value) return
+    await start(id, currentAbsoluteMs(), versionId)
   }
 
   /**
@@ -376,7 +396,7 @@ export function useMediaPlayback(videoRef: Ref<HTMLVideoElement | null>) {
     // 转码会话停滞时流内时间可能继续增长，进度钳制在片长内
     if (durationMs > 0) progressMs = Math.min(progressMs, durationMs)
     if (progressMs <= 0) return
-    updateMediaProgress(id, progressMs).catch(() => {})
+    updateMediaProgress(id, progressMs, currentVersionId.value ?? undefined).catch(() => {})
   }
 
   /** track 元素加载后强制 showing（「无」时元素被移除即全部禁用） */
@@ -449,6 +469,7 @@ export function useMediaPlayback(videoRef: Ref<HTMLVideoElement | null>) {
     loading,
     errorMsg,
     playbackInfo,
+    currentVersionId,
     audioIndex,
     sourceEpoch,
     subtitleKey,
@@ -467,5 +488,6 @@ export function useMediaPlayback(videoRef: Ref<HTMLVideoElement | null>) {
     selectAudioTrack,
     selectSubtitle,
     selectBitrateTier,
+    selectVersion,
   }
 }

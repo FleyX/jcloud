@@ -1,26 +1,20 @@
 package com.fleyx.jcloud.service.support;
 
-import com.fleyx.jcloud.common.enums.MediaCompleteStatus;
-import com.fleyx.jcloud.common.enums.MediaMetadataSource;
-import com.fleyx.jcloud.mapper.MediaMetadataMapper;
+import com.fleyx.jcloud.common.enums.MediaMetadataOwnerType;
 import com.fleyx.jcloud.model.po.MediaMetadata;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
+
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
 
 /**
- * 媒体 NFO 支撑组件测试。
+ * 媒体 NFO 支撑组件测试（issue #21 起仅覆盖解析/命名/新模型生成路径，本地元数据 upsert 已随旧表弃用删除）。
  */
 class MediaNfoSupportTest {
 
-    private final MediaMetadataMapper mediaMetadataMapper = mock(MediaMetadataMapper.class);
-    private final MediaNfoSupport nfoSupport = new MediaNfoSupport(mediaMetadataMapper);
+    private final MediaNfoSupport nfoSupport = new MediaNfoSupport();
 
     /**
      * 电影 NFO 完整字段解析。
@@ -98,6 +92,61 @@ class MediaNfoSupportTest {
     }
 
     /**
+     * 带 UTF-8 BOM（\uFEFF，Emby 等工具写出的 NFO）的剧 NFO 可完整解析。
+     */
+    @Test
+    void shouldParseTvshowNfoWithBom() {
+        String xml = "\uFEFF" + """
+                <tvshow>
+                  <title>亮剑</title>
+                  <originaltitle>Bright Sword</originaltitle>
+                  <plot>抗战题材</plot>
+                  <premiered>2005-09-12</premiered>
+                  <rating>9.2</rating>
+                  <tmdbid>34567</tmdbid>
+                  <genre>战争</genre>
+                  <genre>剧情</genre>
+                </tvshow>
+                """;
+        MediaNfoSupport.NfoData data = nfoSupport.parse(xml);
+
+        assertEquals("tv", data.mediaType());
+        assertEquals("亮剑", data.title());
+        assertEquals("Bright Sword", data.originalTitle());
+        assertEquals("抗战题材", data.overview());
+        assertEquals("2005-09-12", data.releaseDate());
+        assertEquals(9.2, data.voteAverage());
+        assertEquals(34567L, data.tmdbId());
+        assertEquals("战争,剧情", data.genres());
+    }
+
+    /**
+     * 带 UTF-8 BOM 的集 NFO 可完整解析。
+     */
+    @Test
+    void shouldParseEpisodeNfoWithBom() {
+        String xml = "\uFEFF" + """
+                <episodedetails>
+                  <title>第一集</title>
+                  <plot>开场</plot>
+                  <season>1</season>
+                  <episode>1</episode>
+                  <rating>9.0</rating>
+                  <tmdbid>888</tmdbid>
+                </episodedetails>
+                """;
+        MediaNfoSupport.NfoData data = nfoSupport.parse(xml);
+
+        assertEquals("episode", data.mediaType());
+        assertEquals("第一集", data.title());
+        assertEquals("开场", data.overview());
+        assertEquals(1, data.seasonNo());
+        assertEquals(1, data.episodeNo());
+        assertEquals(9.0, data.voteAverage());
+        assertEquals(888L, data.tmdbId());
+    }
+
+    /**
      * 非法 XML 与不支持的根元素返回 null，不抛异常。
      */
     @Test
@@ -124,12 +173,12 @@ class MediaNfoSupportTest {
     }
 
     /**
-     * 生成与解析回读一致（roundtrip）。
+     * 新模型生成与解析回读一致（roundtrip，根元素按 owner_type 派生）。
      */
     @Test
     void shouldGenerateAndParseBack() {
         MediaMetadata metadata = new MediaMetadata();
-        metadata.setMediaType("episode");
+        metadata.setOwnerType(MediaMetadataOwnerType.EPISODE.getCode());
         metadata.setTmdbId(123L);
         metadata.setTitle("第一集");
         metadata.setOriginalTitle("Episode One");
@@ -154,12 +203,12 @@ class MediaNfoSupportTest {
     }
 
     /**
-     * tv 元数据生成 tvshow 根元素。
+     * series owner 生成 tvshow 根元素。
      */
     @Test
     void shouldGenerateTvshowRoot() {
         MediaMetadata metadata = new MediaMetadata();
-        metadata.setMediaType("tv");
+        metadata.setOwnerType(MediaMetadataOwnerType.SERIES.getCode());
         metadata.setTitle("亮剑");
 
         MediaNfoSupport.NfoData data = nfoSupport.parse(nfoSupport.generate(metadata, null, null));
@@ -181,78 +230,21 @@ class MediaNfoSupportTest {
     }
 
     /**
-     * 本地元数据 upsert：未绑定时新建 local_nfo 行，字段与完整性正确。
+     * 本地媒体图片命名链常量（ADR 0022）：海报/背景识别链内容完整有序，写回名为各自链首。
      */
     @Test
-    void shouldUpsertNewLocalMetadata() {
-        MediaNfoSupport.NfoData data = new MediaNfoSupport.NfoData("movie", "盗梦空间", "Inception",
-                "造梦师盗取机密", "2010-07-16", 8.8, "科幻", 27205L, null, null);
-
-        nfoSupport.upsertLocalMetadata(null, "user-1", "movie", data, "fnposter00001", null);
-
-        ArgumentCaptor<MediaMetadata> captor = ArgumentCaptor.forClass(MediaMetadata.class);
-        verify(mediaMetadataMapper).insert(captor.capture());
-        MediaMetadata inserted = captor.getValue();
-        assertEquals("user-1", inserted.getUserId());
-        assertEquals(MediaMetadataSource.LOCAL_NFO.getCode(), inserted.getSource());
-        assertEquals(27205L, inserted.getTmdbId());
-        assertEquals("盗梦空间", inserted.getTitle());
-        assertEquals("fnposter00001", inserted.getPosterFileNodeId());
-        assertEquals(MediaCompleteStatus.COMPLETE.getCode(), inserted.getCompleteStatus());
-    }
-
-    /**
-     * 完整性规则：标题、简介、海报任一缺失即 incomplete。
-     */
-    @Test
-    void shouldMarkIncompleteWhenAnyKeyFieldMissing() {
-        MediaNfoSupport.NfoData data = new MediaNfoSupport.NfoData("movie", "盗梦空间", null,
-                null, null, null, null, null, null, null);
-
-        nfoSupport.upsertLocalMetadata(null, "user-1", "movie", data, "fnposter00001", null);
-
-        ArgumentCaptor<MediaMetadata> captor = ArgumentCaptor.forClass(MediaMetadata.class);
-        verify(mediaMetadataMapper).insert(captor.capture());
-        assertEquals(MediaCompleteStatus.INCOMPLETE.getCode(), captor.getValue().getCompleteStatus());
-    }
-
-    /**
-     * 已绑定 local_nfo 行时原地更新而非新建。
-     */
-    @Test
-    void shouldUpdateExistingLocalMetadata() {
-        MediaMetadata existing = new MediaMetadata();
-        existing.setId("meta0000000001");
-        existing.setSource(MediaMetadataSource.LOCAL_NFO.getCode());
-        when(mediaMetadataMapper.selectById("meta0000000001")).thenReturn(existing);
-        MediaNfoSupport.NfoData data = new MediaNfoSupport.NfoData("movie", "新标题", null,
-                "简介", null, null, null, null, null, null);
-
-        MediaMetadata result = nfoSupport.upsertLocalMetadata("meta0000000001", "user-1", "movie", data,
-                "fnposter00001", null);
-
-        assertEquals("meta0000000001", result.getId());
-        assertEquals("新标题", result.getTitle());
-        verify(mediaMetadataMapper).updateById(any(MediaMetadata.class));
-    }
-
-    /**
-     * 仅有本地图片无 NFO 时使用空 NFO 数据：全字段为空、完整性为不完整，不补文本字段。
-     */
-    @Test
-    void shouldUpsertEmptyDataAsIncompleteLocalMetadata() {
-        MediaNfoSupport.NfoData empty = MediaNfoSupport.emptyData("movie");
-
-        nfoSupport.upsertLocalMetadata(null, "user-1", "movie", empty, "fnposter00001", null);
-
-        ArgumentCaptor<MediaMetadata> captor = ArgumentCaptor.forClass(MediaMetadata.class);
-        verify(mediaMetadataMapper).insert(captor.capture());
-        MediaMetadata inserted = captor.getValue();
-        assertEquals("local_nfo", inserted.getSource());
-        assertEquals("incomplete", inserted.getCompleteStatus());
-        assertNull(inserted.getTitle());
-        assertNull(inserted.getTmdbId());
-        assertEquals("fnposter00001", inserted.getPosterFileNodeId());
-        assertEquals("user-1", inserted.getUserId());
+    void shouldExposeArtworkNameChains() {
+        assertEquals(List.of("folder.jpg", "poster.jpg", "cover.jpg", "default.jpg", "movie.jpg"),
+                MediaNfoSupport.MOVIE_POSTER_NAMES);
+        assertEquals(List.of("folder.jpg", "poster.jpg", "cover.jpg", "default.jpg", "show.jpg"),
+                MediaNfoSupport.TV_POSTER_NAMES);
+        assertEquals(List.of("backdrop.jpg", "fanart.jpg", "background.jpg", "art.jpg"),
+                MediaNfoSupport.BACKDROP_NAMES);
+        assertEquals("folder.jpg", MediaNfoSupport.POSTER_WRITE_NAME);
+        assertEquals("backdrop.jpg", MediaNfoSupport.BACKDROP_WRITE_NAME);
+        // 写回名置于识别链首：保证写读自洽（重新削刮读到的是自己写回的图）
+        assertEquals(MediaNfoSupport.POSTER_WRITE_NAME, MediaNfoSupport.MOVIE_POSTER_NAMES.get(0));
+        assertEquals(MediaNfoSupport.POSTER_WRITE_NAME, MediaNfoSupport.TV_POSTER_NAMES.get(0));
+        assertEquals(MediaNfoSupport.BACKDROP_WRITE_NAME, MediaNfoSupport.BACKDROP_NAMES.get(0));
     }
 }

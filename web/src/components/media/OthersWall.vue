@@ -10,11 +10,12 @@ import { useRouter } from 'vue-router'
 import type { MediaItemVo } from '@/types/media'
 import { fetchMediaOthers } from '@/api/media'
 import PosterCard from './PosterCard.vue'
-import MediaWallToolbar from './MediaWallToolbar.vue'
+import MediaSortDialog from './MediaSortDialog.vue'
 import MediaSearchModal from './MediaSearchModal.vue'
 import MediaSearchResultRow from './MediaSearchResultRow.vue'
-import { useMediaWall, type MediaWallFetcher } from './useMediaWall'
+import { useMediaWall, type MediaWallFetcher, type MediaWallSortField } from './useMediaWall'
 import { cn } from '@/utils/cn'
+import { formatDuration } from '@/utils/format'
 
 interface Props {
   dense?: boolean
@@ -38,8 +39,14 @@ const {
   sortOrder,
   setSentinel,
   reload,
-  toggleSort,
+  setSort,
 } = useMediaWall<MediaItemVo>(props.directoryId ? `others:${props.directoryId}` : 'others', fetcher)
+
+/** 排序字段选项：其他库仅添加时间/标题（release/rating 不生效） */
+const sortFields: Array<{ value: MediaWallSortField; label: string }> = [
+  { value: 'added', label: '添加时间' },
+  { value: 'title', label: '标题' },
+]
 
 watch(
   () => props.directoryId,
@@ -49,6 +56,19 @@ watch(
 )
 
 const searchOpen = ref(false)
+const sortOpen = ref(false)
+
+/** 供库详情页顶栏搜索图标调用（复用本组件 MediaSearchModal，仅搜当前库） */
+function openSearch() {
+  searchOpen.value = true
+}
+
+/** 供库详情页顶栏排序图标调用 */
+function openSort() {
+  sortOpen.value = true
+}
+
+defineExpose({ openSearch, openSort })
 
 function handlePlay(item: MediaItemVo) {
   router.push({ name: 'MediaPlay', params: { id: item.id } })
@@ -57,25 +77,10 @@ function handlePlay(item: MediaItemVo) {
 function thumbUrl(item: MediaItemVo): string {
   return `/jcloud/api/files/${item.fileNodeId}/preview?type=poster`
 }
-
-function formatDuration(ms: number | null): string | null {
-  if (!ms) return null
-  const totalMinutes = Math.floor(ms / 60000)
-  const hours = Math.floor(totalMinutes / 60)
-  const minutes = totalMinutes % 60
-  return hours > 0 ? `${hours}小时${minutes}分` : `${minutes}分钟`
-}
 </script>
 
 <template>
   <div class="p-4 md:p-6">
-    <MediaWallToolbar
-      :sort-field="sortField"
-      :sort-order="sortOrder"
-      @open-search="searchOpen = true"
-      @sort="toggleSort"
-    />
-
     <p
       v-if="loading"
       class="py-16 text-center text-sm text-surface-400"
@@ -95,11 +100,14 @@ function formatDuration(ms: number | null): string | null {
         <PosterCard
           v-for="item in items"
           :key="item.id"
-          :title="item.fileName"
+          :title="item.fileName ?? item.title"
           :poster-url="thumbUrl(item)"
           :release-date="formatDuration(item.durationMs)"
           :progress-ms="item.progressMs"
           :duration-ms="item.durationMs"
+          owner-type="other"
+          :owner-id="item.id"
+          :favorited="item.favorited"
           @play="handlePlay(item)"
         />
       </div>
@@ -130,11 +138,20 @@ function formatDuration(ms: number | null): string | null {
     >
       <template #row="{ item }">
         <MediaSearchResultRow
-          :title="item.fileName"
+          :title="item.fileName ?? item.title"
           :poster-url="thumbUrl(item)"
           :subtitle="formatDuration(item.durationMs)"
         />
       </template>
     </MediaSearchModal>
+
+    <MediaSortDialog
+      :open="sortOpen"
+      :fields="sortFields"
+      :sort-field="sortField"
+      :sort-order="sortOrder"
+      @close="sortOpen = false"
+      @confirm="setSort"
+    />
   </div>
 </template>

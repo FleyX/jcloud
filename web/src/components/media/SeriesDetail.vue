@@ -7,11 +7,12 @@
  */
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, LoaderCircle, Tv } from '@lucide/vue'
+import { ArrowLeft, Heart, LoaderCircle, Tv } from '@lucide/vue'
 import type { MediaItemVo, MediaSeriesDetailVo, MediaSeriesSeasonVo, TmdbSearchResultVo } from '@/types/media'
-import { fetchSeasonEpisodes, fetchSeriesDetail, refreshMetadata, updateSeriesMatch, withToken } from '@/api/media'
+import { fetchSeasonEpisodes, fetchSeriesDetail, refreshMetadata, toggleFavorite, updateMediaMatch, withToken } from '@/api/media'
 import { useNotificationStore } from '@/store/notification'
 import { formatDurationText } from './format'
+import { cn } from '@/utils/cn'
 import MediaDetailHero from './MediaDetailHero.vue'
 import TmdbMatchModal from './TmdbMatchModal.vue'
 
@@ -182,8 +183,7 @@ function playEpisode(episode: MediaItemVo, startMs?: number) {
 }
 
 async function handleMatched(result: TmdbSearchResultVo) {
-  if (!detail.value) return
-  await updateSeriesMatch(detail.value.seriesName, result.tmdbId)
+  await updateMediaMatch(seriesId, result.tmdbId, 'tv')
   matchOpen.value = false
   await load()
 }
@@ -193,6 +193,38 @@ async function handleRefresh() {
   await refreshMetadata(detail.value.metadataId)
   notificationStore.success('元数据已刷新')
   await load()
+}
+
+/** 收藏/取消收藏（剧/季/集）：本地先翻转，成功后以服务端结果为准，失败回滚（异常提示由统一请求层处理） */
+async function toggleSeriesFavorite() {
+  if (!detail.value) return
+  const previous = detail.value.favorited
+  detail.value.favorited = !previous
+  try {
+    detail.value.favorited = await toggleFavorite('series', seriesId)
+  } catch {
+    detail.value.favorited = previous
+  }
+}
+
+async function toggleSeasonFavorite(season: MediaSeriesSeasonVo) {
+  const previous = season.favorited
+  season.favorited = !previous
+  try {
+    season.favorited = await toggleFavorite('season', season.seasonId)
+  } catch {
+    season.favorited = previous
+  }
+}
+
+async function toggleEpisodeFavorite(episode: MediaItemVo) {
+  const previous = episode.favorited
+  episode.favorited = !previous
+  try {
+    episode.favorited = await toggleFavorite('episode', episode.id)
+  } catch {
+    episode.favorited = previous
+  }
 }
 </script>
 
@@ -217,9 +249,11 @@ async function handleRefresh() {
         :unmatched="unmatched"
         :continue-ms="continueMs"
         :show-refresh="!!detail.metadataId"
+        :favorited="detail.favorited"
         @play="handleHeroPlay"
         @rematch="matchOpen = true"
         @refresh="handleRefresh"
+        @toggle-favorite="toggleSeriesFavorite"
       />
 
       <div class="mt-6 px-4 pb-8 md:px-10">
@@ -229,10 +263,10 @@ async function handleRefresh() {
             季（{{ detail.seasons.length }}）
           </h2>
           <div class="grid grid-cols-3 gap-3 sm:grid-cols-4 md:gap-4 lg:grid-cols-7 xl:grid-cols-9">
-            <button
+            <div
               v-for="season in detail.seasons"
               :key="season.seasonId"
-              class="group text-left"
+              class="group cursor-pointer text-left"
               @click="openSeason(season)"
             >
               <div class="relative aspect-[2/3] w-full overflow-hidden rounded-2xl bg-surface-100 shadow-soft transition-transform group-hover:scale-[1.02]">
@@ -256,6 +290,22 @@ async function handleRefresh() {
                 >
                   在看
                 </span>
+                <!-- 季卡片收藏心形：已收藏常显实心高亮；未收藏 PC 端悬浮显现、移动端常显淡色 -->
+                <button
+                  class="absolute right-2 top-2 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-sm transition-all hover:bg-black/70"
+                  :class="cn(
+                    season.favorited
+                      ? 'text-rose-500'
+                      : 'max-sm:opacity-70 sm:opacity-0 sm:group-hover:opacity-100'
+                  )"
+                  :title="season.favorited ? '取消收藏' : '收藏'"
+                  @click.stop="toggleSeasonFavorite(season)"
+                >
+                  <Heart
+                    class="h-4 w-4"
+                    :class="season.favorited && 'fill-rose-500'"
+                  />
+                </button>
               </div>
               <p class="mt-2 px-0.5 text-sm font-medium text-surface-800">
                 {{ seasonTitle(season) }}
@@ -263,7 +313,7 @@ async function handleRefresh() {
               <p class="px-0.5 text-xs text-surface-400">
                 共 {{ season.episodeCount }} 集
               </p>
-            </button>
+            </div>
           </div>
         </template>
 
@@ -292,10 +342,10 @@ async function handleRefresh() {
             v-else
             class="divide-y divide-surface-100 rounded-2xl border border-surface-100"
           >
-            <button
+            <div
               v-for="episode in episodes"
               :key="episode.id"
-              class="flex w-full items-center gap-3 px-3 py-3 text-left transition-colors hover:bg-surface-50 md:gap-4 md:px-4"
+              class="flex w-full cursor-pointer items-center gap-3 px-3 py-3 text-left transition-colors hover:bg-surface-50 md:gap-4 md:px-4"
               @click="playEpisode(episode)"
             >
               <div class="relative aspect-video w-24 shrink-0 overflow-hidden rounded-xl bg-surface-100 md:w-32">
@@ -339,7 +389,19 @@ async function handleRefresh() {
                   {{ formatDurationText(episode.durationMs) }}
                 </span>
               </div>
-            </button>
+              <!-- 集行收藏心形按钮 -->
+              <button
+                class="shrink-0 rounded-full p-2 transition-colors hover:bg-surface-100"
+                :class="episode.favorited ? 'text-rose-500' : 'text-surface-300'"
+                :title="episode.favorited ? '取消收藏' : '收藏'"
+                @click.stop="toggleEpisodeFavorite(episode)"
+              >
+                <Heart
+                  class="h-4 w-4"
+                  :class="episode.favorited && 'fill-rose-500'"
+                />
+              </button>
+            </div>
           </div>
         </template>
       </div>

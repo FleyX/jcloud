@@ -21,6 +21,11 @@ public class MediaSeriesDetailVo {
     private String matchStatus;
 
     /**
+     * 元数据完整性标志（剧集行，聚合语义），未匹配无元数据时为 false。
+     */
+    private Boolean metadataComplete;
+
+    /**
      * 元数据 ID。
      */
     private String metadataId;
@@ -74,4 +79,9 @@ public class MediaSeriesDetailVo {
      * 季列表（按季号升序，未知季排最后）。
      */
     private List<MediaSeriesSeasonVo> seasons;
+
+    /**
+     * 当前用户是否已收藏（剧集详情收藏按钮展示用）。
+     */
+    private Boolean favorited = Boolean.FALSE;
 }

@@ -4,6 +4,7 @@ import com.fleyx.jcloud.common.R;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.fleyx.jcloud.common.constant.CommonConstant;
 import com.fleyx.jcloud.common.context.UserContext;
+import com.fleyx.jcloud.common.enums.MediaMetadataOwnerType;
 import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.FileMapper;
@@ -11,20 +12,26 @@ import com.fleyx.jcloud.mapper.MediaMetadataMapper;
 import com.fleyx.jcloud.model.bo.FileDownloadResult;
 import com.fleyx.jcloud.model.dto.MediaDirectorySaveDto;
 import com.fleyx.jcloud.model.dto.MediaDirectoryUpdateDto;
+import com.fleyx.jcloud.model.dto.MediaFavoriteQueryDto;
+import com.fleyx.jcloud.model.dto.MediaFavoriteToggleDto;
 import com.fleyx.jcloud.model.dto.MediaMatchUpdateDto;
 import com.fleyx.jcloud.model.dto.MediaPageQueryDto;
 import com.fleyx.jcloud.model.dto.MediaProgressUpdateDto;
 import com.fleyx.jcloud.model.po.MediaMetadata;
 import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.vo.MediaDirectoryVo;
+import com.fleyx.jcloud.model.vo.MediaFavoriteVo;
+import com.fleyx.jcloud.model.vo.MediaGenreVo;
 import com.fleyx.jcloud.model.vo.MediaHomeVo;
 import com.fleyx.jcloud.model.vo.MediaItemDetailVo;
 import com.fleyx.jcloud.model.vo.MediaItemVo;
 import com.fleyx.jcloud.model.vo.MediaPlaybackInfoVo;
+import com.fleyx.jcloud.model.vo.MediaSearchResultVo;
 import com.fleyx.jcloud.model.vo.MediaSeriesDetailVo;
 import com.fleyx.jcloud.model.vo.MediaSeriesVo;
 import com.fleyx.jcloud.model.vo.TmdbSearchResultVo;
 import com.fleyx.jcloud.service.MediaDirectoryService;
+import com.fleyx.jcloud.service.MediaFavoriteService;
 import com.fleyx.jcloud.service.MediaHomeService;
 import com.fleyx.jcloud.service.MediaItemService;
 import com.fleyx.jcloud.service.MediaPlaybackService;
@@ -32,9 +39,11 @@ import com.fleyx.jcloud.service.MediaScanService;
 import com.fleyx.jcloud.service.MediaScrapeService;
 import com.fleyx.jcloud.service.TmdbService;
 import com.fleyx.jcloud.service.support.MediaArtworkPersistSupport;
+import com.fleyx.jcloud.service.support.MediaMetadataCompleteSupport;
 import com.fleyx.jcloud.service.support.TranscodeSession;
 import com.fleyx.jcloud.service.support.TranscodeSessionManager;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.InputStreamResource;
 import org.springframework.http.HttpHeaders;
@@ -51,6 +60,7 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.validation.annotation.Validated;
 
 import java.io.ByteArrayInputStream;
 import java.net.URLEncoder;
@@ -66,10 +76,12 @@ import java.util.Map;
  */
 @RestController
 @RequestMapping(CommonConstant.API + "/media")
+@Validated
 @RequiredArgsConstructor
 public class MediaController {
 
     private final MediaDirectoryService mediaDirectoryService;
+    private final MediaFavoriteService mediaFavoriteService;
     private final MediaScanService mediaScanService;
     private final MediaScrapeService mediaScrapeService;
     private final MediaItemService mediaItemService;
@@ -79,6 +91,7 @@ public class MediaController {
     private final MediaMetadataMapper mediaMetadataMapper;
     private final FileMapper fileMapper;
     private final MediaArtworkPersistSupport mediaArtworkPersistSupport;
+    private final MediaMetadataCompleteSupport metadataCompleteSupport;
     private final TranscodeSessionManager transcodeSessionManager;
 
     // ---------- 目录管理 ----------
@@ -126,6 +139,14 @@ public class MediaController {
         return R.ok(mediaHomeService.getHome(UserContext.get().id()));
     }
 
+    /**
+     * 聚合媒体库类型列表（类型页）。
+     */
+    @GetMapping("/libraries/{id}/genres")
+    public R<List<MediaGenreVo>> listGenres(@PathVariable String id) {
+        return R.ok(mediaItemService.listGenres(UserContext.get().id(), id));
+    }
+
     @GetMapping("/items/movies")
     public R<IPage<MediaItemVo>> listMovies(MediaPageQueryDto query) {
         return R.ok(mediaItemService.listMovies(UserContext.get().id(), query));
@@ -144,6 +165,15 @@ public class MediaController {
     @GetMapping("/items/others")
     public R<IPage<MediaItemVo>> listOthers(MediaPageQueryDto query) {
         return R.ok(mediaItemService.listOthers(UserContext.get().id(), query));
+    }
+
+    /**
+     * 全局搜索：跨该用户全部媒体库搜索，按电影/剧集/其他分组返回。
+     */
+    @GetMapping("/search")
+    public R<MediaSearchResultVo> search(@RequestParam @NotBlank String keyword,
+                                         @RequestParam(required = false) Integer size) {
+        return R.ok(mediaItemService.search(UserContext.get().id(), keyword.trim(), size == null ? 8 : size));
     }
 
     @GetMapping("/items/by-file-node/{fileNodeId}")
@@ -171,29 +201,38 @@ public class MediaController {
         return R.ok(mediaItemService.updateMatch(id, dto, UserContext.get().id()));
     }
 
-    @PutMapping("/items/series/match")
-    public R<Void> updateSeriesMatch(@RequestParam String seriesName, @Valid @RequestBody MediaMatchUpdateDto dto) {
-        mediaItemService.updateSeriesMatch(seriesName, dto, UserContext.get().id());
-        return R.ok();
-    }
-
     @PutMapping("/items/{id}/progress")
     public R<Void> updateProgress(@PathVariable String id, @Valid @RequestBody MediaProgressUpdateDto dto) {
         mediaItemService.updateProgress(id, dto, UserContext.get().id());
         return R.ok();
     }
 
+    // ---------- 收藏 ----------
+
+    @PostMapping("/favorites/toggle")
+    public R<Boolean> toggleFavorite(@Valid @RequestBody MediaFavoriteToggleDto dto) {
+        return R.ok(mediaFavoriteService.toggle(UserContext.get().id(), dto.getOwnerType(), dto.getOwnerId()));
+    }
+
+    @GetMapping("/favorites")
+    public R<IPage<MediaFavoriteVo>> pageFavorites(@Valid MediaFavoriteQueryDto query) {
+        return R.ok(mediaFavoriteService.pageFavorites(UserContext.get().id(), query));
+    }
+
     // ---------- 播放 ----------
 
     @GetMapping("/items/{id}/playback")
-    public R<MediaPlaybackInfoVo> playbackInfo(@PathVariable String id) {
-        return R.ok(mediaPlaybackService.getPlaybackInfo(id, UserContext.get().id()));
+    public R<MediaPlaybackInfoVo> playbackInfo(@PathVariable String id,
+                                               @RequestParam(required = false) String versionId) {
+        return R.ok(mediaPlaybackService.getPlaybackInfo(id, UserContext.get().id(), versionId));
     }
 
     @GetMapping("/items/{id}/stream")
     public ResponseEntity<InputStreamResource> stream(@PathVariable String id,
-                                                      @RequestHeader(value = "Range", required = false) String range) {
-        MediaPlaybackService.MediaStreamResult result = mediaPlaybackService.stream(id, UserContext.get().id(), range);
+                                                      @RequestHeader(value = "Range", required = false) String range,
+                                                      @RequestParam(required = false) String versionId) {
+        MediaPlaybackService.MediaStreamResult result =
+                mediaPlaybackService.stream(id, UserContext.get().id(), range, versionId);
         FileDownloadResult download = result.downloadResult();
         String encodedName = URLEncoder.encode(result.fileName(), StandardCharsets.UTF_8).replace("+", "%20");
         ResponseEntity.BodyBuilder builder;
@@ -213,9 +252,11 @@ public class MediaController {
     }
 
     @GetMapping("/items/{id}/subtitles/{index}")
-    public ResponseEntity<InputStreamResource> subtitle(@PathVariable String id, @PathVariable int index)
+    public ResponseEntity<InputStreamResource> subtitle(@PathVariable String id, @PathVariable int index,
+                                                        @RequestParam(defaultValue = "0") long offsetMs,
+                                                        @RequestParam(required = false) String versionId)
             throws Exception {
-        Path path = mediaPlaybackService.extractSubtitle(id, index, UserContext.get().id());
+        Path path = mediaPlaybackService.extractSubtitle(id, index, offsetMs, UserContext.get().id(), versionId);
         return ResponseEntity.ok()
                 .contentType(MediaType.parseMediaType("text/vtt"))
                 .contentLength(Files.size(path))
@@ -224,8 +265,12 @@ public class MediaController {
 
     @GetMapping("/items/{id}/subtitles/external/{subtitleId}")
     public ResponseEntity<InputStreamResource> externalSubtitle(@PathVariable String id,
-                                                                @PathVariable String subtitleId) throws Exception {
-        Path path = mediaPlaybackService.extractExternalSubtitle(id, subtitleId, UserContext.get().id());
+                                                                @PathVariable String subtitleId,
+                                                                @RequestParam(defaultValue = "0") long offsetMs,
+                                                                @RequestParam(required = false) String versionId)
+            throws Exception {
+        Path path = mediaPlaybackService.extractExternalSubtitle(
+                id, subtitleId, offsetMs, UserContext.get().id(), versionId);
         return ResponseEntity.ok()
                 .contentType(MediaType.parseMediaType("text/vtt"))
                 .contentLength(Files.size(path))
@@ -238,9 +283,11 @@ public class MediaController {
                                                   @RequestParam(required = false) Integer audioIndex,
                                                   @RequestParam(required = false) Long targetBitrateKbps,
                                                   @RequestParam(required = false) Integer maxHeight,
-                                                  @RequestParam(defaultValue = "false") boolean forceVideoTranscode) {
+                                                  @RequestParam(defaultValue = "false") boolean forceVideoTranscode,
+                                                  @RequestParam(required = false) String versionId) {
         TranscodeSession session = mediaPlaybackService.createTranscodeSession(
-                id, startMs, audioIndex, targetBitrateKbps, maxHeight, forceVideoTranscode, UserContext.get().id());
+                id, startMs, audioIndex, targetBitrateKbps, maxHeight, forceVideoTranscode,
+                UserContext.get().id(), versionId);
         Map<String, String> result = new HashMap<>();
         result.put("sessionId", session.id());
         result.put("playlistUrl", "/jcloud/api/media/transcode/" + session.id() + "/index.m3u8");
@@ -361,7 +408,15 @@ public class MediaController {
         if (metadata == null || !UserContext.get().id().equals(metadata.getUserId())) {
             throw new BusinessException(ResultCode.NOT_FOUND, "元数据不存在");
         }
-        tmdbService.refresh(id);
+        MediaMetadata refreshed = tmdbService.refreshV2(metadata);
+        if (refreshed != null) {
+            mediaMetadataMapper.updateById(refreshed);
+        }
+        // 每次刷新结束后重算 owner 的元数据完整性（剧集为聚合语义）；owner_type 未知编码时跳过（of 空安全）
+        MediaMetadataOwnerType ownerType = MediaMetadataOwnerType.of(metadata.getOwnerType());
+        if (ownerType != null) {
+            metadataCompleteSupport.refreshOwnerComplete(ownerType, metadata.getOwnerId());
+        }
         return R.ok();
     }
 }

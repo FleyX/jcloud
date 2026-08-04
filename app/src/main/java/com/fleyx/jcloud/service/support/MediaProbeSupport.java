@@ -15,6 +15,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -26,6 +27,15 @@ import java.util.concurrent.TimeUnit;
 @Component
 @RequiredArgsConstructor
 public class MediaProbeSupport {
+
+    /**
+     * 可转换为 WebVTT 的文本字幕编码（与 ffmpeg webvtt 封装支持的文本字幕解码器对应）。
+     * PGS（hdmv_pgs_subtitle）、DVD/DVB 等位图字幕不可转文本，播放信息不暴露。
+     */
+    private static final Set<String> TEXT_SUBTITLE_CODECS = Set.of(
+            "subrip", "ass", "ssa", "mov_text", "text", "webvtt", "sami",
+            "microdvd", "mpl2", "pjs", "realtext", "stl", "subviewer",
+            "subviewer1", "vplayer", "jacosub");
 
     private final MediaProperties mediaProperties;
     private final ObjectMapper objectMapper;
@@ -134,6 +144,8 @@ public class MediaProbeSupport {
         Integer height = null;
         List<MediaProbeResult.Track> audioTracks = new ArrayList<>();
         List<MediaProbeResult.Track> subtitleTracks = new ArrayList<>();
+        // 原文件字幕流计数：过滤位图轨后仍按原流序号标记，避免 ffmpeg -map 0:s:{index} 失配
+        int subtitleStreamIndex = 0;
         for (JsonNode stream : root.path("streams")) {
             String codecType = textOrNull(stream.path("codec_type"));
             String codec = textOrNull(stream.path("codec_name"));
@@ -151,11 +163,14 @@ public class MediaProbeSupport {
                         textOrNull(stream.path("tags").path("title")),
                         isDefault(stream)));
             } else if ("subtitle".equals(codecType)) {
-                subtitleTracks.add(new MediaProbeResult.Track(
-                        subtitleTracks.size(), codec,
-                        textOrNull(stream.path("tags").path("language")),
-                        textOrNull(stream.path("tags").path("title")),
-                        isDefault(stream)));
+                if (TEXT_SUBTITLE_CODECS.contains(codec)) {
+                    subtitleTracks.add(new MediaProbeResult.Track(
+                            subtitleStreamIndex, codec,
+                            textOrNull(stream.path("tags").path("language")),
+                            textOrNull(stream.path("tags").path("title")),
+                            isDefault(stream)));
+                }
+                subtitleStreamIndex++;
             }
         }
         return new MediaProbeResult(durationMs, container, videoCodec, audioCodec, width, height, bitRate,

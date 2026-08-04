@@ -104,6 +104,7 @@ permissions:
       - { code: "GET:/jcloud/api/media/items/series", name: "查询电视剧海报墙" }
       - { code: "GET:/jcloud/api/media/items/series/episodes", name: "查询剧集列表" }
       - { code: "GET:/jcloud/api/media/items/others", name: "查询其他视频" }
+      - { code: "GET:/jcloud/api/media/search", name: "全局搜索媒体" }
       - { code: "GET:/jcloud/api/media/items/{id}/detail", name: "查询条目详情" }
       - { code: "GET:/jcloud/api/media/series/detail", name: "查询电视剧详情" }
       - { code: "PUT:/jcloud/api/media/items/{id}/match", name: "手动修正条目匹配" }
@@ -117,7 +118,10 @@ permissions:
       - { code: "GET:/jcloud/api/media/metadata/{id}/poster", name: "获取海报图" }
       - { code: "GET:/jcloud/api/media/metadata/{id}/backdrop", name: "获取背景图" }
       - { code: "POST:/jcloud/api/media/metadata/{id}/refresh", name: "刷新元数据" }
+      - { code: "POST:/jcloud/api/media/favorites/toggle", name: "收藏/取消收藏" }
+      - { code: "GET:/jcloud/api/media/favorites", name: "查询我的收藏" }
       - { code: "GET:/jcloud/api/media/tmdb/search", name: "搜索 TMDB" }
+      - { code: "GET:/jcloud/api/media/libraries/{id}/genres", name: "查询媒体库类型列表" }
 
   - code: "system:menu"
     name: "系统设置"

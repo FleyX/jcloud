@@ -10,16 +10,18 @@ import { useRouter } from 'vue-router'
 import type { MediaItemVo } from '@/types/media'
 import { fetchMediaMovies } from '@/api/media'
 import PosterCard from './PosterCard.vue'
-import MediaWallToolbar from './MediaWallToolbar.vue'
+import MediaSortDialog from './MediaSortDialog.vue'
 import MediaSearchModal from './MediaSearchModal.vue'
 import MediaSearchResultRow from './MediaSearchResultRow.vue'
-import { useMediaWall, type MediaWallFetcher } from './useMediaWall'
+import { useMediaWall, type MediaWallFetcher, type MediaWallSortField } from './useMediaWall'
 import { cn } from '@/utils/cn'
 
 interface Props {
   dense?: boolean
   /** 限定单个媒体库，为空表示跨库 */
   directoryId?: string
+  /** 类型筛选（元数据 genres 拆分后包含该值），为空表示不过滤 */
+  genre?: string
 }
 
 const props = defineProps<Props>()
@@ -27,7 +29,7 @@ const props = defineProps<Props>()
 const router = useRouter()
 
 const fetcher: MediaWallFetcher<MediaItemVo> = (query) =>
-  fetchMediaMovies({ ...query, directoryId: props.directoryId })
+  fetchMediaMovies({ ...query, directoryId: props.directoryId, genre: props.genre })
 
 const {
   items: movies,
@@ -38,8 +40,16 @@ const {
   sortOrder,
   setSentinel,
   reload,
-  toggleSort,
+  setSort,
 } = useMediaWall<MediaItemVo>(props.directoryId ? `movies:${props.directoryId}` : 'movies', fetcher)
+
+/** 排序字段选项：电影/剧集库四字段（工单 03） */
+const sortFields: Array<{ value: MediaWallSortField; label: string }> = [
+  { value: 'added', label: '添加时间' },
+  { value: 'release', label: '发行时间' },
+  { value: 'rating', label: '评分' },
+  { value: 'title', label: '标题' },
+]
 
 watch(
   () => props.directoryId,
@@ -48,7 +58,27 @@ watch(
   },
 )
 
+watch(
+  () => props.genre,
+  (genre, prev) => {
+    if (genre !== prev) reload()
+  },
+)
+
 const searchOpen = ref(false)
+const sortOpen = ref(false)
+
+/** 供库详情页顶栏搜索图标调用（复用本组件 MediaSearchModal，仅搜当前库） */
+function openSearch() {
+  searchOpen.value = true
+}
+
+/** 供库详情页顶栏排序图标调用 */
+function openSort() {
+  sortOpen.value = true
+}
+
+defineExpose({ openSearch, openSort })
 
 function openDetail(item: MediaItemVo) {
   router.push({ name: 'MediaMovieDetail', params: { id: item.id } })
@@ -64,13 +94,6 @@ function resultSubtitle(item: MediaItemVo): string {
 
 <template>
   <div class="p-4 md:p-6">
-    <MediaWallToolbar
-      :sort-field="sortField"
-      :sort-order="sortOrder"
-      @open-search="searchOpen = true"
-      @sort="toggleSort"
-    />
-
     <p
       v-if="loading"
       class="py-16 text-center text-sm text-surface-400"
@@ -97,6 +120,9 @@ function resultSubtitle(item: MediaItemVo): string {
           :progress-ms="item.progressMs"
           :duration-ms="item.durationMs"
           :unmatched="item.matchStatus === 'unmatched'"
+          owner-type="movie"
+          :owner-id="item.id"
+          :favorited="item.favorited"
           @play="openDetail(item)"
         />
       </div>
@@ -133,5 +159,14 @@ function resultSubtitle(item: MediaItemVo): string {
         />
       </template>
     </MediaSearchModal>
+
+    <MediaSortDialog
+      :open="sortOpen"
+      :fields="sortFields"
+      :sort-field="sortField"
+      :sort-order="sortOrder"
+      @close="sortOpen = false"
+      @confirm="setSort"
+    />
   </div>
 </template>

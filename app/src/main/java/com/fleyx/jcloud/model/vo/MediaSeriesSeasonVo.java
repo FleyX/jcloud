@@ -32,4 +32,9 @@ public class MediaSeriesSeasonVo {
      * 是否有观看进度（存在 progress_ms > 0 的集）。
      */
     private Boolean hasProgress;
+
+    /**
+     * 当前用户是否已收藏（季卡片悬浮心形展示用）。
+     */
+    private Boolean favorited = Boolean.FALSE;
 }
