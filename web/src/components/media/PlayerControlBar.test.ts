@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount, type VueWrapper } from '@vue/test-utils'
-import { nextTick, ref, watch, type Ref } from 'vue'
+import { defineComponent, nextTick, ref, watch, type Ref } from 'vue'
 import PlayerControlBar from './PlayerControlBar.vue'
 import type { PlayerControls } from '@/composables/usePlayerControls'
+import type { MediaPlaybackInfoVo } from '@/types/media'
 
 /**
  * 可写的 controls 模拟类型：真实 PlayerControls 中 duration/currentTime/bufferedEnd 为只读
@@ -226,5 +227,60 @@ describe('PlayerControlBar 播放器控制交互', () => {
 
     expect(wrapper.classes()).toContain('opacity-100')
     expect(wrapper.classes()).not.toContain('pointer-events-none')
+  })
+})
+
+describe('PlayerControlBar 字幕菜单来源', () => {
+  /** 渲染 options 的 PlayerOptionMenu 桩，便于断言字幕菜单项来源 */
+  const MenuStub = defineComponent({
+    props: { options: { type: Array, default: () => [] } },
+    template: '<div class="stub-menu"><span v-for="o in options" :key="o.key">{{ o.label }}</span></div>',
+  })
+
+  function mountBarWithPlayback(playbackInfo: MediaPlaybackInfoVo): VueWrapper {
+    const controls = createFakeControls()
+    return mount(PlayerControlBar, {
+      props: {
+        controls: controls as unknown as PlayerControls,
+        playbackInfo,
+        audioIndex: null,
+        subtitleKey: null,
+        bitrateTierKey: 'auto',
+        isEpisode: false,
+        episodePanelOpen: false,
+      },
+      global: { stubs: { PlayerOptionMenu: MenuStub } },
+    })
+  }
+
+  it('播放信息统一字幕列表不含 PGS 时，字幕菜单不展示 PGS 等不可用轨', () => {
+    // 以后端播放信息为输入：subtitleTracks 可能残留原始 PGS 轨，但统一字幕列表已被过滤
+    const playbackInfo = {
+      mode: 'direct',
+      directUrl: null,
+      transcodeUrl: null,
+      durationMs: 7_200_000,
+      container: 'mkv',
+      videoCodec: 'h264',
+      audioCodec: 'aac',
+      width: 1920,
+      height: 1080,
+      audioTracks: [{ index: 0, codec: 'aac', language: 'ja', title: null }],
+      subtitleTracks: [
+        { index: 0, codec: 'hdmv_pgs_subtitle', language: null, title: 'PGS' },
+        { index: 1, codec: 'subrip', language: 'zh', title: null },
+      ],
+      subtitles: [
+        { type: 'embedded', index: 1, subtitleId: null, label: '中文字幕', language: 'zh', defaulted: true },
+      ],
+      effectiveBitRate: null,
+      progressMs: 0,
+    } as unknown as MediaPlaybackInfoVo
+
+    const wrapper = mountBarWithPlayback(playbackInfo)
+    const menuLabels = wrapper.findAll('.stub-menu span').map((n) => n.text())
+
+    expect(menuLabels).toContain('中文字幕')
+    expect(menuLabels.some((label) => label.includes('PGS'))).toBe(false)
   })
 })

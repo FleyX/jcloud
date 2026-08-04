@@ -6,3 +6,4 @@
 - [mobile-navigation-redesign](./mobile-navigation-redesign.md) → 移动端导航（移动顶部栏、二级菜单抽屉、个人中心页）
 - [media-favorites-and-navigation](./media-favorites-and-navigation.md) → 视频媒体库领域（收藏、顶栏影视菜单、我的收藏页、类型页、库卡片菜单、排序扩展）
 - [media-home-redesign-and-dark-theme](./media-home-redesign-and-dark-theme.md) → 影视首页改版、最新电影/剧集、全站双主题
+- [media-playback-subtitle-fixes](./media-playback-subtitle-fixes.md) → 视频播放字幕过滤、时间轴对齐与转换缓存

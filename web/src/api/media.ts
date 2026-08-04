@@ -178,14 +178,30 @@ export function transcodeCloseBeaconUrl(sessionId: string): string {
   return withToken(`/jcloud/api/media/transcode/${sessionId}/close`)
 }
 
-export function subtitleUrl(id: string, index: number, versionId?: string): string {
-  const base = `/jcloud/api/media/items/${id}/subtitles/${index}`
-  return withToken(versionId ? `${base}?versionId=${encodeURIComponent(versionId)}` : base)
+/**
+ * 构建字幕资源查询参数：版本参数与转码时间偏移可共存，offset 为 0 时不发送偏移参数。
+ */
+function buildSubtitleQuery(versionId?: string, offsetMs?: number): string {
+  const params: string[] = []
+  if (versionId) params.push(`versionId=${encodeURIComponent(versionId)}`)
+  if (offsetMs && offsetMs > 0) params.push(`offsetMs=${offsetMs}`)
+  return params.length > 0 ? `?${params.join('&')}` : ''
 }
 
-export function externalSubtitleUrl(id: string, subtitleId: string, versionId?: string): string {
+/**
+ * 内嵌字幕 URL。offsetMs 为转码会话起点（毫秒），直放时不传（0）。
+ */
+export function subtitleUrl(id: string, index: number, versionId?: string, offsetMs?: number): string {
+  const base = `/jcloud/api/media/items/${id}/subtitles/${index}`
+  return withToken(`${base}${buildSubtitleQuery(versionId, offsetMs)}`)
+}
+
+/**
+ * 外置字幕 URL。offsetMs 为转码会话起点（毫秒），直放时不传（0）。
+ */
+export function externalSubtitleUrl(id: string, subtitleId: string, versionId?: string, offsetMs?: number): string {
   const base = `/jcloud/api/media/items/${id}/subtitles/external/${subtitleId}`
-  return withToken(versionId ? `${base}?versionId=${encodeURIComponent(versionId)}` : base)
+  return withToken(`${base}${buildSubtitleQuery(versionId, offsetMs)}`)
 }
 
 // ---------- 元数据 ----------

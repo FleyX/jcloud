@@ -38,22 +38,24 @@ public interface MediaPlaybackService {
      *
      * @param itemId    条目 ID
      * @param index     字幕轨序号
+     * @param offsetMs  时间偏移（毫秒），0 不偏移（直放原片时间轴），正值按转码会话起点生成相对时间轴，拒绝负值
      * @param userId    用户 ID
      * @param versionId 文件明细行 ID（电影版本 ID），为空按续播定位
      * @return VTT 文件路径
      */
-    Path extractSubtitle(String itemId, int index, String userId, String versionId);
+    Path extractSubtitle(String itemId, int index, long offsetMs, String userId, String versionId);
 
     /**
      * 读取外部字幕为 WebVTT 文件（vtt 原样返回，srt/ass/ssa 经 ffmpeg 转换缓存）。
      *
      * @param itemId     条目 ID
      * @param subtitleId 外部字幕记录 ID
+     * @param offsetMs   时间偏移（毫秒），0 不偏移，正值按转码会话起点生成相对时间轴，拒绝负值
      * @param userId     用户 ID
      * @param versionId  文件明细行 ID（电影版本 ID），为空按续播定位
      * @return VTT 文件路径
      */
-    Path extractExternalSubtitle(String itemId, String subtitleId, String userId, String versionId);
+    Path extractExternalSubtitle(String itemId, String subtitleId, long offsetMs, String userId, String versionId);
 
     /**
      * 创建转码会话（按流决策转封装/转码）。

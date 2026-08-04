@@ -142,10 +142,12 @@ export function useMediaPlayback(videoRef: Ref<HTMLVideoElement | null>) {
     const item = subtitles.value.find((s) => subtitleItemKey(s) === key)
     if (!item) return null
     const versionId = currentVersionId.value ?? undefined
+    // 转码播放的字幕时间轴相对当前转码会话起点偏移，直放使用原片时间轴（offset 0）
+    const offsetMs = transcodeActive.value ? transcodeBaseMs.value : 0
     const src = item.type === 'embedded' && item.index !== null
-      ? subtitleUrl(id, item.index, versionId)
+      ? subtitleUrl(id, item.index, versionId, offsetMs)
       : item.subtitleId
-        ? externalSubtitleUrl(id, item.subtitleId, versionId)
+        ? externalSubtitleUrl(id, item.subtitleId, versionId, offsetMs)
         : null
     return src ? { key, label: item.label, src } : null
   })

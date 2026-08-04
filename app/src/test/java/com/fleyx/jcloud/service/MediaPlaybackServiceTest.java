@@ -49,6 +49,8 @@ import java.nio.file.Path;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -284,15 +286,18 @@ class MediaPlaybackServiceTest {
         MediaMovie movie = querySingleMovie(directory.getId());
         MediaSubtitle subtitle = querySubtitle(queryMovieFile(movie.getId()).getId());
 
-        Path vtt = mediaPlaybackService.extractExternalSubtitle(movie.getId(), subtitle.getId(), user.getId(), null);
+        Path vtt = mediaPlaybackService.extractExternalSubtitle(movie.getId(), subtitle.getId(), 0, user.getId(), null);
         assertTrue(Files.exists(vtt));
-        assertEquals("ext_" + subtitle.getFileNodeId() + ".vtt", vtt.getFileName().toString());
+        String fileName = vtt.getFileName().toString();
+        // 缓存名带内容版本（节点 hash），不再只按文件节点 ID
+        assertTrue(fileName.startsWith("ext_" + subtitle.getFileNodeId() + "_"));
+        assertTrue(fileName.endsWith(".vtt"));
         String content = Files.readString(vtt, StandardCharsets.UTF_8);
         assertTrue(content.startsWith("WEBVTT"));
         assertTrue(content.contains("你好，世界"));
 
         // 二次读取命中缓存，返回同一路径
-        Path cached = mediaPlaybackService.extractExternalSubtitle(movie.getId(), subtitle.getId(), user.getId(), null);
+        Path cached = mediaPlaybackService.extractExternalSubtitle(movie.getId(), subtitle.getId(), 0, user.getId(), null);
         assertEquals(vtt, cached);
     }
 
@@ -314,7 +319,7 @@ class MediaPlaybackServiceTest {
         MediaMovie movie = querySingleMovie(directory.getId());
         MediaSubtitle subtitle = querySubtitle(queryMovieFile(movie.getId()).getId());
 
-        Path path = mediaPlaybackService.extractExternalSubtitle(movie.getId(), subtitle.getId(), user.getId(), null);
+        Path path = mediaPlaybackService.extractExternalSubtitle(movie.getId(), subtitle.getId(), 0, user.getId(), null);
         assertEquals(vttContent, Files.readString(path, StandardCharsets.UTF_8));
         // 原样返回用户空间内的原文件，而不是系统空间缓存
         assertEquals("沙丘.vtt", path.getFileName().toString());
@@ -342,9 +347,9 @@ class MediaPlaybackServiceTest {
         MediaSubtitle subtitle = querySubtitle(fileA.getId());
 
         assertThrows(BusinessException.class,
-                () -> mediaPlaybackService.extractExternalSubtitle(movieBrow.getId(), subtitle.getId(), user.getId(), null));
+                () -> mediaPlaybackService.extractExternalSubtitle(movieBrow.getId(), subtitle.getId(), 0, user.getId(), null));
         assertThrows(BusinessException.class,
-                () -> mediaPlaybackService.extractExternalSubtitle(movieArow.getId(), "nonexistent0", user.getId(), null));
+                () -> mediaPlaybackService.extractExternalSubtitle(movieArow.getId(), "nonexistent0", 0, user.getId(), null));
     }
 
     /**
@@ -471,6 +476,164 @@ class MediaPlaybackServiceTest {
         assertEquals(v2.getId(), resume.getVersionId());
         assertEquals(1, resume.getSubtitles().size());
         assertEquals("English", resume.getSubtitles().get(0).getLabel());
+    }
+
+    /**
+     * 外置字幕支持可选时间偏移（转码会话起点）：
+     * 偏移非零时从规范 VTT 生成独立偏移结果，不改写规范缓存；
+     * 跨越起点的 cue 从 0 秒开始、完全过期的 cue 不输出。
+     */
+    @Test
+    void shouldApplyOffsetToExternalSubtitleAndKeepCanonicalUntouched() throws Exception {
+        UserVo user = prepareUserWithStorageSpace();
+        FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
+        FileNodeVo dune = createFolder(user.getId(), movieFolder.getId(), "沙丘");
+        fileService.upload(buildFile("沙丘.mkv", "video".getBytes()), user.getId(), dune.getId(), null);
+        fileService.upload(buildFile("沙丘.zh.srt", SRT_CONTENT.getBytes(StandardCharsets.UTF_8)),
+                user.getId(), dune.getId(), null);
+        MediaDirectory directory = createDirectory(user.getId(), movieFolder.getId(), "movie");
+        mediaScanService.scan(directory.getId());
+
+        MediaMovie movie = querySingleMovie(directory.getId());
+        MediaSubtitle subtitle = querySubtitle(queryMovieFile(movie.getId()).getId());
+
+        Path canonical = mediaPlaybackService.extractExternalSubtitle(movie.getId(), subtitle.getId(), 0, user.getId(), null);
+        String canonicalContent = Files.readString(canonical, StandardCharsets.UTF_8);
+        assertTrue(canonicalContent.contains("00:01.000 --> 00:04.000"));
+
+        // 偏移 2000ms：首 cue（1s-4s）跨越起点从 0 开始，次 cue（5s-6s）变为 3s-4s
+        Path offset = mediaPlaybackService.extractExternalSubtitle(movie.getId(), subtitle.getId(), 2000, user.getId(), null);
+        assertNotEquals(canonical, offset);
+        String offsetContent = Files.readString(offset, StandardCharsets.UTF_8);
+        assertTrue(offsetContent.contains("00:00.000 --> 00:02.000"));
+        assertTrue(offsetContent.contains("00:03.000 --> 00:04.000"));
+        assertTrue(offsetContent.contains("你好，世界"));
+        // 规范缓存未被改写
+        assertEquals(canonicalContent, Files.readString(canonical, StandardCharsets.UTF_8));
+
+        // 偏移 4500ms：首 cue（end 4s <= 4500ms）完全过期移除，次 cue 变为 0.5s-1.5s
+        Path expired = mediaPlaybackService.extractExternalSubtitle(movie.getId(), subtitle.getId(), 4500, user.getId(), null);
+        String expiredContent = Files.readString(expired, StandardCharsets.UTF_8);
+        assertFalse(expiredContent.contains("你好，世界"));
+        assertTrue(expiredContent.contains("00:00.500 --> 00:01.500"));
+    }
+
+    /**
+     * 字幕偏移拒绝负值。
+     */
+    @Test
+    void shouldRejectNegativeOffset() {
+        UserVo user = prepareUserWithStorageSpace();
+        FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
+        FileNodeVo dune = createFolder(user.getId(), movieFolder.getId(), "沙丘");
+        fileService.upload(buildFile("沙丘.mkv", "video".getBytes()), user.getId(), dune.getId(), null);
+        fileService.upload(buildFile("沙丘.zh.srt", SRT_CONTENT.getBytes(StandardCharsets.UTF_8)),
+                user.getId(), dune.getId(), null);
+        MediaDirectory directory = createDirectory(user.getId(), movieFolder.getId(), "movie");
+        mediaScanService.scan(directory.getId());
+
+        MediaMovie movie = querySingleMovie(directory.getId());
+        MediaSubtitle subtitle = querySubtitle(queryMovieFile(movie.getId()).getId());
+
+        assertThrows(BusinessException.class,
+                () -> mediaPlaybackService.extractExternalSubtitle(movie.getId(), subtitle.getId(), -1, user.getId(), null));
+    }
+
+    /**
+     * 外置字幕转换缓存按文件内容版本区分：
+     * 同一字幕节点改变 hash/大小/最后修改时间后读取到新缓存，而不是旧 VTT；旧缓存遗留不改写。
+     */
+    @Test
+    void shouldGenerateNewCacheWhenContentVersionChanges() throws Exception {
+        UserVo user = prepareUserWithStorageSpace();
+        FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
+        FileNodeVo dune = createFolder(user.getId(), movieFolder.getId(), "沙丘");
+        fileService.upload(buildFile("沙丘.mkv", "video".getBytes()), user.getId(), dune.getId(), null);
+        fileService.upload(buildFile("沙丘.zh.srt", SRT_CONTENT.getBytes(StandardCharsets.UTF_8)),
+                user.getId(), dune.getId(), null);
+        MediaDirectory directory = createDirectory(user.getId(), movieFolder.getId(), "movie");
+        mediaScanService.scan(directory.getId());
+
+        MediaMovie movie = querySingleMovie(directory.getId());
+        MediaSubtitle subtitle = querySubtitle(queryMovieFile(movie.getId()).getId());
+
+        Path vtt1 = mediaPlaybackService.extractExternalSubtitle(movie.getId(), subtitle.getId(), 0, user.getId(), null);
+        String vtt1Content = Files.readString(vtt1, StandardCharsets.UTF_8);
+
+        // 模拟内容版本变化：节点 hash/size/最后修改时间变化
+        FileNode node = fileMapper.selectById(subtitle.getFileNodeId());
+        node.setHash("changed-" + System.nanoTime());
+        node.setSize(node.getSize() + 1);
+        node.setLastModified(System.currentTimeMillis());
+        fileMapper.updateById(node);
+
+        Path vtt2 = mediaPlaybackService.extractExternalSubtitle(movie.getId(), subtitle.getId(), 0, user.getId(), null);
+        assertNotEquals(vtt1, vtt2);
+        // 旧缓存遗留且内容不变，新缓存按新版本生成
+        assertTrue(Files.exists(vtt1));
+        assertEquals(vtt1Content, Files.readString(vtt1, StandardCharsets.UTF_8));
+        assertTrue(Files.exists(vtt2));
+        assertTrue(Files.readString(vtt2, StandardCharsets.UTF_8).startsWith("WEBVTT"));
+    }
+
+    /**
+     * 电影版本、电视剧集、其他视频均按文件明细行读取外部字幕。
+     */
+    @Test
+    void shouldReadExternalSubtitleForEpisodeAndOtherRows() throws Exception {
+        UserVo user = prepareUserWithStorageSpace();
+        // 电视剧：字幕挂在集文件明细行
+        FileNodeVo tvRoot = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电视");
+        FileNodeVo series = createFolder(user.getId(), tvRoot.getId(), "剧甲");
+        FileNodeVo season = createFolder(user.getId(), series.getId(), "Season 1");
+        fileService.upload(buildFile("剧甲.S01E01.mkv", "video".getBytes()), user.getId(), season.getId(), null);
+        fileService.upload(buildFile("剧甲.S01E01.chs.srt", SRT_CONTENT.getBytes(StandardCharsets.UTF_8)),
+                user.getId(), season.getId(), null);
+        MediaDirectory tvDir = createDirectory(user.getId(), tvRoot.getId(), "tv");
+        mediaScanService.scan(tvDir.getId());
+        MediaEpisode episode = mediaEpisodeMapper.selectList(null).getFirst();
+        MediaEpisodeFile episodeFile = mediaEpisodeFileMapper.selectList(
+                new LambdaQueryWrapper<MediaEpisodeFile>().eq(MediaEpisodeFile::getEpisodeId, episode.getId())).getFirst();
+        MediaSubtitle episodeSubtitle = querySubtitle(episodeFile.getId());
+        Path episodeVtt = mediaPlaybackService.extractExternalSubtitle(
+                episode.getId(), episodeSubtitle.getId(), 0, user.getId(), null);
+        assertTrue(Files.exists(episodeVtt));
+        assertTrue(Files.readString(episodeVtt, StandardCharsets.UTF_8).contains("你好，世界"));
+
+        // 其他库：字幕挂在 other 行
+        FileNodeVo otherRoot = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "其他");
+        fileService.upload(buildFile("素材.mkv", "video".getBytes()), user.getId(), otherRoot.getId(), null);
+        fileService.upload(buildFile("素材.chs.srt", SRT_CONTENT.getBytes(StandardCharsets.UTF_8)),
+                user.getId(), otherRoot.getId(), null);
+        MediaDirectory otherDir = createDirectory(user.getId(), otherRoot.getId(), "other");
+        mediaScanService.scan(otherDir.getId());
+        MediaOther other = mediaOtherMapper.selectOne(new LambdaQueryWrapper<MediaOther>()
+                .eq(MediaOther::getDirectoryId, otherDir.getId()));
+        MediaSubtitle otherSubtitle = querySubtitle(other.getId());
+        Path otherVtt = mediaPlaybackService.extractExternalSubtitle(
+                other.getId(), otherSubtitle.getId(), 0, user.getId(), null);
+        assertTrue(Files.exists(otherVtt));
+        assertTrue(Files.readString(otherVtt, StandardCharsets.UTF_8).contains("你好，世界"));
+
+        // 电影版本（多版本各挂各字幕）：上一用例覆盖，此处补一个指定版本读取
+        FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
+        FileNodeVo dune = createFolder(user.getId(), movieFolder.getId(), "沙丘");
+        fileService.upload(buildFile("沙丘.1080p.mkv", "video".getBytes()), user.getId(), dune.getId(), null);
+        fileService.upload(buildFile("沙丘.1080p.chs.srt", SRT_CONTENT.getBytes(StandardCharsets.UTF_8)),
+                user.getId(), dune.getId(), null);
+        fileService.upload(buildFile("沙丘.4K.mkv", "video".getBytes()), user.getId(), dune.getId(), null);
+        fileService.upload(buildFile("沙丘.4K.eng.srt", SRT_CONTENT.getBytes(StandardCharsets.UTF_8)),
+                user.getId(), dune.getId(), null);
+        MediaDirectory movieDir = createDirectory(user.getId(), movieFolder.getId(), "movie");
+        mediaScanService.scan(movieDir.getId());
+        MediaMovie movie = querySingleMovie(movieDir.getId());
+        MediaMovieFile v2 = queryMovieFiles(movie.getId()).stream()
+                .filter(f -> f.getFileNodeId().equals(fileNodeIdByName("沙丘.4K.mkv"))).findFirst().orElseThrow();
+        MediaSubtitle versionSubtitle = querySubtitle(v2.getId());
+        Path versionVtt = mediaPlaybackService.extractExternalSubtitle(
+                movie.getId(), versionSubtitle.getId(), 0, user.getId(), v2.getId());
+        assertTrue(Files.exists(versionVtt));
+        assertTrue(Files.readString(versionVtt, StandardCharsets.UTF_8).contains("你好，世界"));
     }
 
     private com.fleyx.jcloud.model.dto.MediaProgressUpdateDto progressDto(long progressMs) {

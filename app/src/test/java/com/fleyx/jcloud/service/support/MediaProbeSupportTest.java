@@ -104,4 +104,38 @@ class MediaProbeSupportTest {
         assertTrue(result.audioTracks().isEmpty());
         assertTrue(result.subtitleTracks().isEmpty());
     }
+
+    /**
+     * PGS/DVD 等位图字幕轨不暴露，文本字幕轨保留并保持原文件字幕流序号
+     * （过滤位图轨后序号仍指向 ffmpeg -map 0:s:{index} 的原流序号）。
+     */
+    @Test
+    void shouldFilterBitmapSubtitlesAndKeepTextTrackOriginalStreamIndex() throws Exception {
+        String json = """
+                {
+                  "format": {"format_name": "matroska"},
+                  "streams": [
+                    {"codec_type": "video", "codec_name": "h264", "width": 1920, "height": 1080},
+                    {"codec_type": "subtitle", "codec_name": "subrip",
+                     "tags": {"language": "chi"}, "disposition": {"default": 1}},
+                    {"codec_type": "subtitle", "codec_name": "hdmv_pgs_subtitle", "disposition": {"default": 0}},
+                    {"codec_type": "subtitle", "codec_name": "ass",
+                     "tags": {"language": "eng"}, "disposition": {"default": 0}},
+                    {"codec_type": "subtitle", "codec_name": "dvd_subtitle", "disposition": {"default": 0}}
+                  ]
+                }
+                """;
+        MediaProbeResult result = support.parse(json);
+
+        assertEquals(2, result.subtitleTracks().size());
+        MediaProbeResult.Track first = result.subtitleTracks().get(0);
+        assertEquals("subrip", first.codec());
+        assertEquals(0, first.index());
+        assertTrue(first.defaulted());
+        MediaProbeResult.Track second = result.subtitleTracks().get(1);
+        assertEquals("ass", second.codec());
+        // 原文件字幕流序号：subrip=0、pgs=1（被过滤）、ass=2、dvd=3（被过滤）
+        assertEquals(2, second.index());
+        assertFalse(second.defaulted());
+    }
 }
