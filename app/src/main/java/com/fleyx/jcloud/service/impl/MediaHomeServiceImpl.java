@@ -43,6 +43,8 @@ public class MediaHomeServiceImpl implements MediaHomeService {
     public MediaHomeVo getHome(String userId) {
         MediaHomeVo vo = new MediaHomeVo();
         vo.setLibraries(mediaDirectoryService.list(userId));
+        vo.setLatestMovies(toItemVos(mediaHomeQuerySupport.listLatestMovies(userId, SECTION_LIMIT)));
+        vo.setLatestSeries(toItemVos(mediaHomeQuerySupport.listLatestSeries(userId, SECTION_LIMIT)));
         vo.setContinueWatching(toItemVos(mediaHomeQuerySupport.listContinueWatching(userId, SECTION_LIMIT)));
         vo.setNextUp(toItemVos(mediaHomeQuerySupport.listNextUp(userId, SECTION_LIMIT)));
         return vo;
@@ -66,6 +68,7 @@ public class MediaHomeServiceImpl implements MediaHomeService {
             vo.setFileNodeId(item.fileNodeId());
             vo.setItemType(item.itemType());
             vo.setFileName(item.fileName());
+            vo.setMetadataId(item.metadataId());
             vo.setSeriesId(item.seriesId());
             vo.setSeriesName(item.seriesName());
             vo.setSeasonNo(item.seasonNo());
@@ -73,6 +76,7 @@ public class MediaHomeServiceImpl implements MediaHomeService {
             vo.setDurationMs(item.durationMs());
             vo.setProgressMs(item.progressMs());
             vo.setLastPlayTime(item.lastPlayTime());
+            vo.setAddedTime(item.addedTime());
             MediaMetadata metadata = item.metadataId() == null ? null : metadataMap.get(item.metadataId());
             MediaMetadata seriesMetadata = item.seriesMetadataId() == null
                     ? null : seriesMetadataMap.get(item.seriesMetadataId());

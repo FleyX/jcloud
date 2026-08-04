@@ -62,7 +62,7 @@ public class MediaHomeQuerySupport {
     public record HomeItem(String id, String fileNodeId, String itemType, String title, String fileName,
                            String metadataId, String seriesId, String seriesName, String seriesMetadataId,
                            Integer seasonNo, Integer episodeNo, Long durationMs, Long progressMs,
-                           LocalDateTime lastPlayTime) {
+                           LocalDateTime lastPlayTime, LocalDateTime addedTime) {
     }
 
     /**
@@ -129,6 +129,48 @@ public class MediaHomeQuerySupport {
     }
 
     /**
+     * 最新电影：按电影实体入库时间倒序，每部电影只返回一张卡片。
+     */
+    public List<HomeItem> listLatestMovies(String userId, int limit) {
+        List<MediaMovie> movies = mediaMovieMapper.selectList(new LambdaQueryWrapper<MediaMovie>()
+                .eq(MediaMovie::getUserId, userId)
+                .isNotNull(MediaMovie::getAddedTime)
+                .orderByDesc(MediaMovie::getAddedTime)
+                .orderByDesc(MediaMovie::getId)
+                .last("LIMIT " + boundedLimit(limit)));
+        if (movies.isEmpty()) {
+            return List.of();
+        }
+        Map<String, MediaMovieFile> fileMap = representativeMovieFiles(movies);
+        Map<String, String> fileNameMap = loadFileNameMap(
+                fileMap.values().stream().map(MediaMovieFile::getFileNodeId).toList());
+        return movies.stream().map(movie -> {
+            MediaMovieFile file = fileMap.get(movie.getId());
+            String fileNodeId = file == null ? null : file.getFileNodeId();
+            return new HomeItem(movie.getId(), fileNodeId, MediaItemType.MOVIE.getCode(),
+                    movie.getTitle(), fileNodeId == null ? null : fileNameMap.get(fileNodeId),
+                    movie.getMetadataId(), null, null, null, null, null,
+                    null, movie.getProgressMs(), movie.getLastPlayTime(), movie.getAddedTime());
+        }).toList();
+    }
+
+    /**
+     * 最新剧集：按剧实体最近入库时间倒序，每部剧只返回一张聚合卡片。
+     */
+    public List<HomeItem> listLatestSeries(String userId, int limit) {
+        List<MediaSeries> seriesList = mediaSeriesMapper.selectList(new LambdaQueryWrapper<MediaSeries>()
+                .eq(MediaSeries::getUserId, userId)
+                .isNotNull(MediaSeries::getLatestAddedTime)
+                .orderByDesc(MediaSeries::getLatestAddedTime)
+                .orderByDesc(MediaSeries::getId)
+                .last("LIMIT " + boundedLimit(limit)));
+        return seriesList.stream().map(series -> new HomeItem(
+                series.getId(), null, MediaItemType.SERIES.getCode(), series.getSeriesName(), null,
+                series.getMetadataId(), series.getId(), series.getSeriesName(), null,
+                null, null, null, null, null, series.getLatestAddedTime())).toList();
+    }
+
+    /**
      * 电影候选行：全部电影行（可选仅带进度），时长取代表文件明细。
      */
     private List<HomeItem> movieItems(String userId, boolean withProgressOnly) {
@@ -152,7 +194,7 @@ public class MediaHomeQuerySupport {
             result.add(new HomeItem(movie.getId(), file.getFileNodeId(), MediaItemType.MOVIE.getCode(),
                     movie.getTitle(), fileNameMap.get(file.getFileNodeId()), movie.getMetadataId(),
                     null, null, null, null, null,
-                    file.getDurationMs(), movie.getProgressMs(), movie.getLastPlayTime()));
+                    file.getDurationMs(), movie.getProgressMs(), movie.getLastPlayTime(), null));
         }
         return result;
     }
@@ -207,7 +249,7 @@ public class MediaHomeQuerySupport {
         return others.stream().map(o -> new HomeItem(o.getId(), o.getFileNodeId(), MediaItemType.OTHER.getCode(),
                         o.getName(), fileNameMap.get(o.getFileNodeId()), null,
                         null, null, null, null, null,
-                        o.getDurationMs(), o.getProgressMs(), o.getLastPlayTime()))
+                        o.getDurationMs(), o.getProgressMs(), o.getLastPlayTime(), null))
                 .toList();
     }
 
@@ -220,7 +262,7 @@ public class MediaHomeQuerySupport {
                 series.getSeriesName(), fileNameMap.get(file.getFileNodeId()), episode.getMetadataId(),
                 series.getId(), series.getSeriesName(), series.getMetadataId(),
                 season == null ? null : season.getSeasonNo(), episode.getEpisodeNo(),
-                file.getDurationMs(), episode.getProgressMs(), episode.getLastPlayTime());
+                file.getDurationMs(), episode.getProgressMs(), episode.getLastPlayTime(), null);
     }
 
     private record SeriesNextUp(HomeItem item, LocalDateTime lastPlayTime) {
@@ -315,6 +357,10 @@ public class MediaHomeQuerySupport {
     private Comparator<HomeItem> lastPlayDesc() {
         return Comparator.comparing(HomeItem::lastPlayTime,
                 Comparator.nullsLast(Comparator.reverseOrder()));
+    }
+
+    private int boundedLimit(int limit) {
+        return Math.max(0, Math.min(limit, 16));
     }
 
     private Map<String, String> loadFileNameMap(List<String> fileNodeIds) {
