@@ -147,55 +147,60 @@ public class MediaPlaybackServiceImpl implements MediaPlaybackService {
     }
 
     @Override
-    public Path extractSubtitle(String id, int index, String userId, String versionId) {
+    public Path extractSubtitle(String id, int index, long offsetMs, String userId, String versionId) {
+        validateOffset(offsetMs);
         Playable playable = mediaPlaybackResolveSupport.resolve(id, userId, versionId);
         StorageSpace space = systemStorageSpaceProvider.getSystemSpace();
-        Path target = Path.of(space.getPath(), "system", SUBTITLE_CACHE_DIR, playable.fileRowId() + "_" + index + ".vtt");
-        if (Files.exists(target)) {
-            return target;
-        }
-        FileNode node = requireFileNode(playable.fileNodeId(), userId);
-        Path tempInput = null;
-        try {
-            Files.createDirectories(target.getParent());
-            String inputPath;
-            if (FileNodeConstants.SOURCE_REMOTE.equals(node.getSourceType())) {
-                // 远程文件先落地临时文件再提取，保证 ffmpeg 可随机访问
-                tempInput = Files.createTempFile("jcloud-sub-", ".bin");
-                try (InputStream in = remoteFileService.download(node, userId).getInputStream()) {
-                    Files.copy(in, tempInput, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        Path canonical = Path.of(space.getPath(), "system", SUBTITLE_CACHE_DIR, playable.fileRowId() + "_" + index + ".vtt");
+        if (!Files.exists(canonical)) {
+            FileNode node = requireFileNode(playable.fileNodeId(), userId);
+            Path tempInput = null;
+            try {
+                Files.createDirectories(canonical.getParent());
+                String inputPath;
+                if (FileNodeConstants.SOURCE_REMOTE.equals(node.getSourceType())) {
+                    // 远程文件先落地临时文件再提取，保证 ffmpeg 可随机访问
+                    tempInput = Files.createTempFile("jcloud-sub-", ".bin");
+                    try (InputStream in = remoteFileService.download(node, userId).getInputStream()) {
+                        Files.copy(in, tempInput, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                    }
+                    inputPath = tempInput.toString();
+                } else {
+                    inputPath = resolveLocalPath(node, userId).toString();
                 }
-                inputPath = tempInput.toString();
-            } else {
-                inputPath = resolveLocalPath(node, userId).toString();
-            }
-            Process process = new ProcessBuilder(mediaProperties.getFfmpegPath(), "-y", "-v", "error",
-                    "-i", inputPath, "-map", "0:s:" + index, "-f", "webvtt", target.toString()).start();
-            boolean finished = process.waitFor(120, TimeUnit.SECONDS);
-            if (!finished) {
-                process.destroyForcibly();
-                throw new SystemException(ResultCode.SYSTEM_ERROR, "字幕提取超时");
-            }
-            if (process.exitValue() != 0 || !Files.exists(target)) {
-                throw new BusinessException(ResultCode.BUSINESS_ERROR, "字幕提取失败，该字幕轨可能不受支持");
-            }
-            return target;
-        } catch (BusinessException | SystemException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new SystemException(ResultCode.SYSTEM_ERROR, "字幕提取异常", e);
-        } finally {
-            if (tempInput != null) {
-                try {
-                    Files.deleteIfExists(tempInput);
-                } catch (Exception ignored) {
+                Process process = new ProcessBuilder(mediaProperties.getFfmpegPath(), "-y", "-v", "error",
+                        "-i", inputPath, "-map", "0:s:" + index, "-f", "webvtt", canonical.toString()).start();
+                boolean finished = process.waitFor(120, TimeUnit.SECONDS);
+                if (!finished) {
+                    process.destroyForcibly();
+                    throw new SystemException(ResultCode.SYSTEM_ERROR, "字幕提取超时");
+                }
+                if (process.exitValue() != 0 || !Files.exists(canonical)) {
+                    throw new BusinessException(ResultCode.BUSINESS_ERROR, "字幕提取失败，该字幕轨可能不受支持");
+                }
+            } catch (BusinessException | SystemException e) {
+                throw e;
+            } catch (Exception e) {
+                throw new SystemException(ResultCode.SYSTEM_ERROR, "字幕提取异常", e);
+            } finally {
+                if (tempInput != null) {
+                    try {
+                        Files.deleteIfExists(tempInput);
+                    } catch (Exception ignored) {
+                    }
                 }
             }
         }
+        if (offsetMs == 0) {
+            return canonical;
+        }
+        return mediaSubtitleSupport.resolveOffsetVtt(
+                canonical, playable.fileRowId() + "_" + index, offsetMs);
     }
 
     @Override
-    public Path extractExternalSubtitle(String id, String subtitleId, String userId, String versionId) {
+    public Path extractExternalSubtitle(String id, String subtitleId, long offsetMs, String userId, String versionId) {
+        validateOffset(offsetMs);
         Playable playable = mediaPlaybackResolveSupport.resolve(id, userId, versionId);
         MediaSubtitle subtitle = mediaSubtitleMapper.selectById(subtitleId);
         if (subtitle == null || !playable.fileRowId().equals(subtitle.getFileId())) {
@@ -207,7 +212,17 @@ public class MediaPlaybackServiceImpl implements MediaPlaybackService {
         }
         Path localPath = FileNodeConstants.SOURCE_REMOTE.equals(node.getSourceType())
                 ? null : resolveLocalPath(node, userId);
-        return mediaSubtitleSupport.resolveExternalVtt(subtitle, node, localPath, userId);
+        Path canonical = mediaSubtitleSupport.resolveExternalVtt(subtitle, node, localPath, userId);
+        if (offsetMs == 0) {
+            return canonical;
+        }
+        return mediaSubtitleSupport.resolveOffsetVtt(node, canonical, offsetMs);
+    }
+
+    private void validateOffset(long offsetMs) {
+        if (offsetMs < 0) {
+            throw new BusinessException(ResultCode.PARAM_ERROR, "字幕偏移不能为负");
+        }
     }
 
     /**

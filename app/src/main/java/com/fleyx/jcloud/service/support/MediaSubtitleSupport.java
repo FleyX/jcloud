@@ -16,11 +16,14 @@ import com.fleyx.jcloud.service.RemoteFileService;
 import com.fleyx.jcloud.service.SystemStorageSpaceProvider;
 import com.fleyx.jcloud.util.MediaSubtitleNameParser;
 import com.fleyx.jcloud.util.SubtitleCharsetUtil;
+import com.fleyx.jcloud.util.WebVttOffsetUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -217,8 +220,8 @@ public class MediaSubtitleSupport {
     /**
      * 解析外部字幕的 webvtt 文件：vtt 原样返回（远程落地缓存），srt/ass/ssa 经 ffmpeg 转换并缓存。
      * <p>
-     * 缓存位置 {存储空间}/system/media/subtitles/ext_{fileNodeId}.vtt，
-     * 远程文件带 etag（来自节点 hash，特殊字符安全化）：ext_{fileNodeId}_{etag}.vtt，存在即复用。
+     * 缓存位置 {存储空间}/system/media/subtitles/ext_{fileNodeId}_{内容版本}.vtt，
+     * 内容版本优先节点 hash，缺失时回退文件大小与最后修改时间；内容变化后生成新缓存，旧缓存遗留不复用。
      *
      * @param subtitle  外部字幕记录
      * @param node      字幕文件节点
@@ -233,7 +236,7 @@ public class MediaSubtitleSupport {
             return localPath;
         }
         Path target = Path.of(systemStorageSpaceProvider.getSystemSpace().getPath(),
-                "system", SUBTITLE_CACHE_DIR, externalCacheName(node, remote));
+                "system", SUBTITLE_CACHE_DIR, externalCacheName(node));
         if (Files.exists(target)) {
             return target;
         }
@@ -272,14 +275,72 @@ public class MediaSubtitleSupport {
     }
 
     /**
-     * 外部字幕缓存文件名：本地 ext_{fileNodeId}.vtt，远程带安全化的 etag 区分内容版本。
+     * 从规范 VTT 生成独立偏移结果（转码会话时间轴），不改写规范缓存。
+     * 偏移结果独立缓存：ext_{fileNodeId}_{内容版本}_off{offsetMs}.vtt。
+     *
+     * @param node      字幕文件节点
+     * @param canonical 规范 VTT 路径（resolveExternalVtt 结果，可能为用户空间本地 vtt）
+     * @param offsetMs  转码会话起点（毫秒），调用方已校验非负
+     * @return 偏移后的 vtt 文件路径
      */
-    private String externalCacheName(FileNode node, boolean remote) {
+    public Path resolveOffsetVtt(FileNode node, Path canonical, long offsetMs) {
+        String base = externalCacheName(node).replace(".vtt", "") + "_off" + offsetMs;
+        Path target = Path.of(systemStorageSpaceProvider.getSystemSpace().getPath(),
+                "system", SUBTITLE_CACHE_DIR, base + ".vtt");
+        return writeOffsetVtt(canonical, target, offsetMs);
+    }
+
+    /**
+     * 从内嵌字幕规范 VTT 生成独立偏移结果，不改写规范缓存。
+     */
+    public Path resolveOffsetVtt(Path canonical, String baseName, long offsetMs) {
+        Path target = canonical.getParent().resolve(baseName + "_off" + offsetMs + ".vtt");
+        return writeOffsetVtt(canonical, target, offsetMs);
+    }
+
+    private Path writeOffsetVtt(Path canonical, Path target, long offsetMs) {
+        if (Files.exists(target)) {
+            return target;
+        }
+        try {
+            Files.createDirectories(target.getParent());
+            String content = Files.readString(canonical, StandardCharsets.UTF_8);
+            Files.writeString(target, WebVttOffsetUtil.applyOffset(content, offsetMs), StandardCharsets.UTF_8);
+            return target;
+        } catch (IOException e) {
+            throw new SystemException(ResultCode.SYSTEM_ERROR, "字幕时间偏移失败", e);
+        }
+    }
+
+    /**
+     * 外部字幕缓存文件名：ext_{fileNodeId}_{内容版本}.vtt。
+     * 内容版本优先节点 hash，缺失时回退文件大小与最后修改时间；均缺失时仅按节点 ID（旧缓存命名）。
+     * 本地与远程字幕均适用。
+     */
+    private String externalCacheName(FileNode node) {
         StringBuilder name = new StringBuilder("ext_").append(node.getId());
-        if (remote && node.getHash() != null && !node.getHash().isBlank()) {
-            name.append('_').append(node.getHash().replaceAll("[^a-zA-Z0-9\\-_]", "_"));
+        String version = contentVersion(node);
+        if (version != null) {
+            name.append('_').append(version);
         }
         return name.append(".vtt").toString();
+    }
+
+    /**
+     * 文件内容版本标识：优先节点 hash（特殊字符安全化），缺失时回退文件大小与最后修改时间。
+     */
+    private String contentVersion(FileNode node) {
+        if (node.getHash() != null && !node.getHash().isBlank()) {
+            return node.getHash().replaceAll("[^a-zA-Z0-9\\-_]", "_");
+        }
+        List<String> parts = new ArrayList<>();
+        if (node.getSize() != null) {
+            parts.add("size" + node.getSize());
+        }
+        if (node.getLastModified() != null) {
+            parts.add("mtime" + node.getLastModified());
+        }
+        return parts.isEmpty() ? null : String.join("_", parts);
     }
 
     private void deleteQuietly(Path path) {

@@ -253,9 +253,10 @@ public class MediaController {
 
     @GetMapping("/items/{id}/subtitles/{index}")
     public ResponseEntity<InputStreamResource> subtitle(@PathVariable String id, @PathVariable int index,
+                                                        @RequestParam(defaultValue = "0") long offsetMs,
                                                         @RequestParam(required = false) String versionId)
             throws Exception {
-        Path path = mediaPlaybackService.extractSubtitle(id, index, UserContext.get().id(), versionId);
+        Path path = mediaPlaybackService.extractSubtitle(id, index, offsetMs, UserContext.get().id(), versionId);
         return ResponseEntity.ok()
                 .contentType(MediaType.parseMediaType("text/vtt"))
                 .contentLength(Files.size(path))
@@ -265,9 +266,11 @@ public class MediaController {
     @GetMapping("/items/{id}/subtitles/external/{subtitleId}")
     public ResponseEntity<InputStreamResource> externalSubtitle(@PathVariable String id,
                                                                 @PathVariable String subtitleId,
+                                                                @RequestParam(defaultValue = "0") long offsetMs,
                                                                 @RequestParam(required = false) String versionId)
             throws Exception {
-        Path path = mediaPlaybackService.extractExternalSubtitle(id, subtitleId, UserContext.get().id(), versionId);
+        Path path = mediaPlaybackService.extractExternalSubtitle(
+                id, subtitleId, offsetMs, UserContext.get().id(), versionId);
         return ResponseEntity.ok()
                 .contentType(MediaType.parseMediaType("text/vtt"))
                 .contentLength(Files.size(path))
