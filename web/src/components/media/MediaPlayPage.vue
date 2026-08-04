@@ -59,7 +59,7 @@ const timeline = computed<PlayerTimeline>(() => ({
 }))
 
 const controls = usePlayerControls(videoRef, pinned, timeline)
-const { controlsVisible, wake, toggleControls } = controls
+const { controlsVisible, wake } = controls
 
 const itemId = computed(() => route.params.id as string)
 const isEpisode = computed(() => detail.value?.itemType === 'episode')
@@ -172,7 +172,7 @@ function handleBack() {
       class="absolute inset-0 h-full w-full object-contain"
       playsinline
       crossorigin="use-credentials"
-      @click="toggleControls"
+      @click="wake"
       @seeking="handleSeeking"
       @pause="reportProgress"
       @ended="handleEnded"
