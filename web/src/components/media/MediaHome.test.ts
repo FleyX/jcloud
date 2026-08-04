@@ -176,4 +176,21 @@ describe('MediaHome latest sections', () => {
     expect(movieSection.text()).toContain('Movie 1')
     expect(movieSection.text()).toContain('刚刚')
   })
+
+  it('shows minutes/hours for historical addedTime on latest cards, not 刚刚', async () => {
+    await createRouterWithRoutes()
+    // 5 分钟前入库，应显示「5分钟前」而非「刚刚」
+    const d = new Date(Date.now() - 5 * 60_000 + 8 * 3_600_000)
+    const p = (n: number) => String(n).padStart(2, '0')
+    const addedTime = `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}`
+    const wrapper = await mountHome(
+      buildHome({
+        latestSeries: [buildItem({ id: 'sr1', itemType: 'series', title: 'Series 1', addedTime })],
+      }),
+    )
+    const seriesSection = wrapper.findAll('section').find((s) => s.find('h2').text() === '最新剧集')!
+    expect(seriesSection.text()).toContain('Series 1')
+    expect(seriesSection.text()).not.toContain('刚刚')
+    expect(seriesSection.text()).toContain('分钟前')
+  })
 })

@@ -5,11 +5,14 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
 import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.cfg.DateTimeFeature;
+import tools.jackson.databind.ext.javatime.ser.LocalDateTimeSerializer;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.module.SimpleModule;
 import tools.jackson.databind.ser.std.ToStringSerializer;
 
 import java.text.SimpleDateFormat;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.TimeZone;
 
 /**
@@ -26,6 +29,7 @@ public class JacksonConfig {
     public JsonMapper jsonMapper() {
         return JsonMapper.builder()
                 .addModule(longToStringModule())
+                .addModule(localDateTimeModule())
                 .disable(DateTimeFeature.WRITE_DATES_AS_TIMESTAMPS)
                 .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
                 .defaultDateFormat(new SimpleDateFormat("yyyy-MM-dd HH:mm:ss"))
@@ -42,6 +46,18 @@ public class JacksonConfig {
         com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
         mapper.disable(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
         return mapper;
+    }
+
+    /**
+     * 将 java.time.LocalDateTime 统一序列化为 {@code yyyy-MM-dd HH:mm:ss} 的 GMT+8 墙上时间并截去纳秒，
+     * 与前端解析约定一致。defaultDateFormat 仅约束 java.util.Date，对 Java Time 不生效，故注册专用序列化器。
+     */
+    @Bean
+    public SimpleModule localDateTimeModule() {
+        SimpleModule module = new SimpleModule("local-datetime-format");
+        module.addSerializer(LocalDateTime.class,
+                new LocalDateTimeSerializer(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+        return module;
     }
 
     /**
