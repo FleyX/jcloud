@@ -16,6 +16,11 @@ public enum MediaItemType {
     /**
      * 剧集。
      */
+    SERIES("series"),
+
+    /**
+     * 集。
+     */
     EPISODE("episode"),
 
     /**

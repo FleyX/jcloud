@@ -2,6 +2,7 @@ package com.fleyx.jcloud.service;
 
 import com.fleyx.jcloud.common.enums.MediaMatchStatus;
 import com.fleyx.jcloud.common.enums.MediaMetadataOwnerType;
+import com.fleyx.jcloud.common.enums.MediaItemType;
 import com.fleyx.jcloud.mapper.MediaDirectoryMapper;
 import com.fleyx.jcloud.mapper.MediaEpisodeFileMapper;
 import com.fleyx.jcloud.mapper.MediaEpisodeMapper;
@@ -22,6 +23,7 @@ import com.fleyx.jcloud.model.po.MediaSeason;
 import com.fleyx.jcloud.model.po.MediaSeries;
 import com.fleyx.jcloud.model.vo.MediaDirectoryVo;
 import com.fleyx.jcloud.model.vo.MediaHomeVo;
+import com.fleyx.jcloud.model.vo.MediaItemVo;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -29,6 +31,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
@@ -200,6 +203,90 @@ class MediaHomeServiceTest {
         assertNull(byName.get("空库").getCoverPosterUrl());
     }
 
+    /**
+     * 首页最新电影与最新剧集分别查询，按标题级实体聚合，保留无文件电影并组装元数据字段。
+     */
+    @Test
+    void shouldReturnLatestMoviesAndSeriesAsIndependentTitleCards() {
+        LocalDateTime older = playTime(10);
+        LocalDateTime latest = playTime(20);
+        MediaMovie movieWithFile = insertLatestMovie("有文件电影", older, true);
+        insertMovieFile(movieWithFile, 200_000L);
+        MediaMovie movieWithoutFile = insertLatestMovie("无文件电影", latest, false);
+        attachMetadata(movieWithoutFile, "md00000000001", MediaMetadataOwnerType.MOVIE,
+                "元数据电影", "2024-01-02", 8.5, "postermovie01");
+        MediaSeries series = insertSeries("最新剧", latest);
+        insertEpisode(series, 1, 1, 0L, 100_000L, null);
+        insertEpisode(series, 1, 2, 0L, 100_000L, null);
+        attachMetadata(series, "md00000000002", MediaMetadataOwnerType.SERIES,
+                "元数据剧", "2023-03-04", 9.1, "posterseries1");
+        insertSeries("无时间剧", null);
+        insertOther(10L, null, latest);
+
+        MediaHomeVo home = mediaHomeService.getHome(USER_ID);
+
+        assertEquals(2, home.getLatestMovies().size());
+        MediaItemVo latestMovie = home.getLatestMovies().get(0);
+        assertEquals(movieWithoutFile.getId(), latestMovie.getId());
+        assertEquals(MediaItemType.MOVIE.getCode(), latestMovie.getItemType());
+        assertNull(latestMovie.getFileNodeId());
+        assertEquals("md00000000001", latestMovie.getMetadataId());
+        assertEquals("元数据电影", latestMovie.getTitle());
+        assertEquals("2024-01-02", latestMovie.getReleaseDate());
+        assertEquals(8.5, latestMovie.getVoteAverage());
+        assertEquals("/jcloud/api/media/metadata/md00000000001/poster", latestMovie.getPosterUrl());
+        assertEquals(latest, latestMovie.getAddedTime());
+        assertEquals(movieWithFile.getId(), home.getLatestMovies().get(1).getId());
+
+        assertEquals(1, home.getLatestSeries().size());
+        MediaItemVo latestSeries = home.getLatestSeries().getFirst();
+        assertEquals(MediaItemType.SERIES.getCode(), latestSeries.getItemType());
+        assertEquals(series.getId(), latestSeries.getId());
+        assertEquals(series.getId(), latestSeries.getSeriesId());
+        assertNull(latestSeries.getFileNodeId());
+        assertEquals("md00000000002", latestSeries.getMetadataId());
+        assertEquals("元数据剧", latestSeries.getTitle());
+        assertEquals("2023-03-04", latestSeries.getReleaseDate());
+        assertEquals(9.1, latestSeries.getVoteAverage());
+        assertEquals("/jcloud/api/media/metadata/md00000000002/poster", latestSeries.getPosterUrl());
+        assertEquals(latest, latestSeries.getAddedTime());
+    }
+
+    /**
+     * 最新电影与最新剧集各自最多返回 16 条，并在时间相同时按实体 ID 倒序。
+     */
+    @Test
+    void shouldLimitLatestMoviesAndSeriesWithStableEntityOrdering() {
+        LocalDateTime addedTime = playTime(30);
+        for (int i = 0; i < 18; i++) {
+            insertLatestMovie(String.format("mv%011d", i), "电影" + i, addedTime, false);
+            insertSeries(String.format("sr%011d", i), "剧" + i, addedTime);
+        }
+
+        MediaHomeVo home = mediaHomeService.getHome(USER_ID);
+
+        assertEquals(16, home.getLatestMovies().size());
+        assertEquals("mv00000000017", home.getLatestMovies().getFirst().getId());
+        assertEquals("mv00000000002", home.getLatestMovies().get(15).getId());
+        assertEquals(16, home.getLatestSeries().size());
+        assertEquals("sr00000000017", home.getLatestSeries().getFirst().getId());
+        assertEquals("sr00000000002", home.getLatestSeries().get(15).getId());
+    }
+
+    /**
+     * 没有实体入库时间时，两个最新列表均为空。
+     */
+    @Test
+    void shouldReturnEmptyLatestListsWhenNoAddedTimeExists() {
+        insertMovie(0L, null, null);
+        insertSeries("无最新时间剧");
+
+        MediaHomeVo home = mediaHomeService.getHome(USER_ID);
+
+        assertTrue(home.getLatestMovies().isEmpty());
+        assertTrue(home.getLatestSeries().isEmpty());
+    }
+
     private MediaDirectory insertDirectory(String name, String mediaType) {
         MediaDirectory directory = new MediaDirectory();
         directory.setUserId(USER_ID);
@@ -210,13 +297,23 @@ class MediaHomeServiceTest {
     }
 
     private MediaSeries insertSeries(String seriesName) {
+        return insertSeries(null, seriesName, null);
+    }
+
+    private MediaSeries insertSeries(String seriesName, LocalDateTime latestAddedTime) {
+        return insertSeries(null, seriesName, latestAddedTime);
+    }
+
+    private MediaSeries insertSeries(String id, String seriesName, LocalDateTime latestAddedTime) {
         MediaSeries series = new MediaSeries();
+        series.setId(id);
         series.setUserId(USER_ID);
         series.setDirectoryId("dir-home-001");
         series.setFolderNodeId(nextNodeId());
         series.setSeriesName(seriesName);
         series.setMatchStatus(MediaMatchStatus.MATCHED.getCode());
         series.setMetadataComplete(false);
+        series.setLatestAddedTime(latestAddedTime);
         mediaSeriesMapper.insert(series);
         return series;
     }
@@ -246,23 +343,74 @@ class MediaHomeServiceTest {
     }
 
     private MediaMovie insertMovie(Long progressMs, Long durationMs, LocalDateTime lastPlayTime) {
+        return insertMovie(null, "测试电影", progressMs, durationMs, lastPlayTime, null, true);
+    }
+
+    private MediaMovie insertLatestMovie(String title, LocalDateTime addedTime, boolean withFile) {
+        return insertMovie(null, title, 0L, null, null, addedTime, withFile);
+    }
+
+    private MediaMovie insertLatestMovie(String id, String title, LocalDateTime addedTime, boolean withFile) {
+        return insertMovie(id, title, 0L, null, null, addedTime, withFile);
+    }
+
+    private MediaMovie insertMovie(String id, String title, Long progressMs, Long durationMs,
+                                   LocalDateTime lastPlayTime, LocalDateTime addedTime, boolean withFile) {
         MediaMovie movie = new MediaMovie();
+        movie.setId(id);
         movie.setUserId(USER_ID);
         movie.setDirectoryId("dir-home-001");
         movie.setFolderNodeId(nextNodeId());
-        movie.setTitle("测试电影");
+        movie.setTitle(title);
         movie.setMatchStatus(MediaMatchStatus.UNMATCHED.getCode());
         movie.setMetadataComplete(false);
         movie.setProgressMs(progressMs);
         movie.setLastPlayTime(lastPlayTime);
+        movie.setAddedTime(addedTime);
         mediaMovieMapper.insert(movie);
 
+        if (withFile) {
+            insertMovieFile(movie, durationMs);
+        }
+        return movie;
+    }
+
+    private void insertMovieFile(MediaMovie movie, Long durationMs) {
         MediaMovieFile file = new MediaMovieFile();
         file.setMovieId(movie.getId());
         file.setFileNodeId(nextNodeId());
         file.setDurationMs(durationMs);
         mediaMovieFileMapper.insert(file);
-        return movie;
+    }
+
+    private void attachMetadata(MediaMovie movie, String metadataId, MediaMetadataOwnerType ownerType,
+                                String title, String releaseDate, Double voteAverage, String posterFileNodeId) {
+        attachMetadata(metadataId, ownerType, movie.getId(), title, releaseDate, voteAverage, posterFileNodeId);
+        movie.setMetadataId(metadataId);
+        mediaMovieMapper.updateById(movie);
+    }
+
+    private void attachMetadata(MediaSeries series, String metadataId, MediaMetadataOwnerType ownerType,
+                                String title, String releaseDate, Double voteAverage, String posterFileNodeId) {
+        attachMetadata(metadataId, ownerType, series.getId(), title, releaseDate, voteAverage, posterFileNodeId);
+        series.setMetadataId(metadataId);
+        mediaSeriesMapper.updateById(series);
+    }
+
+    private void attachMetadata(String metadataId, MediaMetadataOwnerType ownerType, String ownerId,
+                                String title, String releaseDate, Double voteAverage, String posterFileNodeId) {
+        MediaMetadata metadata = new MediaMetadata();
+        metadata.setId(metadataId);
+        metadata.setUserId(USER_ID);
+        metadata.setOwnerType(ownerType.getCode());
+        metadata.setOwnerId(ownerId);
+        metadata.setSource("tmdb");
+        metadata.setPersistStatus("persisted");
+        metadata.setTitle(title);
+        metadata.setReleaseDate(releaseDate);
+        metadata.setVoteAverage(voteAverage);
+        metadata.setPosterFileNodeId(posterFileNodeId);
+        mediaMetadataMapper.insert(metadata);
     }
 
     private MediaOther insertOther(Long progressMs, Long durationMs, LocalDateTime lastPlayTime) {

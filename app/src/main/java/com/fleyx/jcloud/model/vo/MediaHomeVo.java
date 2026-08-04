@@ -16,6 +16,16 @@ public class MediaHomeVo {
     private List<MediaDirectoryVo> libraries;
 
     /**
+     * 最新电影：按电影入库时间倒序，最多 16 条。
+     */
+    private List<MediaItemVo> latestMovies;
+
+    /**
+     * 最新剧集：按剧集最近入库时间倒序，最多 16 条。
+     */
+    private List<MediaItemVo> latestSeries;
+
+    /**
      * 继续观看：未看完且有播放进度的条目，按最近播放时间倒序。
      */
     private List<MediaItemVo> continueWatching;
