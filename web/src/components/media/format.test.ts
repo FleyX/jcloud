@@ -72,6 +72,12 @@ describe('formatMediaRelativeTime', () => {
     expect(formatMediaRelativeTime(gmt8String(NOW - 59_000), NOW)).toBe('刚刚')
   })
 
+  it('formats a real historical addedTime from the backend contract, not 刚刚', () => {
+    // 后端契约形态 yyyy-MM-dd HH:mm:ss（GMT+8，无 T、无小数秒）；
+    // 2023-03-04 10:00:00 GMT+8 距今 10 小时
+    expect(formatMediaRelativeTime('2023-03-04 10:00:00', NOW)).toBe('10小时前')
+  })
+
   it('formats minutes', () => {
     expect(formatMediaRelativeTime(gmt8String(NOW - 60_000), NOW)).toBe('1分钟前')
     expect(formatMediaRelativeTime(gmt8String(NOW - 59 * 60_000), NOW)).toBe('59分钟前')
