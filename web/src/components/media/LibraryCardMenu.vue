@@ -2,6 +2,7 @@
 /**
  * 媒体库卡片菜单（右下角悬浮下拉）
  * - radix-vue DropdownMenu，点击菜单项 emit action 后自动关闭
+ * - 内容经 DropdownMenuPortal 渲染到 body，避免被卡片 overflow-hidden 裁剪，保证菜单完整可见
  * - 电影/剧集库三项：「扫描媒体库」「刷新缺失元数据」「强制刷新所有元数据」；其他库仅「扫描媒体库」
  * - 按钮可见性（PC hover / 移动端常驻）由父级外层控制
  */
@@ -9,6 +10,7 @@ import { computed, ref } from 'vue'
 import {
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuPortal,
   DropdownMenuRoot,
   DropdownMenuTrigger,
 } from 'radix-vue'
@@ -62,23 +64,25 @@ function handleAction(kind: LibraryMenuAction) {
       </button>
     </DropdownMenuTrigger>
 
-    <DropdownMenuContent
-      align="end"
-      :side-offset="6"
-      class="z-50 min-w-[150px] overflow-hidden rounded-xl border border-surface-200 bg-white p-1.5 shadow-soft outline-none"
-    >
-      <DropdownMenuItem
-        v-for="action in actions"
-        :key="action.kind"
-        class="flex cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-surface-700 outline-none transition-colors duration-150 hover:bg-primary-50 hover:text-primary-700 focus:bg-primary-50"
-        @click="handleAction(action.kind)"
+    <DropdownMenuPortal>
+      <DropdownMenuContent
+        align="end"
+        :side-offset="6"
+        class="z-50 min-w-[150px] overflow-hidden rounded-xl border border-surface-200 bg-white p-1.5 shadow-soft outline-none"
       >
-        <component
-          :is="action.icon"
-          class="h-4 w-4 shrink-0 text-primary-500"
-        />
-        {{ action.label }}
-      </DropdownMenuItem>
-    </DropdownMenuContent>
+        <DropdownMenuItem
+          v-for="action in actions"
+          :key="action.kind"
+          class="flex cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-surface-700 outline-none transition-colors duration-150 hover:bg-primary-50 hover:text-primary-700 focus:bg-primary-50"
+          @click="handleAction(action.kind)"
+        >
+          <component
+            :is="action.icon"
+            class="h-4 w-4 shrink-0 text-primary-500"
+          />
+          {{ action.label }}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenuPortal>
   </DropdownMenuRoot>
 </template>
