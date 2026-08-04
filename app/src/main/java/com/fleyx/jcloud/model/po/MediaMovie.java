@@ -74,6 +74,11 @@ public class MediaMovie extends BaseEntity {
     private LocalDateTime lastPlayTime;
 
     /**
+     * 当前电影文件明细的最早入库时间。
+     */
+    private LocalDateTime addedTime;
+
+    /**
      * 最近播放的电影文件明细 ID，用于续播定位版本。
      */
     private String lastPlayFileId;

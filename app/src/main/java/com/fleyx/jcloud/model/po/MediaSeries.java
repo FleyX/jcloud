@@ -65,9 +65,14 @@ public class MediaSeries extends BaseEntity {
     private Boolean metadataComplete;
 
     /**
-     * 剧内最早一集的文件修改时间（毫秒），用于添加时间排序。
+     * 剧内最早一集的文件修改时间（毫秒）。
      */
     private Long minFileLastModified;
+
+    /**
+     * 当前剧集文件明细的最新入库时间。
+     */
+    private LocalDateTime latestAddedTime;
 
     /**
      * 批次扫描时间（扫描开始时刻），用于批次清理判定。

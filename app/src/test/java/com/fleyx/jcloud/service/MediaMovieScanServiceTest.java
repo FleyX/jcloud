@@ -166,6 +166,7 @@ class MediaMovieScanServiceTest {
         assertEquals("沙丘", duneMovie.getTitle());
         assertEquals(2021, duneMovie.getReleaseYear());
         assertNotNull(duneMovie.getScanTime());
+        assertNotNull(duneMovie.getAddedTime());
         assertEquals(MediaMatchStatus.UNMATCHED.getCode(), duneMovie.getMatchStatus());
         assertEquals(Boolean.FALSE, duneMovie.getMetadataComplete());
         assertEquals(0L, duneMovie.getProgressMs());
@@ -312,6 +313,52 @@ class MediaMovieScanServiceTest {
         assertEquals(1, filesOfMovie(movie.getId()).size());
         assertEquals(MediaScanStatus.COMPLETED.name(),
                 mediaDirectoryMapper.selectById(directory.getId()).getLastScanStatus());
+    }
+
+    /**
+     * 电影入库时间取当前明细最早创建时间：重扫不变，新增后续版本不变，删除最早版本后推进到剩余最早时间。
+     */
+    @Test
+    void shouldMaintainMovieAddedTimeAcrossRescanAndVersionBoundaries() {
+        UserVo user = prepareUserWithStorageSpace();
+        FileNodeVo movieRoot = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
+        FileNodeVo movieFolder = createFolder(user.getId(), movieRoot.getId(), "沙丘");
+        FileNodeVo first = upload(user.getId(), movieFolder.getId(), "电影.1080p.mkv");
+        FileNodeVo second = upload(user.getId(), movieFolder.getId(), "电影.4K.mkv");
+        MediaDirectory directory = createMovieDirectory(user.getId(), movieRoot.getId());
+        mediaScanService.scan(directory.getId());
+
+        LocalDateTime oldest = LocalDateTime.of(2020, 1, 1, 0, 0);
+        LocalDateTime remaining = LocalDateTime.of(2020, 1, 2, 0, 0);
+        MediaMovie movie = querySingleMovie(directory.getId());
+        MediaMovieFile firstRow = mediaMovieFileMapper.selectOne(new LambdaQueryWrapper<MediaMovieFile>()
+                .eq(MediaMovieFile::getFileNodeId, first.getId()));
+        MediaMovieFile secondRow = mediaMovieFileMapper.selectOne(new LambdaQueryWrapper<MediaMovieFile>()
+                .eq(MediaMovieFile::getFileNodeId, second.getId()));
+        firstRow.setCreateTime(oldest);
+        secondRow.setCreateTime(remaining);
+        mediaMovieFileMapper.updateById(firstRow);
+        mediaMovieFileMapper.updateById(secondRow);
+
+        mediaScanService.scan(directory.getId());
+        assertEquals(oldest, querySingleMovie(directory.getId()).getAddedTime());
+        mediaScanService.scan(directory.getId());
+        assertEquals(oldest, querySingleMovie(directory.getId()).getAddedTime());
+
+        FileNodeVo later = upload(user.getId(), movieFolder.getId(), "电影.WEB-DL.mkv");
+        mediaScanService.scan(directory.getId());
+        MediaMovieFile laterRow = mediaMovieFileMapper.selectOne(new LambdaQueryWrapper<MediaMovieFile>()
+                .eq(MediaMovieFile::getFileNodeId, later.getId()));
+        laterRow.setCreateTime(LocalDateTime.of(2020, 1, 3, 0, 0));
+        mediaMovieFileMapper.updateById(laterRow);
+        mediaScanService.scan(directory.getId());
+        assertEquals(oldest, querySingleMovie(directory.getId()).getAddedTime());
+
+        fileMapper.deleteById(first.getId());
+        mediaScanService.scan(directory.getId());
+        MediaMovie afterDelete = querySingleMovie(directory.getId());
+        assertEquals(movie.getId(), afterDelete.getId());
+        assertEquals(remaining, afterDelete.getAddedTime());
     }
 
     /**
