@@ -120,17 +120,22 @@ export interface MediaDirectorySaveDto {
 }
 
 /**
- * 影视首页聚合视图（我的媒体 / 继续观看 / 接下来）
+ * 影视首页聚合视图（我的媒体 / 继续观看 / 接下来 / 最新电影 / 最新剧集）
  */
 export interface MediaHomeVo {
   libraries: MediaDirectoryVo[]
   continueWatching: MediaItemVo[]
   nextUp: MediaItemVo[]
+  /** 最新电影（按电影入库时间倒序，最多 16 条） */
+  latestMovies: MediaItemVo[]
+  /** 最新剧集（按剧集最近入库时间倒序，最多 16 条；剧集卡无代表文件） */
+  latestSeries: MediaItemVo[]
 }
 
 export interface MediaItemVo {
   id: string
-  fileNodeId: string
+  /** 关联文件节点 ID；剧集聚合卡等无代表文件的标题卡为 null */
+  fileNodeId: string | null
   itemType: MediaItemType
   fileName: string
   matchStatus: MediaMatchStatus
@@ -148,6 +153,8 @@ export interface MediaItemVo {
   episodeNo: number | null
   progressMs: number
   lastPlayTime: string | null
+  /** 入库时间（后端 yyyy-MM-dd HH:mm:ss，GMT+8）；最新电影为电影入库时间，最新剧集为剧集最近入库时间 */
+  addedTime: string | null
   /** 元数据完整性（后端重算，前端已不展示弱标识），电影/剧集行有效 */
   metadataComplete: boolean
   /** 当前用户是否已收藏 */

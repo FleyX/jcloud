@@ -2,16 +2,18 @@
 /**
  * 影视首页（PC/移动端共用，响应式）
  * - 顶部影视菜单（首页/我的收藏 Tab + 配置图标），Tab 状态走路由 query，刷新可还原
- * - Jellyfin 风三段横向分区：我的媒体 / 继续观看 / 接下来
- * - 空分区整体隐藏；三个分区都无数据时显示空态引导
+ * - Jellyfin 风五段横向分区：我的媒体 / 继续观看 / 接下来 / 最新电影 / 最新剧集
+ * - 空分区整体隐藏；五个分区都无数据时显示空态引导
+ * - 最新卡片显示相对入库时间，页面停留期间每 60 秒刷新一次文本，不重新请求接口
  */
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Settings2, Search, Film, Tv, Clapperboard, LibraryBig } from '@lucide/vue'
 import type { Component } from 'vue'
 import type { MediaDirectoryVo, MediaHomeVo, MediaItemVo, MediaType } from '@/types/media'
 import { fetchMediaHome, scanMediaDirectory, scrapeMediaDirectory, withToken } from '@/api/media'
 import { useNotificationStore } from '@/store/notification'
+import { formatMediaRelativeTime } from './format'
 import MediaTopMenu from './MediaTopMenu.vue'
 import MediaFavorites from './MediaFavorites.vue'
 import GlobalSearchModal from './GlobalSearchModal.vue'
@@ -32,11 +34,32 @@ onMounted(async () => {
   }
 })
 
+/** 相对入库时间的计算基准：页面停留期间每 60 秒刷新一次，让「x分钟前」文本推进 */
+const nowMs = ref(Date.now())
+let relativeTimeTimer: ReturnType<typeof setInterval> | null = null
+
+onMounted(() => {
+  relativeTimeTimer = setInterval(() => {
+    nowMs.value = Date.now()
+  }, 60_000)
+})
+
+onBeforeUnmount(() => {
+  if (relativeTimeTimer) clearInterval(relativeTimeTimer)
+})
+
 const libraries = computed(() => home.value?.libraries ?? [])
 const continueWatching = computed(() => home.value?.continueWatching ?? [])
 const nextUp = computed(() => home.value?.nextUp ?? [])
+const latestMovies = computed(() => home.value?.latestMovies ?? [])
+const latestSeries = computed(() => home.value?.latestSeries ?? [])
 const allEmpty = computed(
-  () => libraries.value.length === 0 && continueWatching.value.length === 0 && nextUp.value.length === 0,
+  () =>
+    libraries.value.length === 0 &&
+    continueWatching.value.length === 0 &&
+    nextUp.value.length === 0 &&
+    latestMovies.value.length === 0 &&
+    latestSeries.value.length === 0,
 )
 
 const typeLabels: Record<MediaType, string> = { movie: '电影', tv: '电视', other: '其他' }
@@ -72,8 +95,14 @@ function itemTitle(item: MediaItemVo): string {
 
 /** 条目封面：海报为空时回退到文件预览缩略图 */
 function itemPoster(item: MediaItemVo): string {
-  const url = item.posterUrl ?? `/jcloud/api/files/${item.fileNodeId}/preview?type=poster`
+  const url = item.posterUrl ?? (item.fileNodeId ? `/jcloud/api/files/${item.fileNodeId}/preview?type=poster` : '')
   return withToken(url)
+}
+
+/** 最新卡片封面：海报优先；仅在有代表文件时才回退文件预览缩略图，否则返回 null 显示占位 */
+function latestPoster(item: MediaItemVo): string | null {
+  if (item.posterUrl) return withToken(item.posterUrl)
+  return item.fileNodeId ? withToken(`/jcloud/api/files/${item.fileNodeId}/preview?type=poster`) : null
 }
 
 function progressPercent(item: MediaItemVo): number {
@@ -133,6 +162,16 @@ function openNextUp(item: MediaItemVo) {
     params: { id: item.seriesId },
     query: item.seasonNo != null ? { season: item.seasonNo } : {},
   })
+}
+
+/** 最新电影：进入电影详情，不直接播放 */
+function openLatestMovie(item: MediaItemVo) {
+  router.push({ name: 'MediaMovieDetail', params: { id: item.id } })
+}
+
+/** 最新剧集：进入剧集详情，不直接播放 */
+function openLatestSeries(item: MediaItemVo) {
+  router.push({ name: 'MediaSeriesDetail', params: { id: item.id } })
 }
 </script>
 
@@ -320,6 +359,86 @@ function openNextUp(item: MediaItemVo) {
               </div>
               <p class="mt-1.5 truncate px-0.5 text-xs font-medium text-surface-800">
                 {{ itemTitle(item) }}
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <!-- 最新电影 -->
+        <section
+          v-if="latestMovies.length > 0"
+          class="mt-6"
+        >
+          <h2 class="mb-3 text-sm font-semibold text-surface-800">
+            最新电影
+          </h2>
+          <div class="flex gap-3 overflow-x-auto pb-2 md:gap-4">
+            <div
+              v-for="item in latestMovies"
+              :key="item.id"
+              class="group w-28 shrink-0 cursor-pointer md:w-36"
+              @click="openLatestMovie(item)"
+            >
+              <div class="relative aspect-[2/3] w-full overflow-hidden rounded-2xl bg-surface-100 shadow-soft transition-transform group-hover:scale-[1.02]">
+                <img
+                  v-if="latestPoster(item)"
+                  :src="latestPoster(item)!"
+                  :alt="itemTitle(item)"
+                  loading="lazy"
+                  class="h-full w-full object-cover"
+                >
+                <div
+                  v-else
+                  class="flex h-full w-full items-center justify-center text-surface-300"
+                >
+                  <Film class="h-10 w-10" />
+                </div>
+              </div>
+              <p class="mt-1.5 truncate px-0.5 text-xs font-medium text-surface-800">
+                {{ itemTitle(item) }}
+              </p>
+              <p class="px-0.5 text-xs text-surface-400">
+                {{ formatMediaRelativeTime(item.addedTime, nowMs) }}
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <!-- 最新剧集 -->
+        <section
+          v-if="latestSeries.length > 0"
+          class="mt-6"
+        >
+          <h2 class="mb-3 text-sm font-semibold text-surface-800">
+            最新剧集
+          </h2>
+          <div class="flex gap-3 overflow-x-auto pb-2 md:gap-4">
+            <div
+              v-for="item in latestSeries"
+              :key="item.id"
+              class="group w-28 shrink-0 cursor-pointer md:w-36"
+              @click="openLatestSeries(item)"
+            >
+              <div class="relative aspect-[2/3] w-full overflow-hidden rounded-2xl bg-surface-100 shadow-soft transition-transform group-hover:scale-[1.02]">
+                <img
+                  v-if="latestPoster(item)"
+                  :src="latestPoster(item)!"
+                  :alt="itemTitle(item)"
+                  loading="lazy"
+                  class="h-full w-full object-cover"
+                >
+                <div
+                  v-else
+                  class="flex h-full w-full items-center justify-center text-surface-300"
+                >
+                  <Tv class="h-10 w-10" />
+                </div>
+              </div>
+              <p class="mt-1.5 truncate px-0.5 text-xs font-medium text-surface-800">
+                {{ itemTitle(item) }}
+              </p>
+              <p class="px-0.5 text-xs text-surface-400">
+                {{ formatMediaRelativeTime(item.addedTime, nowMs) }}
               </p>
             </div>
           </div>
