@@ -171,6 +171,7 @@ class MediaTvScanServiceTest {
         assertEquals(MediaMatchStatus.UNMATCHED.getCode(), series.getMatchStatus());
         assertEquals(Boolean.FALSE, series.getMetadataComplete());
         assertNotNull(series.getMinFileLastModified());
+        assertNotNull(series.getLatestAddedTime());
 
         List<MediaSeason> seasons = seasonsOfSeries(series.getId());
         assertEquals(1, seasons.size());
@@ -404,6 +405,62 @@ class MediaTvScanServiceTest {
         assertEquals(1, seasonsOfSeries(series.getId()).size());
         assertEquals(MediaScanStatus.COMPLETED.name(),
                 mediaDirectoryMapper.selectById(directory.getId()).getLastScanStatus());
+    }
+
+    /**
+     * 剧集入库时间取当前集文件明细最新创建时间：重扫不变，新增后续版本更新，删除最新明细后回退；
+     * 同时保留最早文件修改时间语义。
+     */
+    @Test
+    void shouldMaintainSeriesAddedTimeAndMinFileLastModifiedAcrossBoundaries() {
+        UserVo user = prepareUserWithStorageSpace();
+        FileNodeVo tvFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电视");
+        FileNodeVo seriesFolder = createFolder(user.getId(), tvFolder.getId(), "火星生活");
+        FileNodeVo seasonFolder = createFolder(user.getId(), seriesFolder.getId(), "Season 1");
+        FileNodeVo first = upload(user.getId(), seasonFolder.getId(), "火星生活.S01E01.mkv");
+        FileNodeVo second = upload(user.getId(), seasonFolder.getId(), "火星生活.S01E02.mkv");
+        MediaDirectory directory = createTvDirectory(user.getId(), tvFolder.getId());
+        mediaScanService.scan(directory.getId());
+
+        LocalDateTime firstAdded = LocalDateTime.of(2020, 1, 1, 0, 0);
+        LocalDateTime secondAdded = LocalDateTime.of(2020, 1, 2, 0, 0);
+        MediaSeries series = querySingleSeries(directory.getId());
+        MediaEpisodeFile firstRow = mediaEpisodeFileMapper.selectOne(new LambdaQueryWrapper<MediaEpisodeFile>()
+                .eq(MediaEpisodeFile::getFileNodeId, first.getId()));
+        MediaEpisodeFile secondRow = mediaEpisodeFileMapper.selectOne(new LambdaQueryWrapper<MediaEpisodeFile>()
+                .eq(MediaEpisodeFile::getFileNodeId, second.getId()));
+        firstRow.setCreateTime(firstAdded);
+        firstRow.setFileLastModified(200L);
+        secondRow.setCreateTime(secondAdded);
+        secondRow.setFileLastModified(300L);
+        mediaEpisodeFileMapper.updateById(firstRow);
+        mediaEpisodeFileMapper.updateById(secondRow);
+
+        mediaScanService.scan(directory.getId());
+        MediaSeries afterRescan = querySingleSeries(directory.getId());
+        assertEquals(secondAdded, afterRescan.getLatestAddedTime());
+        assertEquals(200L, afterRescan.getMinFileLastModified());
+        mediaScanService.scan(directory.getId());
+        assertEquals(secondAdded, querySingleSeries(directory.getId()).getLatestAddedTime());
+
+        FileNodeVo later = upload(user.getId(), seasonFolder.getId(), "火星生活.S01E03.mkv");
+        mediaScanService.scan(directory.getId());
+        MediaEpisodeFile laterRow = mediaEpisodeFileMapper.selectOne(new LambdaQueryWrapper<MediaEpisodeFile>()
+                .eq(MediaEpisodeFile::getFileNodeId, later.getId()));
+        LocalDateTime latest = LocalDateTime.of(2020, 1, 3, 0, 0);
+        laterRow.setCreateTime(latest);
+        laterRow.setFileLastModified(100L);
+        mediaEpisodeFileMapper.updateById(laterRow);
+        mediaScanService.scan(directory.getId());
+        afterRescan = querySingleSeries(directory.getId());
+        assertEquals(latest, afterRescan.getLatestAddedTime());
+        assertEquals(100L, afterRescan.getMinFileLastModified());
+
+        fileMapper.deleteById(later.getId());
+        mediaScanService.scan(directory.getId());
+        MediaSeries afterDelete = querySingleSeries(directory.getId());
+        assertEquals(series.getId(), afterDelete.getId());
+        assertEquals(secondAdded, afterDelete.getLatestAddedTime());
     }
 
     /**

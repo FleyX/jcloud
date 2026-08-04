@@ -82,6 +82,7 @@ public class MediaMovieReconcileSupport {
         for (FileNode file : videoFiles) {
             reconcileMovieFile(ctx, movie, file, prepare, seenFileRowIds);
         }
+        recalcAddedTime(movie.getId());
         return new ReconcileResult(movie.getId(), seenFileRowIds);
     }
 
@@ -93,6 +94,7 @@ public class MediaMovieReconcileSupport {
     public void deleteUnseenMovieFiles(MovieScanContext ctx, MoviePrepare prepare, ReconcileResult result) {
         mediaMovieCascadeSupport.deleteUnseenFiles(prepare.existingFiles(), result.seenFileRowIds(),
                 ctx.sourceFullIdPaths());
+        recalcAddedTime(result.movieId());
     }
 
     /**
@@ -205,5 +207,21 @@ public class MediaMovieReconcileSupport {
             mediaMovieFileMapper.updateById(row);
         }
         seenFileRowIds.add(row.getId());
+    }
+
+    /**
+     * 重算电影当前文件明细的最早入库时间。
+     */
+    private void recalcAddedTime(String movieId) {
+        LocalDateTime min = mediaMovieFileMapper.selectList(new LambdaQueryWrapper<MediaMovieFile>()
+                        .eq(MediaMovieFile::getMovieId, movieId)
+                        .isNotNull(MediaMovieFile::getCreateTime)
+                        .orderByAsc(MediaMovieFile::getCreateTime)
+                        .last("limit 1"))
+                .stream().map(MediaMovieFile::getCreateTime).filter(Objects::nonNull)
+                .findFirst().orElse(null);
+        mediaMovieMapper.update(null, new LambdaUpdateWrapper<MediaMovie>()
+                .eq(MediaMovie::getId, movieId)
+                .set(MediaMovie::getAddedTime, min));
     }
 }

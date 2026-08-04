@@ -102,6 +102,7 @@ public class MediaTvReconcileSupport {
                 reconcileEpisodeFile(ctx, series, season, file, prepare, seenEpisodeIds, seenFileRowIds);
             }
         }
+        recalcLatestAddedTime(series.getId());
         return new ReconcileResult(series.getId(), seenSeasonIds, seenEpisodeIds, seenFileRowIds);
     }
 
@@ -114,6 +115,7 @@ public class MediaTvReconcileSupport {
         mediaTvCascadeSupport.deleteUnseenChildren(prepare.existingSeasons(), prepare.existingEpisodes(),
                 prepare.existingFiles(), result.seenSeasonIds(), result.seenEpisodeIds(), result.seenFileRowIds(),
                 ctx.sourceFullIdPaths());
+        recalcLatestAddedTime(result.seriesId());
         recalcMinFileLastModified(result.seriesId());
     }
 
@@ -367,5 +369,28 @@ public class MediaTvReconcileSupport {
         mediaSeriesMapper.update(null, new LambdaUpdateWrapper<MediaSeries>()
                 .eq(MediaSeries::getId, seriesId)
                 .set(MediaSeries::getMinFileLastModified, min));
+    }
+
+    /**
+     * 重算剧集当前集文件明细的最新入库时间，包含该剧的所有季和特别篇。
+     */
+    private void recalcLatestAddedTime(String seriesId) {
+        List<String> episodeIds = mediaEpisodeMapper.selectList(new LambdaQueryWrapper<MediaEpisode>()
+                        .eq(MediaEpisode::getSeriesId, seriesId)
+                        .select(MediaEpisode::getId))
+                .stream().map(MediaEpisode::getId).toList();
+        LocalDateTime max = null;
+        if (!episodeIds.isEmpty()) {
+            max = mediaEpisodeFileMapper.selectList(new LambdaQueryWrapper<MediaEpisodeFile>()
+                            .in(MediaEpisodeFile::getEpisodeId, episodeIds)
+                            .isNotNull(MediaEpisodeFile::getCreateTime)
+                            .orderByDesc(MediaEpisodeFile::getCreateTime)
+                            .last("limit 1"))
+                    .stream().map(MediaEpisodeFile::getCreateTime).filter(Objects::nonNull)
+                    .findFirst().orElse(null);
+        }
+        mediaSeriesMapper.update(null, new LambdaUpdateWrapper<MediaSeries>()
+                .eq(MediaSeries::getId, seriesId)
+                .set(MediaSeries::getLatestAddedTime, max));
     }
 }
