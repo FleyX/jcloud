@@ -13,9 +13,7 @@ import com.fleyx.jcloud.mapper.MediaMovieMapper;
 import com.fleyx.jcloud.mapper.MediaOtherMapper;
 import com.fleyx.jcloud.mapper.MediaSeasonMapper;
 import com.fleyx.jcloud.mapper.MediaSeriesMapper;
-import com.fleyx.jcloud.mapper.FileMapper;
 import com.fleyx.jcloud.model.dto.MediaFavoriteQueryDto;
-import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.po.MediaEpisode;
 import com.fleyx.jcloud.model.po.MediaFavorite;
 import com.fleyx.jcloud.model.po.MediaMetadata;
@@ -54,7 +52,6 @@ public class MediaFavoriteQuerySupport {
     private final MediaEpisodeMapper mediaEpisodeMapper;
     private final MediaOtherMapper mediaOtherMapper;
     private final MediaMetadataMapper mediaMetadataMapper;
-    private final FileMapper fileMapper;
     private final MediaItemVoSupport mediaItemVoSupport;
 
     /**
@@ -168,7 +165,7 @@ public class MediaFavoriteQuerySupport {
                 .collect(Collectors.toMap(MediaMovie::getId, Function.identity()));
         Map<String, MediaMetadata> metadataMap = loadMetadataMap(
                 movieMap.values().stream().map(MediaMovie::getMetadataId).toList());
-        Map<String, Long> nodeVersionMap = loadNodeVersionMap(
+        Map<String, Long> nodeVersionMap = mediaItemVoSupport.loadNodeVersionMap(
                 metadataMap.values().stream().map(MediaMetadata::getPosterFileNodeId).toList());
         List<MediaFavoriteVo> result = new ArrayList<>();
         for (MediaFavorite favorite : favorites) {
@@ -179,7 +176,7 @@ public class MediaFavoriteQuerySupport {
             MediaMetadata metadata = movie.getMetadataId() == null ? null : metadataMap.get(movie.getMetadataId());
             MediaFavoriteVo vo = baseVo(favorite);
             vo.setTitle(metadata != null && metadata.getTitle() != null ? metadata.getTitle() : movie.getTitle());
-            vo.setPosterUrl(posterUrlOf(metadata, nodeVersionMap));
+            vo.setPosterUrl(mediaItemVoSupport.posterUrlOf(metadata, nodeVersionMap));
             vo.setReleaseDate(metadata == null ? null : metadata.getReleaseDate());
             vo.setVoteAverage(metadata == null ? null : metadata.getVoteAverage());
             vo.setMatchStatus(movie.getMatchStatus());
@@ -193,7 +190,7 @@ public class MediaFavoriteQuerySupport {
                 .collect(Collectors.toMap(MediaSeries::getId, Function.identity()));
         Map<String, MediaMetadata> metadataMap = loadMetadataMap(
                 seriesMap.values().stream().map(MediaSeries::getMetadataId).toList());
-        Map<String, Long> nodeVersionMap = loadNodeVersionMap(
+        Map<String, Long> nodeVersionMap = mediaItemVoSupport.loadNodeVersionMap(
                 metadataMap.values().stream().map(MediaMetadata::getPosterFileNodeId).toList());
         List<MediaFavoriteVo> result = new ArrayList<>();
         for (MediaFavorite favorite : favorites) {
@@ -204,7 +201,7 @@ public class MediaFavoriteQuerySupport {
             MediaMetadata metadata = series.getMetadataId() == null ? null : metadataMap.get(series.getMetadataId());
             MediaFavoriteVo vo = baseVo(favorite);
             vo.setTitle(metadata != null && metadata.getTitle() != null ? metadata.getTitle() : series.getSeriesName());
-            vo.setPosterUrl(posterUrlOf(metadata, nodeVersionMap));
+            vo.setPosterUrl(mediaItemVoSupport.posterUrlOf(metadata, nodeVersionMap));
             vo.setReleaseDate(metadata == null ? null : metadata.getReleaseDate());
             vo.setVoteAverage(metadata == null ? null : metadata.getVoteAverage());
             vo.setMatchStatus(series.getMatchStatus());
@@ -220,7 +217,7 @@ public class MediaFavoriteQuerySupport {
                 seasonMap.values().stream().map(MediaSeason::getSeriesId).toList());
         Map<String, MediaMetadata> metadataMap = loadMetadataMap(
                 seasonMap.values().stream().map(MediaSeason::getMetadataId).toList());
-        Map<String, Long> nodeVersionMap = loadNodeVersionMap(
+        Map<String, Long> nodeVersionMap = mediaItemVoSupport.loadNodeVersionMap(
                 metadataMap.values().stream().map(MediaMetadata::getPosterFileNodeId).toList());
         List<MediaFavoriteVo> result = new ArrayList<>();
         for (MediaFavorite favorite : favorites) {
@@ -235,7 +232,7 @@ public class MediaFavoriteQuerySupport {
             MediaMetadata metadata = season.getMetadataId() == null ? null : metadataMap.get(season.getMetadataId());
             MediaFavoriteVo vo = baseVo(favorite);
             vo.setTitle(metadata == null ? null : metadata.getTitle());
-            vo.setPosterUrl(posterUrlOf(metadata, nodeVersionMap));
+            vo.setPosterUrl(mediaItemVoSupport.posterUrlOf(metadata, nodeVersionMap));
             vo.setSeriesId(series.getId());
             vo.setSeriesName(series.getSeriesName());
             vo.setSeasonNo(season.getSeasonNo());
@@ -256,7 +253,7 @@ public class MediaFavoriteQuerySupport {
                 episodeMap.values().stream().map(MediaEpisode::getMetadataId).toList());
         Map<String, MediaMetadata> seriesMetadataMap = loadMetadataMap(
                 seriesMap.values().stream().map(MediaSeries::getMetadataId).toList());
-        Map<String, Long> nodeVersionMap = loadNodeVersionMap(
+        Map<String, Long> nodeVersionMap = mediaItemVoSupport.loadNodeVersionMap(
                 Stream.concat(metadataMap.values().stream(), seriesMetadataMap.values().stream())
                         .map(MediaMetadata::getPosterFileNodeId)
                         .toList());
@@ -320,37 +317,12 @@ public class MediaFavoriteQuerySupport {
     private String episodePosterUrl(MediaMetadata episodeMetadata, MediaSeries series,
                                     Map<String, MediaMetadata> seriesMetadataMap,
                                     Map<String, Long> nodeVersionMap) {
-        String url = posterUrlOf(episodeMetadata, nodeVersionMap);
+        String url = mediaItemVoSupport.posterUrlOf(episodeMetadata, nodeVersionMap);
         if (url != null) {
             return url;
         }
         MediaMetadata seriesMetadata = series.getMetadataId() == null ? null : seriesMetadataMap.get(series.getMetadataId());
-        return posterUrlOf(seriesMetadata, nodeVersionMap);
-    }
-
-    /**
-     * 元数据海报图 URL，无海报时返回 null；海报文件节点存在时附带版本参数。
-     */
-    private String posterUrlOf(MediaMetadata metadata, Map<String, Long> nodeVersionMap) {
-        if (metadata == null || metadata.getPosterFileNodeId() == null) {
-            return null;
-        }
-        return mediaItemVoSupport.metadataPosterUrl(metadata.getId(),
-                nodeVersionMap.get(metadata.getPosterFileNodeId()));
-    }
-
-    /**
-     * 文件节点版本映射（nodeId → lastModified），图片覆盖写后版本变化使浏览器缓存失效；
-     * FileNode 查不到或 lastModified 为空（脏数据/假 id）的节点不入映射，对应 URL 不带 {@code ?v=}。
-     */
-    private Map<String, Long> loadNodeVersionMap(List<String> fileNodeIds) {
-        List<String> ids = fileNodeIds.stream().filter(Objects::nonNull).distinct().toList();
-        if (ids.isEmpty()) {
-            return Map.of();
-        }
-        return fileMapper.selectBatchIds(ids).stream()
-                .filter(node -> node.getLastModified() != null)
-                .collect(Collectors.toMap(FileNode::getId, FileNode::getLastModified));
+        return mediaItemVoSupport.posterUrlOf(seriesMetadata, nodeVersionMap);
     }
 
     private Map<String, MediaSeries> loadSeriesMap(List<String> seriesIds) {

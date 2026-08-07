@@ -4,6 +4,7 @@ import com.fleyx.jcloud.common.R;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.fleyx.jcloud.common.constant.CommonConstant;
 import com.fleyx.jcloud.common.context.UserContext;
+import com.fleyx.jcloud.common.enums.MediaRefreshMode;
 import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.FileMapper;
@@ -40,6 +41,7 @@ import com.fleyx.jcloud.service.TmdbService;
 import com.fleyx.jcloud.service.support.MediaArtworkPersistSupport;
 import com.fleyx.jcloud.service.support.TranscodeSession;
 import com.fleyx.jcloud.service.support.TranscodeSessionManager;
+import cn.hutool.core.util.StrUtil;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import lombok.RequiredArgsConstructor;
@@ -400,14 +402,19 @@ public class MediaController {
     }
 
     /**
-     * 单条刷新元数据（两模式，工单 06）：missing 补齐缺失文本字段并校验图片/NFO 产物缺失则重建
+     * 单条刷新元数据（两模式，工单 06/07）：missing 补齐缺失文本字段并校验图片/NFO 产物缺失则重建
      * （已匹配字段不动，manual 行只补产物不改字段）；force 重新拉取 TMDB 全量覆盖字段并全量替换
-     * 图片/NFO 产物（manual 行拒绝并提示）。mode 缺省 missing，保持旧前端兼容。
+     * 图片/NFO 产物（manual 行豁免字段覆盖，复用既有元数据按 force 语义全量替换产物）。
+     * mode 缺省 missing，保持旧前端兼容；非法 mode 值抛参数错误（工单 08 枚举化）。
      */
     @PostMapping("/metadata/{id}/refresh")
     public R<Void> refreshMetadata(@PathVariable String id,
-                                   @RequestParam(defaultValue = "missing") String mode) {
-        mediaScrapeService.refreshItem(id, UserContext.get().id(), mode);
+                                   @RequestParam(required = false) String mode) {
+        MediaRefreshMode refreshMode = MediaRefreshMode.of(StrUtil.blankToDefault(mode, "missing"));
+        if (refreshMode == null) {
+            throw new BusinessException(ResultCode.PARAM_ERROR, "刷新模式不合法");
+        }
+        mediaScrapeService.refreshItem(id, UserContext.get().id(), refreshMode);
         return R.ok();
     }
 }

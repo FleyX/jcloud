@@ -3,6 +3,7 @@ package com.fleyx.jcloud.controller;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fleyx.jcloud.common.context.CurrentUser;
 import com.fleyx.jcloud.common.context.UserContext;
+import com.fleyx.jcloud.common.enums.MediaRefreshMode;
 import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.common.exception.GlobalExceptionHandler;
@@ -35,6 +36,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -134,7 +136,7 @@ class MediaControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(200));
 
-        verify(mediaScrapeService).refreshItem("meta-1", "user-1", "missing");
+        verify(mediaScrapeService).refreshItem("meta-1", "user-1", MediaRefreshMode.MISSING);
     }
 
     /**
@@ -146,7 +148,19 @@ class MediaControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(200));
 
-        verify(mediaScrapeService).refreshItem("meta-1", "user-1", "force");
+        verify(mediaScrapeService).refreshItem("meta-1", "user-1", MediaRefreshMode.FORCE);
+    }
+
+    /**
+     * 刷新元数据：非法 mode 值抛参数错误（工单 08 枚举化），不触发削刮服务。
+     */
+    @Test
+    void shouldRejectInvalidRefreshMode() throws Exception {
+        mockMvc.perform(post("/jcloud/api/media/metadata/meta-1/refresh").param("mode", "bogus"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(ResultCode.PARAM_ERROR.getCode()));
+
+        verify(mediaScrapeService, never()).refreshItem(any(), any(), any());
     }
 
     /**
@@ -155,7 +169,7 @@ class MediaControllerTest {
     @Test
     void shouldRejectRefreshOfOtherUsersMetadata() throws Exception {
         doThrow(new BusinessException(ResultCode.NOT_FOUND, "元数据不存在"))
-                .when(mediaScrapeService).refreshItem("meta-2", "user-1", "missing");
+                .when(mediaScrapeService).refreshItem("meta-2", "user-1", MediaRefreshMode.MISSING);
 
         mockMvc.perform(post("/jcloud/api/media/metadata/meta-2/refresh"))
                 .andExpect(status().isOk())
@@ -169,7 +183,7 @@ class MediaControllerTest {
     @Test
     void shouldRejectRefreshOfMissingMetadata() throws Exception {
         doThrow(new BusinessException(ResultCode.NOT_FOUND, "元数据不存在"))
-                .when(mediaScrapeService).refreshItem("meta-3", "user-1", "missing");
+                .when(mediaScrapeService).refreshItem("meta-3", "user-1", MediaRefreshMode.MISSING);
 
         mockMvc.perform(post("/jcloud/api/media/metadata/meta-3/refresh"))
                 .andExpect(status().isOk())

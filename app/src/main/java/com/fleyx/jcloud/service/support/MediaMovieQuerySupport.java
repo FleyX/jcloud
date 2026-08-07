@@ -64,7 +64,7 @@ public class MediaMovieQuerySupport {
         List<MediaMovie> movies = result.getRecords();
         Map<String, MediaMetadata> metadataMap = loadMetadataMap(
                 movies.stream().map(MediaMovie::getMetadataId).toList());
-        Map<String, Long> nodeVersionMap = loadNodeVersionMap(
+        Map<String, Long> nodeVersionMap = mediaItemVoSupport.loadNodeVersionMap(
                 metadataMap.values().stream().map(MediaMetadata::getPosterFileNodeId).toList());
         Map<String, MediaMovieFile> representativeFile = representativeFiles(movies);
         Map<String, String> fileNameMap = loadFileNameMap(
@@ -89,7 +89,7 @@ public class MediaMovieQuerySupport {
                 vo.setTitle(metadata.getTitle());
                 vo.setReleaseDate(metadata.getReleaseDate());
                 vo.setVoteAverage(metadata.getVoteAverage());
-                vo.setPosterUrl(posterUrlOf(metadata, nodeVersionMap));
+                vo.setPosterUrl(mediaItemVoSupport.posterUrlOf(metadata, nodeVersionMap));
             }
             if (vo.getTitle() == null) {
                 vo.setTitle(movie.getTitle());
@@ -121,7 +121,7 @@ public class MediaMovieQuerySupport {
         FileNode node = representative == null ? null : fileMapper.selectById(representative.getFileNodeId());
         MediaMetadata metadata = movie.getMetadataId() == null ? null
                 : mediaMetadataMapper.selectById(movie.getMetadataId());
-        Map<String, Long> nodeVersionMap = metadata == null ? Map.of() : loadNodeVersionMap(
+        Map<String, Long> nodeVersionMap = metadata == null ? Map.of() : mediaItemVoSupport.loadNodeVersionMap(
                 List.of(metadata.getPosterFileNodeId(), metadata.getBackdropFileNodeId()));
 
         MediaItemDetailVo vo = new MediaItemDetailVo();
@@ -146,8 +146,8 @@ public class MediaMovieQuerySupport {
             vo.setOverview(metadata.getOverview());
             vo.setReleaseDate(metadata.getReleaseDate());
             vo.setVoteAverage(metadata.getVoteAverage());
-            vo.setPosterUrl(posterUrlOf(metadata, nodeVersionMap));
-            vo.setBackdropUrl(backdropUrlOf(metadata, nodeVersionMap));
+            vo.setPosterUrl(mediaItemVoSupport.posterUrlOf(metadata, nodeVersionMap));
+            vo.setBackdropUrl(mediaItemVoSupport.backdropUrlOf(metadata, nodeVersionMap));
         }
         if (vo.getTitle() == null) {
             vo.setTitle(movie.getTitle());
@@ -262,42 +262,6 @@ public class MediaMovieQuerySupport {
         }
         return fileMapper.selectBatchIds(ids).stream()
                 .collect(Collectors.toMap(FileNode::getId, FileNode::getName));
-    }
-
-    /**
-     * 文件节点版本映射（nodeId → lastModified），图片覆盖写后版本变化使浏览器缓存失效；
-     * FileNode 查不到或 lastModified 为空（脏数据/假 id）的节点不入映射，对应 URL 不带 {@code ?v=}。
-     */
-    private Map<String, Long> loadNodeVersionMap(List<String> fileNodeIds) {
-        List<String> ids = fileNodeIds.stream().filter(Objects::nonNull).distinct().toList();
-        if (ids.isEmpty()) {
-            return Map.of();
-        }
-        return fileMapper.selectBatchIds(ids).stream()
-                .filter(node -> node.getLastModified() != null)
-                .collect(Collectors.toMap(FileNode::getId, FileNode::getLastModified));
-    }
-
-    /**
-     * 元数据海报图 URL，无海报时返回 null；海报文件节点存在时附带版本参数。
-     */
-    private String posterUrlOf(MediaMetadata metadata, Map<String, Long> nodeVersionMap) {
-        if (metadata == null || metadata.getPosterFileNodeId() == null) {
-            return null;
-        }
-        return mediaItemVoSupport.metadataPosterUrl(metadata.getId(),
-                nodeVersionMap.get(metadata.getPosterFileNodeId()));
-    }
-
-    /**
-     * 元数据背景图 URL，无背景图时返回 null；背景图文件节点存在时附带版本参数。
-     */
-    private String backdropUrlOf(MediaMetadata metadata, Map<String, Long> nodeVersionMap) {
-        if (metadata == null || metadata.getBackdropFileNodeId() == null) {
-            return null;
-        }
-        return mediaItemVoSupport.metadataBackdropUrl(metadata.getId(),
-                nodeVersionMap.get(metadata.getBackdropFileNodeId()));
     }
 
     private String blankToNull(String text) {

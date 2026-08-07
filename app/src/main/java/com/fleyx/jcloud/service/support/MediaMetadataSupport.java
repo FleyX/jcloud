@@ -6,6 +6,7 @@ import com.fleyx.jcloud.common.enums.MediaMetadataSource;
 import com.fleyx.jcloud.common.enums.MediaPersistStatus;
 import com.fleyx.jcloud.mapper.MediaMetadataMapper;
 import com.fleyx.jcloud.model.po.MediaMetadata;
+import com.fleyx.jcloud.service.TmdbService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -16,7 +17,8 @@ import org.springframework.stereotype.Component;
  * 电影/剧集/季/集行各持 metadata_id 一对一关联元数据行，元数据行以 owner_type + owner_id
  * 反向指针同步维护：写入时设置（{@link #upsertByOwner} 按 owner 定位，已存在则原地更新，
  * 否则新建并写入反向指针），删除时由级联支撑组件按 owner 定位清理（{@link #deleteByOwner}）。
- * TMDB 拉取结果（未落库的游离元数据）与本地 NFO 解析结果均经本组件绑定 owner 后落库。
+ * TMDB 拉取结果（未落库的游离元数据）与本地 NFO 解析结果均经本组件绑定 owner 后落库；
+ * 本地优先削刮的字段补全（{@link #enrichLocalWithTmdb}）同样收口在本组件（工单 08 拆分）。
  */
 @Slf4j
 @Component
@@ -24,6 +26,8 @@ import org.springframework.stereotype.Component;
 public class MediaMetadataSupport {
 
     private final MediaMetadataMapper mediaMetadataMapper;
+    private final MediaMetadataCompleteSupport completeSupport;
+    private final TmdbService tmdbService;
 
     /**
      * 按 owner 反向指针 upsert 元数据行：已存在对应行则原地更新（来源也随新数据变化），
@@ -113,6 +117,29 @@ public class MediaMetadataSupport {
         }
         local.setRawJson(remote.getRawJson());
         return local;
+    }
+
+    /**
+     * 本地元数据 TMDB 补全（ADR 0023 合并语义，工单 08 由削刮实现收口到本组件）：local 为 null、
+     * tmdbId 为空或本地已完整（5 项齐备）时原样返回（方法内短路，仅不完整且 tmdbId 非空时实际需要网络）；
+     * 否则 {@code fetchDetailV2} 拉详情逐字段合并——本地非空字段优先、缺失字段用远端值补齐，
+     * rawJson 恒取远端（图片写回需要）；远端拉取失败原样返回（不阻断削刮）。
+     */
+    public MediaMetadata enrichLocalWithTmdb(MediaMetadata local, String userId, String mediaType) {
+        if (local == null || local.getTmdbId() == null || completeSupport.isComplete(local)) {
+            return local;
+        }
+        MediaMetadata remote;
+        try {
+            remote = tmdbService.fetchDetailV2(userId, local.getTmdbId(), mediaType);
+        } catch (Exception e) {
+            log.debug("本地元数据 TMDB 补全失败，维持本地: tmdbId={}, error={}", local.getTmdbId(), e.getMessage());
+            return local;
+        }
+        if (remote == null) {
+            return local;
+        }
+        return mergeLocalWithTmdb(local, remote);
     }
 
     /**

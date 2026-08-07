@@ -5,6 +5,7 @@ import com.fleyx.jcloud.common.constant.FileNodeConstants;
 import com.fleyx.jcloud.common.context.CurrentUser;
 import com.fleyx.jcloud.common.context.UserContext;
 import com.fleyx.jcloud.common.enums.MediaMatchStatus;
+import com.fleyx.jcloud.common.enums.MediaRefreshMode;
 import com.fleyx.jcloud.common.enums.MediaScrapeStatus;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.FileMapper;
@@ -1683,7 +1684,7 @@ class MediaScrapeServiceTest {
             }
         }
         clearInvocations(tmdbService);
-        mediaScrapeService.refreshItem(metadataId, user.getId(), "missing");
+        mediaScrapeService.refreshItem(metadataId, user.getId(), MediaRefreshMode.MISSING);
 
         verify(tmdbService, never()).autoMatchV2(any(), anyString(), anyString(), any());
         MediaMetadata after = mediaMetadataMapper.selectById(metadataId);
@@ -1724,7 +1725,7 @@ class MediaScrapeServiceTest {
         when(tmdbService.fetchDetailV2(eq(user.getId()), eq(1000L), eq("movie"))).thenReturn(changed);
         when(tmdbService.downloadArtwork(anyString(), anyString())).thenReturn(new byte[]{9, 9});
 
-        mediaScrapeService.refreshItem(metadataId, user.getId(), "force");
+        mediaScrapeService.refreshItem(metadataId, user.getId(), MediaRefreshMode.FORCE);
 
         verify(tmdbService).fetchDetailV2(user.getId(), 1000L, "movie");
         // 图片重新下载覆盖（downloadArtwork 再次被调，poster 内容变化）
@@ -1771,7 +1772,7 @@ class MediaScrapeServiceTest {
         // 物理删除海报产物 → manual 单条 force 刷新：按 rawJson 重建，不重新匹配、文本字段不变
         fileMapper.deleteById(queryChildNode(movieFolder.getId(), "folder.jpg").getId());
         clearInvocations(tmdbService);
-        mediaScrapeService.refreshItem(metadataId, user.getId(), "force");
+        mediaScrapeService.refreshItem(metadataId, user.getId(), MediaRefreshMode.FORCE);
 
         verify(tmdbService, never()).autoMatchV2(any(), anyString(), anyString(), any());
         verify(tmdbService, never()).fetchDetailV2(any(), any(), any());
@@ -1814,7 +1815,7 @@ class MediaScrapeServiceTest {
             }
         }
         clearInvocations(tmdbService);
-        mediaScrapeService.refreshItem(manual.getMetadataId(), user.getId(), "missing");
+        mediaScrapeService.refreshItem(manual.getMetadataId(), user.getId(), MediaRefreshMode.MISSING);
 
         verify(tmdbService, never()).autoMatchV2(any(), anyString(), anyString(), any());
         verify(tmdbService, never()).fetchDetailV2(any(), any(), any());
@@ -1901,7 +1902,7 @@ class MediaScrapeServiceTest {
                 .thenReturn(new TmdbService.SeasonFetchV2(seasonMeta, Map.of(1, epMeta)));
         when(tmdbService.downloadArtwork(anyString(), anyString())).thenReturn(new byte[]{8, 8});
 
-        mediaScrapeService.refreshItem(metadataId, user.getId(), "force");
+        mediaScrapeService.refreshItem(metadataId, user.getId(), MediaRefreshMode.FORCE);
 
         verify(tmdbService).fetchDetailV2(user.getId(), 2000L, "tv");
         MediaMetadata after = mediaMetadataMapper.selectById(metadataId);
@@ -1936,7 +1937,7 @@ class MediaScrapeServiceTest {
         mediaMetadataMapper.insert(epMeta);
 
         BusinessException e = assertThrows(BusinessException.class,
-                () -> mediaScrapeService.refreshItem(epMeta.getId(), user.getId(), "missing"));
+                () -> mediaScrapeService.refreshItem(epMeta.getId(), user.getId(), MediaRefreshMode.MISSING));
         assertEquals("请刷新所属剧集", e.getMessage());
     }
 
