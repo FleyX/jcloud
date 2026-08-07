@@ -10,7 +10,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Clapperboard, Play } from '@lucide/vue'
 import type { MediaItemDetailVo, MediaMovieVersionVo, TmdbSearchResultVo } from '@/types/media'
-import { fetchItemDetail, refreshMetadata, toggleFavorite, updateMediaMatch } from '@/api/media'
+import { fetchItemDetail, refreshMetadata, toggleFavorite, updateMediaMatch, type MediaRefreshMode } from '@/api/media'
 import { formatSize } from '@/utils/fileDisplay'
 import { cn } from '@/utils/cn'
 import { useNotificationStore } from '@/store/notification'
@@ -86,10 +86,10 @@ async function handleMatched(result: TmdbSearchResultVo) {
   await load()
 }
 
-async function handleRefresh() {
+async function handleRefresh(mode: MediaRefreshMode) {
   if (!detail.value?.metadataId) return
-  await refreshMetadata(detail.value.metadataId)
-  notificationStore.success('元数据已刷新')
+  await refreshMetadata(detail.value.metadataId, mode)
+  notificationStore.success(mode === 'force' ? '元数据已强制刷新' : '元数据已刷新')
   await load()
 }
 

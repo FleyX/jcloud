@@ -85,24 +85,26 @@ public class MediaTvScrapeSupport {
         MediaMetadata bound = metadataV2Support.upsertByOwner(
                 MediaMetadataOwnerType.SERIES.getCode(), series.getId(), localMetadata);
         bindSeriesRow(series, bound, MediaMatchStatus.MATCHED.getCode());
-        deriveSeasonEpisodes(series, bound);
+        deriveSeasonEpisodes(series, bound, false);
         artworkPersistV2Support.persistSeriesV2(series, bound);
         completeSupport.refreshSeriesComplete(series);
     }
 
     /**
-     * 应用剧级匹配（TMDB 自动匹配/手动修正共用）：绑定剧行 → 派生季/集元数据 → 写回 → 重算完整性。
+     * 应用剧级匹配（TMDB 自动匹配/手动修正/强制刷新共用）：绑定剧行 → 派生季/集元数据 → 写回 → 重算完整性。
      *
      * @param series      剧行
      * @param detached    未绑定 owner 的剧元数据（TMDB 拉取结果）
      * @param matchStatus 剧行匹配状态（matched / manual）
+     * @param force       是否强制写回（true 时图片按 rawJson 重新下载覆盖、季/集 local_nfo 行也全量覆盖，工单 06）
      */
-    public void applySeriesMatchWithDerivation(MediaSeries series, MediaMetadata detached, String matchStatus) {
+    public void applySeriesMatchWithDerivation(MediaSeries series, MediaMetadata detached,
+                                               String matchStatus, boolean force) {
         MediaMetadata bound = metadataV2Support.upsertByOwner(
                 MediaMetadataOwnerType.SERIES.getCode(), series.getId(), detached);
         bindSeriesRow(series, bound, matchStatus);
-        deriveSeasonEpisodes(series, bound);
-        artworkPersistV2Support.persistSeriesV2(series, bound);
+        deriveSeasonEpisodes(series, bound, force);
+        artworkPersistV2Support.persistSeriesV2(series, bound, force);
         completeSupport.refreshSeriesComplete(series);
     }
 
@@ -136,10 +138,11 @@ public class MediaTvScrapeSupport {
      * 季/集元数据 upsert 到各自 owner 并回写 metadata_id。合并语义（ADR 0023）：
      * 已有 local_nfo 来源季/集行时本地字段优先、缺失字段用 TMDB 季/集数据补齐（含剧照 still）；
      * 无既有行或既有行为 TMDB 来源时直接采用最新 TMDB 派生数据（保证重复派生能刷新旧值）。
+     * force=true 时（工单 06）既有行无论来源一律采用最新 TMDB 派生数据（强制刷新全量覆盖）。
      * 单个季拉取失败仅记日志不影响其他季。
-     * 供自动削刮与剧级手动修正共用。
+     * 供自动削刮、剧级手动修正与强制刷新共用。
      */
-    public void deriveSeasonEpisodes(MediaSeries series, MediaMetadata seriesMetadata) {
+    public void deriveSeasonEpisodes(MediaSeries series, MediaMetadata seriesMetadata, boolean force) {
         if (seriesMetadata.getTmdbId() == null) {
             return;
         }
@@ -159,7 +162,7 @@ public class MediaTvScrapeSupport {
                         MediaMetadataOwnerType.SEASON.getCode(), season.getId());
                 MediaMetadata seasonBound = metadataV2Support.upsertByOwner(
                         MediaMetadataOwnerType.SEASON.getCode(), season.getId(),
-                        existingSeason == null || !MediaMetadataSource.LOCAL_NFO.getCode().equals(existingSeason.getSource())
+                        existingSeason == null || force || !MediaMetadataSource.LOCAL_NFO.getCode().equals(existingSeason.getSource())
                                 ? result.season()
                                 : metadataV2Support.mergeLocalWithTmdb(existingSeason, result.season()));
                 bindSeasonRow(season, seasonBound);
@@ -174,7 +177,7 @@ public class MediaTvScrapeSupport {
                             MediaMetadataOwnerType.EPISODE.getCode(), episode.getId());
                     MediaMetadata episodeBound = metadataV2Support.upsertByOwner(
                             MediaMetadataOwnerType.EPISODE.getCode(), episode.getId(),
-                            existingEpisode == null || !MediaMetadataSource.LOCAL_NFO.getCode().equals(existingEpisode.getSource())
+                            existingEpisode == null || force || !MediaMetadataSource.LOCAL_NFO.getCode().equals(existingEpisode.getSource())
                                     ? episodeMeta
                                     : metadataV2Support.mergeLocalWithTmdb(existingEpisode, episodeMeta));
                     MediaEpisode update = new MediaEpisode();

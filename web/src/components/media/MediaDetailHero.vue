@@ -5,7 +5,14 @@
  */
 import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { ArrowLeft, Film, Heart, Pencil, Play, RotateCcw, RefreshCw, Star } from '@lucide/vue'
+import {
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuPortal,
+  DropdownMenuRoot,
+  DropdownMenuTrigger,
+} from 'radix-vue'
+import { ArrowLeft, Film, Heart, Pencil, Play, RefreshCcw, RefreshCw, RotateCcw, Star } from '@lucide/vue'
 import { withToken } from '@/api/media'
 import { formatDurationText, formatPosition } from './format'
 import { cn } from '@/utils/cn'
@@ -41,9 +48,23 @@ const props = withDefaults(defineProps<Props>(), {
 const emit = defineEmits<{
   play: [startMs: number]
   rematch: []
-  refresh: []
+  refresh: [mode: 'missing' | 'force']
   'toggle-favorite': []
 }>()
+
+/** 刷新菜单是否展开（radix-vue DropdownMenu 受控） */
+const refreshOpen = ref(false)
+
+/** 刷新菜单项：刷新缺失元数据 / 强制刷新元数据 */
+const refreshActions = [
+  { mode: 'missing' as const, label: '刷新缺失元数据', icon: RefreshCw },
+  { mode: 'force' as const, label: '强制刷新元数据', icon: RefreshCcw },
+]
+
+function handleRefresh(mode: 'missing' | 'force') {
+  refreshOpen.value = false
+  emit('refresh', mode)
+}
 
 const yearText = computed(() => (props.releaseDate ? props.releaseDate.slice(0, 4) : null))
 const durationText = computed(() => formatDurationText(props.durationMs))
@@ -206,14 +227,39 @@ function goBack() {
               />
               {{ favorited ? '已收藏' : '收藏' }}
             </button>
-            <button
+            <DropdownMenuRoot
               v-if="showRefresh"
-              class="flex items-center gap-1.5 rounded-xl bg-white/10 px-3 py-2 text-sm text-white hover:bg-white/20"
-              title="刷新元数据"
-              @click="emit('refresh')"
+              v-model:open="refreshOpen"
             >
-              <RefreshCw class="h-4 w-4" />
-            </button>
+              <DropdownMenuTrigger as-child>
+                <button
+                  class="flex items-center gap-1.5 rounded-xl bg-white/10 px-3 py-2 text-sm text-white hover:bg-white/20"
+                  title="刷新元数据"
+                >
+                  <RefreshCw class="h-4 w-4" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuPortal>
+                <DropdownMenuContent
+                  align="end"
+                  :side-offset="6"
+                  class="z-50 min-w-[160px] overflow-hidden rounded-xl border border-white/20 bg-white p-1.5 shadow-soft outline-none"
+                >
+                  <DropdownMenuItem
+                    v-for="action in refreshActions"
+                    :key="action.mode"
+                    class="flex cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-surface-700 outline-none transition-colors duration-150 hover:bg-primary-50 hover:text-primary-700 focus:bg-primary-50"
+                    @click="handleRefresh(action.mode)"
+                  >
+                    <component
+                      :is="action.icon"
+                      class="h-4 w-4 shrink-0 text-primary-500"
+                    />
+                    {{ action.label }}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenuPortal>
+            </DropdownMenuRoot>
           </div>
         </div>
       </div>

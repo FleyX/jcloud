@@ -3,7 +3,6 @@ package com.fleyx.jcloud.controller;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fleyx.jcloud.common.context.CurrentUser;
 import com.fleyx.jcloud.common.context.UserContext;
-import com.fleyx.jcloud.common.enums.MediaMetadataOwnerType;
 import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.common.exception.GlobalExceptionHandler;
@@ -11,7 +10,6 @@ import com.fleyx.jcloud.mapper.FileMapper;
 import com.fleyx.jcloud.mapper.MediaMetadataMapper;
 import com.fleyx.jcloud.model.dto.MediaFavoriteQueryDto;
 import com.fleyx.jcloud.model.dto.MediaMatchUpdateDto;
-import com.fleyx.jcloud.model.po.MediaMetadata;
 import com.fleyx.jcloud.model.vo.MediaFavoriteVo;
 import com.fleyx.jcloud.model.vo.MediaItemVo;
 import com.fleyx.jcloud.service.MediaDirectoryService;
@@ -23,7 +21,6 @@ import com.fleyx.jcloud.service.MediaScanService;
 import com.fleyx.jcloud.service.MediaScrapeService;
 import com.fleyx.jcloud.service.TmdbService;
 import com.fleyx.jcloud.service.support.MediaArtworkPersistSupport;
-import com.fleyx.jcloud.service.support.MediaMetadataCompleteSupport;
 import com.fleyx.jcloud.service.support.TranscodeSessionManager;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -35,8 +32,8 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -62,14 +59,12 @@ class MediaControllerTest {
     private final MediaMetadataMapper mediaMetadataMapper = mock(MediaMetadataMapper.class);
     private final FileMapper fileMapper = mock(FileMapper.class);
     private final MediaArtworkPersistSupport mediaArtworkPersistSupport = mock(MediaArtworkPersistSupport.class);
-    private final MediaMetadataCompleteSupport metadataCompleteSupport = mock(MediaMetadataCompleteSupport.class);
     private final TranscodeSessionManager transcodeSessionManager = mock(TranscodeSessionManager.class);
 
     private final MediaController mediaController = new MediaController(
             mediaDirectoryService, mediaFavoriteService, mediaScanService, mediaScrapeService, mediaItemService,
             mediaHomeService, mediaPlaybackService, tmdbService, mediaMetadataMapper,
-            fileMapper, mediaArtworkPersistSupport,
-            metadataCompleteSupport, transcodeSessionManager);
+            fileMapper, mediaArtworkPersistSupport, transcodeSessionManager);
 
     private final MockMvc mockMvc = MockMvcBuilders.standaloneSetup(mediaController)
             .setControllerAdvice(new GlobalExceptionHandler())
@@ -131,56 +126,55 @@ class MediaControllerTest {
     }
 
     /**
-     * 刷新元数据：元数据属于当前登录用户时放行并按 owner 类型刷新 + 重算完整性。
+     * 刷新元数据（工单 06 两模式）：mode 缺省 = missing，转发当前用户与模式到削刮服务。
      */
     @Test
     void shouldRefreshOwnMetadata() throws Exception {
-        MediaMetadata metadata = new MediaMetadata();
-        metadata.setId("meta-1");
-        metadata.setUserId("user-1");
-        metadata.setOwnerType(MediaMetadataOwnerType.MOVIE.getCode());
-        metadata.setOwnerId("movie-1");
-        when(mediaMetadataMapper.selectById("meta-1")).thenReturn(metadata);
-
         mockMvc.perform(post("/jcloud/api/media/metadata/meta-1/refresh"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(200));
 
-        verify(tmdbService).refreshV2(metadata);
-        verify(metadataCompleteSupport).refreshOwnerComplete(MediaMetadataOwnerType.MOVIE, "movie-1");
+        verify(mediaScrapeService).refreshItem("meta-1", "user-1", "missing");
     }
 
     /**
-     * 刷新元数据：元数据属于其他用户时按业务拦截，不触发刷新。
+     * 刷新元数据：显式传 force 模式时透传到削刮服务。
+     */
+    @Test
+    void shouldRefreshWithForceMode() throws Exception {
+        mockMvc.perform(post("/jcloud/api/media/metadata/meta-1/refresh").param("mode", "force"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200));
+
+        verify(mediaScrapeService).refreshItem("meta-1", "user-1", "force");
+    }
+
+    /**
+     * 刷新元数据：削刮服务按归属/存在性拒绝（元数据属于其他用户）时异常透传，不触发任何刷新逻辑。
      */
     @Test
     void shouldRejectRefreshOfOtherUsersMetadata() throws Exception {
-        MediaMetadata metadata = new MediaMetadata();
-        metadata.setId("meta-2");
-        metadata.setUserId("user-2");
-        when(mediaMetadataMapper.selectById("meta-2")).thenReturn(metadata);
+        doThrow(new BusinessException(ResultCode.NOT_FOUND, "元数据不存在"))
+                .when(mediaScrapeService).refreshItem("meta-2", "user-1", "missing");
 
         mockMvc.perform(post("/jcloud/api/media/metadata/meta-2/refresh"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(404))
                 .andExpect(jsonPath("$.msg").value("元数据不存在"));
-
-        verify(tmdbService, org.mockito.Mockito.never()).refreshV2(any(MediaMetadata.class));
     }
 
     /**
-     * 刷新元数据：元数据不存在时按业务拦截，不触发刷新。
+     * 刷新元数据：元数据不存在时削刮服务抛业务异常，异常透传不触发刷新。
      */
     @Test
     void shouldRejectRefreshOfMissingMetadata() throws Exception {
-        when(mediaMetadataMapper.selectById("meta-3")).thenReturn(null);
+        doThrow(new BusinessException(ResultCode.NOT_FOUND, "元数据不存在"))
+                .when(mediaScrapeService).refreshItem("meta-3", "user-1", "missing");
 
         mockMvc.perform(post("/jcloud/api/media/metadata/meta-3/refresh"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(404))
                 .andExpect(jsonPath("$.msg").value("元数据不存在"));
-
-        verify(tmdbService, org.mockito.Mockito.never()).refreshV2(any(MediaMetadata.class));
     }
 
     /**

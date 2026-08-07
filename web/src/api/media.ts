@@ -243,8 +243,15 @@ export function fetchMediaFavorites(query: MediaFavoriteQuery): Promise<PageResu
   return get<PageResult<MediaFavoriteVo>>('/media/favorites', query as unknown as Record<string, unknown>)
 }
 
-export function refreshMetadata(id: string): Promise<void> {
-  return post<void>(`/media/metadata/${id}/refresh`)
+/** 刷新模式：missing 补齐缺失文本字段并校验图片/NFO 产物缺失则重建；force 重新拉取 TMDB 全量覆盖 */
+export type MediaRefreshMode = 'missing' | 'force'
+
+/**
+ * 单条刷新元数据（两模式）：missing 补齐缺失字段与产物；force 重新拉取 TMDB 全量覆盖
+ * （manual 条目强制刷新后端拒绝并提示）。
+ */
+export function refreshMetadata(id: string, mode: MediaRefreshMode = 'missing'): Promise<void> {
+  return post<void>(`/media/metadata/${id}/refresh`, undefined, { mode })
 }
 
 // ---------- 管理端 ----------

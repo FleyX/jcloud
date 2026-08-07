@@ -2,7 +2,6 @@ package com.fleyx.jcloud.service.impl;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fleyx.jcloud.common.enums.MediaMetadataOwnerType;
 import com.fleyx.jcloud.common.enums.MediaMetadataSource;
 import com.fleyx.jcloud.common.enums.MediaPersistStatus;
 import com.fleyx.jcloud.common.enums.ResultCode;
@@ -144,31 +143,6 @@ public class TmdbServiceImpl implements TmdbService {
             }
         }
         return new SeasonFetchV2(season, episodes);
-    }
-
-    @Override
-    public MediaMetadata refreshV2(MediaMetadata metadata) {
-        if (metadata == null || !MediaMetadataSource.TMDB.getCode().equals(metadata.getSource())
-                || metadata.getTmdbId() == null) {
-            return metadata;
-        }
-        MediaMetadataOwnerType ownerType = MediaMetadataOwnerType.of(metadata.getOwnerType());
-        if (ownerType == null) {
-            log.warn("未知元数据归属类型，跳过刷新: {}", metadata.getOwnerType());
-            return metadata;
-        }
-        String mediaType = switch (ownerType) {
-            case MOVIE -> "movie";
-            case SERIES -> "tv";
-            default -> null;
-        };
-        if (mediaType == null) {
-            return metadata;
-        }
-        JsonNode node = requestJson(API_BASE + "/" + mediaType + "/" + metadata.getTmdbId()
-                + "?api_key=" + requireApiKey() + "&language=" + LANGUAGE);
-        applyDetailV2(metadata, node, "movie".equals(mediaType));
-        return metadata;
     }
 
     /** TMDB 响应节点 ID，非数值返回 null。 */

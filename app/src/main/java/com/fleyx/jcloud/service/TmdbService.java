@@ -77,13 +77,4 @@ public interface TmdbService {
      * @return 季与集派生结果或 null
      */
     SeasonFetchV2 fetchSeasonV2(String userId, Long seriesTmdbId, Integer seasonNo);
-
-    /**
-     * 重新从 TMDB 拉取并覆盖元数据字段（新模型，仅 movie/series 归属可刷新，
-     * local_nfo 来源或 tmdb_id 为空时不刷新、原样返回）。返回待落库的元数据。
-     *
-     * @param metadata 元数据行（已绑定 owner）
-     * @return 刷新后的元数据行
-     */
-    MediaMetadata refreshV2(MediaMetadata metadata);
 }

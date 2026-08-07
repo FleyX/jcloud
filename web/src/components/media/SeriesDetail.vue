@@ -9,7 +9,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, Heart, LoaderCircle, Tv } from '@lucide/vue'
 import type { MediaItemVo, MediaSeriesDetailVo, MediaSeriesSeasonVo, TmdbSearchResultVo } from '@/types/media'
-import { fetchSeasonEpisodes, fetchSeriesDetail, refreshMetadata, toggleFavorite, updateMediaMatch, withToken } from '@/api/media'
+import { fetchSeasonEpisodes, fetchSeriesDetail, refreshMetadata, toggleFavorite, updateMediaMatch, withToken, type MediaRefreshMode } from '@/api/media'
 import { useNotificationStore } from '@/store/notification'
 import { formatDurationText } from './format'
 import { cn } from '@/utils/cn'
@@ -202,10 +202,10 @@ async function handleMatched(result: TmdbSearchResultVo) {
   await load()
 }
 
-async function handleRefresh() {
+async function handleRefresh(mode: MediaRefreshMode) {
   if (!detail.value?.metadataId) return
-  await refreshMetadata(detail.value.metadataId)
-  notificationStore.success('元数据已刷新')
+  await refreshMetadata(detail.value.metadataId, mode)
+  notificationStore.success(mode === 'force' ? '元数据已强制刷新' : '元数据已刷新')
   await load()
 }
 

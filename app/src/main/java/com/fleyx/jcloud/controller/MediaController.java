@@ -4,7 +4,6 @@ import com.fleyx.jcloud.common.R;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.fleyx.jcloud.common.constant.CommonConstant;
 import com.fleyx.jcloud.common.context.UserContext;
-import com.fleyx.jcloud.common.enums.MediaMetadataOwnerType;
 import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.FileMapper;
@@ -39,7 +38,6 @@ import com.fleyx.jcloud.service.MediaScanService;
 import com.fleyx.jcloud.service.MediaScrapeService;
 import com.fleyx.jcloud.service.TmdbService;
 import com.fleyx.jcloud.service.support.MediaArtworkPersistSupport;
-import com.fleyx.jcloud.service.support.MediaMetadataCompleteSupport;
 import com.fleyx.jcloud.service.support.TranscodeSession;
 import com.fleyx.jcloud.service.support.TranscodeSessionManager;
 import jakarta.validation.Valid;
@@ -91,7 +89,6 @@ public class MediaController {
     private final MediaMetadataMapper mediaMetadataMapper;
     private final FileMapper fileMapper;
     private final MediaArtworkPersistSupport mediaArtworkPersistSupport;
-    private final MediaMetadataCompleteSupport metadataCompleteSupport;
     private final TranscodeSessionManager transcodeSessionManager;
 
     // ---------- 目录管理 ----------
@@ -402,21 +399,15 @@ public class MediaController {
                 .body(new InputStreamResource(new ByteArrayInputStream(bytes)));
     }
 
+    /**
+     * 单条刷新元数据（两模式，工单 06）：missing 补齐缺失文本字段并校验图片/NFO 产物缺失则重建
+     * （已匹配字段不动，manual 行只补产物不改字段）；force 重新拉取 TMDB 全量覆盖字段并全量替换
+     * 图片/NFO 产物（manual 行拒绝并提示）。mode 缺省 missing，保持旧前端兼容。
+     */
     @PostMapping("/metadata/{id}/refresh")
-    public R<Void> refreshMetadata(@PathVariable String id) {
-        MediaMetadata metadata = mediaMetadataMapper.selectById(id);
-        if (metadata == null || !UserContext.get().id().equals(metadata.getUserId())) {
-            throw new BusinessException(ResultCode.NOT_FOUND, "元数据不存在");
-        }
-        MediaMetadata refreshed = tmdbService.refreshV2(metadata);
-        if (refreshed != null) {
-            mediaMetadataMapper.updateById(refreshed);
-        }
-        // 每次刷新结束后重算 owner 的元数据完整性（剧集为聚合语义）；owner_type 未知编码时跳过（of 空安全）
-        MediaMetadataOwnerType ownerType = MediaMetadataOwnerType.of(metadata.getOwnerType());
-        if (ownerType != null) {
-            metadataCompleteSupport.refreshOwnerComplete(ownerType, metadata.getOwnerId());
-        }
+    public R<Void> refreshMetadata(@PathVariable String id,
+                                   @RequestParam(defaultValue = "missing") String mode) {
+        mediaScrapeService.refreshItem(id, UserContext.get().id(), mode);
         return R.ok();
     }
 }

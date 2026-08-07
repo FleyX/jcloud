@@ -172,7 +172,7 @@ public class MediaItemServiceImpl implements MediaItemService {
             throw new BusinessException(ResultCode.NOT_FOUND, "电视剧不存在");
         }
         MediaMetadata detached = tmdbService.fetchDetailV2(userId, dto.getTmdbId(), "tv");
-        mediaTvScrapeSupport.applySeriesMatchWithDerivation(series, detached, MediaMatchStatus.MANUAL.getCode());
+        mediaTvScrapeSupport.applySeriesMatchWithDerivation(series, detached, MediaMatchStatus.MANUAL.getCode(), false);
         MediaItemVo vo = new MediaItemVo();
         vo.setId(series.getId());
         vo.setItemType("series");
