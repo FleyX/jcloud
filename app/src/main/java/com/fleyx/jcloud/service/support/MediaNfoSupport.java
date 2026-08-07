@@ -25,7 +25,8 @@ import org.xml.sax.InputSource;
 /**
  * 媒体 NFO 支撑组件：Jellyfin/Kodi 兼容 NFO 的解析、生成与本地来源元数据落库。
  * <p>
- * 命名约定（ADR 0020）：电影/集为与视频同名的 {@code .nfo}，剧文件夹为 {@code tvshow.nfo}。
+ * 命名约定（ADR 0020）：电影识别优先 {@code movie.nfo}、回退与视频同名的 {@code .nfo}，写回统一
+ * {@code movie.nfo}；集为与视频同名的 {@code .nfo}，剧文件夹为 {@code tvshow.nfo}。
  * 本地媒体图片命名（ADR 0022）：海报/背景按识别链取目录中第一个存在的文件——电影海报
  * {@code folder.jpg→poster.jpg→cover.jpg→default.jpg→movie.jpg}、剧集海报
  * {@code folder.jpg→poster.jpg→cover.jpg→default.jpg→show.jpg}、背景
@@ -42,6 +43,11 @@ public class MediaNfoSupport {
      * 剧级 NFO 文件名。
      */
     public static final String TVSHOW_NFO = "tvshow.nfo";
+
+    /**
+     * 电影级 NFO 文件名（识别优先，写回统一）。
+     */
+    public static final String MOVIE_NFO = "movie.nfo";
 
     /**
      * 海报识别链（电影）：按序取目录中第一个存在的文件。

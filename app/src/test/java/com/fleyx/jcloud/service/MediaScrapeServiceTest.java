@@ -376,6 +376,73 @@ class MediaScrapeServiceTest {
     }
 
     /**
+     * 电影本地优先：目录仅有 movie.nfo（无同名 .nfo）时同样识别成功，元数据 local_nfo、不请求 TMDB。
+     */
+    @Test
+    void shouldScrapeMovieFromMovieNfoOnly() {
+        UserVo user = prepareUserWithStorageSpace();
+        FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
+        FileNodeVo parentFolder = createFolder(user.getId(), movieFolder.getId(), "Iron Man 2008");
+        FileNodeVo videoFile = fileService.upload(buildFile("Iron.Man.2008.1080p.mkv"), user.getId(), parentFolder.getId(), null);
+        fileService.upload(buildTextFile("movie.nfo", """
+                <movie>
+                  <tmdbid>1726</tmdbid>
+                  <title>钢铁侠</title>
+                  <plot>托尼·斯塔克打造钢铁战衣</plot>
+                  <premiered>2008-04-30</premiered>
+                  <rating>7.6</rating>
+                </movie>
+                """), user.getId(), parentFolder.getId(), null);
+        fileService.upload(buildFile("poster.jpg"), user.getId(), parentFolder.getId(), null);
+        MediaDirectory directory = createDirectory(user.getId(), movieFolder.getId(), "movie");
+        MediaMovie movie = seedMovie(directory, user.getId(), parentFolder.getId(), "Iron Man", 2008, videoFile.getId());
+
+        scrapeAwaitIdle(directory, user.getId(), false);
+
+        verify(tmdbService, never()).autoMatchV2(any(), anyString(), anyString(), any());
+        MediaMovie after = mediaMovieMapper.selectById(movie.getId());
+        assertEquals(MediaMatchStatus.MATCHED.getCode(), after.getMatchStatus());
+        assertTrue(after.getMetadataComplete());
+        MediaMetadata metadata = mediaMetadataMapper.selectOne(owner("movie", movie.getId()));
+        assertEquals("local_nfo", metadata.getSource());
+        assertEquals(1726L, metadata.getTmdbId());
+        assertEquals("钢铁侠", metadata.getTitle());
+    }
+
+    /**
+     * 电影本地优先：movie.nfo 与同名 .nfo 并存时以 movie.nfo 为准（识别优先级）。
+     */
+    @Test
+    void shouldPreferMovieNfoOverVideoNamedNfo() {
+        UserVo user = prepareUserWithStorageSpace();
+        FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
+        FileNodeVo parentFolder = createFolder(user.getId(), movieFolder.getId(), "Iron Man 2008");
+        FileNodeVo videoFile = fileService.upload(buildFile("Iron.Man.2008.1080p.mkv"), user.getId(), parentFolder.getId(), null);
+        fileService.upload(buildTextFile("movie.nfo", """
+                <movie>
+                  <title>movie.nfo 优先</title>
+                  <plot>movie.nfo 内容</plot>
+                </movie>
+                """), user.getId(), parentFolder.getId(), null);
+        fileService.upload(buildTextFile("Iron.Man.2008.1080p.nfo", """
+                <movie>
+                  <title>同名 nfo 内容</title>
+                  <plot>同名 .nfo 内容</plot>
+                </movie>
+                """), user.getId(), parentFolder.getId(), null);
+        MediaDirectory directory = createDirectory(user.getId(), movieFolder.getId(), "movie");
+        MediaMovie movie = seedMovie(directory, user.getId(), parentFolder.getId(), "Iron Man", 2008, videoFile.getId());
+
+        scrapeAwaitIdle(directory, user.getId(), false);
+
+        verify(tmdbService, never()).autoMatchV2(any(), anyString(), anyString(), any());
+        MediaMetadata metadata = mediaMetadataMapper.selectOne(owner("movie", movie.getId()));
+        assertEquals("local_nfo", metadata.getSource());
+        assertEquals("movie.nfo 优先", metadata.getTitle());
+        assertEquals("movie.nfo 内容", metadata.getOverview());
+    }
+
+    /**
      * 电视剧本地优先：tvshow.nfo + 季海报 + 集 nfo/剧照全本地绑定，不请求 TMDB；
      * 本地来源不写回；剧集聚合语义下季/集仅本地局部字段 → 整剧不完整。
      */
@@ -806,7 +873,7 @@ class MediaScrapeServiceTest {
     }
 
     /**
-     * 电影削刮 TMDB 路径写回：匹配成功后下载图片并写入视频目录（folder.jpg/backdrop.jpg + 同名 nfo）。
+     * 电影削刮 TMDB 路径写回：匹配成功后下载图片并写入视频目录（folder.jpg/backdrop.jpg + movie.nfo）。
      */
     @Test
     void shouldPersistArtworkAfterTmdbScrape() {
@@ -829,7 +896,7 @@ class MediaScrapeServiceTest {
         assertEquals("persisted", meta.getPersistStatus());
         FileNode poster = queryChildNode(movieFolder.getId(), "folder.jpg");
         FileNode fanart = queryChildNode(movieFolder.getId(), "backdrop.jpg");
-        FileNode nfo = queryChildNode(movieFolder.getId(), "Iron.Man.2008.1080p.nfo");
+        FileNode nfo = queryChildNode(movieFolder.getId(), "movie.nfo");
         assertEquals(poster.getId(), meta.getPosterFileNodeId());
         assertEquals(fanart.getId(), meta.getBackdropFileNodeId());
         assertEquals(3L, poster.getSize());
