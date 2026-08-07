@@ -67,9 +67,9 @@ public class MediaArtworkPersistV2Support {
             }
             persistSupport.writeNfoXml(folder, MediaNfoSupport.MOVIE_NFO,
                     nfoSupport.generate(metadata, null, null));
-            FileNode poster = persistSupport.ensureArtwork(folder, MediaNfoSupport.POSTER_WRITE_NAME,
+            FileNode poster = persistSupport.ensureArtworkIfMissing(folder, MediaNfoSupport.POSTER_WRITE_NAME,
                     metadata.getRawJson(), "poster_path", "poster");
-            FileNode fanart = persistSupport.ensureArtwork(folder, MediaNfoSupport.BACKDROP_WRITE_NAME,
+            FileNode fanart = persistSupport.ensureArtworkIfMissing(folder, MediaNfoSupport.BACKDROP_WRITE_NAME,
                     metadata.getRawJson(), "backdrop_path", "backdrop");
             if (poster != null) {
                 metadata.setPosterFileNodeId(poster.getId());
@@ -101,9 +101,9 @@ public class MediaArtworkPersistV2Support {
             if (!MediaMetadataSource.LOCAL_NFO.getCode().equals(seriesMetadata.getSource())) {
                 persistSupport.writeNfoXml(seriesFolder, MediaNfoSupport.TVSHOW_NFO,
                         nfoSupport.generate(seriesMetadata, null, null));
-                FileNode poster = persistSupport.ensureArtwork(seriesFolder, MediaNfoSupport.POSTER_WRITE_NAME,
+                FileNode poster = persistSupport.ensureArtworkIfMissing(seriesFolder, MediaNfoSupport.POSTER_WRITE_NAME,
                         seriesMetadata.getRawJson(), "poster_path", "poster");
-                FileNode fanart = persistSupport.ensureArtwork(seriesFolder, MediaNfoSupport.BACKDROP_WRITE_NAME,
+                FileNode fanart = persistSupport.ensureArtworkIfMissing(seriesFolder, MediaNfoSupport.BACKDROP_WRITE_NAME,
                         seriesMetadata.getRawJson(), "backdrop_path", "backdrop");
                 if (poster != null) {
                     seriesMetadata.setPosterFileNodeId(poster.getId());
@@ -142,7 +142,7 @@ public class MediaArtworkPersistV2Support {
                 continue;
             }
             try {
-                FileNode poster = persistSupport.ensureArtwork(seriesFolder,
+                FileNode poster = persistSupport.ensureArtworkIfMissing(seriesFolder,
                         nfoSupport.seasonPosterName(season.getSeasonNo()),
                         metadata.getRawJson(), "poster_path", "poster");
                 if (poster != null) {
@@ -180,11 +180,11 @@ public class MediaArtworkPersistV2Support {
                 }
                 persistSupport.writeNfoXml(dir, nfoSupport.nfoNameOf(video.getName()),
                         nfoSupport.generate(metadata, episodeSeasonNo(episode), episode.getEpisodeNo()));
-                FileNode thumb = persistSupport.ensureArtwork(dir,
+                FileNode thumb = persistSupport.ensureArtworkIfMissing(dir,
                         nfoSupport.episodeThumbNameOf(video.getName()),
                         metadata.getRawJson(), "still_path", "poster");
                 if (thumb == null) {
-                    thumb = persistSupport.ensureArtwork(dir,
+                    thumb = persistSupport.ensureArtworkIfMissing(dir,
                             nfoSupport.episodeThumbNameOf(video.getName()),
                             metadata.getRawJson(), "poster_path", "poster");
                 }

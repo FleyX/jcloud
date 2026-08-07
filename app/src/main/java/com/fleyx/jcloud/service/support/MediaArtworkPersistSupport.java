@@ -122,6 +122,18 @@ public class MediaArtworkPersistSupport {
     }
 
     /**
+     * 确保图片文件存在并返回其节点：目标文件已存在（{@link #findChildFile} 命中）则直接返回现有节点，
+     * 不下载；缺失才走 {@link #ensureArtwork} 下载写回。非强制路径用；强制全量替换的覆盖版由后续工单处理。
+     */
+    public FileNode ensureArtworkIfMissing(FileNode dir, String name, String rawJson, String jsonField, String kind) {
+        FileNode existing = findChildFile(dir.getUserId(), dir.getId(), name);
+        if (existing != null) {
+            return existing;
+        }
+        return ensureArtwork(dir, name, rawJson, jsonField, kind);
+    }
+
+    /**
      * 将字节内容写为正式 FileNode（覆盖同名文件，不触发用户冲突流程），按用户写锁串行。
      */
     public FileNode writeFileNode(FileNode dir, String name, byte[] content, String mimeType) {

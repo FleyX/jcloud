@@ -63,7 +63,9 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -842,6 +844,186 @@ class MediaScrapeServiceTest {
         MediaSeries after = mediaSeriesMapper.selectById(series.getId());
         assertEquals(MediaMatchStatus.MANUAL.getCode(), after.getMatchStatus());
         assertEquals(manual.getMetadataId(), after.getMetadataId());
+    }
+
+    // ---------- 工单 03：削刮图片产物缺失补回 ----------
+
+    /**
+     * TMDB 削刮成功后物理删除图片产物（含 movie.nfo，本地 NFO 残留会走本地优先路径属工单 05）
+     * → 置不完整 → 非强制削刮复用已有元数据行重建图片，metadataId 不变、不重新搜索 TMDB。
+     */
+    @Test
+    void shouldRefillMoviePosterAfterDeletion() {
+        UserVo user = prepareUserWithStorageSpace();
+        FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
+        FileNodeVo videoFile = fileService.upload(buildFile("Iron.Man.2008.1080p.mkv"), user.getId(), movieFolder.getId(), null);
+        MediaDirectory directory = createDirectory(user.getId(), movieFolder.getId(), "movie");
+        MediaMovie movie = seedMovie(directory, user.getId(), movieFolder.getId(), "Iron Man", 2008, videoFile.getId());
+
+        MediaMetadata metadata = fullMetadata(user.getId(), "movie", 1000L);
+        metadata.setRawJson("{\"poster_path\":\"/p.jpg\",\"backdrop_path\":\"/b.jpg\"}");
+        when(tmdbService.autoMatchV2(eq(user.getId()), eq("movie"), anyString(), any())).thenReturn(metadata);
+        when(tmdbService.downloadArtwork("/p.jpg", "poster")).thenReturn(new byte[]{1, 2, 3});
+        when(tmdbService.downloadArtwork("/b.jpg", "backdrop")).thenReturn(new byte[]{4, 5});
+
+        scrapeAwaitIdle(directory, user.getId(), false);
+        String metadataId = mediaMovieMapper.selectById(movie.getId()).getMetadataId();
+        assertNotNull(metadataId);
+        assertNotNull(queryChildNode(movieFolder.getId(), "folder.jpg"));
+
+        // 物理删除图片产物与 movie.nfo（回收站即物理删行，工单 02 完整性按 FileNode 存在性判定）
+        for (String name : List.of("folder.jpg", "backdrop.jpg", "movie.nfo")) {
+            FileNode node = queryChildNode(movieFolder.getId(), name);
+            if (node != null) {
+                fileMapper.deleteById(node.getId());
+            }
+        }
+        MediaMovie incomplete = new MediaMovie();
+        incomplete.setId(movie.getId());
+        incomplete.setMetadataComplete(false);
+        mediaMovieMapper.updateById(incomplete);
+
+        clearInvocations(tmdbService);
+        scrapeAwaitIdle(directory, user.getId(), false);
+
+        verify(tmdbService, never()).autoMatchV2(any(), anyString(), anyString(), any());
+        MediaMovie after = mediaMovieMapper.selectById(movie.getId());
+        assertEquals(metadataId, after.getMetadataId());
+        assertTrue(after.getMetadataComplete());
+        MediaMetadata meta = mediaMetadataMapper.selectById(metadataId);
+        assertEquals("tmdb", meta.getSource());
+        assertEquals(queryChildNode(movieFolder.getId(), "folder.jpg").getId(), meta.getPosterFileNodeId());
+        assertEquals(queryChildNode(movieFolder.getId(), "backdrop.jpg").getId(), meta.getBackdropFileNodeId());
+    }
+
+    /**
+     * 剧集版补回：TMDB 削刮成功后物理删除剧级/季级本地产物与集剧照 → 置不完整 → 非强制削刮
+     * 复用剧级元数据行重建季海报与集剧照，metadataId 不变、不重新搜索 TMDB。
+     */
+    @Test
+    void shouldRefillSeriesArtifactsAfterDeletion() {
+        UserVo user = prepareUserWithStorageSpace();
+        FileNodeVo tvFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电视");
+        FileNodeVo seriesFolder = createFolder(user.getId(), tvFolder.getId(), "亮剑");
+        FileNodeVo seasonFolder = createFolder(user.getId(), seriesFolder.getId(), "Season 1");
+        FileNodeVo epFile = fileService.upload(buildFile("亮剑.S01E01.1080p.mkv"), user.getId(), seasonFolder.getId(), null);
+        MediaDirectory directory = createDirectory(user.getId(), tvFolder.getId(), "tv");
+        MediaSeries series = seedSeries(directory, user.getId(), seriesFolder.getId(), "亮剑", null);
+        MediaSeason season = seedSeason(series.getId(), seasonFolder.getId(), 1);
+        MediaEpisode episode = seedEpisode(series.getId(), season.getId(), 1, epFile.getId());
+
+        MediaMetadata seriesMeta = fullMetadata(user.getId(), "series", 2000L);
+        MediaMetadata seasonMeta = fullMetadata(user.getId(), "season", null);
+        MediaMetadata epMeta = fullMetadata(user.getId(), "episode", null);
+        when(tmdbService.autoMatchV2(eq(user.getId()), eq("tv"), eq("亮剑"), isNull())).thenReturn(seriesMeta);
+        when(tmdbService.fetchSeasonV2(eq(user.getId()), eq(2000L), eq(1)))
+                .thenReturn(new TmdbService.SeasonFetchV2(seasonMeta, Map.of(1, epMeta)));
+        when(tmdbService.downloadArtwork(anyString(), anyString())).thenReturn(new byte[]{1});
+
+        scrapeAwaitIdle(directory, user.getId(), false);
+        String metadataId = mediaSeriesMapper.selectById(series.getId()).getMetadataId();
+        assertNotNull(metadataId);
+        assertNotNull(queryChildNode(seriesFolder.getId(), "season01-poster.jpg"));
+        assertNotNull(queryChildNode(seasonFolder.getId(), "亮剑.S01E01.1080p-thumb.jpg"));
+
+        // 物理删除剧级本地产物与季海报/集剧照（tvshow.nfo/剧级图残留会走本地优先路径属工单 05）
+        for (String name : List.of("tvshow.nfo", "folder.jpg", "backdrop.jpg", "season01-poster.jpg")) {
+            FileNode node = queryChildNode(seriesFolder.getId(), name);
+            if (node != null) {
+                fileMapper.deleteById(node.getId());
+            }
+        }
+        FileNode thumb = queryChildNode(seasonFolder.getId(), "亮剑.S01E01.1080p-thumb.jpg");
+        if (thumb != null) {
+            fileMapper.deleteById(thumb.getId());
+        }
+        MediaSeries incomplete = new MediaSeries();
+        incomplete.setId(series.getId());
+        incomplete.setMetadataComplete(false);
+        mediaSeriesMapper.updateById(incomplete);
+
+        clearInvocations(tmdbService);
+        scrapeAwaitIdle(directory, user.getId(), false);
+
+        verify(tmdbService, never()).autoMatchV2(any(), anyString(), anyString(), any());
+        MediaSeries after = mediaSeriesMapper.selectById(series.getId());
+        assertEquals(metadataId, after.getMetadataId());
+        assertTrue(after.getMetadataComplete());
+        assertNotNull(queryChildNode(seriesFolder.getId(), "season01-poster.jpg"));
+        assertNotNull(queryChildNode(seasonFolder.getId(), "亮剑.S01E01.1080p-thumb.jpg"));
+    }
+
+    /**
+     * manual 行删图后补回：复用已有元数据行重建图片，matchStatus=manual 与 metadataId 不变、不重新匹配。
+     */
+    @Test
+    void shouldRefillManualMovieArtifactsWithoutChangingMatch() {
+        UserVo user = prepareUserWithStorageSpace();
+        FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
+        FileNodeVo videoFile = fileService.upload(buildFile("Iron.Man.2008.1080p.mkv"), user.getId(), movieFolder.getId(), null);
+        MediaDirectory directory = createDirectory(user.getId(), movieFolder.getId(), "movie");
+        MediaMovie movie = seedMovie(directory, user.getId(), movieFolder.getId(), "Iron Man", 2008, videoFile.getId());
+
+        MediaMetadata manualMeta = fullMetadata(user.getId(), "movie", 1000L);
+        when(tmdbService.fetchDetailV2(eq(user.getId()), eq(1000L), eq("movie"))).thenReturn(manualMeta);
+        when(tmdbService.downloadArtwork(anyString(), anyString())).thenReturn(new byte[]{1});
+
+        MediaMatchUpdateDto dto = new MediaMatchUpdateDto();
+        dto.setTmdbId(1000L);
+        dto.setMediaType("movie");
+        mediaItemService.updateMatch(movie.getId(), dto, user.getId());
+
+        MediaMovie manual = mediaMovieMapper.selectById(movie.getId());
+        assertEquals(MediaMatchStatus.MANUAL.getCode(), manual.getMatchStatus());
+        String metadataId = manual.getMetadataId();
+        assertNotNull(metadataId);
+        assertNotNull(queryChildNode(movieFolder.getId(), "folder.jpg"));
+
+        // 物理删除图片产物 → 置不完整（模拟扫描末尾重算）→ 非强制削刮补回
+        for (String name : List.of("folder.jpg", "backdrop.jpg")) {
+            FileNode node = queryChildNode(movieFolder.getId(), name);
+            if (node != null) {
+                fileMapper.deleteById(node.getId());
+            }
+        }
+        MediaMovie incomplete = new MediaMovie();
+        incomplete.setId(movie.getId());
+        incomplete.setMetadataComplete(false);
+        mediaMovieMapper.updateById(incomplete);
+
+        scrapeAwaitIdle(directory, user.getId(), false);
+
+        verify(tmdbService, never()).autoMatchV2(any(), anyString(), anyString(), any());
+        MediaMovie after = mediaMovieMapper.selectById(movie.getId());
+        assertEquals(MediaMatchStatus.MANUAL.getCode(), after.getMatchStatus());
+        assertEquals(metadataId, after.getMetadataId());
+        assertTrue(after.getMetadataComplete());
+        assertNotNull(queryChildNode(movieFolder.getId(), "folder.jpg"));
+        assertNotNull(queryChildNode(movieFolder.getId(), "backdrop.jpg"));
+    }
+
+    /**
+     * 图片完整的条目自动削刮不重复下载已有图片：连续两次非强制削刮，TMDB 图片仅下载一次。
+     */
+    @Test
+    void shouldNotRedownloadExistingArtwork() {
+        UserVo user = prepareUserWithStorageSpace();
+        FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
+        FileNodeVo videoFile = fileService.upload(buildFile("Iron.Man.2008.1080p.mkv"), user.getId(), movieFolder.getId(), null);
+        MediaDirectory directory = createDirectory(user.getId(), movieFolder.getId(), "movie");
+        MediaMovie movie = seedMovie(directory, user.getId(), movieFolder.getId(), "Iron Man", 2008, videoFile.getId());
+
+        MediaMetadata metadata = fullMetadata(user.getId(), "movie", 1000L);
+        metadata.setRawJson("{\"poster_path\":\"/p.jpg\"}");
+        when(tmdbService.autoMatchV2(eq(user.getId()), eq("movie"), anyString(), any())).thenReturn(metadata);
+        when(tmdbService.downloadArtwork(anyString(), anyString())).thenReturn(new byte[]{1, 2, 3});
+
+        scrapeAwaitIdle(directory, user.getId(), false);
+        scrapeAwaitIdle(directory, user.getId(), false);
+
+        verify(tmdbService, times(1)).downloadArtwork(anyString(), anyString());
+        assertTrue(mediaMovieMapper.selectById(movie.getId()).getMetadataComplete());
+        assertNotNull(queryChildNode(movieFolder.getId(), "folder.jpg"));
     }
 
     // ---------- 保留行为：电影 TMDB 匹配/写回、剧匹配失败、年份匹配 ----------

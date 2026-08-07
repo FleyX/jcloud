@@ -10,6 +10,7 @@ import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.FileMapper;
 import com.fleyx.jcloud.mapper.MediaDirectoryMapper;
+import com.fleyx.jcloud.mapper.MediaMetadataMapper;
 import com.fleyx.jcloud.mapper.MediaMovieMapper;
 import com.fleyx.jcloud.mapper.MediaSeriesMapper;
 import com.fleyx.jcloud.model.po.FileNode;
@@ -45,7 +46,8 @@ import java.util.List;
  * 本地缺失时电影以电影行为单位（先文件名解析结果，失败用电影文件夹名兜底）、
  * 电视以剧为单位（一次匹配应用到全剧，季/集元数据按剧级匹配派生，见 {@link MediaTvScrapeSupport}）。
  * 削刮成功后立即把元数据写回视频目录的 NFO 与图片，落盘失败不影响元数据入库。
- * 处理范围为「未匹配或不完整」的非 manual 行（force 时全部非 manual 行），manual 永不覆盖；
+ * 处理范围为「未匹配或不完整」的非 manual 行（force 时全部非 manual 行），manual 永不覆盖匹配，
+ * 但 manual/已匹配行图片产物缺失时复用已有元数据行补回（不重新匹配、不改绑定，工单 03）；
  * 每次削刮结束后重算电影/剧集行的元数据完整性（{@link MediaMetadataCompleteSupport}）。
  * 与扫描按媒体库互斥（{@link MediaTaskSupport}），协作式取消。
  */
@@ -56,6 +58,7 @@ public class MediaScrapeServiceImpl implements MediaScrapeService {
     private final MediaDirectoryMapper mediaDirectoryMapper;
     private final MediaMovieMapper mediaMovieMapper;
     private final MediaSeriesMapper mediaSeriesMapper;
+    private final MediaMetadataMapper mediaMetadataMapper;
     private final FileMapper fileMapper;
     private final TmdbService tmdbService;
     private final MediaTaskSupport mediaTaskSupport;
@@ -69,7 +72,8 @@ public class MediaScrapeServiceImpl implements MediaScrapeService {
     private final TaskExecutor taskExecutor;
 
     public MediaScrapeServiceImpl(MediaDirectoryMapper mediaDirectoryMapper, MediaMovieMapper mediaMovieMapper,
-                                  MediaSeriesMapper mediaSeriesMapper, FileMapper fileMapper,
+                                  MediaSeriesMapper mediaSeriesMapper, MediaMetadataMapper mediaMetadataMapper,
+                                  FileMapper fileMapper,
                                   TmdbService tmdbService, MediaTaskSupport mediaTaskSupport,
                                   MediaNfoSupport mediaNfoSupport, MediaMetadataSupport metadataV2Support,
                                   MediaMetadataCompleteSupport completeSupport,
@@ -81,6 +85,7 @@ public class MediaScrapeServiceImpl implements MediaScrapeService {
         this.mediaDirectoryMapper = mediaDirectoryMapper;
         this.mediaMovieMapper = mediaMovieMapper;
         this.mediaSeriesMapper = mediaSeriesMapper;
+        this.mediaMetadataMapper = mediaMetadataMapper;
         this.fileMapper = fileMapper;
         this.tmdbService = tmdbService;
         this.mediaTaskSupport = mediaTaskSupport;
@@ -167,6 +172,10 @@ public class MediaScrapeServiceImpl implements MediaScrapeService {
                 return partial;
             }
             if (!needScrape(movie.getMatchStatus(), movie.getMetadataComplete(), force)) {
+                // manual/已完整行不削刮；不完整的 manual 行复用已有元数据补回缺失图片（工单 03）
+                if (!Boolean.TRUE.equals(movie.getMetadataComplete())) {
+                    refillMovieArtifacts(movie);
+                }
                 continue;
             }
             try {
@@ -181,11 +190,15 @@ public class MediaScrapeServiceImpl implements MediaScrapeService {
 
     /**
      * 单部电影削刮：本地优先（movie.nfo 优先、同名 .nfo 兜底 / poster / fanart），无本地内容时 TMDB
-     * 先文件名解析结果、失败用电影文件夹名兜底。
+     * 先文件名解析结果、失败用电影文件夹名兜底；已匹配行无本地内容时复用已有元数据行补产物，不重新搜索。
      */
     private void scrapeMovie(MediaDirectory directory, MediaMovie movie) {
         MediaMetadata local = scrapeMovieLocalNfo(movie);
         MediaMetadata metadata = local;
+        if (metadata == null && MediaMatchStatus.MATCHED.getCode().equals(movie.getMatchStatus())
+                && movie.getMetadataId() != null) {
+            metadata = mediaMetadataMapper.selectById(movie.getMetadataId());
+        }
         if (metadata == null) {
             MediaMovieFile file = playbackResolveSupport.pickMovieFile(movie);
             FileNode video = file == null ? null : fileMapper.selectById(file.getFileNodeId());
@@ -268,6 +281,23 @@ public class MediaScrapeServiceImpl implements MediaScrapeService {
         return bound;
     }
 
+    /**
+     * 已匹配（含 manual）行的图片产物补回（工单 03）：复用已有元数据行的 rawJson 重建缺失图片，
+     * 不触碰 matchStatus/metadataId、不重新匹配。无元数据行直接返回；local_nfo 来源由
+     * persistMovieV2 现有跳过分支自然无操作（其补全属工单 05）。
+     */
+    private void refillMovieArtifacts(MediaMovie movie) {
+        if (movie.getMetadataId() == null) {
+            return;
+        }
+        MediaMetadata metadata = mediaMetadataMapper.selectById(movie.getMetadataId());
+        if (metadata == null) {
+            return;
+        }
+        artworkPersistV2Support.persistMovieV2(movie, metadata);
+        completeSupport.refreshMovieComplete(movie);
+    }
+
     // ---------- 电视削刮 ----------
 
     private boolean scrapeSeries(MediaDirectory directory, boolean force) {
@@ -279,6 +309,10 @@ public class MediaScrapeServiceImpl implements MediaScrapeService {
                 return partial;
             }
             if (!needScrape(series.getMatchStatus(), series.getMetadataComplete(), force)) {
+                // manual/已完整行不削刮；不完整的 manual 行复用已有元数据补回缺失图片（工单 03）
+                if (!Boolean.TRUE.equals(series.getMetadataComplete())) {
+                    refillSeriesArtifacts(series);
+                }
                 continue;
             }
             try {
@@ -288,11 +322,16 @@ public class MediaScrapeServiceImpl implements MediaScrapeService {
                     mediaTvScrapeSupport.applyLocalSeriesMatch(series, localMetadata);
                     continue;
                 }
-                MediaMetadata metadata = tmdbService.autoMatchV2(directory.getUserId(), MediaType.TV.getCode(),
-                        series.getSeriesName(), series.getReleaseYear());
+                // 已匹配行无本地内容时复用已有剧级元数据行补产物（派生季/集），不重新搜索（工单 03）
+                MediaMetadata metadata = MediaMatchStatus.MATCHED.getCode().equals(series.getMatchStatus())
+                        && series.getMetadataId() != null ? mediaMetadataMapper.selectById(series.getMetadataId()) : null;
                 if (metadata == null) {
-                    mediaTvScrapeSupport.applySeriesUnmatch(series);
-                    continue;
+                    metadata = tmdbService.autoMatchV2(directory.getUserId(), MediaType.TV.getCode(),
+                            series.getSeriesName(), series.getReleaseYear());
+                    if (metadata == null) {
+                        mediaTvScrapeSupport.applySeriesUnmatch(series);
+                        continue;
+                    }
                 }
                 mediaTvScrapeSupport.applySeriesMatchWithDerivation(series, metadata, MediaMatchStatus.MATCHED.getCode());
             } catch (Exception e) {
@@ -301,6 +340,23 @@ public class MediaScrapeServiceImpl implements MediaScrapeService {
             }
         }
         return partial;
+    }
+
+    /**
+     * 已匹配（含 manual）剧集的图片产物补回（工单 03）：复用已有剧级元数据行重建缺失图片（剧海报/背景、
+     * 季海报、集剧照），不触碰 matchStatus/metadataId、不重新匹配。无元数据行直接返回；
+     * local_nfo 来源由 persistSeriesV2 现有跳过分支自然无操作（其补全属工单 05）。
+     */
+    private void refillSeriesArtifacts(MediaSeries series) {
+        if (series.getMetadataId() == null) {
+            return;
+        }
+        MediaMetadata metadata = mediaMetadataMapper.selectById(series.getMetadataId());
+        if (metadata == null) {
+            return;
+        }
+        artworkPersistV2Support.persistSeriesV2(series, metadata);
+        completeSupport.refreshSeriesComplete(series);
     }
 
     // ---------- 通用 ----------
