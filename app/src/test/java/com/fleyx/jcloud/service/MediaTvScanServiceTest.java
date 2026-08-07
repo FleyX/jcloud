@@ -801,6 +801,98 @@ class MediaTvScanServiceTest {
         assertEquals(3, mediaEpisodeFileMapper.selectCount(null));
     }
 
+    // ---------- issue #02：剧集聚合完整性在扫描末尾重算（poster 存在性校验） ----------
+
+    /**
+     * 删除季海报 FileNode 后重扫：剧集聚合完整性变 false（季元数据 poster 校验项升级为
+     * 指针非空且 FileNode 真实存在，扫描末尾对本库条目重算）；
+     * 对照组：未删产物的剧扫描后完整性不变（无误判）。
+     */
+    @Test
+    void shouldRecomputeSeriesAggregateCompleteAfterScan() {
+        UserVo user = prepareUserWithStorageSpace();
+        FileNodeVo tvFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电视");
+        // 剧 A：后续删除季海报
+        FileNodeVo seriesA = createFolder(user.getId(), tvFolder.getId(), "火星生活");
+        FileNodeVo seasonA = createFolder(user.getId(), seriesA.getId(), "Season 1");
+        upload(user.getId(), seasonA.getId(), "火星生活.S01E01.mkv");
+        FileNodeVo seriesAPoster = upload(user.getId(), seriesA.getId(), "poster.jpg");
+        FileNodeVo seasonAPoster = upload(user.getId(), seriesA.getId(), "season01-poster.jpg");
+        FileNodeVo epAStill = upload(user.getId(), seasonA.getId(), "still.jpg");
+        // 剧 B：对照组，产物保持完好
+        FileNodeVo seriesB = createFolder(user.getId(), tvFolder.getId(), "亮剑");
+        FileNodeVo seasonB = createFolder(user.getId(), seriesB.getId(), "Season 1");
+        upload(user.getId(), seasonB.getId(), "亮剑.S01E01.mkv");
+        FileNodeVo seriesBPoster = upload(user.getId(), seriesB.getId(), "poster.jpg");
+        FileNodeVo seasonBPoster = upload(user.getId(), seriesB.getId(), "season01-poster.jpg");
+        FileNodeVo epBStill = upload(user.getId(), seasonB.getId(), "still.jpg");
+        MediaDirectory directory = createTvDirectory(user.getId(), tvFolder.getId());
+        mediaScanService.scan(directory.getId());
+
+        MediaSeries seriesARow = querySeriesByFolder(seriesA.getId());
+        MediaSeries seriesBRow = querySeriesByFolder(seriesB.getId());
+        MediaSeason seasonArow = seasonsOfSeries(seriesARow.getId()).getFirst();
+        MediaSeason seasonBrow = seasonsOfSeries(seriesBRow.getId()).getFirst();
+        MediaEpisode episodeA = episodesOfSeries(seriesARow.getId()).getFirst();
+        MediaEpisode episodeB = episodesOfSeries(seriesBRow.getId()).getFirst();
+        seedCompleteSeries(user.getId(), seriesARow, seasonArow, episodeA,
+                seriesAPoster.getId(), seasonAPoster.getId(), epAStill.getId());
+        seedCompleteSeries(user.getId(), seriesBRow, seasonBrow, episodeB,
+                seriesBPoster.getId(), seasonBPoster.getId(), epBStill.getId());
+
+        // 对照组：未删产物的剧扫描后完整性不变
+        mediaScanService.scan(directory.getId());
+        assertEquals(Boolean.TRUE, mediaSeriesMapper.selectById(seriesBRow.getId()).getMetadataComplete());
+
+        fileMapper.physicalDeleteById(seasonAPoster.getId());
+        mediaScanService.scan(directory.getId());
+
+        assertEquals(Boolean.FALSE, mediaSeriesMapper.selectById(seriesARow.getId()).getMetadataComplete());
+        assertEquals(Boolean.TRUE, mediaSeriesMapper.selectById(seriesBRow.getId()).getMetadataComplete());
+    }
+
+    /**
+     * 种入完整元数据（5 项齐备 + poster/still 指向真实 FileNode），并链接剧/季/集行与手动匹配状态。
+     */
+    private void seedCompleteSeries(String userId, MediaSeries series, MediaSeason season, MediaEpisode episode,
+                                    String seriesPosterNodeId, String seasonPosterNodeId, String episodeStillNodeId) {
+        MediaMetadata seriesMeta = fullMetadata(userId, "series");
+        seriesMeta.setOwnerId(series.getId());
+        seriesMeta.setPosterFileNodeId(seriesPosterNodeId);
+        mediaMetadataMapper.insert(seriesMeta);
+        MediaMetadata seasonMeta = fullMetadata(userId, "season");
+        seasonMeta.setOwnerId(season.getId());
+        seasonMeta.setPosterFileNodeId(seasonPosterNodeId);
+        mediaMetadataMapper.insert(seasonMeta);
+        MediaMetadata episodeMeta = fullMetadata(userId, "episode");
+        episodeMeta.setOwnerId(episode.getId());
+        episodeMeta.setPosterFileNodeId(episodeStillNodeId);
+        mediaMetadataMapper.insert(episodeMeta);
+        series.setMetadataId(seriesMeta.getId());
+        series.setMatchStatus(MediaMatchStatus.MANUAL.getCode());
+        series.setMetadataComplete(true);
+        mediaSeriesMapper.updateById(series);
+        season.setMetadataId(seasonMeta.getId());
+        mediaSeasonMapper.updateById(season);
+        episode.setMetadataId(episodeMeta.getId());
+        mediaEpisodeMapper.updateById(episode);
+    }
+
+    /**
+     * 5 项校验齐备的完整元数据（posterFileNodeId 由调用方指定）。
+     */
+    private MediaMetadata fullMetadata(String userId, String ownerType) {
+        MediaMetadata metadata = new MediaMetadata();
+        metadata.setUserId(userId);
+        metadata.setOwnerType(ownerType);
+        metadata.setSource("tmdb");
+        metadata.setTitle("火星生活");
+        metadata.setOverview("平行时空的警探故事");
+        metadata.setReleaseDate("2018-01-01");
+        metadata.setVoteAverage(8.5);
+        return metadata;
+    }
+
     private void seedMetadata(String userId, String ownerType, String ownerId) {
         MediaMetadata metadata = new MediaMetadata();
         metadata.setUserId(userId);
