@@ -76,7 +76,9 @@ public class MediaSeriesScrapeSupport {
             MediaMetadata existing = mediaMetadataMapper.selectById(series.getMetadataId());
             if (existing != null) {
                 MediaMetadata enriched = metadataV2Support.enrichLocalWithTmdb(existing, userId, MediaType.TV.getCode());
-                mediaTvScrapeSupport.applySeriesMatchWithDerivation(series, enriched,
+                // rawJson 水合（工单 09）：enrich 补字段、hydrate 补 rawJson，职责分开；两者都短路时无网络开销
+                MediaMetadata hydrated = metadataV2Support.hydrateRawJson(enriched, series.getUserId(), MediaType.TV.getCode());
+                mediaTvScrapeSupport.applySeriesMatchWithDerivation(series, hydrated,
                         MediaMatchStatus.MATCHED.getCode(), false);
             } else {
                 completeSupport.refreshSeriesComplete(series);
@@ -200,6 +202,8 @@ public class MediaSeriesScrapeSupport {
         if (metadata == null) {
             return;
         }
+        // rawJson 缺失且已绑定 tmdbId 时先按 ID 水合（工单 09），否则无 rawJson 可取图、剧级产物无法重建
+        metadata = metadataV2Support.hydrateRawJson(metadata, series.getUserId(), MediaType.TV.getCode());
         artworkPersistV2Support.persistSeriesV2(series, metadata, force);
         completeSupport.refreshSeriesComplete(series);
     }

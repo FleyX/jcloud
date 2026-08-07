@@ -143,6 +143,30 @@ public class MediaMetadataSupport {
     }
 
     /**
+     * rawJson 水合（工单 09）：rawJson 非空或 tmdbId 为空时原样返回；否则按 tmdbId 拉取
+     * TMDB 详情，经 {@link #mergeLocalWithTmdb} 合并（本地字段优先、rawJson 恒取远端）
+     * 并 upsert 落库后返回；拉取异常/返回 null 时原样返回（log.debug，不阻断调用方）。
+     * 供产物补回/刷新前补水合——local_nfo 完整行可能从未拉取远端导致 rawJson 缺失、无法取图重建。
+     */
+    public MediaMetadata hydrateRawJson(MediaMetadata metadata, String userId, String mediaType) {
+        if (metadata == null || !StrUtil.isBlank(metadata.getRawJson()) || metadata.getTmdbId() == null) {
+            return metadata;
+        }
+        MediaMetadata remote;
+        try {
+            remote = tmdbService.fetchDetailV2(userId, metadata.getTmdbId(), mediaType);
+        } catch (Exception e) {
+            log.debug("rawJson 水合失败，维持现状: tmdbId={}, error={}", metadata.getTmdbId(), e.getMessage());
+            return metadata;
+        }
+        if (remote == null) {
+            return metadata;
+        }
+        return upsertByOwner(metadata.getOwnerType(), metadata.getOwnerId(),
+                mergeLocalWithTmdb(metadata, remote));
+    }
+
+    /**
      * 删除 owner 一对一绑定的元数据行（无对应行时无事发生），供未匹配清理与级联删除复用。
      */
     public void deleteByOwner(String ownerType, String ownerId) {

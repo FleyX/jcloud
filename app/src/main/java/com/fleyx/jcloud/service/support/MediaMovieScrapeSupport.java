@@ -86,7 +86,9 @@ public class MediaMovieScrapeSupport {
             MediaMetadata existing = mediaMetadataMapper.selectById(movie.getMetadataId());
             if (existing != null) {
                 MediaMetadata enriched = metadataV2Support.enrichLocalWithTmdb(existing, userId, MediaType.MOVIE.getCode());
-                MediaMetadata bound = applyMovieMatch(movie, enriched);
+                // rawJson 水合（工单 09）：enrich 补字段、hydrate 补 rawJson，职责分开；两者都短路时无网络开销
+                MediaMetadata hydrated = metadataV2Support.hydrateRawJson(enriched, userId, MediaType.MOVIE.getCode());
+                MediaMetadata bound = applyMovieMatch(movie, hydrated);
                 if (bound != null) {
                     artworkPersistV2Support.persistMovieV2(movie, bound, false);
                 }
@@ -273,6 +275,8 @@ public class MediaMovieScrapeSupport {
         if (metadata == null) {
             return;
         }
+        // rawJson 缺失且已绑定 tmdbId 时先按 ID 水合（工单 09），否则无 rawJson 可取图、产物无法重建
+        metadata = metadataV2Support.hydrateRawJson(metadata, movie.getUserId(), MediaType.MOVIE.getCode());
         artworkPersistV2Support.persistMovieV2(movie, metadata, force);
         completeSupport.refreshMovieComplete(movie);
     }
