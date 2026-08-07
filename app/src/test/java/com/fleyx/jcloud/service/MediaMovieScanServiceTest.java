@@ -563,6 +563,81 @@ class MediaMovieScanServiceTest {
         assertEquals(1, mediaMovieFileMapper.selectCount(null));
     }
 
+    // ---------- issue #02：完整性 poster 校验升级（指针非空 + FileNode 存在） ----------
+
+    /**
+     * 删除海报文件后重扫：电影完整性标志变为不完整（poster 校验项升级为指针非空且 FileNode 真实存在；
+     * 扫描末尾对本库条目重算完整性，删除产物后落入扫描后自动削刮范围）。
+     */
+    @Test
+    void shouldMarkMovieIncompleteWhenPosterNodeDeletedAfterScan() {
+        UserVo user = prepareUserWithStorageSpace();
+        FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
+        FileNodeVo dune = createFolder(user.getId(), movieFolder.getId(), "沙丘");
+        upload(user.getId(), dune.getId(), "沙丘.2021.mkv");
+        FileNodeVo poster = upload(user.getId(), dune.getId(), "poster.jpg");
+        MediaDirectory directory = createMovieDirectory(user.getId(), movieFolder.getId());
+        mediaScanService.scan(directory.getId());
+
+        MediaMovie movie = querySingleMovie(directory.getId());
+        MediaMetadata metadata = fullMetadata(user.getId(), "movie");
+        metadata.setOwnerId(movie.getId());
+        metadata.setPosterFileNodeId(poster.getId());
+        mediaMetadataMapper.insert(metadata);
+        movie.setMetadataId(metadata.getId());
+        movie.setMatchStatus(MediaMatchStatus.MANUAL.getCode());
+        movie.setMetadataComplete(true);
+        mediaMovieMapper.updateById(movie);
+
+        fileMapper.physicalDeleteById(poster.getId());
+        mediaScanService.scan(directory.getId());
+
+        assertEquals(Boolean.FALSE, mediaMovieMapper.selectById(movie.getId()).getMetadataComplete());
+    }
+
+    /**
+     * 对照组：未删产物的电影扫描后完整性标志不变（无误判）。
+     */
+    @Test
+    void shouldKeepMovieCompleteWhenArtworkIntactAfterScan() {
+        UserVo user = prepareUserWithStorageSpace();
+        FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
+        FileNodeVo dune = createFolder(user.getId(), movieFolder.getId(), "沙丘");
+        upload(user.getId(), dune.getId(), "沙丘.2021.mkv");
+        FileNodeVo poster = upload(user.getId(), dune.getId(), "poster.jpg");
+        MediaDirectory directory = createMovieDirectory(user.getId(), movieFolder.getId());
+        mediaScanService.scan(directory.getId());
+
+        MediaMovie movie = querySingleMovie(directory.getId());
+        MediaMetadata metadata = fullMetadata(user.getId(), "movie");
+        metadata.setOwnerId(movie.getId());
+        metadata.setPosterFileNodeId(poster.getId());
+        mediaMetadataMapper.insert(metadata);
+        movie.setMetadataId(metadata.getId());
+        movie.setMatchStatus(MediaMatchStatus.MANUAL.getCode());
+        movie.setMetadataComplete(true);
+        mediaMovieMapper.updateById(movie);
+
+        mediaScanService.scan(directory.getId());
+
+        assertEquals(Boolean.TRUE, mediaMovieMapper.selectById(movie.getId()).getMetadataComplete());
+    }
+
+    /**
+     * 5 项校验齐备的完整元数据（posterFileNodeId 由调用方指定）。
+     */
+    private MediaMetadata fullMetadata(String userId, String ownerType) {
+        MediaMetadata metadata = new MediaMetadata();
+        metadata.setUserId(userId);
+        metadata.setOwnerType(ownerType);
+        metadata.setSource("tmdb");
+        metadata.setTitle("沙丘");
+        metadata.setOverview("厄拉科斯的沙漠星球");
+        metadata.setReleaseDate("2021-10-22");
+        metadata.setVoteAverage(8.0);
+        return metadata;
+    }
+
     private void seedMetadata(String userId, String ownerType, String ownerId) {
         MediaMetadata metadata = new MediaMetadata();
         metadata.setUserId(userId);

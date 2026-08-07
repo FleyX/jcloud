@@ -69,6 +69,7 @@ public class MediaMovieScanSupport {
     private final MediaMovieCascadeSupport mediaMovieCascadeSupport;
     private final MediaSubtitleSupport mediaSubtitleSupport;
     private final MediaTaskSupport mediaTaskSupport;
+    private final MediaMetadataCompleteSupport mediaMetadataCompleteSupport;
 
     private enum SourceOutcome {
         OK, PARTIAL, CANCELLED
@@ -110,9 +111,10 @@ public class MediaMovieScanSupport {
                 qualifiedSourceIds.add(source.getId());
             }
         }
-        // 三道闸：① 仅完整成功的扫描执行批次清理
+        // 三道闸：① 仅完整成功的扫描执行批次清理；清理后对本库条目重算完整性（级联删除连带删元数据行，必须在清理之后）
         if (!partial) {
             batchCleanup(directory, qualifiedSourceIds, batchTime);
+            mediaMetadataCompleteSupport.refreshMoviesCompleteByDirectory(directory.getId());
             return MediaScanOutcome.COMPLETED;
         }
         return MediaScanOutcome.PARTIAL;
