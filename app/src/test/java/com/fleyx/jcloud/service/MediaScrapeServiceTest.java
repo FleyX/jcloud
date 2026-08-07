@@ -18,6 +18,7 @@ import com.fleyx.jcloud.mapper.MediaMovieMapper;
 import com.fleyx.jcloud.mapper.MediaSeasonMapper;
 import com.fleyx.jcloud.mapper.MediaSeriesMapper;
 import com.fleyx.jcloud.model.dto.FileCreateFolderDto;
+import com.fleyx.jcloud.model.dto.FileDeleteDto;
 import com.fleyx.jcloud.model.dto.MediaMatchUpdateDto;
 import com.fleyx.jcloud.model.dto.StorageSpaceSaveDto;
 import com.fleyx.jcloud.model.dto.UserSaveDto;
@@ -85,6 +86,9 @@ class MediaScrapeServiceTest {
 
     @Autowired
     private FileService fileService;
+
+    @Autowired
+    private FileRecycleService fileRecycleService;
 
     @Autowired
     private UserService userService;
@@ -1738,10 +1742,11 @@ class MediaScrapeServiceTest {
     }
 
     /**
-     * manual 条目强制刷新被拒绝：抛业务异常，字段与匹配保持不动。
+     * manual 条目「强制刷新」不再拒绝（工单 07）：不抛异常、不重新匹配、不覆盖文本字段，
+     * 复用既有元数据行按 force 语义全量替换图片/NFO 产物（先删 poster 再 force → poster 按 rawJson 重建）。
      */
     @Test
-    void shouldRejectForceRefreshOfManualMovie() {
+    void shouldForceRefreshManualMovieRebuildArtifactsOnly() {
         UserVo user = prepareUserWithStorageSpace();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo videoFile = fileService.upload(buildFile("Iron.Man.2008.1080p.mkv"), user.getId(), movieFolder.getId(), null);
@@ -1758,14 +1763,24 @@ class MediaScrapeServiceTest {
 
         MediaMovie manual = mediaMovieMapper.selectById(movie.getId());
         assertEquals(MediaMatchStatus.MANUAL.getCode(), manual.getMatchStatus());
-        assertNotNull(manual.getMetadataId());
+        String metadataId = manual.getMetadataId();
+        assertNotNull(metadataId);
+        String titleBefore = mediaMetadataMapper.selectById(metadataId).getTitle();
+        assertNotNull(queryChildNode(movieFolder.getId(), "folder.jpg"));
 
-        BusinessException e = assertThrows(BusinessException.class,
-                () -> mediaScrapeService.refreshItem(manual.getMetadataId(), user.getId(), "force"));
-        assertEquals("手动匹配的条目不支持强制刷新", e.getMessage());
-        // 字段与匹配未被触碰
-        assertEquals(manual.getMetadataId(), mediaMovieMapper.selectById(movie.getId()).getMetadataId());
-        assertEquals("钢铁侠", mediaMetadataMapper.selectById(manual.getMetadataId()).getTitle());
+        // 物理删除海报产物 → manual 单条 force 刷新：按 rawJson 重建，不重新匹配、文本字段不变
+        fileMapper.deleteById(queryChildNode(movieFolder.getId(), "folder.jpg").getId());
+        clearInvocations(tmdbService);
+        mediaScrapeService.refreshItem(metadataId, user.getId(), "force");
+
+        verify(tmdbService, never()).autoMatchV2(any(), anyString(), anyString(), any());
+        verify(tmdbService, never()).fetchDetailV2(any(), any(), any());
+        MediaMovie after = mediaMovieMapper.selectById(movie.getId());
+        assertEquals(MediaMatchStatus.MANUAL.getCode(), after.getMatchStatus());
+        assertEquals(metadataId, after.getMetadataId());
+        assertEquals(titleBefore, mediaMetadataMapper.selectById(metadataId).getTitle());
+        assertNotNull(queryChildNode(movieFolder.getId(), "folder.jpg"));
+        assertNotNull(queryChildNode(movieFolder.getId(), "backdrop.jpg"));
     }
 
     /**
@@ -1923,5 +1938,388 @@ class MediaScrapeServiceTest {
         BusinessException e = assertThrows(BusinessException.class,
                 () -> mediaScrapeService.refreshItem(epMeta.getId(), user.getId(), "missing"));
         assertEquals("请刷新所属剧集", e.getMessage());
+    }
+
+    // ---------- 工单 07：补回触发完备化与刷新语义对齐 ----------
+
+    /**
+     * 完整且已匹配电影删除背景图文件节点（backdrop 不纳入 5 项完整性，行仍完整）→ 整库非强制削刮
+     * 自动补回：backdrop 重建、指针重绑，文本字段与 tmdbId 不变、不重新匹配（工单 07）。
+     */
+    @Test
+    void shouldRefillBackdropOfCompleteMatchedMovie() {
+        UserVo user = prepareUserWithStorageSpace();
+        FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
+        FileNodeVo videoFile = fileService.upload(buildFile("Iron.Man.2008.1080p.mkv"), user.getId(), movieFolder.getId(), null);
+        MediaDirectory directory = createDirectory(user.getId(), movieFolder.getId(), "movie");
+        MediaMovie movie = seedMovie(directory, user.getId(), movieFolder.getId(), "Iron Man", 2008, videoFile.getId());
+
+        MediaMetadata metadata = fullMetadata(user.getId(), "movie", 1000L);
+        metadata.setRawJson("{\"poster_path\":\"/p.jpg\",\"backdrop_path\":\"/b.jpg\"}");
+        when(tmdbService.autoMatchV2(eq(user.getId()), eq("movie"), anyString(), any())).thenReturn(metadata);
+        when(tmdbService.downloadArtwork(anyString(), anyString())).thenReturn(new byte[]{1});
+
+        scrapeAwaitIdle(directory, user.getId(), false);
+        String metadataId = mediaMovieMapper.selectById(movie.getId()).getMetadataId();
+        assertNotNull(metadataId);
+        assertTrue(mediaMovieMapper.selectById(movie.getId()).getMetadataComplete());
+        String backdropIdBefore = mediaMetadataMapper.selectById(metadataId).getBackdropFileNodeId();
+        assertNotNull(backdropIdBefore);
+        assertNotNull(queryChildNode(movieFolder.getId(), "backdrop.jpg"));
+
+        // 物理删除背景图文件节点（行仍完整）→ 削刮自动补回
+        fileMapper.deleteById(backdropIdBefore);
+        clearInvocations(tmdbService);
+        scrapeAwaitIdle(directory, user.getId(), false);
+
+        verify(tmdbService, never()).autoMatchV2(any(), anyString(), anyString(), any());
+        verify(tmdbService, never()).fetchDetailV2(any(), any(), any());
+        MediaMovie after = mediaMovieMapper.selectById(movie.getId());
+        assertEquals(MediaMatchStatus.MATCHED.getCode(), after.getMatchStatus());
+        assertEquals(metadataId, after.getMetadataId());
+        assertTrue(after.getMetadataComplete());
+        MediaMetadata meta = mediaMetadataMapper.selectById(metadataId);
+        assertEquals("钢铁侠", meta.getTitle());
+        assertEquals(1000L, meta.getTmdbId());
+        assertNotEquals(backdropIdBefore, meta.getBackdropFileNodeId());
+        assertNotNull(queryChildNode(movieFolder.getId(), "backdrop.jpg"));
+    }
+
+    /**
+     * 完整且已匹配剧集删除剧级背景图 → 整库非强制削刮自动补回（只看剧级元数据行，季海报/集剧照
+     * 由完整性聚合覆盖，工单 07），不重新匹配、字段与绑定不变。
+     */
+    @Test
+    void shouldRefillBackdropOfCompleteMatchedSeries() {
+        UserVo user = prepareUserWithStorageSpace();
+        FileNodeVo tvFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电视");
+        FileNodeVo seriesFolder = createFolder(user.getId(), tvFolder.getId(), "亮剑");
+        FileNodeVo seasonFolder = createFolder(user.getId(), seriesFolder.getId(), "Season 1");
+        FileNodeVo epFile = fileService.upload(buildFile("亮剑.S01E01.1080p.mkv"), user.getId(), seasonFolder.getId(), null);
+        MediaDirectory directory = createDirectory(user.getId(), tvFolder.getId(), "tv");
+        MediaSeries series = seedSeries(directory, user.getId(), seriesFolder.getId(), "亮剑", null);
+        MediaSeason season = seedSeason(series.getId(), seasonFolder.getId(), 1);
+        MediaEpisode episode = seedEpisode(series.getId(), season.getId(), 1, epFile.getId());
+
+        MediaMetadata seriesMeta = fullMetadata(user.getId(), "series", 2000L);
+        MediaMetadata seasonMeta = fullMetadata(user.getId(), "season", null);
+        MediaMetadata epMeta = fullMetadata(user.getId(), "episode", null);
+        when(tmdbService.autoMatchV2(eq(user.getId()), eq("tv"), eq("亮剑"), isNull())).thenReturn(seriesMeta);
+        when(tmdbService.fetchSeasonV2(eq(user.getId()), eq(2000L), eq(1)))
+                .thenReturn(new TmdbService.SeasonFetchV2(seasonMeta, Map.of(1, epMeta)));
+        when(tmdbService.downloadArtwork(anyString(), anyString())).thenReturn(new byte[]{1});
+
+        scrapeAwaitIdle(directory, user.getId(), false);
+        String metadataId = mediaSeriesMapper.selectById(series.getId()).getMetadataId();
+        assertNotNull(metadataId);
+        assertTrue(mediaSeriesMapper.selectById(series.getId()).getMetadataComplete());
+        String backdropIdBefore = mediaMetadataMapper.selectById(metadataId).getBackdropFileNodeId();
+        assertNotNull(backdropIdBefore);
+        assertNotNull(queryChildNode(seriesFolder.getId(), "backdrop.jpg"));
+
+        // 物理删除剧级背景图文件节点（行仍完整）→ 削刮自动补回
+        fileMapper.deleteById(backdropIdBefore);
+        clearInvocations(tmdbService);
+        scrapeAwaitIdle(directory, user.getId(), false);
+
+        verify(tmdbService, never()).autoMatchV2(any(), anyString(), anyString(), any());
+        verify(tmdbService, never()).fetchDetailV2(any(), any(), any());
+        MediaSeries after = mediaSeriesMapper.selectById(series.getId());
+        assertEquals(MediaMatchStatus.MATCHED.getCode(), after.getMatchStatus());
+        assertEquals(metadataId, after.getMetadataId());
+        assertTrue(after.getMetadataComplete());
+        MediaMetadata meta = mediaMetadataMapper.selectById(metadataId);
+        assertNotEquals(backdropIdBefore, meta.getBackdropFileNodeId());
+        assertNotNull(queryChildNode(seriesFolder.getId(), "backdrop.jpg"));
+    }
+
+    /**
+     * 完整 manual 电影删除 movie.nfo → 整库非强制削刮自动重建，不重新匹配、字段与绑定不变（工单 07）。
+     */
+    @Test
+    void shouldRebuildDeletedMovieNfoForManualRow() {
+        UserVo user = prepareUserWithStorageSpace();
+        FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
+        FileNodeVo videoFile = fileService.upload(buildFile("Iron.Man.2008.1080p.mkv"), user.getId(), movieFolder.getId(), null);
+        MediaDirectory directory = createDirectory(user.getId(), movieFolder.getId(), "movie");
+        MediaMovie movie = seedMovie(directory, user.getId(), movieFolder.getId(), "Iron Man", 2008, videoFile.getId());
+
+        MediaMetadata manualMeta = fullMetadata(user.getId(), "movie", 1000L);
+        when(tmdbService.fetchDetailV2(eq(user.getId()), eq(1000L), eq("movie"))).thenReturn(manualMeta);
+        when(tmdbService.downloadArtwork(anyString(), anyString())).thenReturn(new byte[]{1});
+        MediaMatchUpdateDto dto = new MediaMatchUpdateDto();
+        dto.setTmdbId(1000L);
+        dto.setMediaType("movie");
+        mediaItemService.updateMatch(movie.getId(), dto, user.getId());
+
+        MediaMovie manual = mediaMovieMapper.selectById(movie.getId());
+        assertEquals(MediaMatchStatus.MANUAL.getCode(), manual.getMatchStatus());
+        assertTrue(manual.getMetadataComplete());
+        String metadataId = manual.getMetadataId();
+        assertNotNull(metadataId);
+        assertNotNull(queryChildNode(movieFolder.getId(), "movie.nfo"));
+
+        // 物理删除 movie.nfo → 整库非强制削刮自动重建
+        fileMapper.deleteById(queryChildNode(movieFolder.getId(), "movie.nfo").getId());
+        clearInvocations(tmdbService);
+        scrapeAwaitIdle(directory, user.getId(), false);
+
+        verify(tmdbService, never()).autoMatchV2(any(), anyString(), anyString(), any());
+        verify(tmdbService, never()).fetchDetailV2(any(), any(), any());
+        assertNotNull(queryChildNode(movieFolder.getId(), "movie.nfo"));
+        MediaMovie after = mediaMovieMapper.selectById(movie.getId());
+        assertEquals(MediaMatchStatus.MANUAL.getCode(), after.getMatchStatus());
+        assertEquals(metadataId, after.getMetadataId());
+        assertEquals("钢铁侠", mediaMetadataMapper.selectById(metadataId).getTitle());
+        assertEquals(1000L, mediaMetadataMapper.selectById(metadataId).getTmdbId());
+    }
+
+    /**
+     * 完整 manual 剧集删除 tvshow.nfo → 整库非强制削刮自动重建，不重新匹配、字段与绑定不变（工单 07）。
+     */
+    @Test
+    void shouldRebuildDeletedTvshowNfoForManualSeries() {
+        UserVo user = prepareUserWithStorageSpace();
+        FileNodeVo tvFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电视");
+        FileNodeVo seriesFolder = createFolder(user.getId(), tvFolder.getId(), "亮剑");
+        FileNodeVo seasonFolder = createFolder(user.getId(), seriesFolder.getId(), "Season 1");
+        FileNodeVo epFile = fileService.upload(buildFile("亮剑.S01E01.1080p.mkv"), user.getId(), seasonFolder.getId(), null);
+        MediaDirectory directory = createDirectory(user.getId(), tvFolder.getId(), "tv");
+        MediaSeries series = seedSeries(directory, user.getId(), seriesFolder.getId(), "亮剑", null);
+        MediaSeason season = seedSeason(series.getId(), seasonFolder.getId(), 1);
+        seedEpisode(series.getId(), season.getId(), 1, epFile.getId());
+
+        MediaMetadata manualMeta = fullMetadata(user.getId(), "series", 2000L);
+        MediaMetadata seasonMeta = fullMetadata(user.getId(), "season", null);
+        MediaMetadata epMeta = fullMetadata(user.getId(), "episode", null);
+        when(tmdbService.fetchDetailV2(eq(user.getId()), eq(2000L), eq("tv"))).thenReturn(manualMeta);
+        when(tmdbService.fetchSeasonV2(eq(user.getId()), eq(2000L), eq(1)))
+                .thenReturn(new TmdbService.SeasonFetchV2(seasonMeta, Map.of(1, epMeta)));
+        when(tmdbService.downloadArtwork(anyString(), anyString())).thenReturn(new byte[]{1});
+        MediaMatchUpdateDto dto = new MediaMatchUpdateDto();
+        dto.setTmdbId(2000L);
+        dto.setMediaType("tv");
+        mediaItemService.updateMatch(series.getId(), dto, user.getId());
+
+        MediaSeries manual = mediaSeriesMapper.selectById(series.getId());
+        assertEquals(MediaMatchStatus.MANUAL.getCode(), manual.getMatchStatus());
+        assertTrue(manual.getMetadataComplete());
+        String metadataId = manual.getMetadataId();
+        assertNotNull(metadataId);
+        assertNotNull(queryChildNode(seriesFolder.getId(), "tvshow.nfo"));
+
+        // 物理删除 tvshow.nfo → 整库非强制削刮自动重建
+        fileMapper.deleteById(queryChildNode(seriesFolder.getId(), "tvshow.nfo").getId());
+        clearInvocations(tmdbService);
+        scrapeAwaitIdle(directory, user.getId(), false);
+
+        verify(tmdbService, never()).autoMatchV2(any(), anyString(), anyString(), any());
+        verify(tmdbService, never()).fetchDetailV2(any(), any(), any());
+        assertNotNull(queryChildNode(seriesFolder.getId(), "tvshow.nfo"));
+        MediaSeries after = mediaSeriesMapper.selectById(series.getId());
+        assertEquals(MediaMatchStatus.MANUAL.getCode(), after.getMatchStatus());
+        assertEquals(metadataId, after.getMetadataId());
+        assertEquals("钢铁侠", mediaMetadataMapper.selectById(metadataId).getTitle());
+    }
+
+    /**
+     * 未匹配但带本地 movie.nfo 的电影整库 force 削刮（工单 07）：TMDB 自动匹配成功 → 文本字段全量覆盖
+     * 为 TMDB 值（本地优先被 force 覆盖）、movie.nfo 重写为 TMDB 内容。
+     */
+    @Test
+    void shouldForceScrapeUnmatchedMovieWithLocalNfoOverwriteByTmdb() {
+        UserVo user = prepareUserWithStorageSpace();
+        FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
+        FileNodeVo parentFolder = createFolder(user.getId(), movieFolder.getId(), "Iron Man 2008");
+        FileNodeVo videoFile = fileService.upload(buildFile("Iron.Man.2008.1080p.mkv"), user.getId(), parentFolder.getId(), null);
+        fileService.upload(buildTextFile("movie.nfo", """
+                <movie>
+                  <title>本地标题</title>
+                  <plot>本地简介</plot>
+                </movie>
+                """), user.getId(), parentFolder.getId(), null);
+        fileService.upload(buildFile("poster.jpg"), user.getId(), parentFolder.getId(), null);
+        MediaDirectory directory = createDirectory(user.getId(), movieFolder.getId(), "movie");
+        MediaMovie movie = seedMovie(directory, user.getId(), parentFolder.getId(), "Iron Man", 2008, videoFile.getId());
+
+        MediaMetadata remote = fullMetadata(user.getId(), "movie", 1000L);
+        remote.setTitle("TMDB 覆盖标题");
+        remote.setOverview("TMDB 覆盖简介");
+        when(tmdbService.autoMatchV2(eq(user.getId()), eq("movie"), anyString(), any())).thenReturn(remote);
+        when(tmdbService.downloadArtwork(anyString(), anyString())).thenReturn(new byte[]{1});
+
+        scrapeAwaitIdle(directory, user.getId(), true);
+
+        MediaMovie after = mediaMovieMapper.selectById(movie.getId());
+        assertEquals(MediaMatchStatus.MATCHED.getCode(), after.getMatchStatus());
+        assertNotNull(after.getMetadataId());
+        MediaMetadata metadata = mediaMetadataMapper.selectOne(owner("movie", movie.getId()));
+        assertEquals("tmdb", metadata.getSource());
+        // 文本字段被 TMDB 全量覆盖（force 对本地来源行同样 TMDB 优先）
+        assertEquals("TMDB 覆盖标题", metadata.getTitle());
+        assertEquals("TMDB 覆盖简介", metadata.getOverview());
+        // movie.nfo 重写为 TMDB 内容（本地标题不保留）
+        String nfoContent = downloadText(queryChildNode(parentFolder.getId(), "movie.nfo").getId(), user.getId());
+        assertTrue(nfoContent.contains("TMDB 覆盖标题"));
+        assertFalse(nfoContent.contains("本地标题"));
+    }
+
+    /**
+     * force 削刮 TMDB 拉取/匹配失败（电影，工单 07）：不 unmatch、不清空既有匹配，
+     * 回退本地优先主流程维持原匹配状态与字段（force 退化为非强制 persist）。
+     */
+    @Test
+    void shouldKeepMovieMatchWhenForcePullFails() {
+        UserVo user = prepareUserWithStorageSpace();
+        FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
+        FileNodeVo videoFile = fileService.upload(buildFile("Iron.Man.2008.1080p.mkv"), user.getId(), movieFolder.getId(), null);
+        MediaDirectory directory = createDirectory(user.getId(), movieFolder.getId(), "movie");
+        MediaMovie movie = seedMovie(directory, user.getId(), movieFolder.getId(), "Iron Man", 2008, videoFile.getId());
+
+        MediaMetadata metadata = fullMetadata(user.getId(), "movie", 1000L);
+        metadata.setRawJson("{\"poster_path\":\"/p.jpg\",\"backdrop_path\":\"/b.jpg\"}");
+        when(tmdbService.autoMatchV2(eq(user.getId()), eq("movie"), anyString(), any())).thenReturn(metadata);
+        when(tmdbService.downloadArtwork(anyString(), anyString())).thenReturn(new byte[]{1});
+
+        scrapeAwaitIdle(directory, user.getId(), false);
+        String metadataId = mediaMovieMapper.selectById(movie.getId()).getMetadataId();
+        assertNotNull(metadataId);
+
+        // force 时 TMDB 拉取与自动匹配均失败 → 维持匹配与字段，不清空既有匹配
+        clearInvocations(tmdbService);
+        when(tmdbService.fetchDetailV2(eq(user.getId()), eq(1000L), eq("movie"))).thenReturn(null);
+        when(tmdbService.autoMatchV2(eq(user.getId()), eq("movie"), anyString(), any())).thenReturn(null);
+        scrapeAwaitIdle(directory, user.getId(), true);
+
+        MediaMovie after = mediaMovieMapper.selectById(movie.getId());
+        assertEquals(MediaMatchStatus.MATCHED.getCode(), after.getMatchStatus());
+        assertEquals(metadataId, after.getMetadataId());
+        assertEquals("钢铁侠", mediaMetadataMapper.selectById(metadataId).getTitle());
+        assertEquals(1000L, mediaMetadataMapper.selectById(metadataId).getTmdbId());
+    }
+
+    /**
+     * force 削刮 TMDB 拉取/匹配失败（剧集，工单 07）：不 unmatch、不清空既有匹配，回退本地优先主流程。
+     */
+    @Test
+    void shouldKeepSeriesMatchWhenForcePullFails() {
+        UserVo user = prepareUserWithStorageSpace();
+        FileNodeVo tvFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电视");
+        FileNodeVo seriesFolder = createFolder(user.getId(), tvFolder.getId(), "亮剑");
+        FileNodeVo seasonFolder = createFolder(user.getId(), seriesFolder.getId(), "Season 1");
+        FileNodeVo epFile = fileService.upload(buildFile("亮剑.S01E01.1080p.mkv"), user.getId(), seasonFolder.getId(), null);
+        MediaDirectory directory = createDirectory(user.getId(), tvFolder.getId(), "tv");
+        MediaSeries series = seedSeries(directory, user.getId(), seriesFolder.getId(), "亮剑", null);
+        MediaSeason season = seedSeason(series.getId(), seasonFolder.getId(), 1);
+        seedEpisode(series.getId(), season.getId(), 1, epFile.getId());
+
+        MediaMetadata seriesMeta = fullMetadata(user.getId(), "series", 2000L);
+        MediaMetadata seasonMeta = fullMetadata(user.getId(), "season", null);
+        MediaMetadata epMeta = fullMetadata(user.getId(), "episode", null);
+        when(tmdbService.autoMatchV2(eq(user.getId()), eq("tv"), eq("亮剑"), isNull())).thenReturn(seriesMeta);
+        when(tmdbService.fetchSeasonV2(eq(user.getId()), eq(2000L), eq(1)))
+                .thenReturn(new TmdbService.SeasonFetchV2(seasonMeta, Map.of(1, epMeta)));
+        when(tmdbService.downloadArtwork(anyString(), anyString())).thenReturn(new byte[]{1});
+
+        scrapeAwaitIdle(directory, user.getId(), false);
+        String metadataId = mediaSeriesMapper.selectById(series.getId()).getMetadataId();
+        assertNotNull(metadataId);
+
+        // force 时 TMDB 拉取与自动匹配均失败 → 维持匹配与字段，不清空既有匹配
+        clearInvocations(tmdbService);
+        when(tmdbService.fetchDetailV2(eq(user.getId()), eq(2000L), eq("tv"))).thenReturn(null);
+        when(tmdbService.autoMatchV2(eq(user.getId()), eq("tv"), anyString(), any())).thenReturn(null);
+        scrapeAwaitIdle(directory, user.getId(), true);
+
+        MediaSeries after = mediaSeriesMapper.selectById(series.getId());
+        assertEquals(MediaMatchStatus.MATCHED.getCode(), after.getMatchStatus());
+        assertEquals(metadataId, after.getMetadataId());
+        assertEquals("钢铁侠", mediaMetadataMapper.selectById(metadataId).getTitle());
+        assertEquals(2000L, mediaMetadataMapper.selectById(metadataId).getTmdbId());
+    }
+
+    /**
+     * 回收站链路（工单 07）：经真实文件删除入口把背景图删进回收站（FileNode 行物理删除；本测试库
+     * 回收站即物理删行，与 FileRecycleServiceTest 删除方式一致，t_file_node 存在即有效）→
+     * 判定为不存在 → 整库非强制削刮自动补回。
+     */
+    @Test
+    void shouldRefillBackdropDeletedToTrash() {
+        UserVo user = prepareUserWithStorageSpace();
+        FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
+        FileNodeVo videoFile = fileService.upload(buildFile("Iron.Man.2008.1080p.mkv"), user.getId(), movieFolder.getId(), null);
+        MediaDirectory directory = createDirectory(user.getId(), movieFolder.getId(), "movie");
+        MediaMovie movie = seedMovie(directory, user.getId(), movieFolder.getId(), "Iron Man", 2008, videoFile.getId());
+
+        MediaMetadata metadata = fullMetadata(user.getId(), "movie", 1000L);
+        metadata.setRawJson("{\"poster_path\":\"/p.jpg\",\"backdrop_path\":\"/b.jpg\"}");
+        when(tmdbService.autoMatchV2(eq(user.getId()), eq("movie"), anyString(), any())).thenReturn(metadata);
+        when(tmdbService.downloadArtwork(anyString(), anyString())).thenReturn(new byte[]{1});
+
+        scrapeAwaitIdle(directory, user.getId(), false);
+        String metadataId = mediaMovieMapper.selectById(movie.getId()).getMetadataId();
+        assertNotNull(metadataId);
+        FileNode backdropNode = queryChildNode(movieFolder.getId(), "backdrop.jpg");
+        assertNotNull(backdropNode);
+
+        // 经回收站入口删除背景图（FileNode 行物理删除）→ 削刮判定为缺失并补回
+        FileDeleteDto dto = new FileDeleteDto();
+        dto.setIds(List.of(backdropNode.getId()));
+        fileRecycleService.deleteToTrash(dto, user.getId());
+        assertNull(queryChildNode(movieFolder.getId(), "backdrop.jpg"));
+
+        clearInvocations(tmdbService);
+        scrapeAwaitIdle(directory, user.getId(), false);
+
+        verify(tmdbService, never()).autoMatchV2(any(), anyString(), anyString(), any());
+        assertNotNull(queryChildNode(movieFolder.getId(), "backdrop.jpg"));
+        assertNotEquals(backdropNode.getId(), mediaMetadataMapper.selectById(metadataId).getBackdropFileNodeId());
+        assertEquals(MediaMatchStatus.MATCHED.getCode(), mediaMovieMapper.selectById(movie.getId()).getMatchStatus());
+        assertEquals(metadataId, mediaMovieMapper.selectById(movie.getId()).getMetadataId());
+    }
+
+    /**
+     * 整库 missing 模式粒度（工单 07）：同库两条完整 matched 电影只删其中一条的 movie.nfo →
+     * 削刮后被删的重建、未删的 NFO 内容不变、两条的 metadataId 均不变。
+     */
+    @Test
+    void shouldRebuildOnlyMissingNfoInLibrary() {
+        UserVo user = prepareUserWithStorageSpace();
+        FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
+        FileNodeVo aFolder = createFolder(user.getId(), movieFolder.getId(), "Iron Man 2008");
+        FileNodeVo aVideo = fileService.upload(buildFile("Iron.Man.2008.1080p.mkv"), user.getId(), aFolder.getId(), null);
+        FileNodeVo bFolder = createFolder(user.getId(), movieFolder.getId(), "Inception 2010");
+        FileNodeVo bVideo = fileService.upload(buildFile("Inception.2010.1080p.mkv"), user.getId(), bFolder.getId(), null);
+        MediaDirectory directory = createDirectory(user.getId(), movieFolder.getId(), "movie");
+        MediaMovie movieA = seedMovie(directory, user.getId(), aFolder.getId(), "Iron Man", 2008, aVideo.getId());
+        MediaMovie movieB = seedMovie(directory, user.getId(), bFolder.getId(), "Inception", 2010, bVideo.getId());
+
+        MediaMetadata metaA = fullMetadata(user.getId(), "movie", 1000L);
+        MediaMetadata metaB = fullMetadata(user.getId(), "movie", 2000L);
+        when(tmdbService.autoMatchV2(eq(user.getId()), eq("movie"), anyString(), any()))
+                .thenAnswer(inv -> "Iron Man".equals(inv.getArgument(2)) ? metaA
+                        : "Inception".equals(inv.getArgument(2)) ? metaB : null);
+        when(tmdbService.downloadArtwork(anyString(), anyString())).thenReturn(new byte[]{1});
+
+        scrapeAwaitIdle(directory, user.getId(), false);
+        String metadataIdA = mediaMovieMapper.selectById(movieA.getId()).getMetadataId();
+        String metadataIdB = mediaMovieMapper.selectById(movieB.getId()).getMetadataId();
+        assertNotNull(metadataIdA);
+        assertNotNull(metadataIdB);
+        assertTrue(mediaMovieMapper.selectById(movieA.getId()).getMetadataComplete());
+        assertTrue(mediaMovieMapper.selectById(movieB.getId()).getMetadataComplete());
+        String nfoBBefore = downloadText(queryChildNode(bFolder.getId(), "movie.nfo").getId(), user.getId());
+
+        // 只删 A 的 movie.nfo → 削刮后 A 重建、B 的 NFO 内容不变
+        fileMapper.deleteById(queryChildNode(aFolder.getId(), "movie.nfo").getId());
+        clearInvocations(tmdbService);
+        scrapeAwaitIdle(directory, user.getId(), false);
+
+        assertNotNull(queryChildNode(aFolder.getId(), "movie.nfo"));
+        assertEquals(nfoBBefore, downloadText(queryChildNode(bFolder.getId(), "movie.nfo").getId(), user.getId()));
+        assertEquals(metadataIdA, mediaMovieMapper.selectById(movieA.getId()).getMetadataId());
+        assertEquals(metadataIdB, mediaMovieMapper.selectById(movieB.getId()).getMetadataId());
+        assertEquals(MediaMatchStatus.MATCHED.getCode(), mediaMovieMapper.selectById(movieA.getId()).getMatchStatus());
+        assertEquals(MediaMatchStatus.MATCHED.getCode(), mediaMovieMapper.selectById(movieB.getId()).getMatchStatus());
     }
 }
