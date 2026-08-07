@@ -180,7 +180,7 @@ public class MediaScrapeServiceImpl implements MediaScrapeService {
     }
 
     /**
-     * 单部电影削刮：本地优先（同名 .nfo / poster / fanart），无本地内容时 TMDB
+     * 单部电影削刮：本地优先（movie.nfo 优先、同名 .nfo 兜底 / poster / fanart），无本地内容时 TMDB
      * 先文件名解析结果、失败用电影文件夹名兜底。
      */
     private void scrapeMovie(MediaDirectory directory, MediaMovie movie) {
@@ -209,7 +209,8 @@ public class MediaScrapeServiceImpl implements MediaScrapeService {
     }
 
     /**
-     * 电影本地优先削刮：视频同目录存在与视频同名的 .nfo 时完全信任本地内容，不请求 TMDB；
+     * 电影本地优先削刮：优先读取电影文件夹 {@code movie.nfo}，不存在时回退与视频同名的 {@code .nfo}，
+     * 完全信任本地内容，不请求 TMDB；
      * 无 NFO 但存在本地图片（按海报/背景识别链，ADR 0022）时同样本地优先，构建缺失文本字段的
      * local_nfo 元数据（标记不完整），图片绑定本地文件。
      *
@@ -223,8 +224,8 @@ public class MediaScrapeServiceImpl implements MediaScrapeService {
             return null;
         }
         String userId = movie.getUserId();
-        FileNode nfoNode = persistSupport.findChildFile(userId, folder.getId(),
-                mediaNfoSupport.nfoNameOf(video.getName()));
+        FileNode nfoNode = persistSupport.findFirstChildFile(userId, folder.getId(),
+                List.of(MediaNfoSupport.MOVIE_NFO, mediaNfoSupport.nfoNameOf(video.getName())));
         MediaNfoSupport.NfoData data = nfoNode == null ? null : readNfo(nfoNode);
         FileNode poster = persistSupport.findFirstChildFile(userId, folder.getId(), MediaNfoSupport.MOVIE_POSTER_NAMES);
         FileNode fanart = persistSupport.findFirstChildFile(userId, folder.getId(), MediaNfoSupport.BACKDROP_NAMES);

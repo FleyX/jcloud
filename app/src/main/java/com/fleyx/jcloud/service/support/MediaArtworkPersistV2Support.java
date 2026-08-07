@@ -29,7 +29,7 @@ import java.util.List;
  * 写回为正式 FileNode（复用 {@link MediaArtworkPersistSupport} 的原语）：本地来源写物理文件 + 插入/覆盖
  * FileNode；远程来源经远程上传通道落盘。local_nfo 来源的内容为用户提供、已在视频目录，跳过本级写回并标记
  * persisted。任一步失败仅将对应元数据标记 persist_status=failed，不影响削刮主流程。
- * 电影以代表视频文件主名写 {@code <主文件名>.nfo} + folder.jpg/backdrop.jpg（ADR 0022）；剧写
+ * 电影写 {@code movie.nfo} + folder.jpg/backdrop.jpg（ADR 0022）；剧写
  * tvshow.nfo + folder.jpg/backdrop.jpg + 季海报（seasonXX-poster.jpg）+ 逐集 nfo 与剧照（{@code <视频名>-thumb.jpg}）。
  */
 @Slf4j
@@ -47,7 +47,7 @@ public class MediaArtworkPersistV2Support {
     private final MediaArtworkPersistSupport persistSupport;
 
     /**
-     * 写回电影级元数据：{@code <代表视频主文件名>.nfo} + folder.jpg/backdrop.jpg 到电影文件夹。
+     * 写回电影级元数据：{@code movie.nfo} + folder.jpg/backdrop.jpg 到电影文件夹。
      * local_nfo 来源跳过写回；任一步失败仅标记 failed 不影响削刮结果。
      */
     public void persistMovieV2(MediaMovie movie, MediaMetadata metadata) {
@@ -65,7 +65,7 @@ public class MediaArtworkPersistV2Support {
             if (video == null) {
                 throw new IllegalStateException("电影视频文件节点不存在: " + movie.getId());
             }
-            persistSupport.writeNfoXml(folder, nfoSupport.nfoNameOf(video.getName()),
+            persistSupport.writeNfoXml(folder, MediaNfoSupport.MOVIE_NFO,
                     nfoSupport.generate(metadata, null, null));
             FileNode poster = persistSupport.ensureArtwork(folder, MediaNfoSupport.POSTER_WRITE_NAME,
                     metadata.getRawJson(), "poster_path", "poster");
