@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fleyx.jcloud.common.enums.MediaType;
 import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.exception.BusinessException;
+import com.fleyx.jcloud.mapper.FileMapper;
 import com.fleyx.jcloud.mapper.MediaDirectoryMapper;
 import com.fleyx.jcloud.mapper.MediaMetadataMapper;
 import com.fleyx.jcloud.mapper.MediaMovieMapper;
@@ -55,6 +56,7 @@ public class MediaDirectoryServiceImpl implements MediaDirectoryService {
     private final MediaSeriesMapper mediaSeriesMapper;
     private final MediaOtherMapper mediaOtherMapper;
     private final MediaMetadataMapper mediaMetadataMapper;
+    private final FileMapper fileMapper;
     private final MediaScanService mediaScanService;
     private final MediaDirectorySourceSupport sourceSupport;
     private final MediaItemVoSupport mediaItemVoSupport;
@@ -265,14 +267,20 @@ public class MediaDirectoryServiceImpl implements MediaDirectoryService {
                     .last("limit 1"));
             return latest == null ? null : mediaItemVoSupport.filePreviewPosterUrl(latest.getFileNodeId());
         }
-        String metadataId = latestPosterMetadataId(directory);
-        return metadataId == null ? null : mediaItemVoSupport.metadataPosterUrl(metadataId);
+        MediaMetadata posterMetadata = latestPosterMetadata(directory);
+        if (posterMetadata == null) {
+            return null;
+        }
+        // 库封面取海报文件节点版本：节点存在时附带 ?v= 使覆盖写后缓存失效，缺失时不带
+        FileNode posterNode = fileMapper.selectById(posterMetadata.getPosterFileNodeId());
+        Long version = posterNode == null ? null : posterNode.getLastModified();
+        return mediaItemVoSupport.metadataPosterUrl(posterMetadata.getId(), version);
     }
 
     /**
-     * 库内最新添加且元数据有海报的条目元数据 ID（电影库取电影行，电视库取剧集行）。
+     * 库内最新添加且元数据有海报的条目元数据（电影库取电影行，电视库取剧集行）。
      */
-    private String latestPosterMetadataId(MediaDirectory directory) {
+    private MediaMetadata latestPosterMetadata(MediaDirectory directory) {
         List<String> candidates;
         if (MediaType.MOVIE.getCode().equals(directory.getMediaType())) {
             candidates = mediaMovieMapper.selectList(new LambdaQueryWrapper<MediaMovie>()
@@ -292,7 +300,7 @@ public class MediaDirectoryServiceImpl implements MediaDirectoryService {
         for (String metadataId : candidates) {
             MediaMetadata metadata = mediaMetadataMapper.selectById(metadataId);
             if (metadata != null && metadata.getPosterFileNodeId() != null) {
-                return metadata.getId();
+                return metadata;
             }
         }
         return null;

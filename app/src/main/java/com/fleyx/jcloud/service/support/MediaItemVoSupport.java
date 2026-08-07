@@ -12,16 +12,26 @@ public class MediaItemVoSupport {
 
     /**
      * 指定元数据 ID 的海报图 URL（调用方需保证海报存在）。
+     * version 非空时拼 {@code ?v=} 版本参数，用于图片覆盖写后使浏览器缓存自然失效；为空时不带。
      */
-    public String metadataPosterUrl(String metadataId) {
-        return metadataId == null ? null : "/jcloud/api/media/metadata/" + metadataId + "/poster";
+    public String metadataPosterUrl(String metadataId, Long version) {
+        if (metadataId == null) {
+            return null;
+        }
+        String url = "/jcloud/api/media/metadata/" + metadataId + "/poster";
+        return version == null ? url : url + "?v=" + version;
     }
 
     /**
      * 指定元数据 ID 的背景图 URL（调用方需保证背景图存在）。
+     * version 非空时拼 {@code ?v=} 版本参数，用于图片覆盖写后使浏览器缓存自然失效；为空时不带。
      */
-    public String metadataBackdropUrl(String metadataId) {
-        return metadataId == null ? null : "/jcloud/api/media/metadata/" + metadataId + "/backdrop";
+    public String metadataBackdropUrl(String metadataId, Long version) {
+        if (metadataId == null) {
+            return null;
+        }
+        String url = "/jcloud/api/media/metadata/" + metadataId + "/backdrop";
+        return version == null ? url : url + "?v=" + version;
     }
 
     /**

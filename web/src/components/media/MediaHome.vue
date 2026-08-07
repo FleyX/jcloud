@@ -26,9 +26,21 @@ const notificationStore = useNotificationStore()
 const home = ref<MediaHomeVo | null>(null)
 const loading = ref(true)
 
+/** 图片加载失败的库/条目 ID 集合：加载失败视同无图走占位，重新加载首页数据时清空 */
+const failedImageIds = ref(new Set<string>())
+
+function markImageError(id: string) {
+  failedImageIds.value.add(id)
+}
+
+function imageFailed(id: string): boolean {
+  return failedImageIds.value.has(id)
+}
+
 onMounted(async () => {
   try {
     home.value = await fetchMediaHome()
+    failedImageIds.value = new Set()
   } finally {
     loading.value = false
   }
@@ -257,11 +269,12 @@ function openLatestSeries(item: MediaItemVo) {
             >
               <div class="relative aspect-[16/10] w-full overflow-hidden rounded-2xl bg-surface-100 shadow-soft transition-transform group-hover:scale-[1.02]">
                 <img
-                  v-if="libraryCover(directory)"
+                  v-if="libraryCover(directory) && !imageFailed(directory.id)"
                   :src="libraryCover(directory)!"
                   :alt="directory.name"
                   loading="lazy"
                   class="h-full w-full object-cover"
+                  @error="markImageError(directory.id)"
                 >
                 <div
                   v-else
@@ -312,11 +325,19 @@ function openLatestSeries(item: MediaItemVo) {
             >
               <div class="relative aspect-video w-full overflow-hidden rounded-2xl bg-surface-100 shadow-soft transition-transform group-hover:scale-[1.02]">
                 <img
+                  v-if="!imageFailed(item.id)"
                   :src="itemPoster(item)"
                   :alt="itemTitle(item)"
                   loading="lazy"
                   class="h-full w-full object-cover"
+                  @error="markImageError(item.id)"
                 >
+                <div
+                  v-else
+                  class="flex h-full w-full items-center justify-center text-surface-300"
+                >
+                  <Film class="h-10 w-10" />
+                </div>
                 <div
                   v-if="progressPercent(item) > 0"
                   class="absolute bottom-0 left-0 h-1 w-full bg-black/40"
@@ -351,11 +372,19 @@ function openLatestSeries(item: MediaItemVo) {
             >
               <div class="relative aspect-[2/3] w-full overflow-hidden rounded-2xl bg-surface-100 shadow-soft transition-transform group-hover:scale-[1.02]">
                 <img
+                  v-if="!imageFailed(item.id)"
                   :src="itemPoster(item)"
                   :alt="itemTitle(item)"
                   loading="lazy"
                   class="h-full w-full object-cover"
+                  @error="markImageError(item.id)"
                 >
+                <div
+                  v-else
+                  class="flex h-full w-full items-center justify-center text-surface-300"
+                >
+                  <Film class="h-10 w-10" />
+                </div>
               </div>
               <p class="mt-1.5 truncate px-0.5 text-xs font-medium text-surface-800">
                 {{ itemTitle(item) }}
@@ -381,11 +410,12 @@ function openLatestSeries(item: MediaItemVo) {
             >
               <div class="relative aspect-[2/3] w-full overflow-hidden rounded-2xl bg-surface-100 shadow-soft transition-transform group-hover:scale-[1.02]">
                 <img
-                  v-if="latestPoster(item)"
+                  v-if="latestPoster(item) && !imageFailed(item.id)"
                   :src="latestPoster(item)!"
                   :alt="itemTitle(item)"
                   loading="lazy"
                   class="h-full w-full object-cover"
+                  @error="markImageError(item.id)"
                 >
                 <div
                   v-else
@@ -421,11 +451,12 @@ function openLatestSeries(item: MediaItemVo) {
             >
               <div class="relative aspect-[2/3] w-full overflow-hidden rounded-2xl bg-surface-100 shadow-soft transition-transform group-hover:scale-[1.02]">
                 <img
-                  v-if="latestPoster(item)"
+                  v-if="latestPoster(item) && !imageFailed(item.id)"
                   :src="latestPoster(item)!"
                   :alt="itemTitle(item)"
                   loading="lazy"
                   class="h-full w-full object-cover"
+                  @error="markImageError(item.id)"
                 >
                 <div
                   v-else

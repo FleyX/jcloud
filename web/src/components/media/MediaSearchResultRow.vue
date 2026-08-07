@@ -3,6 +3,7 @@
  * 媒体搜索结果行：小海报 + 标题 + 元信息
  */
 import { Film } from '@lucide/vue'
+import { ref, watch } from 'vue'
 import { withToken } from '@/api/media'
 
 interface Props {
@@ -11,18 +12,28 @@ interface Props {
   subtitle?: string | null
 }
 
-defineProps<Props>()
+const props = defineProps<Props>()
+
+/** 海报加载失败标志：加载失败视同无图走 v-else 占位（URL 变化时复位） */
+const imgError = ref(false)
+watch(
+  () => props.posterUrl,
+  () => {
+    imgError.value = false
+  },
+)
 </script>
 
 <template>
   <div class="flex items-center gap-3">
     <div class="h-14 w-10 shrink-0 overflow-hidden rounded-lg bg-surface-100">
       <img
-        v-if="posterUrl"
+        v-if="posterUrl && !imgError"
         :src="withToken(posterUrl)"
         :alt="title"
         loading="lazy"
         class="h-full w-full object-cover"
+        @error="imgError = true"
       >
       <div
         v-else

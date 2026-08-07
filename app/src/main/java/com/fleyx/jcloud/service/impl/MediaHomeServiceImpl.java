@@ -1,6 +1,8 @@
 package com.fleyx.jcloud.service.impl;
 
+import com.fleyx.jcloud.mapper.FileMapper;
 import com.fleyx.jcloud.mapper.MediaMetadataMapper;
+import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.po.MediaMetadata;
 import com.fleyx.jcloud.model.vo.MediaHomeVo;
 import com.fleyx.jcloud.model.vo.MediaItemVo;
@@ -17,6 +19,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * 影视首页聚合服务实现（issue #19 起切新表，委托 {@link MediaHomeQuerySupport}）。
@@ -37,6 +40,7 @@ public class MediaHomeServiceImpl implements MediaHomeService {
     private final MediaDirectoryService mediaDirectoryService;
     private final MediaHomeQuerySupport mediaHomeQuerySupport;
     private final MediaMetadataMapper mediaMetadataMapper;
+    private final FileMapper fileMapper;
     private final MediaItemVoSupport mediaItemVoSupport;
 
     @Override
@@ -61,6 +65,10 @@ public class MediaHomeServiceImpl implements MediaHomeService {
                 .filter(Objects::nonNull).distinct().toList();
         Map<String, MediaMetadata> metadataMap = metadataIds.isEmpty() ? Map.of() : loadMetadataMap(metadataIds);
         Map<String, MediaMetadata> seriesMetadataMap = loadSeriesMetadataMap(items);
+        Map<String, Long> nodeVersionMap = loadNodeVersionMap(
+                Stream.concat(metadataMap.values().stream(), seriesMetadataMap.values().stream())
+                        .map(MediaMetadata::getPosterFileNodeId)
+                        .toList());
         List<MediaItemVo> result = new ArrayList<>();
         for (MediaHomeQuerySupport.HomeItem item : items) {
             MediaItemVo vo = new MediaItemVo();
@@ -93,7 +101,8 @@ public class MediaHomeServiceImpl implements MediaHomeService {
                 posterMetadata = seriesMetadata;
             }
             if (posterMetadata != null) {
-                vo.setPosterUrl(mediaItemVoSupport.metadataPosterUrl(posterMetadata.getId()));
+                vo.setPosterUrl(mediaItemVoSupport.metadataPosterUrl(posterMetadata.getId(),
+                        nodeVersionMap.get(posterMetadata.getPosterFileNodeId())));
             } else if (item.posterFallbackFileNodeId() != null) {
                 vo.setPosterUrl(mediaItemVoSupport.filePreviewPosterUrl(item.posterFallbackFileNodeId()));
             }
@@ -108,6 +117,20 @@ public class MediaHomeServiceImpl implements MediaHomeService {
     private Map<String, MediaMetadata> loadMetadataMap(List<String> metadataIds) {
         return mediaMetadataMapper.selectBatchIds(metadataIds).stream()
                 .collect(Collectors.toMap(MediaMetadata::getId, Function.identity()));
+    }
+
+    /**
+     * 文件节点版本映射（nodeId → lastModified），图片覆盖写后版本变化使浏览器缓存失效；
+     * FileNode 查不到或 lastModified 为空（脏数据/假 id）的节点不入映射，对应 URL 不带 {@code ?v=}。
+     */
+    private Map<String, Long> loadNodeVersionMap(List<String> fileNodeIds) {
+        List<String> ids = fileNodeIds.stream().filter(Objects::nonNull).distinct().toList();
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+        return fileMapper.selectBatchIds(ids).stream()
+                .filter(node -> node.getLastModified() != null)
+                .collect(Collectors.toMap(FileNode::getId, FileNode::getLastModified));
     }
 
     /**

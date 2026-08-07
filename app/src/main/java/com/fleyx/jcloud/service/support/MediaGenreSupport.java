@@ -4,10 +4,12 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fleyx.jcloud.common.enums.MediaType;
 import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.exception.BusinessException;
+import com.fleyx.jcloud.mapper.FileMapper;
 import com.fleyx.jcloud.mapper.MediaDirectoryMapper;
 import com.fleyx.jcloud.mapper.MediaMetadataMapper;
 import com.fleyx.jcloud.mapper.MediaMovieMapper;
 import com.fleyx.jcloud.mapper.MediaSeriesMapper;
+import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.po.MediaDirectory;
 import com.fleyx.jcloud.model.po.MediaMetadata;
 import com.fleyx.jcloud.model.po.MediaMovie;
@@ -36,6 +38,7 @@ public class MediaGenreSupport {
     private final MediaMovieMapper mediaMovieMapper;
     private final MediaSeriesMapper mediaSeriesMapper;
     private final MediaMetadataMapper mediaMetadataMapper;
+    private final FileMapper fileMapper;
     private final MediaItemVoSupport mediaItemVoSupport;
 
     /**
@@ -58,8 +61,9 @@ public class MediaGenreSupport {
                         .eq(MediaSeries::getDirectoryId, directoryId))
                 .stream().map(MediaSeries::getMetadataId).toList();
 
+        Map<String, MediaMetadata> metadataMap = loadMetadataMap(metadataIds);
         Map<String, GenreAggregate> aggregates = new HashMap<>();
-        for (MediaMetadata metadata : loadMetadataMap(metadataIds).values()) {
+        for (MediaMetadata metadata : metadataMap.values()) {
             if (metadata.getGenres() == null || metadata.getGenres().isBlank()) {
                 continue;
             }
@@ -75,11 +79,34 @@ public class MediaGenreSupport {
                 }
             }
         }
+        Map<String, Long> nodeVersionMap = nodeVersionMap(aggregates, metadataMap);
         return aggregates.entrySet().stream()
-                .map(e -> toVo(e.getKey(), e.getValue()))
+                .map(e -> toVo(e.getKey(), e.getValue(), metadataMap, nodeVersionMap))
                 .sorted(Comparator.comparing(MediaGenreVo::getItemCount, Comparator.reverseOrder())
                         .thenComparing(MediaGenreVo::getName))
                 .toList();
+    }
+
+    /**
+     * 类型代表海报的版本映射（posterMetadataId → lastModified）：聚合过程已加载全部元数据，
+     * 直接从该映射取各类型代表海报的 posterFileNodeId 走文件节点版本映射。
+     */
+    private Map<String, Long> nodeVersionMap(Map<String, GenreAggregate> aggregates,
+                                             Map<String, MediaMetadata> metadataMap) {
+        List<String> posterNodeIds = aggregates.values().stream()
+                .map(a -> a.posterMetadataId)
+                .filter(Objects::nonNull)
+                .map(metadataMap::get)
+                .filter(Objects::nonNull)
+                .map(MediaMetadata::getPosterFileNodeId)
+                .toList();
+        List<String> ids = posterNodeIds.stream().filter(Objects::nonNull).distinct().toList();
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+        return fileMapper.selectBatchIds(ids).stream()
+                .filter(node -> node.getLastModified() != null)
+                .collect(Collectors.toMap(FileNode::getId, FileNode::getLastModified));
     }
 
     /**
@@ -102,12 +129,16 @@ public class MediaGenreSupport {
                 .collect(Collectors.toMap(MediaMetadata::getId, Function.identity()));
     }
 
-    private MediaGenreVo toVo(String name, GenreAggregate aggregate) {
+    private MediaGenreVo toVo(String name, GenreAggregate aggregate, Map<String, MediaMetadata> metadataMap,
+                              Map<String, Long> nodeVersionMap) {
         MediaGenreVo vo = new MediaGenreVo();
         vo.setName(name);
         vo.setItemCount(aggregate.count);
-        vo.setPosterUrl(aggregate.posterMetadataId == null ? null
-                : mediaItemVoSupport.metadataPosterUrl(aggregate.posterMetadataId));
+        MediaMetadata posterMetadata = aggregate.posterMetadataId == null ? null
+                : metadataMap.get(aggregate.posterMetadataId);
+        vo.setPosterUrl(posterMetadata == null ? null
+                : mediaItemVoSupport.metadataPosterUrl(posterMetadata.getId(),
+                        nodeVersionMap.get(posterMetadata.getPosterFileNodeId())));
         return vo;
     }
 

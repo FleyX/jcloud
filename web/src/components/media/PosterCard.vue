@@ -58,6 +58,15 @@ watch(
 
 const toggling = ref(false)
 
+/** 海报加载失败标志：加载失败视同无图走 v-else 占位（URL 变化时复位） */
+const imgError = ref(false)
+watch(
+  () => props.posterUrl,
+  () => {
+    imgError.value = false
+  },
+)
+
 /** 点击心形：本地先翻转，调 toggle 成功后以服务端结果为准，失败回滚（异常提示由统一请求层处理） */
 async function toggle() {
   if (!props.ownerType || !props.ownerId || toggling.value) return
@@ -82,11 +91,12 @@ async function toggle() {
       @click="emit('play')"
     >
       <img
-        v-if="posterUrl"
+        v-if="posterUrl && !imgError"
         :src="withToken(posterUrl)"
         :alt="title"
         loading="lazy"
         class="h-full w-full object-cover"
+        @error="imgError = true"
       >
       <div
         v-else

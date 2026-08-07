@@ -33,12 +33,26 @@ const episodes = ref<MediaItemVo[]>([])
 const episodesLoading = ref(false)
 const heroPlaying = ref(false)
 
+/** 季海报/集剧照加载失败的 ID 集合：加载失败视同无图走 v-else 占位，刷新详情时清空 */
+const failedSeasonPosters = ref(new Set<string>())
+const failedEpisodePosters = ref(new Set<string>())
+
+function markSeasonPosterError(seasonId: string) {
+  failedSeasonPosters.value.add(seasonId)
+}
+
+function markEpisodePosterError(episodeId: string) {
+  failedEpisodePosters.value.add(episodeId)
+}
+
 onMounted(load)
 
 async function load() {
   loading.value = true
   try {
     detail.value = await fetchSeriesDetail(seriesId)
+    failedSeasonPosters.value = new Set()
+    failedEpisodePosters.value = new Set()
     episodesCache.clear()
     syncSeasonFromQuery()
   } finally {
@@ -271,11 +285,12 @@ async function toggleEpisodeFavorite(episode: MediaItemVo) {
             >
               <div class="relative aspect-[2/3] w-full overflow-hidden rounded-2xl bg-surface-100 shadow-soft transition-transform group-hover:scale-[1.02]">
                 <img
-                  v-if="season.posterUrl"
+                  v-if="season.posterUrl && !failedSeasonPosters.has(season.seasonId)"
                   :src="withToken(season.posterUrl)"
                   :alt="seasonTitle(season)"
                   loading="lazy"
                   class="h-full w-full object-cover"
+                  @error="markSeasonPosterError(season.seasonId)"
                 >
                 <div
                   v-else
@@ -350,11 +365,12 @@ async function toggleEpisodeFavorite(episode: MediaItemVo) {
             >
               <div class="relative aspect-video w-24 shrink-0 overflow-hidden rounded-xl bg-surface-100 md:w-32">
                 <img
-                  v-if="episode.posterUrl"
+                  v-if="episode.posterUrl && !failedEpisodePosters.has(episode.id)"
                   :src="withToken(episode.posterUrl)"
                   :alt="episode.title"
                   loading="lazy"
                   class="h-full w-full object-cover"
+                  @error="markEpisodePosterError(episode.id)"
                 >
                 <span
                   v-else
@@ -363,7 +379,7 @@ async function toggleEpisodeFavorite(episode: MediaItemVo) {
                   {{ episodeLabel(episode) }}
                 </span>
                 <span
-                  v-if="episode.posterUrl"
+                  v-if="episode.posterUrl && !failedEpisodePosters.has(episode.id)"
                   class="absolute bottom-1 left-1 rounded bg-black/60 px-1 py-0.5 text-[10px] font-semibold text-white"
                 >
                   {{ episodeLabel(episode) }}

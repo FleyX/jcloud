@@ -20,6 +20,13 @@ const emit = defineEmits<{
 const genres = ref<MediaGenreVo[]>([])
 const loading = ref(true)
 
+/** 图片加载失败的类型名集合：加载失败视同无图走 v-else 渐变占位，切换目录时清空 */
+const failedGenres = ref(new Set<string>())
+
+function markGenreError(name: string) {
+  failedGenres.value.add(name)
+}
+
 watch(
   () => props.directoryId,
   (id, prev) => {
@@ -32,6 +39,7 @@ async function load(id: string) {
   loading.value = true
   try {
     genres.value = await fetchMediaGenres(id)
+    failedGenres.value = new Set()
   } finally {
     loading.value = false
   }
@@ -64,11 +72,12 @@ async function load(id: string) {
       >
         <div class="relative aspect-[2/3] w-full overflow-hidden rounded-2xl bg-surface-100 shadow-soft transition-transform group-hover:scale-[1.02]">
           <img
-            v-if="genre.posterUrl"
+            v-if="genre.posterUrl && !failedGenres.has(genre.name)"
             :src="withToken(genre.posterUrl)"
             :alt="genre.name"
             loading="lazy"
             class="h-full w-full object-cover"
+            @error="markGenreError(genre.name)"
           >
           <div
             v-else

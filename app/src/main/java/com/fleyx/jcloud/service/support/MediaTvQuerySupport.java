@@ -71,6 +71,8 @@ public class MediaTvQuerySupport {
         List<MediaSeries> seriesList = result.getRecords();
         Map<String, MediaMetadata> metadataMap = loadMetadataMap(
                 seriesList.stream().map(MediaSeries::getMetadataId).toList());
+        Map<String, Long> nodeVersionMap = loadNodeVersionMap(
+                metadataMap.values().stream().map(MediaMetadata::getPosterFileNodeId).toList());
         Map<String, List<MediaEpisode>> episodeMap = seriesList.isEmpty() ? Map.of()
                 : mediaEpisodeMapper.selectList(new LambdaQueryWrapper<MediaEpisode>()
                                 .in(MediaEpisode::getSeriesId,
@@ -93,7 +95,7 @@ public class MediaTvQuerySupport {
             vo.setTitle(metadata != null && metadata.getTitle() != null ? metadata.getTitle() : series.getSeriesName());
             vo.setReleaseDate(metadata == null ? null : metadata.getReleaseDate());
             vo.setVoteAverage(metadata == null ? null : metadata.getVoteAverage());
-            vo.setPosterUrl(posterUrlOf(metadata));
+            vo.setPosterUrl(posterUrlOf(metadata, nodeVersionMap));
             vos.add(vo);
         }
         // 当前用户收藏状态批量填充（ownerType=SERIES）
@@ -138,6 +140,8 @@ public class MediaTvQuerySupport {
         MediaSeries series = requireOwnedSeries(seriesId, userId);
         MediaMetadata metadata = series.getMetadataId() == null ? null
                 : mediaMetadataMapper.selectById(series.getMetadataId());
+        Map<String, Long> nodeVersionMap = metadata == null ? Map.of() : loadNodeVersionMap(
+                List.of(metadata.getPosterFileNodeId(), metadata.getBackdropFileNodeId()));
 
         MediaSeriesDetailVo vo = new MediaSeriesDetailVo();
         vo.setSeriesName(series.getSeriesName());
@@ -152,8 +156,8 @@ public class MediaTvQuerySupport {
             vo.setOverview(metadata.getOverview());
             vo.setReleaseDate(metadata.getReleaseDate());
             vo.setVoteAverage(metadata.getVoteAverage());
-            vo.setPosterUrl(posterUrlOf(metadata));
-            vo.setBackdropUrl(backdropUrlOf(metadata));
+            vo.setPosterUrl(posterUrlOf(metadata, nodeVersionMap));
+            vo.setBackdropUrl(backdropUrlOf(metadata, nodeVersionMap));
         }
         if (vo.getTitle() == null) {
             vo.setTitle(series.getSeriesName());
@@ -186,6 +190,8 @@ public class MediaTvQuerySupport {
         FileNode node = file == null ? null : fileMapper.selectById(file.getFileNodeId());
         MediaMetadata metadata = episode.getMetadataId() == null ? null
                 : mediaMetadataMapper.selectById(episode.getMetadataId());
+        Map<String, Long> nodeVersionMap = metadata == null ? Map.of() : loadNodeVersionMap(
+                List.of(metadata.getPosterFileNodeId(), metadata.getBackdropFileNodeId()));
 
         MediaItemDetailVo vo = new MediaItemDetailVo();
         vo.setId(episode.getId());
@@ -212,8 +218,8 @@ public class MediaTvQuerySupport {
             vo.setOverview(metadata.getOverview());
             vo.setReleaseDate(metadata.getReleaseDate());
             vo.setVoteAverage(metadata.getVoteAverage());
-            vo.setPosterUrl(posterUrlOf(metadata));
-            vo.setBackdropUrl(backdropUrlOf(metadata));
+            vo.setPosterUrl(posterUrlOf(metadata, nodeVersionMap));
+            vo.setBackdropUrl(backdropUrlOf(metadata, nodeVersionMap));
         }
         if (vo.getTitle() == null) {
             vo.setTitle(vo.getFileName());
@@ -237,6 +243,8 @@ public class MediaTvQuerySupport {
         Map<String, String> fileNameMap = loadFileNameMap(fileMap);
         Map<String, MediaMetadata> metadataMap = loadMetadataMap(
                 episodes.stream().map(MediaEpisode::getMetadataId).toList());
+        Map<String, Long> nodeVersionMap = loadNodeVersionMap(
+                metadataMap.values().stream().map(MediaMetadata::getPosterFileNodeId).toList());
 
         List<MediaEpisode> sorted = new ArrayList<>(episodes);
         sorted.sort(Comparator
@@ -267,7 +275,7 @@ public class MediaTvQuerySupport {
                 vo.setTitle(metadata.getTitle());
                 vo.setReleaseDate(metadata.getReleaseDate());
                 vo.setVoteAverage(metadata.getVoteAverage());
-                vo.setPosterUrl(posterUrlOf(metadata));
+                vo.setPosterUrl(posterUrlOf(metadata, nodeVersionMap));
             }
             if (vo.getTitle() == null) {
                 vo.setTitle(vo.getFileName());
@@ -294,6 +302,8 @@ public class MediaTvQuerySupport {
         }
         Map<String, MediaMetadata> metadataMap = loadMetadataMap(
                 seasons.stream().map(MediaSeason::getMetadataId).toList());
+        Map<String, Long> nodeVersionMap = loadNodeVersionMap(
+                metadataMap.values().stream().map(MediaMetadata::getPosterFileNodeId).toList());
         Map<String, List<MediaEpisode>> episodeMap = mediaEpisodeMapper.selectList(
                         new LambdaQueryWrapper<MediaEpisode>().eq(MediaEpisode::getSeriesId, series.getId()))
                 .stream().collect(Collectors.groupingBy(MediaEpisode::getSeasonId));
@@ -304,7 +314,7 @@ public class MediaTvQuerySupport {
             vo.setSeasonId(season.getId());
             vo.setSeasonNo(season.getSeasonNo());
             vo.setPosterUrl(season.getMetadataId() == null ? null
-                    : posterUrlOf(metadataMap.get(season.getMetadataId())));
+                    : posterUrlOf(metadataMap.get(season.getMetadataId()), nodeVersionMap));
             vo.setEpisodeCount((long) episodes.size());
             vo.setHasProgress(episodes.stream().anyMatch(e -> e.getProgressMs() != null && e.getProgressMs() > 0));
             result.add(vo);
@@ -367,19 +377,39 @@ public class MediaTvQuerySupport {
     }
 
     /**
-     * 元数据海报图 URL，无海报时返回 null。
+     * 文件节点版本映射（nodeId → lastModified），图片覆盖写后版本变化使浏览器缓存失效；
+     * FileNode 查不到或 lastModified 为空（脏数据/假 id）的节点不入映射，对应 URL 不带 {@code ?v=}。
      */
-    private String posterUrlOf(MediaMetadata metadata) {
-        return metadata == null || metadata.getPosterFileNodeId() == null ? null
-                : mediaItemVoSupport.metadataPosterUrl(metadata.getId());
+    private Map<String, Long> loadNodeVersionMap(List<String> fileNodeIds) {
+        List<String> ids = fileNodeIds.stream().filter(Objects::nonNull).distinct().toList();
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+        return fileMapper.selectBatchIds(ids).stream()
+                .filter(node -> node.getLastModified() != null)
+                .collect(Collectors.toMap(FileNode::getId, FileNode::getLastModified));
     }
 
     /**
-     * 元数据背景图 URL，无背景图时返回 null。
+     * 元数据海报图 URL，无海报时返回 null；海报文件节点存在时附带版本参数。
      */
-    private String backdropUrlOf(MediaMetadata metadata) {
-        return metadata == null || metadata.getBackdropFileNodeId() == null ? null
-                : mediaItemVoSupport.metadataBackdropUrl(metadata.getId());
+    private String posterUrlOf(MediaMetadata metadata, Map<String, Long> nodeVersionMap) {
+        if (metadata == null || metadata.getPosterFileNodeId() == null) {
+            return null;
+        }
+        return mediaItemVoSupport.metadataPosterUrl(metadata.getId(),
+                nodeVersionMap.get(metadata.getPosterFileNodeId()));
+    }
+
+    /**
+     * 元数据背景图 URL，无背景图时返回 null；背景图文件节点存在时附带版本参数。
+     */
+    private String backdropUrlOf(MediaMetadata metadata, Map<String, Long> nodeVersionMap) {
+        if (metadata == null || metadata.getBackdropFileNodeId() == null) {
+            return null;
+        }
+        return mediaItemVoSupport.metadataBackdropUrl(metadata.getId(),
+                nodeVersionMap.get(metadata.getBackdropFileNodeId()));
     }
 
     private String blankToNull(String text) {

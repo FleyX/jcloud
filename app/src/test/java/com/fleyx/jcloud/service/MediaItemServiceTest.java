@@ -1,12 +1,14 @@
 package com.fleyx.jcloud.service;
 
 import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.fleyx.jcloud.common.constant.FileNodeConstants;
 import com.fleyx.jcloud.common.enums.MediaMatchStatus;
 import com.fleyx.jcloud.common.enums.MediaMetadataOwnerType;
 import com.fleyx.jcloud.common.enums.MediaMetadataSource;
 import com.fleyx.jcloud.common.enums.MediaPersistStatus;
 import com.fleyx.jcloud.common.enums.MediaType;
 import com.fleyx.jcloud.common.exception.BusinessException;
+import com.fleyx.jcloud.mapper.FileMapper;
 import com.fleyx.jcloud.mapper.MediaDirectoryMapper;
 import com.fleyx.jcloud.mapper.MediaEpisodeMapper;
 import com.fleyx.jcloud.mapper.MediaMetadataMapper;
@@ -16,6 +18,7 @@ import com.fleyx.jcloud.mapper.MediaOtherMapper;
 import com.fleyx.jcloud.mapper.MediaSeasonMapper;
 import com.fleyx.jcloud.mapper.MediaSeriesMapper;
 import com.fleyx.jcloud.model.dto.MediaPageQueryDto;
+import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.po.MediaDirectory;
 import com.fleyx.jcloud.model.po.MediaEpisode;
 import com.fleyx.jcloud.model.po.MediaMetadata;
@@ -82,6 +85,9 @@ class MediaItemServiceTest {
 
     @Autowired
     private MediaDirectoryMapper mediaDirectoryMapper;
+
+    @Autowired
+    private FileMapper fileMapper;
 
     /**
      * 剧详情返回季卡片：季号升序、未知季排最后，含集数与观看进度标记。
@@ -549,6 +555,113 @@ class MediaItemServiceTest {
         assertEquals(1L, genres.getFirst().getItemCount());
     }
 
+    // ---------- 工单 01：图片 URL 版本参数 ----------
+
+    /**
+     * 海报/背景指向真实 FileNode 时，URL 附带 ?v=<lastModified>（电影墙海报、详情海报与背景）。
+     */
+    @Test
+    void shouldAppendVersionParamWhenPosterNodeExists() {
+        MediaDirectory directory = insertDirectory("user-1", MediaType.MOVIE.getCode());
+        MediaMovie movie = insertMovie("user-1", directory.getId(), "测试电影");
+        FileNode poster = insertFileNode("user-1", 1_000L);
+        FileNode backdrop = insertFileNode("user-1", 2_000L);
+        MediaMetadata metadata = insertMetadata("user-1", MediaMetadataOwnerType.MOVIE.getCode(), movie.getId());
+        metadata.setPosterFileNodeId(poster.getId());
+        metadata.setBackdropFileNodeId(backdrop.getId());
+        mediaMetadataMapper.updateById(metadata);
+        movie.setMetadataId(metadata.getId());
+        mediaMovieMapper.updateById(movie);
+
+        MediaPageQueryDto query = new MediaPageQueryDto();
+        query.setDirectoryId(directory.getId());
+        MediaItemVo vo = mediaItemService.listMovies("user-1", query).getRecords().getFirst();
+        assertEquals("/jcloud/api/media/metadata/" + metadata.getId() + "/poster?v=1000", vo.getPosterUrl());
+
+        MediaItemDetailVo detail = mediaItemService.getItemDetail(movie.getId(), "user-1");
+        assertEquals("/jcloud/api/media/metadata/" + metadata.getId() + "/poster?v=1000", detail.getPosterUrl());
+        assertEquals("/jcloud/api/media/metadata/" + metadata.getId() + "/backdrop?v=2000", detail.getBackdropUrl());
+    }
+
+    /**
+     * 海报文件节点不存在（假 id/脏数据）时，URL 不带 ?v= 版本参数。
+     */
+    @Test
+    void shouldOmitVersionParamWhenPosterNodeMissing() {
+        MediaDirectory directory = insertDirectory("user-1", MediaType.MOVIE.getCode());
+        MediaMovie movie = insertMovie("user-1", directory.getId(), "测试电影");
+        MediaMetadata metadata = insertMetadata("user-1", MediaMetadataOwnerType.MOVIE.getCode(), movie.getId());
+        metadata.setPosterFileNodeId(IdUtil.nextId()); // 无对应 t_file_node 行
+        mediaMetadataMapper.updateById(metadata);
+        movie.setMetadataId(metadata.getId());
+        mediaMovieMapper.updateById(movie);
+
+        MediaPageQueryDto query = new MediaPageQueryDto();
+        query.setDirectoryId(directory.getId());
+        MediaItemVo vo = mediaItemService.listMovies("user-1", query).getRecords().getFirst();
+        assertEquals("/jcloud/api/media/metadata/" + metadata.getId() + "/poster", vo.getPosterUrl());
+    }
+
+    /**
+     * 海报文件被覆盖写（lastModified 变化）后，URL 版本参数随之更新。
+     */
+    @Test
+    void shouldRefreshVersionParamWhenPosterNodeOverwritten() {
+        MediaDirectory directory = insertDirectory("user-1", MediaType.MOVIE.getCode());
+        MediaMovie movie = insertMovie("user-1", directory.getId(), "测试电影");
+        FileNode poster = insertFileNode("user-1", 1_000L);
+        MediaMetadata metadata = insertMetadata("user-1", MediaMetadataOwnerType.MOVIE.getCode(), movie.getId());
+        metadata.setPosterFileNodeId(poster.getId());
+        mediaMetadataMapper.updateById(metadata);
+        movie.setMetadataId(metadata.getId());
+        mediaMovieMapper.updateById(movie);
+        MediaPageQueryDto query = new MediaPageQueryDto();
+        query.setDirectoryId(directory.getId());
+
+        MediaItemVo first = mediaItemService.listMovies("user-1", query).getRecords().getFirst();
+        assertEquals("/jcloud/api/media/metadata/" + metadata.getId() + "/poster?v=1000", first.getPosterUrl());
+
+        // 覆盖写更新 lastModified
+        FileNode update = new FileNode();
+        update.setId(poster.getId());
+        update.setLastModified(9_999L);
+        fileMapper.updateById(update);
+
+        MediaItemVo second = mediaItemService.listMovies("user-1", query).getRecords().getFirst();
+        assertEquals("/jcloud/api/media/metadata/" + metadata.getId() + "/poster?v=9999", second.getPosterUrl());
+    }
+
+    /**
+     * 季卡片与类型卡片海报指向真实 FileNode 时同样附带版本参数。
+     */
+    @Test
+    void shouldAppendVersionParamForSeasonAndGenrePosters() {
+        MediaDirectory movieDir = insertDirectory("user-1", MediaType.MOVIE.getCode());
+        MediaMovie movie = insertMovie("user-1", movieDir.getId(), "类型电影");
+        FileNode moviePoster = insertFileNode("user-1", 4_000L);
+        MediaMetadata movieMetadata = insertMetadata("user-1", MediaMetadataOwnerType.MOVIE.getCode(), movie.getId());
+        movieMetadata.setGenres("科幻");
+        movieMetadata.setPosterFileNodeId(moviePoster.getId());
+        mediaMetadataMapper.updateById(movieMetadata);
+        movie.setMetadataId(movieMetadata.getId());
+        mediaMovieMapper.updateById(movie);
+        MediaGenreVo genre = mediaItemService.listGenres("user-1", movieDir.getId()).getFirst();
+        assertEquals("/jcloud/api/media/metadata/" + movieMetadata.getId() + "/poster?v=4000", genre.getPosterUrl());
+
+        MediaSeries series = insertSeries("user-1", "dir-1", "测试剧");
+        MediaSeason season = insertSeason(series, 1);
+        FileNode seasonPoster = insertFileNode("user-1", 3_000L);
+        MediaMetadata seasonMetadata = insertMetadata("user-1", MediaMetadataOwnerType.SEASON.getCode(), season.getId());
+        seasonMetadata.setPosterFileNodeId(seasonPoster.getId());
+        mediaMetadataMapper.updateById(seasonMetadata);
+        season.setMetadataId(seasonMetadata.getId());
+        mediaSeasonMapper.updateById(season);
+
+        MediaSeriesDetailVo detail = mediaItemService.getSeriesDetail(series.getId(), "user-1");
+        assertEquals("/jcloud/api/media/metadata/" + seasonMetadata.getId() + "/poster?v=3000",
+                detail.getSeasons().getFirst().getPosterUrl());
+    }
+
     private MediaDirectory insertDirectory(String userId, String mediaType) {
         MediaDirectory directory = new MediaDirectory();
         directory.setUserId(userId);
@@ -648,6 +761,21 @@ class MediaItemServiceTest {
         metadata.setPersistStatus(MediaPersistStatus.PERSISTED.getCode());
         mediaMetadataMapper.insert(metadata);
         return metadata;
+    }
+
+    /** 直插一个海报文件节点（Mapper 直插 PO），返回带指定 lastModified 的节点。 */
+    private FileNode insertFileNode(String userId, long lastModified) {
+        FileNode node = new FileNode();
+        node.setId(IdUtil.nextId());
+        node.setUserId(userId);
+        node.setParentId(FileNodeConstants.ROOT_ID);
+        node.setName("poster.jpg");
+        node.setType(FileNodeConstants.TYPE_FILE);
+        node.setSize(1024L);
+        node.setPath(FileNodeConstants.ROOT_ID);
+        node.setLastModified(lastModified);
+        fileMapper.insert(node);
+        return node;
     }
 
     /** 给电影绑定指定评分的元数据。 */

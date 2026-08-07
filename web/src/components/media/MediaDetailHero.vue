@@ -3,7 +3,7 @@
  * 媒体详情页头部（Jellyfin 风格：背景横幅 + 海报 + 元信息 + 操作按钮）
  * PC/移动端共用
  */
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ArrowLeft, Film, Heart, Pencil, Play, RotateCcw, RefreshCw, Star } from '@lucide/vue'
 import { withToken } from '@/api/media'
@@ -53,6 +53,22 @@ const ratingText = computed(() =>
 
 const router = useRouter()
 
+/** 背景图/海报加载失败标志：加载失败视同无图（背景保留渐变底、海报走 v-else 占位），URL 变化时复位 */
+const backdropError = ref(false)
+const posterError = ref(false)
+watch(
+  () => props.backdropUrl,
+  () => {
+    backdropError.value = false
+  },
+)
+watch(
+  () => props.posterUrl,
+  () => {
+    posterError.value = false
+  },
+)
+
 /** 返回上一页，无历史时回影视首页 */
 function goBack() {
   if (window.history.state?.back) {
@@ -69,10 +85,11 @@ function goBack() {
     <div class="relative">
       <div class="absolute inset-0 overflow-hidden bg-surface-900">
         <img
-          v-if="backdropUrl"
+          v-if="backdropUrl && !backdropError"
           :src="withToken(backdropUrl)"
           :alt="title"
           class="h-full w-full object-cover opacity-60"
+          @error="backdropError = true"
         >
         <div class="absolute inset-0 bg-gradient-to-t from-surface-950 via-surface-950/60 to-surface-950/20" />
       </div>
@@ -90,10 +107,11 @@ function goBack() {
         <!-- 海报 -->
         <div class="aspect-[2/3] w-32 shrink-0 overflow-hidden rounded-2xl bg-surface-800 shadow-lg md:w-48">
           <img
-            v-if="posterUrl"
+            v-if="posterUrl && !posterError"
             :src="withToken(posterUrl)"
             :alt="title"
             class="h-full w-full object-cover"
+            @error="posterError = true"
           >
           <div
             v-else
