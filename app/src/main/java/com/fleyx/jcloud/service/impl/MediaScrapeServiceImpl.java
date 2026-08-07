@@ -10,11 +10,16 @@ import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.FileMapper;
 import com.fleyx.jcloud.mapper.MediaDirectoryMapper;
+import com.fleyx.jcloud.mapper.MediaEpisodeFileMapper;
+import com.fleyx.jcloud.mapper.MediaEpisodeMapper;
 import com.fleyx.jcloud.mapper.MediaMetadataMapper;
+import com.fleyx.jcloud.mapper.MediaMovieFileMapper;
 import com.fleyx.jcloud.mapper.MediaMovieMapper;
 import com.fleyx.jcloud.mapper.MediaSeriesMapper;
 import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.po.MediaDirectory;
+import com.fleyx.jcloud.model.po.MediaEpisode;
+import com.fleyx.jcloud.model.po.MediaEpisodeFile;
 import com.fleyx.jcloud.model.po.MediaMetadata;
 import com.fleyx.jcloud.model.po.MediaMovie;
 import com.fleyx.jcloud.model.po.MediaMovieFile;
@@ -37,16 +42,23 @@ import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * 媒体库削刮服务实现（新模型，ADR 0021 / issue #20）。
  * <p>
- * 削刮为本地优先：视频同目录存在 NFO 或本地媒体图片时完全信任本地内容、不请求 TMDB；
+ * 削刮为本地优先（ADR 0023）：视频同目录存在 NFO 或本地媒体图片时本地字段优先、缺失字段由 TMDB 补全
+ * （有 tmdbId 按 ID 拉详情合并，仅本地图片无 NFO 时经自动匹配补文本），合并结果整体写回 NFO；
  * 本地缺失时电影以电影行为单位（先文件名解析结果，失败用电影文件夹名兜底）、
  * 电视以剧为单位（一次匹配应用到全剧，季/集元数据按剧级匹配派生，见 {@link MediaTvScrapeSupport}）。
  * 削刮成功后立即把元数据写回视频目录的 NFO 与图片，落盘失败不影响元数据入库。
- * 处理范围为「未匹配或不完整」的非 manual 行（force 时全部非 manual 行），manual 永不覆盖匹配，
+ * 处理范围为「未匹配、不完整或 NFO 缺失」的非 manual 行（force 时全部非 manual 行），manual 永不覆盖匹配，
  * 但 manual/已匹配行图片产物缺失时复用已有元数据行补回（不重新匹配、不改绑定，工单 03）；
  * 每次削刮结束后重算电影/剧集行的元数据完整性（{@link MediaMetadataCompleteSupport}）。
  * 与扫描按媒体库互斥（{@link MediaTaskSupport}），协作式取消。
@@ -59,6 +71,9 @@ public class MediaScrapeServiceImpl implements MediaScrapeService {
     private final MediaMovieMapper mediaMovieMapper;
     private final MediaSeriesMapper mediaSeriesMapper;
     private final MediaMetadataMapper mediaMetadataMapper;
+    private final MediaMovieFileMapper mediaMovieFileMapper;
+    private final MediaEpisodeMapper mediaEpisodeMapper;
+    private final MediaEpisodeFileMapper mediaEpisodeFileMapper;
     private final FileMapper fileMapper;
     private final TmdbService tmdbService;
     private final MediaTaskSupport mediaTaskSupport;
@@ -73,7 +88,8 @@ public class MediaScrapeServiceImpl implements MediaScrapeService {
 
     public MediaScrapeServiceImpl(MediaDirectoryMapper mediaDirectoryMapper, MediaMovieMapper mediaMovieMapper,
                                   MediaSeriesMapper mediaSeriesMapper, MediaMetadataMapper mediaMetadataMapper,
-                                  FileMapper fileMapper,
+                                  MediaMovieFileMapper mediaMovieFileMapper, MediaEpisodeMapper mediaEpisodeMapper,
+                                  MediaEpisodeFileMapper mediaEpisodeFileMapper, FileMapper fileMapper,
                                   TmdbService tmdbService, MediaTaskSupport mediaTaskSupport,
                                   MediaNfoSupport mediaNfoSupport, MediaMetadataSupport metadataV2Support,
                                   MediaMetadataCompleteSupport completeSupport,
@@ -86,6 +102,9 @@ public class MediaScrapeServiceImpl implements MediaScrapeService {
         this.mediaMovieMapper = mediaMovieMapper;
         this.mediaSeriesMapper = mediaSeriesMapper;
         this.mediaMetadataMapper = mediaMetadataMapper;
+        this.mediaMovieFileMapper = mediaMovieFileMapper;
+        this.mediaEpisodeMapper = mediaEpisodeMapper;
+        this.mediaEpisodeFileMapper = mediaEpisodeFileMapper;
         this.fileMapper = fileMapper;
         this.tmdbService = tmdbService;
         this.mediaTaskSupport = mediaTaskSupport;
@@ -167,12 +186,14 @@ public class MediaScrapeServiceImpl implements MediaScrapeService {
         boolean partial = false;
         List<MediaMovie> movies = mediaMovieMapper.selectList(new LambdaQueryWrapper<MediaMovie>()
                 .eq(MediaMovie::getDirectoryId, directory.getId()));
+        Map<String, Boolean> nfoMissingByMovie = collectMovieNfoMissing(movies);
         for (MediaMovie movie : movies) {
             if (mediaTaskSupport.isCancelled(directory.getId())) {
                 return partial;
             }
-            if (!needScrape(movie.getMatchStatus(), movie.getMetadataComplete(), force)) {
-                // manual/已完整行不削刮；不完整的 manual 行复用已有元数据补回缺失图片（工单 03）
+            if (!needScrape(movie.getMatchStatus(), movie.getMetadataComplete(), force,
+                    nfoMissingByMovie.getOrDefault(movie.getId(), false))) {
+                // manual/已完整行不削刮；不完整的 manual 行复用已有元数据补回缺失图片与 NFO（工单 03/05）
                 if (!Boolean.TRUE.equals(movie.getMetadataComplete())) {
                     refillMovieArtifacts(movie);
                 }
@@ -189,29 +210,29 @@ public class MediaScrapeServiceImpl implements MediaScrapeService {
     }
 
     /**
-     * 单部电影削刮：本地优先（movie.nfo 优先、同名 .nfo 兜底 / poster / fanart），无本地内容时 TMDB
+     * 单部电影削刮：本地优先（movie.nfo 优先、同名 .nfo 兜底 / poster / fanart），本地内容存在时本地字段优先、
+     * 缺失字段由 TMDB 补全（有 tmdbId 按 ID 拉详情，仅本地图片无 NFO 时经自动匹配补文本）；无本地内容时 TMDB
      * 先文件名解析结果、失败用电影文件夹名兜底；已匹配行无本地内容时复用已有元数据行补产物，不重新搜索。
      */
     private void scrapeMovie(MediaDirectory directory, MediaMovie movie) {
         MediaMetadata local = scrapeMovieLocalNfo(movie);
         MediaMetadata metadata = local;
-        if (metadata == null && MediaMatchStatus.MATCHED.getCode().equals(movie.getMatchStatus())
-                && movie.getMetadataId() != null) {
-            metadata = mediaMetadataMapper.selectById(movie.getMetadataId());
+        if (metadata != null && metadata.getTmdbId() != null) {
+            metadata = enrichLocalWithTmdb(metadata, directory.getUserId(), MediaType.MOVIE.getCode());
         }
         if (metadata == null) {
-            MediaMovieFile file = playbackResolveSupport.pickMovieFile(movie);
-            FileNode video = file == null ? null : fileMapper.selectById(file.getFileNodeId());
-            if (video != null) {
-                MediaFileNameParser.ParseResult parsed = MediaFileNameParser.parse(video.getName(), null, null);
-                metadata = tmdbService.autoMatchV2(directory.getUserId(), MediaType.MOVIE.getCode(),
-                        parsed.title(), parsed.year());
-                // 电影文件夹名兜底（扫描已把文件夹名清理为 movie.title）
-                String fallback = movie.getTitle();
-                if (metadata == null && !fallback.isBlank() && !fallback.equals(parsed.title())) {
-                    metadata = tmdbService.autoMatchV2(directory.getUserId(), MediaType.MOVIE.getCode(),
-                            fallback, parsed.year());
-                }
+            if (MediaMatchStatus.MATCHED.getCode().equals(movie.getMatchStatus())
+                    && movie.getMetadataId() != null) {
+                metadata = mediaMetadataMapper.selectById(movie.getMetadataId());
+            }
+            if (metadata == null) {
+                metadata = matchMovieByFile(directory, movie);
+            }
+        } else if (metadata.getTmdbId() == null) {
+            // 本地仅图片无 NFO 或 NFO 未含 tmdbid：文本字段由 TMDB 自动匹配补全，图片沿用本地
+            MediaMetadata matched = matchMovieByFile(directory, movie);
+            if (matched != null) {
+                metadata = metadataV2Support.mergeLocalWithTmdb(metadata, matched);
             }
         }
         MediaMetadata bound = applyMovieMatch(movie, metadata);
@@ -222,8 +243,29 @@ public class MediaScrapeServiceImpl implements MediaScrapeService {
     }
 
     /**
+     * TMDB 自动匹配电影：先按视频文件名解析结果匹配，失败用电影文件夹名兜底
+     * （扫描已把文件夹名清理为 movie.title）。
+     */
+    private MediaMetadata matchMovieByFile(MediaDirectory directory, MediaMovie movie) {
+        MediaMovieFile file = playbackResolveSupport.pickMovieFile(movie);
+        FileNode video = file == null ? null : fileMapper.selectById(file.getFileNodeId());
+        if (video == null) {
+            return null;
+        }
+        MediaFileNameParser.ParseResult parsed = MediaFileNameParser.parse(video.getName(), null, null);
+        MediaMetadata metadata = tmdbService.autoMatchV2(directory.getUserId(), MediaType.MOVIE.getCode(),
+                parsed.title(), parsed.year());
+        String fallback = movie.getTitle();
+        if (metadata == null && !fallback.isBlank() && !fallback.equals(parsed.title())) {
+            metadata = tmdbService.autoMatchV2(directory.getUserId(), MediaType.MOVIE.getCode(),
+                    fallback, parsed.year());
+        }
+        return metadata;
+    }
+
+    /**
      * 电影本地优先削刮：优先读取电影文件夹 {@code movie.nfo}，不存在时回退与视频同名的 {@code .nfo}，
-     * 完全信任本地内容，不请求 TMDB；
+     * 本地字段优先、缺失字段由调用方经 {@link #enrichLocalWithTmdb} 用 TMDB 补全（ADR 0023）；
      * 无 NFO 但存在本地图片（按海报/背景识别链，ADR 0022）时同样本地优先，构建缺失文本字段的
      * local_nfo 元数据（标记不完整），图片绑定本地文件。
      *
@@ -282,9 +324,9 @@ public class MediaScrapeServiceImpl implements MediaScrapeService {
     }
 
     /**
-     * 已匹配（含 manual）行的图片产物补回（工单 03）：复用已有元数据行的 rawJson 重建缺失图片，
-     * 不触碰 matchStatus/metadataId、不重新匹配。无元数据行直接返回；local_nfo 来源由
-     * persistMovieV2 现有跳过分支自然无操作（其补全属工单 05）。
+     * 已匹配（含 manual）行的图片/NFO 产物补回（工单 03/05）：复用已有元数据行的 rawJson 重建缺失产物，
+     * 不触碰 matchStatus/metadataId、不重新匹配。无元数据行直接返回；local_nfo 来源同样经
+     * persistMovieV2 整体写回（其补全由削刮主路径完成，工单 05）。
      */
     private void refillMovieArtifacts(MediaMovie movie) {
         if (movie.getMetadataId() == null) {
@@ -304,21 +346,24 @@ public class MediaScrapeServiceImpl implements MediaScrapeService {
         boolean partial = false;
         List<MediaSeries> seriesList = mediaSeriesMapper.selectList(new LambdaQueryWrapper<MediaSeries>()
                 .eq(MediaSeries::getDirectoryId, directory.getId()));
+        Map<String, Boolean> nfoMissingBySeries = collectSeriesNfoMissing(seriesList);
         for (MediaSeries series : seriesList) {
             if (mediaTaskSupport.isCancelled(directory.getId())) {
                 return partial;
             }
-            if (!needScrape(series.getMatchStatus(), series.getMetadataComplete(), force)) {
-                // manual/已完整行不削刮；不完整的 manual 行复用已有元数据补回缺失图片（工单 03）
+            if (!needScrape(series.getMatchStatus(), series.getMetadataComplete(), force,
+                    nfoMissingBySeries.getOrDefault(series.getId(), false))) {
+                // manual/已完整行不削刮；不完整的 manual 行复用已有元数据补回缺失图片与 NFO（工单 03/05）
                 if (!Boolean.TRUE.equals(series.getMetadataComplete())) {
                     refillSeriesArtifacts(series);
                 }
                 continue;
             }
             try {
-                // 本地优先：剧文件夹存在 tvshow.nfo/本地图片时完全信任本地内容，不请求 TMDB
+                // 本地优先：剧文件夹存在 tvshow.nfo/本地图片时本地字段优先，缺失字段由 TMDB 补全
                 MediaMetadata localMetadata = mediaTvScrapeSupport.scrapeSeriesLocalNfo(series);
                 if (localMetadata != null) {
+                    localMetadata = enrichLocalSeries(localMetadata, directory.getUserId(), series);
                     mediaTvScrapeSupport.applyLocalSeriesMatch(series, localMetadata);
                     continue;
                 }
@@ -343,9 +388,36 @@ public class MediaScrapeServiceImpl implements MediaScrapeService {
     }
 
     /**
-     * 已匹配（含 manual）剧集的图片产物补回（工单 03）：复用已有剧级元数据行重建缺失图片（剧海报/背景、
-     * 季海报、集剧照），不触碰 matchStatus/metadataId、不重新匹配。无元数据行直接返回；
-     * local_nfo 来源由 persistSeriesV2 现有跳过分支自然无操作（其补全属工单 05）。
+     * 剧集本地元数据 TMDB 补全（ADR 0023）：有 tmdbId 按 ID 拉详情合并（本地字段优先、缺失字段补齐、
+     * rawJson 恒取远端）；无 tmdbId（仅本地图片 / tvshow.nfo 未含 tmdbid）时经自动匹配补文本，
+     * 匹配失败维持现状。图片绑定始终沿用本地文件。
+     */
+    private MediaMetadata enrichLocalSeries(MediaMetadata local, String userId, MediaSeries series) {
+        if (local == null) {
+            return null;
+        }
+        if (local.getTmdbId() != null) {
+            return enrichLocalWithTmdb(local, userId, MediaType.TV.getCode());
+        }
+        MediaMetadata matched;
+        try {
+            matched = tmdbService.autoMatchV2(userId, MediaType.TV.getCode(),
+                    series.getSeriesName(), series.getReleaseYear());
+        } catch (Exception e) {
+            log.warn("剧集本地元数据自动匹配补全失败，维持本地: series={}, error={}",
+                    series.getSeriesName(), e.getMessage());
+            return local;
+        }
+        if (matched == null) {
+            return local;
+        }
+        return metadataV2Support.mergeLocalWithTmdb(local, matched);
+    }
+
+    /**
+     * 已匹配（含 manual）剧集的图片/NFO 产物补回（工单 03/05）：复用已有剧级元数据行重建缺失产物
+     * （剧海报/背景、季海报、集剧照与各级 NFO），不触碰 matchStatus/metadataId、不重新匹配。
+     * 无元数据行直接返回；local_nfo 来源同样经 persistSeriesV2 整体写回（其补全由削刮主路径完成，工单 05）。
      */
     private void refillSeriesArtifacts(MediaSeries series) {
         if (series.getMetadataId() == null) {
@@ -362,16 +434,141 @@ public class MediaScrapeServiceImpl implements MediaScrapeService {
     // ---------- 通用 ----------
 
     /**
-     * 是否需要削刮：manual 永不覆盖；force 处理全部非 manual，否则只处理「未匹配或不完整」。
+     * 是否需要削刮：manual 永不覆盖；force 处理全部非 manual，否则只处理「未匹配、不完整或 NFO 缺失」。
+     * NFO 存在性纳入候选（工单 05）：NFO 被删除后条目经削刮自动重建；manual 行恒 false，
+     * 其 NFO 重建走工单 03 的 refill 分支（persist 路径删跳过后自然重建）。
      */
-    private boolean needScrape(String matchStatus, Boolean metadataComplete, boolean force) {
+    private boolean needScrape(String matchStatus, Boolean metadataComplete, boolean force, boolean nfoMissing) {
         if (MediaMatchStatus.MANUAL.getCode().equals(matchStatus)) {
             return false;
         }
         if (force) {
             return true;
         }
-        return MediaMatchStatus.UNMATCHED.getCode().equals(matchStatus) || !Boolean.TRUE.equals(metadataComplete);
+        return MediaMatchStatus.UNMATCHED.getCode().equals(matchStatus)
+                || !Boolean.TRUE.equals(metadataComplete) || nfoMissing;
+    }
+
+    /**
+     * 本地元数据 TMDB 补全（ADR 0023 合并语义）：local 为 null、tmdbId 为空或本地已完整（5 项齐备）
+     * 时原样返回（方法内短路，仅不完整且 tmdbId 非空时实际需要网络）；
+     * 否则 {@code fetchDetailV2} 拉详情逐字段合并——本地非空字段优先、缺失字段用远端值补齐，
+     * rawJson 恒取远端（图片写回需要）；远端拉取失败原样返回（不阻断削刮）。
+     */
+    private MediaMetadata enrichLocalWithTmdb(MediaMetadata local, String userId, String mediaType) {
+        if (local == null || local.getTmdbId() == null || completeSupport.isComplete(local)) {
+            return local;
+        }
+        MediaMetadata remote;
+        try {
+            remote = tmdbService.fetchDetailV2(userId, local.getTmdbId(), mediaType);
+        } catch (Exception e) {
+            log.warn("本地元数据 TMDB 补全失败，维持本地: tmdbId={}, error={}", local.getTmdbId(), e.getMessage());
+            return local;
+        }
+        if (remote == null) {
+            return local;
+        }
+        return metadataV2Support.mergeLocalWithTmdb(local, remote);
+    }
+
+    /**
+     * 批量收集各电影 NFO 是否缺失（一次 IN parent_id 查询）：电影文件夹下 {@code movie.nfo}
+     * 与视频同名 {@code .nfo} 均不存在才算缺失（识别链两个名字都没有）。
+     *
+     * @return movieId → nfoMissing
+     */
+    private Map<String, Boolean> collectMovieNfoMissing(List<MediaMovie> movies) {
+        if (movies.isEmpty()) {
+            return Map.of();
+        }
+        List<String> movieIds = movies.stream().map(MediaMovie::getId).toList();
+        Map<String, String> fileNodeIdByMovie = mediaMovieFileMapper.selectList(
+                        new LambdaQueryWrapper<MediaMovieFile>().in(MediaMovieFile::getMovieId, movieIds))
+                .stream().collect(Collectors.toMap(MediaMovieFile::getMovieId, MediaMovieFile::getFileNodeId, (a, b) -> a));
+        Map<String, FileNode> fileById = loadFileById(fileNodeIdByMovie.values());
+        List<String> parentIds = new java.util.ArrayList<>(movies.stream()
+                .map(MediaMovie::getFolderNodeId).filter(Objects::nonNull).collect(Collectors.toSet()));
+        fileById.values().stream().map(FileNode::getParentId).filter(Objects::nonNull).forEach(parentIds::add);
+        Map<String, Set<String>> namesByParent = loadNamesByParent(parentIds);
+        Map<String, Boolean> result = new HashMap<>();
+        for (MediaMovie movie : movies) {
+            Set<String> folderNames = namesByParent.getOrDefault(movie.getFolderNodeId(), Set.of());
+            FileNode video = fileById.get(fileNodeIdByMovie.get(movie.getId()));
+            String videoName = video == null ? null : video.getName();
+            boolean hasNfo = folderNames.contains(MediaNfoSupport.MOVIE_NFO)
+                    || (videoName != null && folderNames.contains(mediaNfoSupport.nfoNameOf(videoName)));
+            result.put(movie.getId(), !hasNfo);
+        }
+        return result;
+    }
+
+    /**
+     * 批量收集各剧集 NFO 是否缺失（一次 IN parent_id 查询）：剧文件夹无 {@code tvshow.nfo}，
+     * 或任一集视频同目录无同名 {@code .nfo}（聚合到剧行）。
+     *
+     * @return seriesId → nfoMissing
+     */
+    private Map<String, Boolean> collectSeriesNfoMissing(List<MediaSeries> seriesList) {
+        if (seriesList.isEmpty()) {
+            return Map.of();
+        }
+        List<String> seriesIds = seriesList.stream().map(MediaSeries::getId).toList();
+        List<MediaEpisode> allEpisodes = mediaEpisodeMapper.selectList(
+                new LambdaQueryWrapper<MediaEpisode>().in(MediaEpisode::getSeriesId, seriesIds));
+        List<String> episodeIds = allEpisodes.stream().map(MediaEpisode::getId).toList();
+        Map<String, String> fileNodeIdByEpisode = episodeIds.isEmpty() ? Map.of()
+                : mediaEpisodeFileMapper.selectList(
+                                new LambdaQueryWrapper<MediaEpisodeFile>().in(MediaEpisodeFile::getEpisodeId, episodeIds))
+                        .stream().collect(Collectors.toMap(MediaEpisodeFile::getEpisodeId, MediaEpisodeFile::getFileNodeId, (a, b) -> a));
+        Map<String, FileNode> fileById = loadFileById(fileNodeIdByEpisode.values());
+        List<String> parentIds = new java.util.ArrayList<>(seriesList.stream()
+                .map(MediaSeries::getFolderNodeId).filter(Objects::nonNull).collect(Collectors.toSet()));
+        fileById.values().stream().map(FileNode::getParentId).filter(Objects::nonNull).forEach(parentIds::add);
+        Map<String, Set<String>> namesByParent = loadNamesByParent(parentIds);
+        Map<String, Boolean> result = new HashMap<>();
+        for (MediaSeries series : seriesList) {
+            Set<String> folderNames = namesByParent.getOrDefault(series.getFolderNodeId(), Set.of());
+            boolean hasTvshowNfo = folderNames.contains(MediaNfoSupport.TVSHOW_NFO);
+            boolean allEpisodesHaveNfo = true;
+            for (MediaEpisode episode : allEpisodes) {
+                if (!series.getId().equals(episode.getSeriesId())) {
+                    continue;
+                }
+                FileNode video = fileById.get(fileNodeIdByEpisode.get(episode.getId()));
+                if (video == null) {
+                    continue;
+                }
+                if (!namesByParent.getOrDefault(video.getParentId(), Set.of())
+                        .contains(mediaNfoSupport.nfoNameOf(video.getName()))) {
+                    allEpisodesHaveNfo = false;
+                    break;
+                }
+            }
+            result.put(series.getId(), !hasTvshowNfo || !allEpisodesHaveNfo);
+        }
+        return result;
+    }
+
+    /** 一次 IN 查询加载文件节点（id → 节点）。 */
+    private Map<String, FileNode> loadFileById(java.util.Collection<String> fileNodeIds) {
+        List<String> ids = fileNodeIds.stream().filter(Objects::nonNull).distinct().toList();
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+        return fileMapper.selectList(new LambdaQueryWrapper<FileNode>().in(FileNode::getId, ids))
+                .stream().collect(Collectors.toMap(FileNode::getId, Function.identity()));
+    }
+
+    /** 一次 IN parent_id 查询加载各目录下子文件名集合（parentId → 子文件名）。 */
+    private Map<String, Set<String>> loadNamesByParent(List<String> parentIds) {
+        List<String> ids = parentIds.stream().filter(Objects::nonNull).distinct().toList();
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+        return fileMapper.selectList(new LambdaQueryWrapper<FileNode>().in(FileNode::getParentId, ids))
+                .stream().collect(Collectors.groupingBy(FileNode::getParentId,
+                        Collectors.mapping(FileNode::getName, Collectors.toSet())));
     }
 
     private MediaNfoSupport.NfoData readNfo(FileNode nfoNode) {

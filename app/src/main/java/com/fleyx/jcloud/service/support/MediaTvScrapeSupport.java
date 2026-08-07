@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.fleyx.jcloud.common.enums.MediaMatchStatus;
 import com.fleyx.jcloud.common.enums.MediaMetadataOwnerType;
+import com.fleyx.jcloud.common.enums.MediaMetadataSource;
 import com.fleyx.jcloud.mapper.FileMapper;
 import com.fleyx.jcloud.mapper.MediaEpisodeMapper;
 import com.fleyx.jcloud.mapper.MediaSeasonMapper;
@@ -25,9 +26,10 @@ import java.util.List;
 /**
  * 电视库新模型削刮支撑组件（ADR 0021 / issue #20）。
  * <p>
- * 剧集以剧为单位削刮：一次匹配应用到全剧。本地优先：剧文件夹存在 tvshow.nfo 或本地媒体图片
- * （海报/背景识别链/seasonXX-poster.jpg，ADR 0022）时完全信任本地内容、不请求 TMDB 补全；本地缺失时才走
- * TMDB 匹配，季/集元数据按剧级匹配派生——本地实际存在的季逐个拉取整季数据（含季内全部集）。
+ * 剧集以剧为单位削刮：一次匹配应用到全剧。本地优先（ADR 0023）：剧文件夹存在 tvshow.nfo 或本地媒体图片
+ * （海报/背景识别链/seasonXX-poster.jpg，ADR 0022）时本地字段优先、缺失字段由 TMDB 补全（有 tmdbId 按
+ * ID 拉详情，无 tmdbId 由调用方经自动匹配补文本）；本地缺失时才走 TMDB 匹配，季/集元数据按剧级匹配派生——
+ * 本地实际存在的季逐个拉取整季数据（含季内全部集），已有本地季/集行时合并补全。
  * 每次削刮结束后重算剧集行的元数据完整性（聚合语义，见 {@link MediaMetadataCompleteSupport}）。
  */
 @Slf4j
@@ -76,12 +78,14 @@ public class MediaTvScrapeSupport {
     }
 
     /**
-     * 应用本地优先削刮结果：绑定剧行（matched）→ 写回（local 跳过写回、标记 persisted）→ 重算完整性。
+     * 应用本地优先削刮结果：绑定剧行（matched）→ 本地季/集缺失字段由 TMDB 补全派生（无 tmdbId 维持现状）
+     * → 写回（local_nfo 同样整体写回，ADR 0023）→ 重算完整性。
      */
     public void applyLocalSeriesMatch(MediaSeries series, MediaMetadata localMetadata) {
         MediaMetadata bound = metadataV2Support.upsertByOwner(
                 MediaMetadataOwnerType.SERIES.getCode(), series.getId(), localMetadata);
         bindSeriesRow(series, bound, MediaMatchStatus.MATCHED.getCode());
+        deriveSeasonEpisodes(series, bound);
         artworkPersistV2Support.persistSeriesV2(series, bound);
         completeSupport.refreshSeriesComplete(series);
     }
@@ -129,7 +133,10 @@ public class MediaTvScrapeSupport {
 
     /**
      * 按剧级匹配派生季/集元数据：本地实际存在的季逐个拉取整季数据（含季内全部集），
-     * 季/集元数据 upsert 到各自 owner 并回写 metadata_id；单个季拉取失败仅记日志不影响其他季。
+     * 季/集元数据 upsert 到各自 owner 并回写 metadata_id。合并语义（ADR 0023）：
+     * 已有 local_nfo 来源季/集行时本地字段优先、缺失字段用 TMDB 季/集数据补齐（含剧照 still）；
+     * 无既有行或既有行为 TMDB 来源时直接采用最新 TMDB 派生数据（保证重复派生能刷新旧值）。
+     * 单个季拉取失败仅记日志不影响其他季。
      * 供自动削刮与剧级手动修正共用。
      */
     public void deriveSeasonEpisodes(MediaSeries series, MediaMetadata seriesMetadata) {
@@ -148,8 +155,13 @@ public class MediaTvScrapeSupport {
                 if (result == null || result.season() == null) {
                     continue;
                 }
+                MediaMetadata existingSeason = metadataV2Support.selectByOwner(
+                        MediaMetadataOwnerType.SEASON.getCode(), season.getId());
                 MediaMetadata seasonBound = metadataV2Support.upsertByOwner(
-                        MediaMetadataOwnerType.SEASON.getCode(), season.getId(), result.season());
+                        MediaMetadataOwnerType.SEASON.getCode(), season.getId(),
+                        existingSeason == null || !MediaMetadataSource.LOCAL_NFO.getCode().equals(existingSeason.getSource())
+                                ? result.season()
+                                : metadataV2Support.mergeLocalWithTmdb(existingSeason, result.season()));
                 bindSeasonRow(season, seasonBound);
                 List<MediaEpisode> episodes = mediaEpisodeMapper.selectList(
                         new LambdaQueryWrapper<MediaEpisode>().eq(MediaEpisode::getSeasonId, season.getId()));
@@ -158,8 +170,13 @@ public class MediaTvScrapeSupport {
                     if (episodeMeta == null) {
                         continue;
                     }
+                    MediaMetadata existingEpisode = metadataV2Support.selectByOwner(
+                            MediaMetadataOwnerType.EPISODE.getCode(), episode.getId());
                     MediaMetadata episodeBound = metadataV2Support.upsertByOwner(
-                            MediaMetadataOwnerType.EPISODE.getCode(), episode.getId(), episodeMeta);
+                            MediaMetadataOwnerType.EPISODE.getCode(), episode.getId(),
+                            existingEpisode == null || !MediaMetadataSource.LOCAL_NFO.getCode().equals(existingEpisode.getSource())
+                                    ? episodeMeta
+                                    : metadataV2Support.mergeLocalWithTmdb(existingEpisode, episodeMeta));
                     MediaEpisode update = new MediaEpisode();
                     update.setId(episode.getId());
                     update.setMetadataId(episodeBound.getId());

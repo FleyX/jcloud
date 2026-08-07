@@ -164,6 +164,8 @@ class MediaScrapeServiceTest {
         movieB.setMatchStatus(MediaMatchStatus.MATCHED.getCode());
         movieB.setMetadataComplete(true);
         mediaMovieMapper.updateById(movieB);
+        // 已完整行的 NFO 产物视为齐备（工单 05 起 NFO 缺失会重新进入削刮候选）
+        fileService.upload(buildTextFile("movie.nfo", "<movie></movie>"), user.getId(), bFolder.getId(), null);
         MediaMovie movieC = seedMovie(directory, user.getId(), cFolder.getId(), "Avatar", 2009, cVideo.getId());
         movieC.setMatchStatus(MediaMatchStatus.MATCHED.getCode());
         movieC.setMetadataComplete(false);
@@ -331,8 +333,9 @@ class MediaScrapeServiceTest {
     // ---------- 验收 4：本地 NFO 优先、不请求 TMDB、写回不变 ----------
 
     /**
-     * 电影本地优先：同目录同名 .nfo 存在时完全信任本地内容、不请求 TMDB，
-     * 元数据 local_nfo、5 项齐备完整，local_nfo 来源不写回（用户原有 nfo 不被规范化重写覆盖）。
+     * 电影本地优先（反转，工单 05）：同目录同名 .nfo 存在时本地字段优先、字段齐备时不请求 TMDB 补全
+     * （方法内短路）、不重新自动匹配，合并结果整体重写回 NFO（写回 movie.nfo，
+     * 用户自定义未知字段如 studio 不保留）。
      */
     @Test
     void shouldScrapeMovieFromLocalNfoWithoutTmdb() {
@@ -357,24 +360,37 @@ class MediaScrapeServiceTest {
         MediaDirectory directory = createDirectory(user.getId(), movieFolder.getId(), "movie");
         MediaMovie movie = seedMovie(directory, user.getId(), parentFolder.getId(), "Iron Man", 2008, videoFile.getId());
 
+        MediaMetadata remote = fullMetadata(user.getId(), "movie", 1726L);
+        remote.setTitle("钢铁侠（TMDB 补全标题）");
+        remote.setOverview("远端简介");
+        when(tmdbService.fetchDetailV2(eq(user.getId()), eq(1726L), eq("movie"))).thenReturn(remote);
+        when(tmdbService.downloadArtwork(anyString(), anyString())).thenReturn(new byte[]{1});
+
         scrapeAwaitIdle(directory, user.getId(), false);
 
         verify(tmdbService, never()).autoMatchV2(any(), anyString(), anyString(), any());
+        // 本地字段已齐备（完整）→ 无需 TMDB 补全网络请求（方法内短路）
+        verify(tmdbService, never()).fetchDetailV2(any(), any(), any());
         MediaMovie after = mediaMovieMapper.selectById(movie.getId());
         assertEquals(MediaMatchStatus.MATCHED.getCode(), after.getMatchStatus());
         assertTrue(after.getMetadataComplete());
         MediaMetadata metadata = mediaMetadataMapper.selectOne(owner("movie", movie.getId()));
         assertEquals("local_nfo", metadata.getSource());
         assertEquals(1726L, metadata.getTmdbId());
+        // 本地字段优先：NFO 已有 title/overview 不被远端覆盖
         assertEquals("钢铁侠", metadata.getTitle());
+        assertEquals("托尼·斯塔克打造钢铁战衣", metadata.getOverview());
         assertEquals("2008-04-30", metadata.getReleaseDate());
         assertEquals("persisted", metadata.getPersistStatus());
         assertEquals(queryChildNode(parentFolder.getId(), "poster.jpg").getId(), metadata.getPosterFileNodeId());
         assertEquals(queryChildNode(parentFolder.getId(), "fanart.jpg").getId(), metadata.getBackdropFileNodeId());
-        // local_nfo 来源不写回：用户原有 nfo 内容保持原样
-        FileNode nfoNode = queryChildNode(parentFolder.getId(), "Iron.Man.2008.1080p.nfo");
+        // 已整体重写：写回 movie.nfo 含本地字段，用户自定义 <studio> 不保留
+        FileNode nfoNode = queryChildNode(parentFolder.getId(), "movie.nfo");
+        assertNotNull(nfoNode);
         String nfoContent = downloadText(nfoNode.getId(), user.getId());
-        assertTrue(nfoContent.contains("<studio>Marvel Studios</studio>"), "用户原有 nfo 不应被规范化重写覆盖");
+        assertTrue(nfoContent.contains("<plot>托尼·斯塔克打造钢铁战衣</plot>"), "movie.nfo 应整体重写含本地简介");
+        assertTrue(nfoContent.contains("<tmdbid>1726</tmdbid>"));
+        assertFalse(nfoContent.contains("studio"), "用户自定义未知字段不保留");
     }
 
     /**
@@ -399,6 +415,10 @@ class MediaScrapeServiceTest {
         MediaDirectory directory = createDirectory(user.getId(), movieFolder.getId(), "movie");
         MediaMovie movie = seedMovie(directory, user.getId(), parentFolder.getId(), "Iron Man", 2008, videoFile.getId());
 
+        when(tmdbService.fetchDetailV2(eq(user.getId()), eq(1726L), eq("movie")))
+                .thenReturn(fullMetadata(user.getId(), "movie", 1726L));
+        when(tmdbService.downloadArtwork(anyString(), anyString())).thenReturn(new byte[]{1});
+
         scrapeAwaitIdle(directory, user.getId(), false);
 
         verify(tmdbService, never()).autoMatchV2(any(), anyString(), anyString(), any());
@@ -412,7 +432,8 @@ class MediaScrapeServiceTest {
     }
 
     /**
-     * 电影本地优先：movie.nfo 与同名 .nfo 并存时以 movie.nfo 为准（识别优先级）。
+     * 电影本地优先：movie.nfo 与同名 .nfo 并存时以 movie.nfo 为准（识别优先级）；
+     * movie.nfo 无 tmdbid 时经自动匹配补全文本，但 NFO 已有字段不被覆盖（工单 05 本地优先）。
      */
     @Test
     void shouldPreferMovieNfoOverVideoNamedNfo() {
@@ -435,18 +456,27 @@ class MediaScrapeServiceTest {
         MediaDirectory directory = createDirectory(user.getId(), movieFolder.getId(), "movie");
         MediaMovie movie = seedMovie(directory, user.getId(), parentFolder.getId(), "Iron Man", 2008, videoFile.getId());
 
+        MediaMetadata remote = fullMetadata(user.getId(), "movie", 1726L);
+        remote.setTitle("TMDB 匹配标题");
+        remote.setOverview("TMDB 匹配简介");
+        when(tmdbService.autoMatchV2(eq(user.getId()), eq("movie"), anyString(), any())).thenReturn(remote);
+        when(tmdbService.downloadArtwork(anyString(), anyString())).thenReturn(new byte[]{1});
+
         scrapeAwaitIdle(directory, user.getId(), false);
 
-        verify(tmdbService, never()).autoMatchV2(any(), anyString(), anyString(), any());
+        verify(tmdbService).autoMatchV2(eq(user.getId()), eq("movie"), anyString(), any());
         MediaMetadata metadata = mediaMetadataMapper.selectOne(owner("movie", movie.getId()));
         assertEquals("local_nfo", metadata.getSource());
+        // 本地字段优先：NFO 已有 title/overview 不被匹配结果覆盖
         assertEquals("movie.nfo 优先", metadata.getTitle());
         assertEquals("movie.nfo 内容", metadata.getOverview());
+        assertEquals(1726L, metadata.getTmdbId());
     }
 
     /**
-     * 电视剧本地优先：tvshow.nfo + 季海报 + 集 nfo/剧照全本地绑定，不请求 TMDB；
-     * 本地来源不写回；剧集聚合语义下季/集仅本地局部字段 → 整剧不完整。
+     * 电视剧本地优先（反转，工单 05）：tvshow.nfo + 季海报 + 集 nfo/剧照全本地绑定，不重新自动匹配；
+     * 剧级字段齐备不拉详情补全（方法内短路），季/集本地字段优先、缺失字段由 TMDB 季数据补全
+     * （fetchSeasonV2），补全后整剧完整；tvshow.nfo 与集 nfo 被整体重写（用户自定义字段不保留）。
      */
     @Test
     void shouldScrapeSeriesFromLocalNfoWithoutTmdb() {
@@ -481,10 +511,22 @@ class MediaScrapeServiceTest {
         MediaSeason season = seedSeason(series.getId(), seasonFolder.getId(), 1);
         MediaEpisode episode = seedEpisode(series.getId(), season.getId(), 1, episodeFile.getId());
 
+        MediaMetadata seriesRemote = fullMetadata(user.getId(), "series", 2000L);
+        seriesRemote.setTitle("亮剑（TMDB 补全标题）");
+        MediaMetadata seasonRemote = fullMetadata(user.getId(), "season", null);
+        MediaMetadata episodeRemote = fullMetadata(user.getId(), "episode", null);
+        episodeRemote.setTitle("远端集标题");
+        when(tmdbService.fetchDetailV2(eq(user.getId()), eq(2000L), eq("tv"))).thenReturn(seriesRemote);
+        when(tmdbService.fetchSeasonV2(eq(user.getId()), eq(2000L), eq(1)))
+                .thenReturn(new TmdbService.SeasonFetchV2(seasonRemote, Map.of(1, episodeRemote)));
+        when(tmdbService.downloadArtwork(anyString(), anyString())).thenReturn(new byte[]{1});
+
         scrapeAwaitIdle(directory, user.getId(), false);
 
         verify(tmdbService, never()).autoMatchV2(any(), anyString(), anyString(), any());
-        verify(tmdbService, never()).fetchSeasonV2(any(), any(), any());
+        // 剧级字段已齐备（完整）→ 无需剧级详情补全网络请求；季/集缺失字段由 TMDB 季数据补全
+        verify(tmdbService, never()).fetchDetailV2(any(), any(), any());
+        verify(tmdbService).fetchSeasonV2(user.getId(), 2000L, 1);
         MediaSeries after = mediaSeriesMapper.selectById(series.getId());
         assertEquals(MediaMatchStatus.MATCHED.getCode(), after.getMatchStatus());
         MediaMetadata seriesMetadata = mediaMetadataMapper.selectOne(owner("series", series.getId()));
@@ -497,21 +539,26 @@ class MediaScrapeServiceTest {
         assertEquals("local_nfo", seasonMetadata.getSource());
         assertEquals(queryChildNode(seriesFolder.getId(), "season01-poster.jpg").getId(),
                 seasonMetadata.getPosterFileNodeId());
+        // 季/集缺失字段由 TMDB 补全：releaseDate/voteAverage 不再为空
+        assertEquals("2008-04-30", seasonMetadata.getReleaseDate());
         MediaMetadata episodeMetadata = mediaMetadataMapper.selectOne(owner("episode", episode.getId()));
         assertEquals("local_nfo", episodeMetadata.getSource());
+        // 本地字段优先：集 nfo 已有 title 不被远端覆盖
         assertEquals("苍云岭之战", episodeMetadata.getTitle());
         assertEquals(queryChildNode(seasonFolder.getId(), "亮剑.S01E01.1080p-thumb.jpg").getId(),
                 episodeMetadata.getPosterFileNodeId());
-        // 聚合语义：季/集仅有本地局部字段 → 整剧不完整
-        assertFalse(after.getMetadataComplete());
-        // 本地来源不写回：用户原有 tvshow.nfo 内容保持原样
+        // 聚合语义：季/集补全后整剧完整
+        assertTrue(after.getMetadataComplete());
+        // 已整体重写：tvshow.nfo 规范化重写（用户自定义 <studio> 不保留），集 nfo 写回
         String tvshowNfo = downloadText(queryChildNode(seriesFolder.getId(), "tvshow.nfo").getId(), user.getId());
-        assertTrue(tvshowNfo.contains("<studio>八一电影制片厂</studio>"), "用户原有 tvshow.nfo 不应被规范化重写覆盖");
+        assertTrue(tvshowNfo.contains("<plot>李云龙抗战传奇</plot>"), "tvshow.nfo 应整体重写含本地简介");
+        assertFalse(tvshowNfo.contains("studio"), "用户自定义未知字段不保留");
+        assertNotNull(queryChildNode(seasonFolder.getId(), "亮剑.S01E01.1080p.nfo"));
     }
 
     /**
-     * 电影本地优先：无 NFO 但存在本地图片（poster.jpg/fanart.jpg）时同样不回源 TMDB，
-     * 文本字段缺失不补、标记不完整，图片绑定本地文件。
+     * 电影本地优先（反转，工单 05）：无 NFO 但存在本地图片（poster.jpg/fanart.jpg）时图片沿用本地，
+     * 文本字段由 TMDB 自动匹配补全并写回 movie.nfo。
      */
     @Test
     void shouldScrapeMovieFromLocalImagesWithoutNfo() {
@@ -524,19 +571,25 @@ class MediaScrapeServiceTest {
         MediaDirectory directory = createDirectory(user.getId(), movieFolder.getId(), "movie");
         MediaMovie movie = seedMovie(directory, user.getId(), parentFolder.getId(), "Iron Man", 2008, videoFile.getId());
 
+        MediaMetadata remote = fullMetadata(user.getId(), "movie", 1000L);
+        when(tmdbService.autoMatchV2(eq(user.getId()), eq("movie"), anyString(), any())).thenReturn(remote);
+        when(tmdbService.downloadArtwork(anyString(), anyString())).thenReturn(new byte[]{1});
+
         scrapeAwaitIdle(directory, user.getId(), false);
 
-        verify(tmdbService, never()).autoMatchV2(any(), anyString(), anyString(), any());
+        verify(tmdbService).autoMatchV2(eq(user.getId()), eq("movie"), anyString(), any());
         MediaMovie after = mediaMovieMapper.selectById(movie.getId());
         assertEquals(MediaMatchStatus.MATCHED.getCode(), after.getMatchStatus());
-        assertFalse(after.getMetadataComplete());
+        assertTrue(after.getMetadataComplete());
         MediaMetadata metadata = mediaMetadataMapper.selectOne(owner("movie", movie.getId()));
         assertEquals("local_nfo", metadata.getSource());
-        assertNull(metadata.getTitle());
-        assertNull(metadata.getTmdbId());
+        // 文本字段由 TMDB 补全，图片沿用本地
+        assertEquals("钢铁侠", metadata.getTitle());
+        assertEquals(1000L, metadata.getTmdbId());
         assertEquals("persisted", metadata.getPersistStatus());
         assertEquals(queryChildNode(parentFolder.getId(), "poster.jpg").getId(), metadata.getPosterFileNodeId());
         assertEquals(queryChildNode(parentFolder.getId(), "fanart.jpg").getId(), metadata.getBackdropFileNodeId());
+        assertNotNull(queryChildNode(parentFolder.getId(), "movie.nfo"));
     }
 
     // ---------- 验收 7：本地图片命名兼容（ADR 0022） ----------
@@ -556,9 +609,12 @@ class MediaScrapeServiceTest {
         MediaDirectory directory = createDirectory(user.getId(), movieFolder.getId(), "movie");
         MediaMovie movie = seedMovie(directory, user.getId(), parentFolder.getId(), "Iron Man", 2008, videoFile.getId());
 
+        when(tmdbService.autoMatchV2(eq(user.getId()), eq("movie"), anyString(), any()))
+                .thenReturn(fullMetadata(user.getId(), "movie", 1000L));
+        when(tmdbService.downloadArtwork(anyString(), anyString())).thenReturn(new byte[]{1});
+
         scrapeAwaitIdle(directory, user.getId(), false);
 
-        verify(tmdbService, never()).autoMatchV2(any(), anyString(), anyString(), any());
         MediaMetadata metadata = mediaMetadataMapper.selectOne(owner("movie", movie.getId()));
         assertEquals("local_nfo", metadata.getSource());
         assertEquals(queryChildNode(parentFolder.getId(), "folder.jpg").getId(), metadata.getPosterFileNodeId());
@@ -582,9 +638,12 @@ class MediaScrapeServiceTest {
         MediaSeries series = seedSeries(directory, user.getId(), seriesFolder.getId(), "亮剑", null);
         seedEpisode(series.getId(), seedSeason(series.getId(), seasonFolder.getId(), 1).getId(), 1, episodeFile.getId());
 
+        when(tmdbService.autoMatchV2(eq(user.getId()), eq("tv"), eq("亮剑"), isNull()))
+                .thenReturn(fullMetadata(user.getId(), "series", 2000L));
+        when(tmdbService.downloadArtwork(anyString(), anyString())).thenReturn(new byte[]{1});
+
         scrapeAwaitIdle(directory, user.getId(), false);
 
-        verify(tmdbService, never()).autoMatchV2(any(), anyString(), anyString(), any());
         MediaMetadata seriesMetadata = mediaMetadataMapper.selectOne(owner("series", series.getId()));
         assertEquals("local_nfo", seriesMetadata.getSource());
         assertEquals(queryChildNode(seriesFolder.getId(), "folder.jpg").getId(), seriesMetadata.getPosterFileNodeId());
@@ -607,9 +666,12 @@ class MediaScrapeServiceTest {
         MediaDirectory directory = createDirectory(user.getId(), movieFolder.getId(), "movie");
         MediaMovie movie = seedMovie(directory, user.getId(), parentFolder.getId(), "Iron Man", 2008, videoFile.getId());
 
+        when(tmdbService.autoMatchV2(eq(user.getId()), eq("movie"), anyString(), any()))
+                .thenReturn(fullMetadata(user.getId(), "movie", 1000L));
+        when(tmdbService.downloadArtwork(anyString(), anyString())).thenReturn(new byte[]{1});
+
         scrapeAwaitIdle(directory, user.getId(), false);
 
-        verify(tmdbService, never()).autoMatchV2(any(), anyString(), anyString(), any());
         MediaMetadata metadata = mediaMetadataMapper.selectOne(owner("movie", movie.getId()));
         assertEquals(queryChildNode(parentFolder.getId(), "folder.jpg").getId(), metadata.getPosterFileNodeId());
         assertEquals(queryChildNode(parentFolder.getId(), "backdrop.jpg").getId(), metadata.getBackdropFileNodeId());
@@ -635,6 +697,10 @@ class MediaScrapeServiceTest {
         MediaMovie coverMovie = seedMovie(directory, user.getId(), coverFolder.getId(), "Cover", 2008, coverVideo.getId());
         MediaMovie defaultMovie = seedMovie(directory, user.getId(), defaultFolder.getId(), "Default", 2010, defaultVideo.getId());
         MediaMovie movieJpgMovie = seedMovie(directory, user.getId(), movieJpgFolder.getId(), "MovieJpg", 2009, movieJpgVideo.getId());
+
+        when(tmdbService.autoMatchV2(eq(user.getId()), eq("movie"), anyString(), any()))
+                .thenReturn(fullMetadata(user.getId(), "movie", 1000L));
+        when(tmdbService.downloadArtwork(anyString(), anyString())).thenReturn(new byte[]{1});
 
         scrapeAwaitIdle(directory, user.getId(), false);
 
@@ -664,6 +730,10 @@ class MediaScrapeServiceTest {
         MediaMovie bgMovie = seedMovie(directory, user.getId(), bgFolder.getId(), "Bg", 2008, bgVideo.getId());
         MediaMovie artMovie = seedMovie(directory, user.getId(), artFolder.getId(), "Art", 2009, artVideo.getId());
 
+        when(tmdbService.autoMatchV2(eq(user.getId()), eq("movie"), anyString(), any()))
+                .thenReturn(fullMetadata(user.getId(), "movie", 1000L));
+        when(tmdbService.downloadArtwork(anyString(), anyString())).thenReturn(new byte[]{1});
+
         scrapeAwaitIdle(directory, user.getId(), false);
 
         MediaMetadata bgMeta = mediaMetadataMapper.selectOne(owner("movie", bgMovie.getId()));
@@ -688,9 +758,12 @@ class MediaScrapeServiceTest {
         MediaSeries series = seedSeries(directory, user.getId(), seriesFolder.getId(), "亮剑", null);
         seedEpisode(series.getId(), seedSeason(series.getId(), seasonFolder.getId(), 1).getId(), 1, episodeFile.getId());
 
+        when(tmdbService.autoMatchV2(eq(user.getId()), eq("tv"), eq("亮剑"), isNull()))
+                .thenReturn(fullMetadata(user.getId(), "series", 2000L));
+        when(tmdbService.downloadArtwork(anyString(), anyString())).thenReturn(new byte[]{1});
+
         scrapeAwaitIdle(directory, user.getId(), false);
 
-        verify(tmdbService, never()).autoMatchV2(any(), anyString(), anyString(), any());
         MediaMetadata seriesMetadata = mediaMetadataMapper.selectOne(owner("series", series.getId()));
         assertEquals("local_nfo", seriesMetadata.getSource());
         assertEquals(queryChildNode(seriesFolder.getId(), "show.jpg").getId(), seriesMetadata.getPosterFileNodeId());
@@ -1026,6 +1099,165 @@ class MediaScrapeServiceTest {
         assertNotNull(queryChildNode(movieFolder.getId(), "folder.jpg"));
     }
 
+    // ---------- 工单 05：本地优先新语义与 NFO 缺失补回 ----------
+
+    /**
+     * 本地 NFO 字段残缺（仅 title+tmdbid，缺 plot/rating）：削刮后缺失字段由 TMDB 补全
+     * （fetchDetailV2，不重新自动匹配），NFO 已有字段不被远端覆盖，movie.nfo 被整体重写含补全字段。
+     */
+    @Test
+    void shouldEnrichLocalNfoMissingFieldsFromTmdbAndRewrite() {
+        UserVo user = prepareUserWithStorageSpace();
+        FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
+        FileNodeVo parentFolder = createFolder(user.getId(), movieFolder.getId(), "Iron Man 2008");
+        FileNodeVo videoFile = fileService.upload(buildFile("Iron.Man.2008.1080p.mkv"), user.getId(), parentFolder.getId(), null);
+        fileService.upload(buildTextFile("movie.nfo", """
+                <movie>
+                  <tmdbid>1726</tmdbid>
+                  <title>钢铁侠</title>
+                </movie>
+                """), user.getId(), parentFolder.getId(), null);
+        fileService.upload(buildFile("poster.jpg"), user.getId(), parentFolder.getId(), null);
+        MediaDirectory directory = createDirectory(user.getId(), movieFolder.getId(), "movie");
+        MediaMovie movie = seedMovie(directory, user.getId(), parentFolder.getId(), "Iron Man", 2008, videoFile.getId());
+
+        MediaMetadata remote = fullMetadata(user.getId(), "movie", 1726L);
+        remote.setTitle("钢铁侠（远端标题）");
+        when(tmdbService.fetchDetailV2(eq(user.getId()), eq(1726L), eq("movie"))).thenReturn(remote);
+        when(tmdbService.downloadArtwork(anyString(), anyString())).thenReturn(new byte[]{1});
+
+        scrapeAwaitIdle(directory, user.getId(), false);
+
+        verify(tmdbService, never()).autoMatchV2(any(), anyString(), anyString(), any());
+        verify(tmdbService).fetchDetailV2(user.getId(), 1726L, "movie");
+        MediaMetadata metadata = mediaMetadataMapper.selectOne(owner("movie", movie.getId()));
+        assertEquals("local_nfo", metadata.getSource());
+        // 本地已有 title 不被远端覆盖，缺失 plot/rating/releaseDate 由 TMDB 补全
+        assertEquals("钢铁侠", metadata.getTitle());
+        assertEquals("托尼·斯塔克打造钢铁战衣", metadata.getOverview());
+        assertEquals(Double.valueOf(7.6), metadata.getVoteAverage());
+        assertEquals("2008-04-30", metadata.getReleaseDate());
+        assertTrue(mediaMovieMapper.selectById(movie.getId()).getMetadataComplete());
+        // movie.nfo 被整体重写：含补全的 plot/rating
+        String nfoContent = downloadText(queryChildNode(parentFolder.getId(), "movie.nfo").getId(), user.getId());
+        assertTrue(nfoContent.contains("<plot>托尼·斯塔克打造钢铁战衣</plot>"), "movie.nfo 应整体重写含补全简介");
+        assertTrue(nfoContent.contains("<rating>7.6</rating>"));
+    }
+
+    /**
+     * 仅有本地图片（poster.jpg）无 NFO：文本字段由 TMDB 自动匹配补全并写回 movie.nfo，
+     * 海报文件节点仍指向本地图（沿用不覆盖）。
+     */
+    @Test
+    void shouldEnrichLocalImageOnlyMovie() {
+        UserVo user = prepareUserWithStorageSpace();
+        FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
+        FileNodeVo parentFolder = createFolder(user.getId(), movieFolder.getId(), "Iron Man 2008");
+        FileNodeVo videoFile = fileService.upload(buildFile("Iron.Man.2008.1080p.mkv"), user.getId(), parentFolder.getId(), null);
+        fileService.upload(buildFile("poster.jpg"), user.getId(), parentFolder.getId(), null);
+        MediaDirectory directory = createDirectory(user.getId(), movieFolder.getId(), "movie");
+        MediaMovie movie = seedMovie(directory, user.getId(), parentFolder.getId(), "Iron Man", 2008, videoFile.getId());
+
+        when(tmdbService.autoMatchV2(eq(user.getId()), eq("movie"), anyString(), any()))
+                .thenReturn(fullMetadata(user.getId(), "movie", 1000L));
+        when(tmdbService.downloadArtwork(anyString(), anyString())).thenReturn(new byte[]{1});
+
+        scrapeAwaitIdle(directory, user.getId(), false);
+
+        MediaMetadata metadata = mediaMetadataMapper.selectOne(owner("movie", movie.getId()));
+        assertEquals("local_nfo", metadata.getSource());
+        assertEquals("钢铁侠", metadata.getTitle());
+        assertEquals(1000L, metadata.getTmdbId());
+        // 图片沿用本地
+        assertEquals(queryChildNode(parentFolder.getId(), "poster.jpg").getId(), metadata.getPosterFileNodeId());
+        assertTrue(mediaMovieMapper.selectById(movie.getId()).getMetadataComplete());
+        // 文本字段补全并写回 movie.nfo
+        FileNode nfoNode = queryChildNode(parentFolder.getId(), "movie.nfo");
+        assertNotNull(nfoNode);
+        String nfoContent = downloadText(nfoNode.getId(), user.getId());
+        assertTrue(nfoContent.contains("<plot>托尼·斯塔克打造钢铁战衣</plot>"));
+    }
+
+    /**
+     * NFO 缺失纳入削刮候选：TMDB 削刮写回 movie.nfo 后物理删除 NFO → 再削刮自动重建，
+     * metadataId 不变（不重新匹配，走工单 03 复用/匹配补全路径）。
+     */
+    @Test
+    void shouldRebuildDeletedMovieNfo() {
+        UserVo user = prepareUserWithStorageSpace();
+        FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
+        FileNodeVo videoFile = fileService.upload(buildFile("Iron.Man.2008.1080p.mkv"), user.getId(), movieFolder.getId(), null);
+        MediaDirectory directory = createDirectory(user.getId(), movieFolder.getId(), "movie");
+        MediaMovie movie = seedMovie(directory, user.getId(), movieFolder.getId(), "Iron Man", 2008, videoFile.getId());
+
+        MediaMetadata metadata = fullMetadata(user.getId(), "movie", 1000L);
+        metadata.setRawJson("{\"poster_path\":\"/p.jpg\",\"backdrop_path\":\"/b.jpg\"}");
+        when(tmdbService.autoMatchV2(eq(user.getId()), eq("movie"), anyString(), any())).thenReturn(metadata);
+        when(tmdbService.downloadArtwork(anyString(), anyString())).thenReturn(new byte[]{1});
+
+        scrapeAwaitIdle(directory, user.getId(), false);
+        String metadataId = mediaMovieMapper.selectById(movie.getId()).getMetadataId();
+        assertNotNull(metadataId);
+        assertNotNull(queryChildNode(movieFolder.getId(), "movie.nfo"));
+
+        // 物理删除 movie.nfo（NFO 不进完整性 5 项校验，缺失检测在削刮候选层）→ 再削刮重建
+        fileMapper.deleteById(queryChildNode(movieFolder.getId(), "movie.nfo").getId());
+        clearInvocations(tmdbService);
+        scrapeAwaitIdle(directory, user.getId(), false);
+
+        assertNotNull(queryChildNode(movieFolder.getId(), "movie.nfo"));
+        assertEquals(metadataId, mediaMovieMapper.selectById(movie.getId()).getMetadataId());
+        assertTrue(mediaMovieMapper.selectById(movie.getId()).getMetadataComplete());
+    }
+
+    /**
+     * 剧集 NFO 缺失重建：TMDB 削刮写回 tvshow.nfo 与集 nfo 后，删 tvshow.nfo 再削刮重建；
+     * 删集 nfo（任一集缺同名 nfo 聚合到剧行）再削刮重建。
+     */
+    @Test
+    void shouldRebuildDeletedSeriesNfoAndEpisodeNfo() {
+        UserVo user = prepareUserWithStorageSpace();
+        FileNodeVo tvFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电视");
+        FileNodeVo seriesFolder = createFolder(user.getId(), tvFolder.getId(), "亮剑");
+        FileNodeVo seasonFolder = createFolder(user.getId(), seriesFolder.getId(), "Season 1");
+        FileNodeVo epFile = fileService.upload(buildFile("亮剑.S01E01.1080p.mkv"), user.getId(), seasonFolder.getId(), null);
+        MediaDirectory directory = createDirectory(user.getId(), tvFolder.getId(), "tv");
+        MediaSeries series = seedSeries(directory, user.getId(), seriesFolder.getId(), "亮剑", null);
+        MediaSeason season = seedSeason(series.getId(), seasonFolder.getId(), 1);
+        seedEpisode(series.getId(), season.getId(), 1, epFile.getId());
+
+        MediaMetadata seriesMeta = fullMetadata(user.getId(), "series", 2000L);
+        seriesMeta.setRawJson("{\"poster_path\":\"/s.jpg\",\"backdrop_path\":\"/b.jpg\"}");
+        MediaMetadata seasonMeta = fullMetadata(user.getId(), "season", null);
+        seasonMeta.setRawJson("{\"poster_path\":\"/sp.jpg\"}");
+        MediaMetadata epMeta = fullMetadata(user.getId(), "episode", null);
+        epMeta.setRawJson("{\"still_path\":\"/st.jpg\"}");
+        when(tmdbService.autoMatchV2(eq(user.getId()), eq("tv"), eq("亮剑"), isNull())).thenReturn(seriesMeta);
+        when(tmdbService.fetchDetailV2(eq(user.getId()), eq(2000L), eq("tv"))).thenReturn(seriesMeta);
+        when(tmdbService.fetchSeasonV2(eq(user.getId()), eq(2000L), eq(1)))
+                .thenReturn(new TmdbService.SeasonFetchV2(seasonMeta, Map.of(1, epMeta)));
+        when(tmdbService.downloadArtwork(anyString(), anyString())).thenReturn(new byte[]{1});
+
+        scrapeAwaitIdle(directory, user.getId(), false);
+        String metadataId = mediaSeriesMapper.selectById(series.getId()).getMetadataId();
+        assertNotNull(metadataId);
+        assertNotNull(queryChildNode(seriesFolder.getId(), "tvshow.nfo"));
+        assertNotNull(queryChildNode(seasonFolder.getId(), "亮剑.S01E01.1080p.nfo"));
+
+        // 删 tvshow.nfo（本地图仍在，走本地优先 + 匹配补全路径）→ 再削刮重建
+        fileMapper.deleteById(queryChildNode(seriesFolder.getId(), "tvshow.nfo").getId());
+        clearInvocations(tmdbService);
+        scrapeAwaitIdle(directory, user.getId(), false);
+        assertNotNull(queryChildNode(seriesFolder.getId(), "tvshow.nfo"));
+
+        // 删集 nfo（任一集缺同名 nfo 聚合到剧行）→ 再削刮重建
+        fileMapper.deleteById(queryChildNode(seasonFolder.getId(), "亮剑.S01E01.1080p.nfo").getId());
+        clearInvocations(tmdbService);
+        scrapeAwaitIdle(directory, user.getId(), false);
+        assertNotNull(queryChildNode(seasonFolder.getId(), "亮剑.S01E01.1080p.nfo"));
+        assertEquals(metadataId, mediaSeriesMapper.selectById(series.getId()).getMetadataId());
+    }
+
     // ---------- 保留行为：电影 TMDB 匹配/写回、剧匹配失败、年份匹配 ----------
 
     /**
@@ -1324,6 +1556,68 @@ class MediaScrapeServiceTest {
         source.setFileNodeId(folderNodeId);
         mediaDirectorySourceMapper.insert(source);
         return directory;
+    }
+
+    // ---------- 工单 05 review 回归：多版本（一行多文件）不抛重复键异常 ----------
+
+    /**
+     * 回归：多版本电影（一部电影的文件明细含多个视频）参与削刮时，NFO 缺失批量收集按电影取任一文件，
+     * 不抛 toMap 重复键异常，削刮正常完成。
+     */
+    @Test
+    void shouldScrapeMultiVersionMovieWithoutDuplicateKeyError() {
+        UserVo user = prepareUserWithStorageSpace();
+        FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
+        FileNodeVo parentFolder = createFolder(user.getId(), movieFolder.getId(), "Iron Man 2008");
+        FileNodeVo v1 = fileService.upload(buildFile("Iron.Man.2008.1080p.mkv"), user.getId(), parentFolder.getId(), null);
+        FileNodeVo v2 = fileService.upload(buildFile("Iron.Man.2008.2160p.mkv"), user.getId(), parentFolder.getId(), null);
+        MediaDirectory directory = createDirectory(user.getId(), movieFolder.getId(), "movie");
+        MediaMovie movie = seedMovie(directory, user.getId(), parentFolder.getId(), "Iron Man", 2008, v1.getId());
+        MediaMovieFile second = new MediaMovieFile();
+        second.setMovieId(movie.getId());
+        second.setFileNodeId(v2.getId());
+        mediaMovieFileMapper.insert(second);
+        MediaMetadata metadata = fullMetadata(user.getId(), "movie", 1000L);
+        when(tmdbService.autoMatchV2(eq(user.getId()), eq("movie"), anyString(), any())).thenReturn(metadata);
+        when(tmdbService.downloadArtwork(anyString(), anyString())).thenReturn(new byte[]{1});
+
+        scrapeAwaitIdle(directory, user.getId(), false);
+
+        assertEquals(MediaMatchStatus.MATCHED.getCode(), mediaMovieMapper.selectById(movie.getId()).getMatchStatus());
+        assertEquals(MediaScrapeStatus.COMPLETED.name(),
+                mediaDirectoryMapper.selectById(directory.getId()).getLastScrapeStatus());
+    }
+
+    /**
+     * 回归：多版本集（一集的文件明细含多个视频）所属剧集参与削刮时，NFO 缺失批量收集按集取任一文件，
+     * 不抛 toMap 重复键异常，削刮正常完成。
+     */
+    @Test
+    void shouldScrapeMultiVersionEpisodeWithoutDuplicateKeyError() {
+        UserVo user = prepareUserWithStorageSpace();
+        FileNodeVo tvFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电视");
+        FileNodeVo seriesFolder = createFolder(user.getId(), tvFolder.getId(), "亮剑");
+        FileNodeVo seasonFolder = createFolder(user.getId(), seriesFolder.getId(), "Season 1");
+        FileNodeVo v1 = fileService.upload(buildFile("亮剑.S01E01.1080p.mkv"), user.getId(), seasonFolder.getId(), null);
+        FileNodeVo v2 = fileService.upload(buildFile("亮剑.S01E01.2160p.mkv"), user.getId(), seasonFolder.getId(), null);
+        MediaDirectory directory = createDirectory(user.getId(), tvFolder.getId(), "tv");
+        MediaSeries series = seedSeries(directory, user.getId(), seriesFolder.getId(), "亮剑", 2005);
+        MediaSeason season = seedSeason(series.getId(), seasonFolder.getId(), 1);
+        MediaEpisode episode = seedEpisode(series.getId(), season.getId(), 1, v1.getId());
+        MediaEpisodeFile second = new MediaEpisodeFile();
+        second.setEpisodeId(episode.getId());
+        second.setFileNodeId(v2.getId());
+        mediaEpisodeFileMapper.insert(second);
+        MediaMetadata metadata = fullMetadata(user.getId(), "series", 1000L);
+        when(tmdbService.autoMatchV2(eq(user.getId()), eq("tv"), anyString(), any())).thenReturn(metadata);
+        when(tmdbService.fetchSeasonV2(any(), any(), any())).thenReturn(null);
+        when(tmdbService.downloadArtwork(anyString(), anyString())).thenReturn(new byte[]{1});
+
+        scrapeAwaitIdle(directory, user.getId(), false);
+
+        assertEquals(MediaMatchStatus.MATCHED.getCode(), mediaSeriesMapper.selectById(series.getId()).getMatchStatus());
+        assertEquals(MediaScrapeStatus.COMPLETED.name(),
+                mediaDirectoryMapper.selectById(directory.getId()).getLastScrapeStatus());
     }
 
     private FileNodeVo createFolder(String userId, String parentId, String name) {

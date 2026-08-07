@@ -35,8 +35,8 @@ import java.util.List;
  * 写回为正式 FileNode（本地来源写物理文件 + 插入/覆盖 FileNode，计入用户已用空间）；
  * 远程来源经远程上传通道落盘。已存在同名 FileNode 则覆盖更新，不触发用户冲突流程。
  * 任一步失败仅将对应元数据标记 persist_status=failed，不影响削刮主流程。
- * TMDB 来源图片从 TMDB 下载（w500/w1280）；local_nfo 来源的内容为用户提供、已在视频目录，
- * 跳过该级 nfo/图片写回（ADR 0020 完全信任本地）。
+ * TMDB 来源图片从 TMDB 下载（w500/w1280）；local_nfo 来源同样执行写回（ADR 0023，见
+ * {@link MediaArtworkPersistV2Support}），图片沿用本地已存在文件、缺失才下载。
  * 旧模型（t_media_item / 旧 t_media_series）写回方法已随 issue #21 弃表删除。
  */
 @Slf4j

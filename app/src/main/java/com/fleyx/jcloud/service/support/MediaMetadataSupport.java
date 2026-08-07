@@ -1,5 +1,6 @@
 package com.fleyx.jcloud.service.support;
 
+import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fleyx.jcloud.common.enums.MediaMetadataSource;
 import com.fleyx.jcloud.common.enums.MediaPersistStatus;
@@ -52,7 +53,8 @@ public class MediaMetadataSupport {
 
     /**
      * 本地优先削刮构建 local_nfo 元数据行并绑定 owner：字段以 NFO/本地图片为准，
-     * 缺失字段不补（标记不完整由调用方按完整性校验项重算）。
+     * 缺失字段由调用方经 {@link #mergeLocalWithTmdb} 用 TMDB 补全（ADR 0023），
+     * 图片绑定本地文件沿用不覆盖。
      *
      * @param ownerType      归属实体类型
      * @param ownerId        归属实体 ID
@@ -77,6 +79,40 @@ public class MediaMetadataSupport {
         metadata.setBackdropFileNodeId(backdropNodeId);
         metadata.setPersistStatus(MediaPersistStatus.PENDING.getCode());
         return upsertByOwner(ownerType, ownerId, metadata);
+    }
+
+    /**
+     * 本地优先合并语义（ADR 0023）：本地非空字段优先，缺失字段用 TMDB 远端值补齐，
+     * {@code rawJson} 恒取远端（图片写回需要）；source/owner 指针与图片绑定保持本地不变。
+     * 原地修改 local 并返回（remote 为游离 TMDB 元数据或已绑定行均可）。
+     */
+    public MediaMetadata mergeLocalWithTmdb(MediaMetadata local, MediaMetadata remote) {
+        if (local == null || remote == null) {
+            return local;
+        }
+        if (local.getTmdbId() == null) {
+            local.setTmdbId(remote.getTmdbId());
+        }
+        if (StrUtil.isBlank(local.getTitle())) {
+            local.setTitle(remote.getTitle());
+        }
+        if (StrUtil.isBlank(local.getOriginalTitle())) {
+            local.setOriginalTitle(remote.getOriginalTitle());
+        }
+        if (StrUtil.isBlank(local.getOverview())) {
+            local.setOverview(remote.getOverview());
+        }
+        if (StrUtil.isBlank(local.getReleaseDate())) {
+            local.setReleaseDate(remote.getReleaseDate());
+        }
+        if (local.getVoteAverage() == null) {
+            local.setVoteAverage(remote.getVoteAverage());
+        }
+        if (StrUtil.isBlank(local.getGenres())) {
+            local.setGenres(remote.getGenres());
+        }
+        local.setRawJson(remote.getRawJson());
+        return local;
     }
 
     /**
