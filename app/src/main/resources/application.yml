@@ -70,12 +70,17 @@ mybatis-plus:
   configuration:
     map-underscore-to-camel-case: true
     cache-enabled: false
-    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
   global-config:
     db-config:
       id-type: assign_id
 
 logging:
+  pattern:
+    # 日志行头固定包含 traceId 和代码行号，便于链路排查
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%X{traceId:-}] %-40.40logger{39}:%L [%15.15thread] : %msg%n"
   level:
     com.fleyx.jcloud: info
+    # MyBatis SQL 日志由 Slf4jImpl 以 debug 级别输出，mapper 包需单独开启
+    com.fleyx.jcloud.mapper: debug
     org.flywaydb: info
