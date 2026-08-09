@@ -41,6 +41,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -555,6 +556,246 @@ class MediaItemServiceTest {
         assertEquals(1L, genres.getFirst().getItemCount());
     }
 
+    // ---------- 票据 02：海报墙查询矩阵（分页/关键词/排序） ----------
+
+    /**
+     * 电影墙分页：滚动加载下一页，pageNum/pageSize 语义正确，total 为真实命中数且无重复。
+     */
+    @Test
+    void shouldPaginateMoviesAcrossPages() {
+        insertMovieAt("user-1", "dir-1", "电影A", LocalDateTime.of(2026, 1, 1, 0, 0));
+        insertMovieAt("user-1", "dir-1", "电影B", LocalDateTime.of(2026, 1, 1, 0, 1));
+        insertMovieAt("user-1", "dir-1", "电影C", LocalDateTime.of(2026, 1, 1, 0, 2));
+
+        MediaPageQueryDto page1 = new MediaPageQueryDto();
+        page1.setPageSize(2L);
+        IPage<MediaItemVo> first = mediaItemService.listMovies("user-1", page1);
+        assertEquals(3L, first.getTotal());
+        assertEquals(List.of("电影C", "电影B"), first.getRecords().stream().map(MediaItemVo::getTitle).toList());
+
+        MediaPageQueryDto page2 = new MediaPageQueryDto();
+        page2.setPageNum(2L);
+        page2.setPageSize(2L);
+        IPage<MediaItemVo> second = mediaItemService.listMovies("user-1", page2);
+        assertEquals(3L, second.getTotal());
+        assertEquals(List.of("电影A"), second.getRecords().stream().map(MediaItemVo::getTitle).toList());
+    }
+
+    /**
+     * 剧集墙分页：同上，滚动加载下一页。
+     */
+    @Test
+    void shouldPaginateSeriesAcrossPages() {
+        insertSeriesAt("user-1", "dir-1", "剧一", 100L);
+        insertSeriesAt("user-1", "dir-1", "剧二", 200L);
+        insertSeriesAt("user-1", "dir-1", "剧三", 300L);
+
+        MediaPageQueryDto page1 = new MediaPageQueryDto();
+        page1.setPageSize(2L);
+        IPage<MediaSeriesVo> first = mediaItemService.listSeries("user-1", page1);
+        assertEquals(3L, first.getTotal());
+        assertEquals(List.of("剧三", "剧二"), first.getRecords().stream().map(MediaSeriesVo::getSeriesName).toList());
+
+        MediaPageQueryDto page2 = new MediaPageQueryDto();
+        page2.setPageNum(2L);
+        page2.setPageSize(2L);
+        IPage<MediaSeriesVo> second = mediaItemService.listSeries("user-1", page2);
+        assertEquals(3L, second.getTotal());
+        assertEquals(List.of("剧一"), second.getRecords().stream().map(MediaSeriesVo::getSeriesName).toList());
+    }
+
+    /**
+     * 其他网格分页：同上，滚动加载下一页。
+     */
+    @Test
+    void shouldPaginateOthersAcrossPages() {
+        insertOtherAt("user-1", "dir-1", "a.mp4", LocalDateTime.of(2026, 1, 1, 0, 0));
+        insertOtherAt("user-1", "dir-1", "b.mp4", LocalDateTime.of(2026, 1, 1, 0, 1));
+        insertOtherAt("user-1", "dir-1", "c.mp4", LocalDateTime.of(2026, 1, 1, 0, 2));
+
+        MediaPageQueryDto page1 = new MediaPageQueryDto();
+        page1.setPageSize(2L);
+        IPage<MediaItemVo> first = mediaItemService.listOthers("user-1", page1);
+        assertEquals(3L, first.getTotal());
+        assertEquals(List.of("c.mp4", "b.mp4"), first.getRecords().stream().map(MediaItemVo::getTitle).toList());
+
+        MediaPageQueryDto page2 = new MediaPageQueryDto();
+        page2.setPageNum(2L);
+        page2.setPageSize(2L);
+        IPage<MediaItemVo> second = mediaItemService.listOthers("user-1", page2);
+        assertEquals(3L, second.getTotal());
+        assertEquals(List.of("a.mp4"), second.getRecords().stream().map(MediaItemVo::getTitle).toList());
+    }
+
+    /**
+     * 电影墙关键词：命中电影标题 / 元数据标题 / 简介；不命中即过滤。
+     */
+    @Test
+    void shouldSearchMoviesByKeywordInWall() {
+        insertMovie("user-1", "dir-1", "星际穿越");
+        MediaMovie matrix = insertMovie("user-1", "dir-2", "无关电影");
+        MediaMetadata matrixMd = insertMetadata("user-1", MediaMetadataOwnerType.MOVIE.getCode(), matrix.getId());
+        matrixMd.setTitle("黑客帝国");
+        matrixMd.setOverview("讲述数字世界与矩阵的电影");
+        mediaMetadataMapper.updateById(matrixMd);
+        matrix.setMetadataId(matrixMd.getId());
+        mediaMovieMapper.updateById(matrix);
+        insertMovie("user-1", "dir-1", "纪录片集锦");
+
+        assertEquals(1L, moviesWithKeyword("星际").getTotal());    // 电影标题命中
+        assertEquals(1L, moviesWithKeyword("黑客帝国").getTotal()); // 元数据标题命中
+        assertEquals(1L, moviesWithKeyword("数字世界").getTotal()); // 简介命中
+        assertEquals(0L, moviesWithKeyword("不存在的词").getTotal());
+    }
+
+    /**
+     * 剧集墙关键词：命中剧名 / 元数据标题 / 简介；不命中即过滤。
+     */
+    @Test
+    void shouldSearchSeriesByKeywordInWall() {
+        insertSeries("user-1", "dir-1", "疑犯追踪");
+        MediaSeries lost = insertSeries("user-1", "dir-2", "迷失");
+        MediaMetadata lostMd = insertMetadata("user-1", MediaMetadataOwnerType.SERIES.getCode(), lost.getId());
+        lostMd.setTitle("迷失剧集");
+        lostMd.setOverview("讲述荒岛生存的故事");
+        mediaMetadataMapper.updateById(lostMd);
+        lost.setMetadataId(lostMd.getId());
+        mediaSeriesMapper.updateById(lost);
+
+        assertEquals(1L, seriesWithKeyword("疑犯").getTotal());   // 剧名命中
+        assertEquals(1L, seriesWithKeyword("迷失剧").getTotal());  // 元数据标题命中
+        assertEquals(1L, seriesWithKeyword("荒岛").getTotal());    // 简介命中
+        assertEquals(0L, seriesWithKeyword("不存在的词").getTotal());
+    }
+
+    /**
+     * 其他网格关键词：命中条目名（文件名）。
+     */
+    @Test
+    void shouldSearchOthersByKeywordInWall() {
+        insertOther("user-1", "dir-1", "星际纪录片.mp4");
+        insertOther("user-1", "dir-2", "教学视频.01.mp4");
+
+        assertEquals(1L, othersWithKeyword("纪录片").getTotal());
+        assertEquals(1L, othersWithKeyword("教学").getTotal());
+        assertEquals(0L, othersWithKeyword("不存在的词").getTotal());
+    }
+
+    /**
+     * 电影墙排序（添加时间）：默认添加时间倒序；显式 asc 升序；发行日期为空的电影不参与。
+     */
+    @Test
+    void shouldSortMoviesByAddedTimeAscDescWithDefault() {
+        MediaMovie oldest = insertMovieAt("user-1", "dir-1", "最早", LocalDateTime.of(2026, 1, 1, 0, 0));
+        MediaMovie middle = insertMovieAt("user-1", "dir-1", "中间", LocalDateTime.of(2026, 1, 1, 0, 1));
+        MediaMovie latest = insertMovieAt("user-1", "dir-1", "最新", LocalDateTime.of(2026, 1, 1, 0, 2));
+
+        // 默认：添加时间倒序
+        assertEquals(List.of(latest.getId(), middle.getId(), oldest.getId()),
+                idsOf(mediaItemService.listMovies("user-1", new MediaPageQueryDto()).getRecords()));
+
+        // 显式 asc（sortField=added）
+        MediaPageQueryDto asc = new MediaPageQueryDto();
+        asc.setSortField(MediaPageQueryDto.SORT_FIELD_ADDED);
+        asc.setSortOrder("asc");
+        assertEquals(List.of(oldest.getId(), middle.getId(), latest.getId()),
+                idsOf(mediaItemService.listMovies("user-1", asc).getRecords()));
+    }
+
+    /**
+     * 剧集墙排序（添加时间 = min_file_last_modified）：默认倒序；显式 asc 升序。
+     */
+    @Test
+    void shouldSortSeriesByAddedTimeAscDescWithDefault() {
+        MediaSeries oldest = insertSeriesAt("user-1", "dir-1", "剧一", 100L);
+        MediaSeries middle = insertSeriesAt("user-1", "dir-1", "剧二", 200L);
+        MediaSeries latest = insertSeriesAt("user-1", "dir-1", "剧三", 300L);
+
+        assertEquals(List.of(latest.getId(), middle.getId(), oldest.getId()),
+                mediaItemService.listSeries("user-1", new MediaPageQueryDto()).getRecords().stream()
+                        .map(MediaSeriesVo::getId).toList());
+
+        MediaPageQueryDto asc = new MediaPageQueryDto();
+        asc.setSortField(MediaPageQueryDto.SORT_FIELD_ADDED);
+        asc.setSortOrder("asc");
+        assertEquals(List.of(oldest.getId(), middle.getId(), latest.getId()),
+                mediaItemService.listSeries("user-1", asc).getRecords().stream()
+                        .map(MediaSeriesVo::getId).toList());
+    }
+
+    /**
+     * 其他网格排序（添加时间 = create_time）：默认倒序；显式 asc 升序。
+     */
+    @Test
+    void shouldSortOthersByAddedTimeAscDescWithDefault() {
+        insertOtherAt("user-1", "dir-1", "a.mp4", LocalDateTime.of(2026, 1, 1, 0, 0));
+        insertOtherAt("user-1", "dir-1", "b.mp4", LocalDateTime.of(2026, 1, 1, 0, 1));
+        insertOtherAt("user-1", "dir-1", "c.mp4", LocalDateTime.of(2026, 1, 1, 0, 2));
+
+        assertEquals(List.of("c.mp4", "b.mp4", "a.mp4"),
+                mediaItemService.listOthers("user-1", new MediaPageQueryDto()).getRecords().stream()
+                        .map(MediaItemVo::getTitle).toList());
+
+        MediaPageQueryDto asc = new MediaPageQueryDto();
+        asc.setSortField(MediaPageQueryDto.SORT_FIELD_ADDED);
+        asc.setSortOrder("asc");
+        assertEquals(List.of("a.mp4", "b.mp4", "c.mp4"),
+                mediaItemService.listOthers("user-1", asc).getRecords().stream()
+                        .map(MediaItemVo::getTitle).toList());
+    }
+
+    /**
+     * 电影墙排序（发行时间）：升/降序均正确，发行日期为空的电影始终沉底（NULLS LAST）。
+     */
+    @Test
+    void shouldSortMoviesByReleaseDateAscDescNullsLast() {
+        MediaMovie oldest = insertMovie("user-1", "dir-1", "老片");
+        bindReleaseDate(oldest, "2020-01-01");
+        MediaMovie middle = insertMovie("user-1", "dir-1", "中片");
+        bindReleaseDate(middle, "2021-01-01");
+        MediaMovie newest = insertMovie("user-1", "dir-1", "新片");
+        bindReleaseDate(newest, "2022-01-01");
+        MediaMovie none = insertMovie("user-1", "dir-1", "无日期片");
+
+        MediaPageQueryDto desc = new MediaPageQueryDto();
+        desc.setSortField(MediaPageQueryDto.SORT_FIELD_RELEASE);
+        assertEquals(List.of(newest.getId(), middle.getId(), oldest.getId(), none.getId()),
+                idsOf(mediaItemService.listMovies("user-1", desc).getRecords()));
+
+        MediaPageQueryDto asc = new MediaPageQueryDto();
+        asc.setSortField(MediaPageQueryDto.SORT_FIELD_RELEASE);
+        asc.setSortOrder("asc");
+        assertEquals(List.of(oldest.getId(), middle.getId(), newest.getId(), none.getId()),
+                idsOf(mediaItemService.listMovies("user-1", asc).getRecords()));
+    }
+
+    /**
+     * 剧集墙排序（发行时间）：升/降序均正确，发行日期为空的剧始终沉底（NULLS LAST）。
+     */
+    @Test
+    void shouldSortSeriesByReleaseDateAscDescNullsLast() {
+        MediaSeries oldest = insertSeries("user-1", "dir-1", "老剧");
+        bindSeriesReleaseDate(oldest, "2020-01-01");
+        MediaSeries middle = insertSeries("user-1", "dir-1", "中剧");
+        bindSeriesReleaseDate(middle, "2021-01-01");
+        MediaSeries newest = insertSeries("user-1", "dir-1", "新剧");
+        bindSeriesReleaseDate(newest, "2022-01-01");
+        MediaSeries none = insertSeries("user-1", "dir-1", "无日期剧");
+
+        MediaPageQueryDto desc = new MediaPageQueryDto();
+        desc.setSortField(MediaPageQueryDto.SORT_FIELD_RELEASE);
+        assertEquals(List.of(newest.getId(), middle.getId(), oldest.getId(), none.getId()),
+                mediaItemService.listSeries("user-1", desc).getRecords().stream()
+                        .map(MediaSeriesVo::getId).toList());
+
+        MediaPageQueryDto asc = new MediaPageQueryDto();
+        asc.setSortField(MediaPageQueryDto.SORT_FIELD_RELEASE);
+        asc.setSortOrder("asc");
+        assertEquals(List.of(oldest.getId(), middle.getId(), newest.getId(), none.getId()),
+                mediaItemService.listSeries("user-1", asc).getRecords().stream()
+                        .map(MediaSeriesVo::getId).toList());
+    }
+
     // ---------- 工单 01：图片 URL 版本参数 ----------
 
     /**
@@ -827,5 +1068,73 @@ class MediaItemServiceTest {
 
     private List<String> idsOf(List<MediaItemVo> vos) {
         return vos.stream().map(MediaItemVo::getId).toList();
+    }
+
+    // ---------- 票据 02 辅助方法 ----------
+
+    /** 直插带指定 createTime 的电影行（MyBatis-Plus 仅插入非空字段，不影响其余字段）。 */
+    private MediaMovie insertMovieAt(String userId, String directoryId, String title, LocalDateTime createTime) {
+        MediaMovie movie = insertMovie(userId, directoryId, title);
+        MediaMovie update = new MediaMovie();
+        update.setId(movie.getId());
+        update.setCreateTime(createTime);
+        mediaMovieMapper.updateById(update);
+        return movie;
+    }
+
+    /** 直插带指定 minFileLastModified 的剧集行（剧墙「添加时间」按该字段排序）。 */
+    private MediaSeries insertSeriesAt(String userId, String directoryId, String seriesName, Long minFileLastModified) {
+        MediaSeries series = insertSeries(userId, directoryId, seriesName);
+        MediaSeries update = new MediaSeries();
+        update.setId(series.getId());
+        update.setMinFileLastModified(minFileLastModified);
+        mediaSeriesMapper.updateById(update);
+        return series;
+    }
+
+    /** 直插带指定 createTime 的其他条目行。 */
+    private MediaOther insertOtherAt(String userId, String directoryId, String name, LocalDateTime createTime) {
+        MediaOther other = insertOther(userId, directoryId, name);
+        MediaOther update = new MediaOther();
+        update.setId(other.getId());
+        update.setCreateTime(createTime);
+        mediaOtherMapper.updateById(update);
+        return other;
+    }
+
+    /** 给电影绑定指定发行日期的元数据。 */
+    private void bindReleaseDate(MediaMovie movie, String releaseDate) {
+        MediaMetadata metadata = insertMetadata(movie.getUserId(), MediaMetadataOwnerType.MOVIE.getCode(), movie.getId());
+        metadata.setReleaseDate(releaseDate);
+        mediaMetadataMapper.updateById(metadata);
+        movie.setMetadataId(metadata.getId());
+        mediaMovieMapper.updateById(movie);
+    }
+
+    /** 给剧集绑定指定发行日期的元数据。 */
+    private void bindSeriesReleaseDate(MediaSeries series, String releaseDate) {
+        MediaMetadata metadata = insertMetadata(series.getUserId(), MediaMetadataOwnerType.SERIES.getCode(), series.getId());
+        metadata.setReleaseDate(releaseDate);
+        mediaMetadataMapper.updateById(metadata);
+        series.setMetadataId(metadata.getId());
+        mediaSeriesMapper.updateById(series);
+    }
+
+    private IPage<MediaItemVo> moviesWithKeyword(String keyword) {
+        MediaPageQueryDto query = new MediaPageQueryDto();
+        query.setKeyword(keyword);
+        return mediaItemService.listMovies("user-1", query);
+    }
+
+    private IPage<MediaSeriesVo> seriesWithKeyword(String keyword) {
+        MediaPageQueryDto query = new MediaPageQueryDto();
+        query.setKeyword(keyword);
+        return mediaItemService.listSeries("user-1", query);
+    }
+
+    private IPage<MediaItemVo> othersWithKeyword(String keyword) {
+        MediaPageQueryDto query = new MediaPageQueryDto();
+        query.setKeyword(keyword);
+        return mediaItemService.listOthers("user-1", query);
     }
 }

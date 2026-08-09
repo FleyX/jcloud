@@ -118,6 +118,20 @@ class MediaHomeServiceTest {
     }
 
     /**
+     * 0.95 看完阈值边界：进度恰为 95% 视为看完（排除），略低于阈值（94.9%）仍收录。
+     */
+    @Test
+    void shouldIncludeProgressJustBelowFinishedThresholdAndExcludeAtThreshold() {
+        MediaMovie below = insertMovie(94_900L, 100_000L, playTime(40));
+        insertMovie(95_000L, 100_000L, playTime(41));
+
+        MediaHomeVo home = mediaHomeService.getHome(USER_ID);
+
+        assertEquals(1, home.getContinueWatching().size());
+        assertEquals(below.getId(), home.getContinueWatching().getFirst().getId());
+    }
+
+    /**
      * 接下来：取每部有观看记录的剧的第一集未观看集；在播集排除（归入继续观看）；
      * 无观看记录的剧不收录；按剧最近播放时间倒序。
      */
