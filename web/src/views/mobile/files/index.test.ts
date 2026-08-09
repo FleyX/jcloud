@@ -17,6 +17,11 @@ vi.mock('@/composables/useBatchUpload', () => ({
   useBatchUpload: () => ({ uploadBatch: mockUploadBatch }),
 }))
 
+// jsdom 无 DOMMatrix，pdfjs-dist 导入即失败；预览抽屉在用例中仅 stub，无需真实 PDF 组件
+vi.mock('@/components/files/PdfPreview.vue', () => ({
+  default: { name: 'PdfPreview', template: '<div />' },
+}))
+
 function buildFileNode(): FileNodeVo {
   return {
     id: '1',

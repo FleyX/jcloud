@@ -58,6 +58,7 @@ async function mountShell(initialPath: string) {
       plugins: [pinia, router],
       stubs: {
         TransferPanel: { template: '<div />' },
+        TransferTaskPanel: { template: '<div />' },
       },
     },
   })
