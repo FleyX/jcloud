@@ -63,12 +63,14 @@ class MediaControllerTest {
     private final MediaArtworkPersistSupport mediaArtworkPersistSupport = mock(MediaArtworkPersistSupport.class);
     private final TranscodeSessionManager transcodeSessionManager = mock(TranscodeSessionManager.class);
 
-    private final MediaController mediaController = new MediaController(
-            mediaDirectoryService, mediaFavoriteService, mediaScanService, mediaScrapeService, mediaItemService,
-            mediaHomeService, mediaPlaybackService, tmdbService, mediaMetadataMapper,
-            fileMapper, mediaArtworkPersistSupport, transcodeSessionManager);
+    private final MediaItemController mediaItemController = new MediaItemController(mediaItemService);
+    private final MediaMetadataController mediaMetadataController = new MediaMetadataController(
+            mediaMetadataMapper, fileMapper, mediaArtworkPersistSupport, mediaScrapeService, tmdbService);
+    private final MediaHomeController mediaHomeController = new MediaHomeController(
+            mediaHomeService, mediaItemService, mediaFavoriteService);
 
-    private final MockMvc mockMvc = MockMvcBuilders.standaloneSetup(mediaController)
+    private final MockMvc mockMvc = MockMvcBuilders.standaloneSetup(
+            mediaItemController, mediaMetadataController, mediaHomeController)
             .setControllerAdvice(new GlobalExceptionHandler())
             .build();
 
