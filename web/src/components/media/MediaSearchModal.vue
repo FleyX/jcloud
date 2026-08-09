@@ -4,9 +4,10 @@
  * - 滚动到底自动加载下一页
  * - 点击结果行触发 select，由父组件决定跳转/播放
  */
-import { ref, watch, type Ref } from 'vue'
+import { ref, watch } from 'vue'
 import { X, Search } from '@lucide/vue'
 import type { MediaWallFetcher } from './useMediaWall'
+import { useDebouncedSearch } from '@/composables/useDebouncedSearch'
 
 const PAGE_SIZE = 20
 
@@ -24,91 +25,36 @@ const emit = defineEmits<{
   select: [item: T]
 }>()
 
-const input = ref('')
-const results = ref([]) as Ref<T[]>
-const loading = ref(false)
-const loadingMore = ref(false)
-const finished = ref(false)
+const search = useDebouncedSearch<T>({
+  fetcher: (keyword, page, size) => props.fetcher({ pageNum: page, pageSize: size, keyword }),
+  pageSize: PAGE_SIZE,
+  enabled: () => props.open,
+})
+/** 解构为顶层 ref，模板中可直接解包访问 */
+const { keyword, results, loading, loadingMore, finished } = search
 const listEl = ref<HTMLElement | null>(null)
-
-let pageNum = 1
-let searchSeq = 0
-let timer: ReturnType<typeof setTimeout> | null = null
 
 watch(
   () => props.open,
   (open) => {
     if (open) {
-      input.value = ''
-      resetResults()
-    } else if (timer) {
-      clearTimeout(timer)
+      keyword.value = ''
+      search.reset()
+    } else {
+      search.clearTimer()
     }
   },
 )
 
-watch(input, () => {
-  if (!props.open) return
-  if (timer) clearTimeout(timer)
-  timer = setTimeout(runSearch, 300)
-})
-
-function resetResults() {
-  results.value = []
-  loading.value = false
-  loadingMore.value = false
-  finished.value = false
-  pageNum = 1
-}
-
-async function runSearch() {
-  const keyword = input.value.trim()
-  searchSeq += 1
-  if (!keyword) {
-    resetResults()
-    return
-  }
-  loading.value = true
-  const seq = searchSeq
-  try {
-    const data = await props.fetcher({ pageNum: 1, pageSize: PAGE_SIZE, keyword })
-    if (seq !== searchSeq) return
-    results.value = data.records
-    pageNum = 1
-    finished.value = data.records.length >= Number(data.total)
-  } finally {
-    if (seq === searchSeq) loading.value = false
-  }
-}
-
-async function loadMore() {
-  if (loading.value || loadingMore.value || finished.value) return
-  loadingMore.value = true
-  const seq = searchSeq
-  try {
-    const data = await props.fetcher({ pageNum: pageNum + 1, pageSize: PAGE_SIZE, keyword: input.value.trim() })
-    if (seq !== searchSeq) return
-    if (data.records.length === 0) {
-      finished.value = true
-      return
-    }
-    pageNum += 1
-    results.value.push(...data.records)
-    finished.value = results.value.length >= Number(data.total)
-  } finally {
-    if (seq === searchSeq) loadingMore.value = false
-  }
-}
-
 function onListScroll() {
   const el = listEl.value
   if (!el) return
-  if (el.scrollTop + el.clientHeight >= el.scrollHeight - 60) loadMore()
+  if (el.scrollTop + el.clientHeight >= el.scrollHeight - 60) search.loadMore()
 }
 
 function clear() {
-  input.value = ''
-  resetResults()
+  keyword.value = ''
+  search.reset()
 }
 
 function select(item: T) {
@@ -127,7 +73,7 @@ function select(item: T) {
       <div class="flex items-center gap-3">
         <Search class="h-4 w-4 shrink-0 text-surface-400" />
         <input
-          v-model="input"
+          v-model="keyword"
           type="text"
           :placeholder="placeholder"
           class="flex-1 bg-transparent text-sm text-surface-800 outline-none placeholder:text-surface-300"
@@ -135,7 +81,7 @@ function select(item: T) {
           @keydown.esc="emit('close')"
         >
         <button
-          v-if="input"
+          v-if="keyword"
           class="rounded-lg p-1 text-surface-400 hover:bg-surface-100"
           title="清空"
           @click="clear"
@@ -152,7 +98,7 @@ function select(item: T) {
       </div>
 
       <div
-        v-if="input.trim()"
+        v-if="keyword.trim()"
         ref="listEl"
         class="mt-3 min-h-0 flex-1 overflow-y-auto"
         @scroll="onListScroll"

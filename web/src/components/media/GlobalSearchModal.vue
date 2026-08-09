@@ -5,14 +5,15 @@
  * - 各分区独立分页：首屏每组前 N 条 + 总数，分区底部「加载更多」追加
  * - 点击电影→电影详情、剧集→剧集详情、其他→直接播放，并关闭弹窗
  */
-import { computed, ref, watch } from 'vue'
+import { computed, ref, watch, type Ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { X, Search, Film, Tv, Clapperboard } from '@lucide/vue'
 import type { Component } from 'vue'
 import type { MediaItemVo, MediaSeriesVo } from '@/types/media'
-import { fetchMediaMovies, fetchMediaOthers, fetchMediaSeries, searchMedia } from '@/api/media'
+import { fetchMediaMovies, fetchMediaOthers, fetchMediaSeries } from '@/api/media'
 import { formatDuration } from '@/utils/format'
 import MediaSearchResultRow from './MediaSearchResultRow.vue'
+import { useDebouncedSearch } from '@/composables/useDebouncedSearch'
 
 /** 每组首屏条数（与后端 /media/search 默认 size 一致） */
 const FIRST_PAGE_SIZE = 8
@@ -28,116 +29,98 @@ const emit = defineEmits<{
 
 const router = useRouter()
 
-const input = ref('')
-const loading = ref(false)
-/** 是否已执行过有效搜索（用于区分未搜索与无结果） */
-const searched = ref(false)
+/** 共享关键词：三分区各持有一个 useDebouncedSearch 实例，共用同一输入 */
+const keyword = ref('')
 
-interface SearchSection<T> {
+/** 分区加载更多的视图状态（模板直接消费的普通值） */
+interface SearchSectionView<T> {
   items: T[]
-  pageNum: number
   total: number
   loadingMore: boolean
+  loadMore: () => void
 }
 
-const movies = ref<SearchSection<MediaItemVo>>({ items: [], pageNum: 0, total: 0, loadingMore: false })
-const series = ref<SearchSection<MediaSeriesVo>>({ items: [], pageNum: 0, total: 0, loadingMore: false })
-const others = ref<SearchSection<MediaItemVo>>({ items: [], pageNum: 0, total: 0, loadingMore: false })
+const movies = useDebouncedSearch<MediaItemVo>({
+  keyword,
+  fetcher: (kw, page, size) => fetchMediaMovies({ pageNum: page, pageSize: size, keyword: kw }),
+  pageSize: FIRST_PAGE_SIZE,
+  enabled: () => props.open,
+})
+const series = useDebouncedSearch<MediaSeriesVo>({
+  keyword,
+  fetcher: (kw, page, size) => fetchMediaSeries({ pageNum: page, pageSize: size, keyword: kw }),
+  pageSize: FIRST_PAGE_SIZE,
+  enabled: () => props.open,
+})
+const others = useDebouncedSearch<MediaItemVo>({
+  keyword,
+  fetcher: (kw, page, size) => fetchMediaOthers({ pageNum: page, pageSize: size, keyword: kw }),
+  pageSize: FIRST_PAGE_SIZE,
+  enabled: () => props.open,
+})
 
 type SectionKey = 'movies' | 'series' | 'others'
 
+interface SearchSectionState<T> {
+  results: Ref<T[]>
+  total: Ref<number>
+  loadingMore: Ref<boolean>
+  finished: Ref<boolean>
+  loadMore: () => void
+}
+
+const sectionStates: Record<SectionKey, SearchSectionState<MediaItemVo | MediaSeriesVo>> = {
+  movies,
+  series,
+  others,
+}
+
 const sectionLabels: Record<SectionKey, string> = { movies: '电影', series: '剧集', others: '其他' }
 const sectionIcons: Record<SectionKey, Component> = { movies: Film, series: Tv, others: Clapperboard }
-
-let searchSeq = 0
-let timer: ReturnType<typeof setTimeout> | null = null
 
 watch(
   () => props.open,
   (open) => {
     if (open) {
-      input.value = ''
-      resetResults()
-    } else if (timer) {
-      clearTimeout(timer)
+      keyword.value = ''
+      movies.reset()
+      series.reset()
+      others.reset()
+    } else {
+      movies.clearTimer()
+      series.clearTimer()
+      others.clearTimer()
     }
   },
 )
 
-watch(input, () => {
-  if (!props.open) return
-  if (timer) clearTimeout(timer)
-  timer = setTimeout(runSearch, 300)
-})
-
-function resetResults() {
-  searched.value = false
-  loading.value = false
-  searchSeq += 1
-  movies.value = { items: [], pageNum: 0, total: 0, loadingMore: false }
-  series.value = { items: [], pageNum: 0, total: 0, loadingMore: false }
-  others.value = { items: [], pageNum: 0, total: 0, loadingMore: false }
-}
-
 function clear() {
-  input.value = ''
-  resetResults()
+  keyword.value = ''
+  movies.reset()
+  series.reset()
+  others.reset()
 }
 
-async function runSearch() {
-  const keyword = input.value.trim()
-  searchSeq += 1
-  if (!keyword) {
-    resetResults()
-    return
-  }
-  loading.value = true
-  const seq = searchSeq
-  try {
-    const data = await searchMedia(keyword, FIRST_PAGE_SIZE)
-    if (seq !== searchSeq) return
-    movies.value = { items: data.movies.records, pageNum: 1, total: Number(data.movies.total), loadingMore: false }
-    series.value = { items: data.series.records, pageNum: 1, total: Number(data.series.total), loadingMore: false }
-    others.value = { items: data.others.records, pageNum: 1, total: Number(data.others.total), loadingMore: false }
-    searched.value = true
-  } finally {
-    if (seq === searchSeq) loading.value = false
-  }
-}
-
-async function loadMore(key: SectionKey) {
-  const state = stateOf(key)
-  if (state.loadingMore || state.items.length >= state.total) return
-  state.loadingMore = true
-  const seq = searchSeq
-  try {
-    const page = state.pageNum + 1
-    const keyword = input.value.trim()
-    const data =
-      key === 'movies'
-        ? await fetchMediaMovies({ pageNum: page, pageSize: FIRST_PAGE_SIZE, keyword })
-        : key === 'series'
-          ? await fetchMediaSeries({ pageNum: page, pageSize: FIRST_PAGE_SIZE, keyword })
-          : await fetchMediaOthers({ pageNum: page, pageSize: FIRST_PAGE_SIZE, keyword })
-    if (seq !== searchSeq) return
-    state.pageNum = page
-    state.items.push(...data.records)
-    state.total = Number(data.total)
-  } finally {
-    if (seq === searchSeq) state.loadingMore = false
-  }
-}
-
-function stateOf(key: SectionKey): SearchSection<MediaItemVo | MediaSeriesVo> {
-  if (key === 'movies') return movies.value
-  if (key === 'series') return series.value
-  return others.value
-}
+/** 任一分区请求中即视为整体加载中（原单请求语义：搜索完成前只展示「搜索中…」） */
+const loading = computed(() => movies.loading.value || series.loading.value || others.loading.value)
+/** 是否已执行过有效搜索（任一分区完成过非空搜索） */
+const searched = computed(() => movies.searched.value || series.searched.value || others.searched.value)
 
 /** 已初始化且非空的分区（total > 0 才显示） */
-const visibleSections = computed<{ key: SectionKey; state: SearchSection<MediaItemVo | MediaSeriesVo> }[]>(() =>
+const visibleSections = computed<{ key: SectionKey; state: SearchSectionView<MediaItemVo | MediaSeriesVo> }[]>(() =>
   (['movies', 'series', 'others'] as const)
-    .map((key) => ({ key, state: stateOf(key) }))
+    .map((key) => {
+      const state = sectionStates[key]
+      return {
+        key,
+        state: {
+          items: state.results.value,
+          total: state.total.value,
+          loadingMore: state.loadingMore.value,
+          loadMore: () => state.loadMore(),
+        },
+      }
+    })
     .filter(({ state }) => state.total > 0),
 )
 
@@ -200,7 +183,7 @@ function seriesSubtitle(item: MediaSeriesVo): string {
       <div class="flex items-center gap-3">
         <Search class="h-4 w-4 shrink-0 text-surface-400" />
         <input
-          v-model="input"
+          v-model="keyword"
           type="text"
           placeholder="跨全部媒体库搜索（文件名、剧名、简介）"
           class="flex-1 bg-transparent text-sm text-surface-800 outline-none placeholder:text-surface-300"
@@ -208,7 +191,7 @@ function seriesSubtitle(item: MediaSeriesVo): string {
           @keydown.esc="emit('close')"
         >
         <button
-          v-if="input"
+          v-if="keyword"
           class="rounded-lg p-1 text-surface-400 hover:bg-surface-100"
           title="清空"
           @click="clear"
@@ -232,12 +215,12 @@ function seriesSubtitle(item: MediaSeriesVo): string {
           搜索中…
         </p>
         <p
-          v-else-if="input.trim() && noResults"
+          v-else-if="keyword.trim() && noResults"
           class="py-8 text-center text-sm text-surface-400"
         >
           未找到匹配的内容
         </p>
-        <template v-else-if="input.trim()">
+        <template v-else-if="keyword.trim()">
           <section
             v-for="{ key, state } in visibleSections"
             :key="key"
@@ -267,7 +250,7 @@ function seriesSubtitle(item: MediaSeriesVo): string {
               v-if="state.items.length < state.total"
               class="mt-2 w-full rounded-xl border border-surface-200 bg-white py-1.5 text-xs text-surface-500 transition-colors hover:bg-surface-50 hover:text-primary-600"
               :disabled="state.loadingMore"
-              @click="loadMore(key)"
+              @click="state.loadMore"
             >
               {{ state.loadingMore ? '加载中…' : '加载更多' }}
             </button>
