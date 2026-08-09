@@ -6,6 +6,7 @@ import com.fleyx.jcloud.common.context.UserContext;
 import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.model.bo.FileDownloadResult;
+import com.fleyx.jcloud.model.vo.MediaPlaybackConfigVo;
 import com.fleyx.jcloud.model.vo.MediaPlaybackInfoVo;
 import com.fleyx.jcloud.service.MediaPlaybackService;
 import com.fleyx.jcloud.service.support.TranscodePlaylistSupport;
@@ -47,6 +48,15 @@ public class MediaPlaybackController {
     private final TranscodeSessionManager transcodeSessionManager;
 
     // ---------- 播放 ----------
+
+    /**
+     * 全局播放配置（ADR 0024）：码率档位阶梯、直放/转封装白名单、看完阈值。
+     * 后端常量为唯一事实源，前端进入播放流程时拉取一次并缓存，不再硬编码。
+     */
+    @GetMapping("/playback-config")
+    public R<MediaPlaybackConfigVo> playbackConfig() {
+        return R.ok(mediaPlaybackService.getPlaybackConfig());
+    }
 
     @GetMapping("/items/{id}/playback")
     public R<MediaPlaybackInfoVo> playbackInfo(@PathVariable String id,

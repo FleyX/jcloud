@@ -33,9 +33,9 @@ import java.util.stream.Collectors;
 public class MediaHomeItemSupport {
 
     /**
-     * 看完阈值：进度达到时长的 95% 视为看完。
+     * 看完阈值：进度达到时长的 95% 视为看完（全局播放配置接口下发的唯一事实源）。
      */
-    static final double FINISHED_RATIO = 0.95;
+    public static final double FINISHED_RATIO = 0.95;
 
     private final MediaEpisodeFileMapper mediaEpisodeFileMapper;
     private final MediaMovieFileMapper mediaMovieFileMapper;

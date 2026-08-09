@@ -12,6 +12,7 @@ import type {
   MediaItemDetailVo,
   MediaItemVo,
   MediaPageQuery,
+  MediaPlaybackConfigVo,
   MediaPlaybackInfoVo,
   MediaSeriesDetailVo,
   MediaSeriesVo,
@@ -119,6 +120,14 @@ export function updateMediaProgress(id: string, progressMs: number, versionId?: 
 }
 
 // ---------- 播放 ----------
+
+/**
+ * 拉取全局播放配置（ADR 0024）：码率档位阶梯、直放/转封装白名单、看完阈值。
+ * 后端常量唯一事实源，前端进入播放流程时拉取一次并缓存。
+ */
+export function fetchPlaybackConfig(): Promise<MediaPlaybackConfigVo> {
+  return get<MediaPlaybackConfigVo>('/media/playback-config')
+}
 
 /**
  * 拉取播放信息。versionId 为电影版本明细行 ID（可选）：指定时用该版本文件事实，

@@ -17,26 +17,7 @@ import {
   updateMediaProgress,
   withToken,
 } from '@/api/media'
-
-/**
- * 码率档位：kbps/maxHeight 为 null 表示原画（维持后端直放/原质量转码判定）
- */
-export interface BitrateTier {
-  key: string
-  label: string
-  kbps: number | null
-  maxHeight: number | null
-}
-
-export const BITRATE_TIERS: BitrateTier[] = [
-  { key: 'original', label: '原画', kbps: null, maxHeight: null },
-  { key: '20000-2160', label: '20M · 4K', kbps: 20000, maxHeight: 2160 },
-  { key: '8000-1080', label: '8M · 1080p', kbps: 8000, maxHeight: 1080 },
-  { key: '4000-1080', label: '4M · 1080p', kbps: 4000, maxHeight: 1080 },
-  { key: '2000-720', label: '2M · 720p', kbps: 2000, maxHeight: 720 },
-  { key: '1000-480', label: '1M · 480p', kbps: 1000, maxHeight: 480 },
-  { key: '500-360', label: '500K · 360p', kbps: 500, maxHeight: 360 },
-]
+import { getPlaybackConfig, loadPlaybackConfig } from './usePlaybackConfig'
 
 const BITRATE_TIER_STORAGE_KEY = 'jcloud.player.bitrateTier'
 const SUBTITLE_LANG_STORAGE_KEY = 'jcloud.player.subtitlePref'
@@ -57,7 +38,7 @@ export function subtitleItemKey(item: MediaSubtitleItem): string {
   return item.type === 'embedded' ? `embedded:${item.index}` : `external:${item.subtitleId}`
 }
 
-/** hevc/vp9/av1 转封装（-c:v copy）时的 MSE 探测 MIME */
+/** hevc/vp9/av1 转封装（-c:v copy）时的 MSE 探测 MIME（浏览器侧知识，保留前端） */
 const REMUX_PROBE_MIME: Record<string, string> = {
   hevc: 'video/mp4; codecs="hvc1.1.6.L120.90"',
   vp9: 'video/mp4; codecs="vp09.00.10.08"',
@@ -67,9 +48,12 @@ const REMUX_PROBE_MIME: Record<string, string> = {
 /**
  * 转封装会话的视频是 -c:v copy，hevc/vp9/av1 需检测 MSE 是否支持，不支持则强制视频转码。
  * h264 不用检；Safari 走原生 HLS（无 MSE）不检测。
+ * 需探测的 codec 集合 = 接口下发的转封装白名单减 h264（ADR 0024），不再前端硬编码。
  */
 function needsForceVideoTranscode(videoCodec: string | null): boolean {
   if (!videoCodec || !Hls.isSupported()) return false
+  const probeCodecs = (getPlaybackConfig()?.remux.videoCopyCodecs ?? []).filter((codec) => codec !== 'h264')
+  if (!probeCodecs.includes(videoCodec.toLowerCase())) return false
   const mime = REMUX_PROBE_MIME[videoCodec.toLowerCase()]
   return mime !== undefined && !MediaSource.isTypeSupported(mime)
 }
@@ -156,8 +140,9 @@ export function useMediaPlayback(videoRef: Ref<HTMLVideoElement | null>) {
 
   /** 非原画档且档位码率低于实际码率时返回强制转码参数，否则按原画处理 */
   function resolveBitrateParams(info: MediaPlaybackInfoVo): { targetBitrateKbps: number; maxHeight: number } | null {
-    const tier = BITRATE_TIERS.find((t) => t.key === bitrateTierKey.value) ?? BITRATE_TIERS[0]
-    if (tier.kbps === null || tier.maxHeight === null) return null
+    const tiers = getPlaybackConfig()?.bitrateTiers ?? []
+    const tier = tiers.find((t) => t.key === bitrateTierKey.value) ?? tiers[0]
+    if (!tier || tier.kbps === null || tier.maxHeight === null) return null
     const effective = info.effectiveBitRate !== null ? Number(info.effectiveBitRate) : NaN
     if (!Number.isFinite(effective) || tier.kbps * 1000 >= effective) return null
     return { targetBitrateKbps: tier.kbps, maxHeight: tier.maxHeight }
@@ -264,16 +249,18 @@ export function useMediaPlayback(videoRef: Ref<HTMLVideoElement | null>) {
     loading.value = true
     errorMsg.value = ''
     try {
-      playbackInfo.value = await fetchPlaybackInfo(id, versionId)
+      // 并行拉取播放信息与全局播放配置（配置单例缓存，进入播放流程时首次加载）
+      const [config, info] = await Promise.all([loadPlaybackConfig(), fetchPlaybackInfo(id, versionId)])
       if (destroyed) return
+      playbackInfo.value = info
       itemId.value = id
       // 以响应解析的实际版本为准：缺省请求时后端按续播语义定位，剧集/其他可能为 null
       currentVersionId.value = playbackInfo.value?.versionId ?? null
       applyDefaultSubtitle(playbackInfo.value.subtitles ?? [])
       const durationMs = Number(playbackInfo.value.durationMs ?? 0)
       let resumeMs = startMs ?? Number(playbackInfo.value.progressMs ?? 0)
-      // 进度已接近片尾（≥95%）视为看完，从头播放；也防止按超出时长的进度启动转码导致空切片
-      if (durationMs > 0 && resumeMs >= durationMs * 0.95) {
+      // 进度已达看完阈值视为看完，从头播放；也防止按超出时长的进度启动转码导致空切片
+      if (durationMs > 0 && resumeMs >= durationMs * config.finishedRatio) {
         resumeMs = 0
       }
       if (resolveBitrateParams(playbackInfo.value) !== null || playbackInfo.value.mode === 'transcode') {

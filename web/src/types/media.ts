@@ -188,6 +188,38 @@ export interface MediaTrack {
 }
 
 /**
+ * 码率档位（播放配置接口下发，kbps/maxHeight 为 null 表示原画）
+ */
+export interface MediaBitrateTierVo {
+  key: string
+  label: string
+  kbps: number | null
+  maxHeight: number | null
+}
+
+/**
+ * 全局播放配置（ADR 0024）：后端常量唯一事实源，进入播放流程时拉取一次并缓存。
+ * 前端不再硬编码码率档位/白名单/看完阈值。
+ */
+export interface MediaPlaybackConfigVo {
+  /** 码率档位阶梯（七档，原画在前） */
+  bitrateTiers: MediaBitrateTierVo[]
+  /** 直放白名单 */
+  directPlay: {
+    containers: string[]
+    videoCodecs: string[]
+    audioCodecs: string[]
+  }
+  /** 转封装白名单 */
+  remux: {
+    videoCopyCodecs: string[]
+    audioCopyCodecs: string[]
+  }
+  /** 看完阈值：进度达到时长的该比例视为看完 */
+  finishedRatio: number
+}
+
+/**
  * 统一字幕项（内嵌字幕轨与外部字幕统一渲染选择列表）
  */
 export interface MediaSubtitleItem {

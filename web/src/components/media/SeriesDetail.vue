@@ -10,6 +10,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, Heart, LoaderCircle, Tv } from '@lucide/vue'
 import type { MediaItemVo, MediaSeriesDetailVo, MediaSeriesSeasonVo, TmdbSearchResultVo } from '@/types/media'
 import { fetchSeasonEpisodes, fetchSeriesDetail, refreshMetadata, toggleFavorite, updateMediaMatch, withToken, type MediaRefreshMode } from '@/api/media'
+import { getPlaybackConfig, loadPlaybackConfig } from '@/composables/usePlaybackConfig'
 import { useNotificationStore } from '@/store/notification'
 import { formatDurationText } from './format'
 import { cn } from '@/utils/cn'
@@ -46,6 +47,9 @@ function markEpisodePosterError(episodeId: string) {
 }
 
 onMounted(load)
+
+// 提前拉取播放配置（finishedRatio 用于下一集待看判定），失败时回退默认值
+void loadPlaybackConfig().catch(() => undefined)
 
 async function load() {
   loading.value = true
@@ -136,14 +140,16 @@ function seasonTitle(season: MediaSeriesSeasonVo): string {
 }
 
 /**
- * 下一集待看：第一集未看到 95% 的集，全部看完则为第一集
+ * 下一集待看：第一集未看到「看完阈值」的集，全部看完则为第一集。
+ * 阈值来自全局播放配置（ADR 0024），配置未就绪时回退 0.95 保持原行为。
  */
 function findNextUp(list: MediaItemVo[]): MediaItemVo | null {
   if (list.length === 0) return null
+  const finishedRatio = getPlaybackConfig()?.finishedRatio ?? 0.95
   return list.find((episode) => {
     if (!episode.progressMs || episode.progressMs <= 0) return true
     if (!episode.durationMs || episode.durationMs <= 0) return false
-    return episode.progressMs < episode.durationMs * 0.95
+    return episode.progressMs < episode.durationMs * finishedRatio
   }) ?? list[0]
 }
 

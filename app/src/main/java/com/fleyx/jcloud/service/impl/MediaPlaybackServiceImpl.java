@@ -15,6 +15,7 @@ import com.fleyx.jcloud.model.bo.MediaProbeResult;
 import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.po.MediaSubtitle;
 import com.fleyx.jcloud.model.po.StorageSpace;
+import com.fleyx.jcloud.model.vo.MediaPlaybackConfigVo;
 import com.fleyx.jcloud.model.vo.MediaPlaybackInfoVo;
 import com.fleyx.jcloud.service.MediaPlaybackService;
 import com.fleyx.jcloud.service.RemoteFileService;
@@ -22,6 +23,7 @@ import com.fleyx.jcloud.service.support.MediaPlaybackResolveSupport;
 import com.fleyx.jcloud.service.support.MediaPlaybackResolveSupport.Playable;
 import com.fleyx.jcloud.service.support.MediaProbeSupport;
 import com.fleyx.jcloud.service.support.MediaSubtitleSupport;
+import com.fleyx.jcloud.service.support.PlaybackConfigConstants;
 import com.fleyx.jcloud.service.support.TranscodeCommandBuilder;
 import com.fleyx.jcloud.service.support.TranscodeSession;
 import com.fleyx.jcloud.service.support.TranscodeSessionManager;
@@ -40,7 +42,6 @@ import java.nio.file.StandardOpenOption;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -55,9 +56,7 @@ import java.util.concurrent.TimeUnit;
 @RequiredArgsConstructor
 public class MediaPlaybackServiceImpl implements MediaPlaybackService {
 
-    private static final Set<String> DIRECT_CONTAINERS = Set.of("mp4", "mov", "m4v", "webm");
-    private static final Set<String> DIRECT_VIDEO_CODECS = Set.of("h264", "hevc", "vp8", "vp9", "av1");
-    private static final Set<String> DIRECT_AUDIO_CODECS = Set.of("aac", "mp3", "opus", "vorbis", "flac");
+    // 直放白名单与直放判定单一定义在 PlaybackConfigConstants（ADR 0024）
 
     private final MediaPlaybackResolveSupport mediaPlaybackResolveSupport;
     private final FileMapper fileMapper;
@@ -70,6 +69,11 @@ public class MediaPlaybackServiceImpl implements MediaPlaybackService {
     private final TranscodeSessionManager transcodeSessionManager;
     private final MediaProperties mediaProperties;
     private final com.fleyx.jcloud.service.SystemStorageSpaceProvider systemStorageSpaceProvider;
+
+    @Override
+    public MediaPlaybackConfigVo getPlaybackConfig() {
+        return PlaybackConfigConstants.buildConfig();
+    }
 
     @Override
     public MediaPlaybackInfoVo getPlaybackInfo(String id, String userId, String versionId) {
@@ -93,7 +97,7 @@ public class MediaPlaybackServiceImpl implements MediaPlaybackService {
         vo.setVersionId(playable.fileRowId());
 
         String versionSuffix = versionId == null ? "" : "?versionId=" + versionId;
-        if (canDirectPlay(vo.getContainer(), vo.getVideoCodec(), vo.getAudioCodec())) {
+        if (PlaybackConfigConstants.canDirectPlay(vo.getContainer(), vo.getVideoCodec(), vo.getAudioCodec())) {
             vo.setMode("direct");
             vo.setDirectUrl("/jcloud/api/media/items/" + id + "/stream" + versionSuffix);
         } else {
@@ -310,20 +314,6 @@ public class MediaPlaybackServiceImpl implements MediaPlaybackService {
             return new MediaProbeResult(playable.durationMs(), playable.container(), playable.videoCodec(),
                     playable.audioCodec(), playable.width(), playable.height(), null, List.of(), List.of());
         }
-    }
-
-    private boolean canDirectPlay(String container, String videoCodec, String audioCodec) {
-        if (container == null || videoCodec == null) {
-            return false;
-        }
-        String normalizedContainer = container.toLowerCase();
-        // mov 容器按 mp4 处理
-        if ("mov".equals(normalizedContainer)) {
-            normalizedContainer = "mp4";
-        }
-        return DIRECT_CONTAINERS.contains(normalizedContainer)
-                && DIRECT_VIDEO_CODECS.contains(videoCodec.toLowerCase())
-                && (audioCodec == null || DIRECT_AUDIO_CODECS.contains(audioCodec.toLowerCase()));
     }
 
     private Path resolveLocalPath(FileNode node, String userId) {

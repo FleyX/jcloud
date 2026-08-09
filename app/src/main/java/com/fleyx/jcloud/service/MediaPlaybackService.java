@@ -1,6 +1,7 @@
 package com.fleyx.jcloud.service;
 
 import com.fleyx.jcloud.model.bo.FileDownloadResult;
+import com.fleyx.jcloud.model.vo.MediaPlaybackConfigVo;
 import com.fleyx.jcloud.model.vo.MediaPlaybackInfoVo;
 import com.fleyx.jcloud.service.support.TranscodeSession;
 import com.fleyx.jcloud.service.support.TranscodeSessionManager;
@@ -11,6 +12,14 @@ import java.nio.file.Path;
  * 媒体播放服务。
  */
 public interface MediaPlaybackService {
+
+    /**
+     * 获取全局播放配置（ADR 0024）：码率档位阶梯、直放/转封装白名单、看完阈值。
+     * 后端常量为唯一事实源，前端进入播放流程时拉取一次并缓存。
+     *
+     * @return 全局播放配置
+     */
+    MediaPlaybackConfigVo getPlaybackConfig();
 
     /**
      * 获取播放信息（含直放/转码判定与轨道列表）。

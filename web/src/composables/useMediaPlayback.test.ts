@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ref } from 'vue'
 import { useMediaPlayback } from './useMediaPlayback'
-import type { MediaPlaybackInfoVo } from '@/types/media'
+import { resetPlaybackConfigCache } from './usePlaybackConfig'
+import type { MediaPlaybackConfigVo, MediaPlaybackInfoVo } from '@/types/media'
 
 const mocks = vi.hoisted(() => ({
   fetchPlaybackInfo: vi.fn(),
+  fetchPlaybackConfig: vi.fn(),
   createTranscodeSession: vi.fn(),
   subtitleUrl: vi.fn(),
   externalSubtitleUrl: vi.fn(),
@@ -70,6 +72,23 @@ function buildPlaybackInfo(overrides: Partial<MediaPlaybackInfoVo> = {}): MediaP
   }
 }
 
+function buildPlaybackConfig(): MediaPlaybackConfigVo {
+  return {
+    bitrateTiers: [
+      { key: 'original', label: '原画', kbps: null, maxHeight: null },
+      { key: '20000-2160', label: '20M · 4K', kbps: 20000, maxHeight: 2160 },
+      { key: '8000-1080', label: '8M · 1080p', kbps: 8000, maxHeight: 1080 },
+      { key: '4000-1080', label: '4M · 1080p', kbps: 4000, maxHeight: 1080 },
+      { key: '2000-720', label: '2M · 720p', kbps: 2000, maxHeight: 720 },
+      { key: '1000-480', label: '1M · 480p', kbps: 1000, maxHeight: 480 },
+      { key: '500-360', label: '500K · 360p', kbps: 500, maxHeight: 360 },
+    ],
+    directPlay: { containers: ['mp4'], videoCodecs: ['h264'], audioCodecs: ['aac'] },
+    remux: { videoCopyCodecs: ['h264', 'hevc', 'vp9', 'av1'], audioCopyCodecs: ['aac', 'mp3'] },
+    finishedRatio: 0.95,
+  }
+}
+
 function createPlayback() {
   const video = createFakeVideo()
   const videoRef = ref<HTMLVideoElement | null>(video)
@@ -79,8 +98,58 @@ function createPlayback() {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  mocks.fetchPlaybackConfig.mockResolvedValue(buildPlaybackConfig())
+  resetPlaybackConfigCache()
   mocks.subtitleUrl.mockReturnValue('/sub/embedded')
   mocks.externalSubtitleUrl.mockReturnValue('/sub/external')
+})
+
+describe('useMediaPlayback 消费播放配置（ADR 0024）', () => {
+  it('选中限码率档位且实际码率高于档位时，转码会话携带档位码率与分辨率上限', async () => {
+    mocks.fetchPlaybackInfo.mockResolvedValue(buildPlaybackInfo({
+      mode: 'direct',
+      effectiveBitRate: '5000000',
+    }))
+    mocks.createTranscodeSession.mockResolvedValue({ sessionId: 's1', playlistUrl: '/hls/p.m3u8' })
+    const { pb } = createPlayback()
+
+    await pb.start('item-1')
+    await pb.selectBitrateTier('2000-720')
+
+    expect(mocks.createTranscodeSession).toHaveBeenCalledWith(
+      'item-1', 0,
+      expect.objectContaining({ targetBitrateKbps: 2000, maxHeight: 720 }),
+      undefined,
+    )
+    pb.stop()
+  })
+
+  it('档位码率不低于实际码率时按原画处理，不触发转码', async () => {
+    mocks.fetchPlaybackInfo.mockResolvedValue(buildPlaybackInfo({
+      mode: 'direct',
+      effectiveBitRate: '100000',
+    }))
+    const { pb } = createPlayback()
+
+    await pb.start('item-1')
+    await pb.selectBitrateTier('2000-720')
+
+    expect(mocks.createTranscodeSession).not.toHaveBeenCalled()
+    pb.stop()
+  })
+
+  it('进度已达看完阈值（finishedRatio）时从头播放', async () => {
+    mocks.fetchPlaybackInfo.mockResolvedValue(buildPlaybackInfo({
+      mode: 'direct',
+      progressMs: 6_900_000, // > 7_200_000 * 0.95
+    }))
+    const { video, pb } = createPlayback()
+
+    await pb.start('item-1')
+
+    expect(video.currentTime).toBe(0)
+    pb.stop()
+  })
 })
 
 describe('useMediaPlayback 字幕偏移与播放源代际', () => {

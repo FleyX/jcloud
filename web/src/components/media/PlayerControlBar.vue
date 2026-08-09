@@ -25,7 +25,8 @@ import {
 import type { MediaMovieVersionVo, MediaPlaybackInfoVo, MediaTrack } from '@/types/media'
 import type { PlayerControls } from '@/composables/usePlayerControls'
 import { SPEED_OPTIONS } from '@/composables/usePlayerControls'
-import { BITRATE_TIERS, subtitleItemKey } from '@/composables/useMediaPlayback'
+import { getPlaybackConfig } from '@/composables/usePlaybackConfig'
+import { subtitleItemKey } from '@/composables/useMediaPlayback'
 import PlayerOptionMenu from '@/components/media/PlayerOptionMenu.vue'
 import { cn } from '@/utils/cn'
 
@@ -159,7 +160,7 @@ const subtitleOptions = computed<MenuOption[]>(() => [
   })),
 ])
 
-const bitrateOptions = computed<MenuOption[]>(() => BITRATE_TIERS.map((tier) => ({
+const bitrateOptions = computed<MenuOption[]>(() => (getPlaybackConfig()?.bitrateTiers ?? []).map((tier) => ({
   key: tier.key,
   label: tier.label,
   checked: tier.key === props.bitrateTierKey,
