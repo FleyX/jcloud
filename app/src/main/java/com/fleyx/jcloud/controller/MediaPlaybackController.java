@@ -8,6 +8,7 @@ import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.model.bo.FileDownloadResult;
 import com.fleyx.jcloud.model.vo.MediaPlaybackInfoVo;
 import com.fleyx.jcloud.service.MediaPlaybackService;
+import com.fleyx.jcloud.service.support.TranscodePlaylistSupport;
 import com.fleyx.jcloud.service.support.TranscodeSession;
 import com.fleyx.jcloud.service.support.TranscodeSessionManager;
 import lombok.RequiredArgsConstructor;
@@ -160,7 +161,7 @@ public class MediaPlaybackController {
                 : MediaType.parseMediaType("video/mp4");
         if (fileName.endsWith(".m3u8") && token != null && !token.isBlank()) {
             // 切片相对地址会丢失播放列表 URL 上的 token 查询参数，重写 m3u8 使切片请求携带凭证
-            byte[] content = TranscodeSessionManager.appendTokenToPlaylist(
+            byte[] content = TranscodePlaylistSupport.appendTokenToPlaylist(
                     Files.readString(path, StandardCharsets.UTF_8), token).getBytes(StandardCharsets.UTF_8);
             return ResponseEntity.ok()
                     .header(HttpHeaders.CACHE_CONTROL, "no-store")

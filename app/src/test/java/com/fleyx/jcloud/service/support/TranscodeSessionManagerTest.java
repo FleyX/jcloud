@@ -2,8 +2,6 @@ package com.fleyx.jcloud.service.support;
 
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.config.MediaProperties;
-import com.fleyx.jcloud.service.SystemConfigService;
-import com.fleyx.jcloud.service.SystemStorageSpaceProvider;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -32,8 +30,8 @@ import static org.mockito.Mockito.when;
 class TranscodeSessionManagerTest {
 
     private TranscodeSessionManager newManager(MediaProperties properties, TranscodeThrottleSupport throttle) {
-        return new TranscodeSessionManager(properties, mock(SystemStorageSpaceProvider.class),
-                mock(SystemConfigService.class), new TranscodeCommandBuilder(properties), throttle);
+        return new TranscodeSessionManager(properties, new TranscodeCommandBuilder(properties), throttle,
+                mock(TranscodeConfigResolver.class), mock(TranscodeProcessLauncher.class));
     }
 
     @SuppressWarnings("unchecked")
@@ -52,8 +50,8 @@ class TranscodeSessionManagerTest {
         // 若按“存在即就绪”返回，客户端会拿到空初始化段导致播放失败
         MediaProperties properties = new MediaProperties();
         TranscodeSessionManager manager = new TranscodeSessionManager(properties,
-                mock(SystemStorageSpaceProvider.class), mock(SystemConfigService.class),
-                new TranscodeCommandBuilder(properties), mock(TranscodeThrottleSupport.class));
+                new TranscodeCommandBuilder(properties), mock(TranscodeThrottleSupport.class),
+                mock(TranscodeConfigResolver.class), mock(TranscodeProcessLauncher.class));
         TranscodeSession session = new TranscodeSession("s1", "u1", tempDir, null, "copy", Instant.now());
         ((Map<String, TranscodeSession>) ReflectionTestUtils.getField(manager, "sessions")).put("s1", session);
 
@@ -80,7 +78,7 @@ class TranscodeSessionManagerTest {
                 seg_00001.m4s
                 #EXT-X-ENDLIST
                 """;
-        String result = TranscodeSessionManager.appendTokenToPlaylist(playlist, "tk.abc");
+        String result = TranscodePlaylistSupport.appendTokenToPlaylist(playlist, "tk.abc");
         assertTrue(result.contains("URI=\"init.mp4?token=tk.abc\""), "EXT-X-MAP URI 应携带 token: " + result);
         assertTrue(result.contains("seg_00000.m4s?token=tk.abc"), "切片 URI 应携带 token: " + result);
         assertTrue(result.contains("seg_00001.m4s?token=tk.abc"), "切片 URI 应携带 token: " + result);
@@ -95,7 +93,7 @@ class TranscodeSessionManagerTest {
                 #EXT-X-MAP:URI="https://cdn.example.com/init.mp4"
                 seg_00000.m4s?token=old
                 """;
-        String result = TranscodeSessionManager.appendTokenToPlaylist(playlist, "tk.abc");
+        String result = TranscodePlaylistSupport.appendTokenToPlaylist(playlist, "tk.abc");
         assertTrue(result.contains("URI=\"https://cdn.example.com/init.mp4\""), "绝对 URI 不应被修改");
         assertTrue(result.contains("seg_00000.m4s?token=old\n") || result.endsWith("seg_00000.m4s?token=old"),
                 "已带查询参数的 URI 不应重复追加");
@@ -104,9 +102,9 @@ class TranscodeSessionManagerTest {
     @Test
     void shouldReturnOriginWhenTokenBlank() {
         String playlist = "#EXTM3U\nseg_00000.m4s\n";
-        assertEquals(playlist, TranscodeSessionManager.appendTokenToPlaylist(playlist, null));
-        assertEquals(playlist, TranscodeSessionManager.appendTokenToPlaylist(playlist, "  "));
-        assertNull(TranscodeSessionManager.appendTokenToPlaylist(null, "tk"));
+        assertEquals(playlist, TranscodePlaylistSupport.appendTokenToPlaylist(playlist, null));
+        assertEquals(playlist, TranscodePlaylistSupport.appendTokenToPlaylist(playlist, "  "));
+        assertNull(TranscodePlaylistSupport.appendTokenToPlaylist(null, "tk"));
     }
 
     @Test

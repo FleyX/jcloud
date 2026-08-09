@@ -8,7 +8,7 @@ import com.fleyx.jcloud.model.dto.TmdbConfigDto;
 import com.fleyx.jcloud.model.dto.TranscodeConfigDto;
 import com.fleyx.jcloud.service.SystemConfigService;
 import com.fleyx.jcloud.service.impl.TmdbServiceImpl;
-import com.fleyx.jcloud.service.support.TranscodeSessionManager;
+import com.fleyx.jcloud.service.support.TranscodeConfigResolver;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -27,7 +27,7 @@ import java.util.Set;
 public class AdminMediaController {
 
     private final SystemConfigService systemConfigService;
-    private final TranscodeSessionManager transcodeSessionManager;
+    private final TranscodeConfigResolver transcodeConfigResolver;
 
     /**
      * 查询 TMDB 全局配置。
@@ -56,9 +56,9 @@ public class AdminMediaController {
     @GetMapping("/transcode-config")
     public R<TranscodeConfigDto> getTranscodeConfig() {
         TranscodeConfigDto dto = new TranscodeConfigDto();
-        dto.setHwaccel(systemConfigService.getValue(TranscodeSessionManager.CONFIG_KEY_HWACCEL, "auto"));
-        dto.setDevice(systemConfigService.getValue(TranscodeSessionManager.CONFIG_KEY_DEVICE, ""));
-        dto.setThreads(transcodeSessionManager.resolveThreads());
+        dto.setHwaccel(systemConfigService.getValue(TranscodeConfigResolver.CONFIG_KEY_HWACCEL, "auto"));
+        dto.setDevice(systemConfigService.getValue(TranscodeConfigResolver.CONFIG_KEY_DEVICE, ""));
+        dto.setThreads(transcodeConfigResolver.resolveThreads());
         return R.ok(dto);
     }
 
@@ -72,10 +72,10 @@ public class AdminMediaController {
             throw new BusinessException(ResultCode.PARAM_ERROR, "非法的硬解方式: " + hwaccel);
         }
         int threads = dto.getThreads() == null ? 0 : Math.max(0, dto.getThreads());
-        systemConfigService.setValue(TranscodeSessionManager.CONFIG_KEY_HWACCEL, hwaccel);
-        systemConfigService.setValue(TranscodeSessionManager.CONFIG_KEY_DEVICE,
+        systemConfigService.setValue(TranscodeConfigResolver.CONFIG_KEY_HWACCEL, hwaccel);
+        systemConfigService.setValue(TranscodeConfigResolver.CONFIG_KEY_DEVICE,
                 dto.getDevice() == null ? "" : dto.getDevice().trim());
-        systemConfigService.setValue(TranscodeSessionManager.CONFIG_KEY_THREADS, String.valueOf(threads));
+        systemConfigService.setValue(TranscodeConfigResolver.CONFIG_KEY_THREADS, String.valueOf(threads));
         return R.ok();
     }
 }
