@@ -196,27 +196,52 @@ public class MediaMovieScrapeSupport implements ScrapeStrategy<MediaMovie> {
      */
     @Override
     public MediaMetadata applyMatch(MediaMovie movie, MediaMetadata metadata, boolean force) {
-        String metadataId;
-        String matchStatus;
-        MediaMetadata bound;
         if (metadata == null) {
             metadataV2Support.deleteByOwner(MediaMetadataOwnerType.MOVIE.getCode(), movie.getId());
-            metadataId = null;
-            matchStatus = MediaMatchStatus.UNMATCHED.getCode();
-            bound = null;
-        } else {
-            bound = metadata.getOwnerId() == null
-                    ? metadataV2Support.upsertByOwner(MediaMetadataOwnerType.MOVIE.getCode(), movie.getId(), metadata)
-                    : metadata;
-            metadataId = bound.getId();
-            matchStatus = MediaMatchStatus.MATCHED.getCode();
+            mediaMovieMapper.update(null, new LambdaUpdateWrapper<MediaMovie>()
+                    .eq(MediaMovie::getId, movie.getId())
+                    .set(MediaMovie::getMetadataId, null)
+                    .set(MediaMovie::getMatchStatus, MediaMatchStatus.UNMATCHED.getCode()));
+            movie.setMetadataId(null);
+            movie.setMatchStatus(MediaMatchStatus.UNMATCHED.getCode());
+            return null;
         }
+        return bindMovieRow(movie, metadata, MediaMatchStatus.MATCHED.getCode());
+    }
+
+    /**
+     * 绑定电影行并置匹配状态（metadata 非空；已绑定 owner 直接沿用，游离行经
+     * {@link MediaMetadataSupport#upsertByOwner} 绑定）：回写电影行 metadata_id/match_status 并同步实体。
+     *
+     * @return 绑定后的元数据行
+     */
+    private MediaMetadata bindMovieRow(MediaMovie movie, MediaMetadata metadata, String matchStatus) {
+        MediaMetadata bound = metadata.getOwnerId() == null
+                ? metadataV2Support.upsertByOwner(MediaMetadataOwnerType.MOVIE.getCode(), movie.getId(), metadata)
+                : metadata;
         mediaMovieMapper.update(null, new LambdaUpdateWrapper<MediaMovie>()
                 .eq(MediaMovie::getId, movie.getId())
-                .set(MediaMovie::getMetadataId, metadataId)
+                .set(MediaMovie::getMetadataId, bound.getId())
                 .set(MediaMovie::getMatchStatus, matchStatus));
-        movie.setMetadataId(metadataId);
+        movie.setMetadataId(bound.getId());
         movie.setMatchStatus(matchStatus);
+        return bound;
+    }
+
+    /**
+     * 应用电影匹配（TMDB 手动修正/强制刷新共用）：绑定电影行 → 写回 NFO/图片 → 重算完整性。
+     *
+     * @param movie       电影行
+     * @param detached    未绑定 owner 的电影元数据（TMDB 拉取结果）
+     * @param matchStatus 电影行匹配状态（matched / manual）
+     * @param force       是否强制写回（true 时图片按 rawJson 重新下载覆盖，工单 06）
+     * @return 绑定后的元数据行
+     */
+    public MediaMetadata applyMovieMatchWithPersist(MediaMovie movie, MediaMetadata detached,
+                                                    String matchStatus, boolean force) {
+        MediaMetadata bound = bindMovieRow(movie, detached, matchStatus);
+        persist(movie, bound, force);
+        refreshComplete(movie);
         return bound;
     }
 

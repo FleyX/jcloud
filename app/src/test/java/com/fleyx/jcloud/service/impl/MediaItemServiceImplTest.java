@@ -1,6 +1,7 @@
 package com.fleyx.jcloud.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.fleyx.jcloud.common.enums.MediaMatchStatus;
 import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.MediaEpisodeFileMapper;
@@ -17,11 +18,9 @@ import com.fleyx.jcloud.model.po.MediaMovieFile;
 import com.fleyx.jcloud.model.po.MediaOther;
 import com.fleyx.jcloud.model.po.MediaSeries;
 import com.fleyx.jcloud.service.TmdbService;
-import com.fleyx.jcloud.service.support.MediaArtworkPersistSupport;
 import com.fleyx.jcloud.service.support.MediaGenreSupport;
-import com.fleyx.jcloud.service.support.MediaMetadataCompleteSupport;
-import com.fleyx.jcloud.service.support.MediaMetadataSupport;
 import com.fleyx.jcloud.service.support.MediaMovieQuerySupport;
+import com.fleyx.jcloud.service.support.MediaMovieScrapeSupport;
 import com.fleyx.jcloud.service.support.MediaOtherQuerySupport;
 import com.fleyx.jcloud.service.support.MediaPlaybackResolveSupport;
 import com.fleyx.jcloud.service.support.MediaTvQuerySupport;
@@ -33,6 +32,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -51,18 +51,15 @@ class MediaItemServiceImplTest {
     private final MediaMovieQuerySupport mediaMovieQuerySupport = mock(MediaMovieQuerySupport.class);
     private final MediaOtherQuerySupport mediaOtherQuerySupport = mock(MediaOtherQuerySupport.class);
     private final MediaPlaybackResolveSupport mediaPlaybackResolveSupport = mock(MediaPlaybackResolveSupport.class);
-    private final MediaMetadataSupport metadataSupport = mock(MediaMetadataSupport.class);
-    private final MediaMetadataCompleteSupport metadataCompleteSupport = mock(MediaMetadataCompleteSupport.class);
     private final MediaTvScrapeSupport mediaTvScrapeSupport = mock(MediaTvScrapeSupport.class);
-    private final MediaArtworkPersistSupport persistSupport = mock(MediaArtworkPersistSupport.class);
+    private final MediaMovieScrapeSupport mediaMovieScrapeSupport = mock(MediaMovieScrapeSupport.class);
     private final MediaGenreSupport mediaGenreSupport = mock(MediaGenreSupport.class);
 
     private final MediaItemServiceImpl mediaItemService = new MediaItemServiceImpl(
             mediaSeriesMapper, mediaMovieMapper, mediaMovieFileMapper,
             mediaEpisodeMapper, mediaEpisodeFileMapper, mediaOtherMapper,
             tmdbService, mediaTvQuerySupport, mediaMovieQuerySupport, mediaOtherQuerySupport,
-            mediaPlaybackResolveSupport, metadataSupport, metadataCompleteSupport,
-            mediaTvScrapeSupport, persistSupport, mediaGenreSupport);
+            mediaPlaybackResolveSupport, mediaTvScrapeSupport, mediaMovieScrapeSupport, mediaGenreSupport);
 
     /**
      * 按文件节点 ID 反查：其他库文件命中 other 行时返回 other 行 ID。
@@ -137,6 +134,45 @@ class MediaItemServiceImplTest {
                 () -> mediaItemService.getItemIdByFileNodeId("fn-9", "user-1"));
 
         assertEquals(ResultCode.NOT_FOUND, exception.getResultCode());
+    }
+
+    /**
+     * 手动修正：电影行 ID 命中时走电影级修正，委托 MovieScrapeSupport 绑定/写回/重算，
+     * VO 装配 title 取绑定元数据、兜底电影标题。
+     */
+    @Test
+    void shouldMatchMovieRowById() {
+        MediaMovie movie = new MediaMovie();
+        movie.setId("movie-1");
+        movie.setUserId("user-1");
+        movie.setTitle("本地电影名");
+        when(mediaMovieMapper.selectById("movie-1")).thenReturn(movie);
+
+        com.fleyx.jcloud.model.dto.MediaMatchUpdateDto dto = new com.fleyx.jcloud.model.dto.MediaMatchUpdateDto();
+        dto.setTmdbId(200L);
+        dto.setMediaType("movie");
+        MediaMetadata detached = new MediaMetadata();
+        detached.setTitle("TMDB 电影名");
+        when(tmdbService.fetchDetailV2(eq("user-1"), eq(200L), eq("movie"))).thenReturn(detached);
+
+        MediaMetadata bound = new MediaMetadata();
+        bound.setId("metadata-1");
+        bound.setTitle("TMDB 电影名");
+        when(mediaMovieScrapeSupport.applyMovieMatchWithPersist(any(), any(), any(), eq(false)))
+                .thenReturn(bound);
+        // 模拟真实绑定副作用（bindMovieRow 回写实体字段），VO 装配原样透传
+        movie.setMatchStatus(MediaMatchStatus.MANUAL.getCode());
+        movie.setMetadataId(bound.getId());
+
+        var vo = mediaItemService.updateMatch("movie-1", dto, "user-1");
+
+        verify(mediaMovieScrapeSupport).applyMovieMatchWithPersist(
+                movie, detached, MediaMatchStatus.MANUAL.getCode(), false);
+        assertEquals("movie-1", vo.getId());
+        assertEquals("movie", vo.getItemType());
+        assertEquals("metadata-1", vo.getMetadataId());
+        assertEquals(MediaMatchStatus.MANUAL.getCode(), vo.getMatchStatus());
+        assertEquals("TMDB 电影名", vo.getTitle());
     }
 
     /**

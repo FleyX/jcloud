@@ -4,7 +4,6 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.fleyx.jcloud.common.enums.MediaItemType;
 import com.fleyx.jcloud.common.enums.MediaMatchStatus;
-import com.fleyx.jcloud.common.enums.MediaMetadataOwnerType;
 import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.MediaEpisodeFileMapper;
@@ -31,11 +30,9 @@ import com.fleyx.jcloud.model.vo.MediaSeriesDetailVo;
 import com.fleyx.jcloud.model.vo.MediaSeriesVo;
 import com.fleyx.jcloud.service.MediaItemService;
 import com.fleyx.jcloud.service.TmdbService;
-import com.fleyx.jcloud.service.support.MediaArtworkPersistSupport;
 import com.fleyx.jcloud.service.support.MediaGenreSupport;
-import com.fleyx.jcloud.service.support.MediaMetadataCompleteSupport;
-import com.fleyx.jcloud.service.support.MediaMetadataSupport;
 import com.fleyx.jcloud.service.support.MediaMovieQuerySupport;
+import com.fleyx.jcloud.service.support.MediaMovieScrapeSupport;
 import com.fleyx.jcloud.service.support.MediaOtherQuerySupport;
 import com.fleyx.jcloud.service.support.MediaPlaybackResolveSupport;
 import com.fleyx.jcloud.service.support.MediaTvQuerySupport;
@@ -71,10 +68,8 @@ public class MediaItemServiceImpl implements MediaItemService {
     private final MediaMovieQuerySupport mediaMovieQuerySupport;
     private final MediaOtherQuerySupport mediaOtherQuerySupport;
     private final MediaPlaybackResolveSupport mediaPlaybackResolveSupport;
-    private final MediaMetadataSupport metadataSupport;
-    private final MediaMetadataCompleteSupport metadataCompleteSupport;
     private final MediaTvScrapeSupport mediaTvScrapeSupport;
-    private final MediaArtworkPersistSupport persistSupport;
+    private final MediaMovieScrapeSupport mediaMovieScrapeSupport;
     private final MediaGenreSupport mediaGenreSupport;
 
     @Override
@@ -140,21 +135,16 @@ public class MediaItemServiceImpl implements MediaItemService {
     }
 
     /**
-     * 新模型电影手动修正：绑定元数据（owner=movie）→ 置 manual → 写回 → 重算完整性。
+     * 新模型电影手动修正：绑定元数据（owner=movie）→ 置 manual → 写回 → 重算完整性，
+     * 编排委托 {@link MediaMovieScrapeSupport#applyMovieMatchWithPersist}。
      */
     private MediaItemVo applyMovieManualMatch(MediaMovie movie, MediaMatchUpdateDto dto, String userId) {
         if (!userId.equals(movie.getUserId())) {
             throw new BusinessException(ResultCode.NOT_FOUND, "电影不存在");
         }
         MediaMetadata detached = tmdbService.fetchDetailV2(userId, dto.getTmdbId(), dto.getMediaType());
-        MediaMetadata bound = metadataSupport.upsertByOwner(
-                MediaMetadataOwnerType.MOVIE.getCode(), movie.getId(), detached);
-        movie.setMetadataId(bound.getId());
-        movie.setMatchStatus(MediaMatchStatus.MANUAL.getCode());
-        mediaMovieMapper.updateById(movie);
-        // 手动修正成功即写回视频目录的 NFO 与图片，落盘失败不影响匹配结果
-        persistSupport.persistMovieV2(movie, bound);
-        metadataCompleteSupport.refreshMovieComplete(movie);
+        MediaMetadata bound = mediaMovieScrapeSupport.applyMovieMatchWithPersist(
+                movie, detached, MediaMatchStatus.MANUAL.getCode(), false);
         MediaItemVo vo = new MediaItemVo();
         vo.setId(movie.getId());
         vo.setItemType(MediaItemType.MOVIE.getCode());
