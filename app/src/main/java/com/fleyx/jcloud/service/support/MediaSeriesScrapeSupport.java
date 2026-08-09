@@ -38,7 +38,7 @@ public class MediaSeriesScrapeSupport implements ScrapeStrategy<MediaSeries> {
     private final MediaTvScrapeSupport mediaTvScrapeSupport;
     private final MediaMetadataSupport metadataV2Support;
     private final MediaMetadataCompleteSupport completeSupport;
-    private final MediaArtworkPersistV2Support artworkPersistV2Support;
+    private final MediaArtworkPersistSupport persistSupport;
     private final MediaScrapeDriverSupport scrapeDriverSupport;
 
     @Override
@@ -174,7 +174,7 @@ public class MediaSeriesScrapeSupport implements ScrapeStrategy<MediaSeries> {
 
     @Override
     public void persist(MediaSeries series, MediaMetadata bound, boolean force) {
-        artworkPersistV2Support.persistSeriesV2(series, bound, force);
+        persistSupport.persistSeriesV2(series, bound, force);
     }
 
     @Override

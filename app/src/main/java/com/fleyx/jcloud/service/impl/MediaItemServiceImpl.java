@@ -31,7 +31,7 @@ import com.fleyx.jcloud.model.vo.MediaSeriesDetailVo;
 import com.fleyx.jcloud.model.vo.MediaSeriesVo;
 import com.fleyx.jcloud.service.MediaItemService;
 import com.fleyx.jcloud.service.TmdbService;
-import com.fleyx.jcloud.service.support.MediaArtworkPersistV2Support;
+import com.fleyx.jcloud.service.support.MediaArtworkPersistSupport;
 import com.fleyx.jcloud.service.support.MediaGenreSupport;
 import com.fleyx.jcloud.service.support.MediaMetadataCompleteSupport;
 import com.fleyx.jcloud.service.support.MediaMetadataSupport;
@@ -74,7 +74,7 @@ public class MediaItemServiceImpl implements MediaItemService {
     private final MediaMetadataSupport metadataSupport;
     private final MediaMetadataCompleteSupport metadataCompleteSupport;
     private final MediaTvScrapeSupport mediaTvScrapeSupport;
-    private final MediaArtworkPersistV2Support artworkPersistV2Support;
+    private final MediaArtworkPersistSupport persistSupport;
     private final MediaGenreSupport mediaGenreSupport;
 
     @Override
@@ -153,7 +153,7 @@ public class MediaItemServiceImpl implements MediaItemService {
         movie.setMatchStatus(MediaMatchStatus.MANUAL.getCode());
         mediaMovieMapper.updateById(movie);
         // 手动修正成功即写回视频目录的 NFO 与图片，落盘失败不影响匹配结果
-        artworkPersistV2Support.persistMovieV2(movie, bound);
+        persistSupport.persistMovieV2(movie, bound);
         metadataCompleteSupport.refreshMovieComplete(movie);
         MediaItemVo vo = new MediaItemVo();
         vo.setId(movie.getId());

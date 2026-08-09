@@ -46,7 +46,10 @@ import java.util.concurrent.TimeUnit;
 @RequiredArgsConstructor
 public class MediaSubtitleSupport {
 
-    private static final String SUBTITLE_CACHE_DIR = "media/subtitles";
+    /**
+     * 字幕缓存目录（系统空间下），播放链路字幕提取/转换与外部字幕缓存共用（票据 10 起单一定义）。
+     */
+    public static final String SUBTITLE_CACHE_DIR = "media/subtitles";
     private static final String FORMAT_VTT = "vtt";
 
     private final MediaSubtitleMapper mediaSubtitleMapper;

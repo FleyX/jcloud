@@ -43,7 +43,6 @@ public class MediaTvScrapeSupport {
     private final MediaEpisodeMapper mediaEpisodeMapper;
     private final MediaMetadataSupport metadataV2Support;
     private final MediaMetadataCompleteSupport completeSupport;
-    private final MediaArtworkPersistV2Support artworkPersistV2Support;
     private final MediaArtworkPersistSupport persistSupport;
     private final MediaNfoSupport nfoSupport;
     private final MediaPlaybackResolveSupport playbackResolveSupport;
@@ -103,7 +102,7 @@ public class MediaTvScrapeSupport {
      */
     public void applyLocalSeriesMatch(MediaSeries series, MediaMetadata localMetadata) {
         MediaMetadata bound = bindSeriesMatch(series, localMetadata, MediaMatchStatus.MATCHED.getCode(), false);
-        artworkPersistV2Support.persistSeriesV2(series, bound);
+        persistSupport.persistSeriesV2(series, bound);
         completeSupport.refreshSeriesComplete(series);
     }
 
@@ -118,7 +117,7 @@ public class MediaTvScrapeSupport {
     public void applySeriesMatchWithDerivation(MediaSeries series, MediaMetadata detached,
                                                String matchStatus, boolean force) {
         MediaMetadata bound = bindSeriesMatch(series, detached, matchStatus, force);
-        artworkPersistV2Support.persistSeriesV2(series, bound, force);
+        persistSupport.persistSeriesV2(series, bound, force);
         completeSupport.refreshSeriesComplete(series);
     }
 

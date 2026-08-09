@@ -18,7 +18,6 @@ import com.fleyx.jcloud.model.po.MediaSeries;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
-import java.util.Comparator;
 import java.util.List;
 
 /**
@@ -115,15 +114,8 @@ public class MediaPlaybackResolveSupport {
     public MediaMovieFile pickMovieFile(MediaMovie movie) {
         List<MediaMovieFile> files = mediaMovieFileMapper.selectList(
                 new LambdaQueryWrapper<MediaMovieFile>().eq(MediaMovieFile::getMovieId, movie.getId()));
-        if (files.isEmpty()) {
-            return null;
-        }
-        return files.stream().filter(f -> f.getId().equals(movie.getLastPlayFileId())).findFirst()
-                .orElseGet(() -> files.stream()
-                        .min(Comparator.comparing(MediaMovieFile::getCreateTime,
-                                        Comparator.nullsLast(Comparator.naturalOrder()))
-                                .thenComparing(MediaMovieFile::getId))
-                        .orElse(files.getFirst()));
+        return MediaItemVoSupport.pickRepresentative(files, movie.getLastPlayFileId(),
+                MediaMovieFile::getId, MediaMovieFile::getCreateTime);
     }
 
     /**
@@ -132,14 +124,7 @@ public class MediaPlaybackResolveSupport {
     public MediaEpisodeFile pickEpisodeFile(MediaEpisode episode) {
         List<MediaEpisodeFile> files = mediaEpisodeFileMapper.selectList(
                 new LambdaQueryWrapper<MediaEpisodeFile>().eq(MediaEpisodeFile::getEpisodeId, episode.getId()));
-        if (files.isEmpty()) {
-            return null;
-        }
-        return files.stream().filter(f -> f.getId().equals(episode.getLastPlayFileId())).findFirst()
-                .orElseGet(() -> files.stream()
-                        .min(Comparator.comparing(MediaEpisodeFile::getCreateTime,
-                                        Comparator.nullsLast(Comparator.naturalOrder()))
-                                .thenComparing(MediaEpisodeFile::getId))
-                        .orElse(files.getFirst()));
+        return MediaItemVoSupport.pickRepresentative(files, episode.getLastPlayFileId(),
+                MediaEpisodeFile::getId, MediaEpisodeFile::getCreateTime);
     }
 }

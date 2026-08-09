@@ -63,17 +63,12 @@ public class MediaHomeItemSupport {
                 .stream().collect(Collectors.groupingBy(MediaEpisodeFile::getEpisodeId));
         Map<String, MediaEpisodeFile> result = new HashMap<>();
         for (MediaEpisode episode : episodes) {
-            List<MediaEpisodeFile> files = filesByEpisode.getOrDefault(episode.getId(), List.of());
-            if (files.isEmpty()) {
-                continue;
+            MediaEpisodeFile chosen = MediaItemVoSupport.pickRepresentative(
+                    filesByEpisode.getOrDefault(episode.getId(), List.of()), episode.getLastPlayFileId(),
+                    MediaEpisodeFile::getId, MediaEpisodeFile::getCreateTime);
+            if (chosen != null) {
+                result.put(episode.getId(), chosen);
             }
-            result.put(episode.getId(), files.stream()
-                    .filter(f -> f.getId().equals(episode.getLastPlayFileId())).findFirst()
-                    .orElseGet(() -> files.stream()
-                            .min(Comparator.comparing(MediaEpisodeFile::getCreateTime,
-                                            Comparator.nullsLast(Comparator.naturalOrder()))
-                                    .thenComparing(MediaEpisodeFile::getId))
-                            .orElse(files.getFirst())));
         }
         return result;
     }
@@ -88,17 +83,12 @@ public class MediaHomeItemSupport {
                 .stream().collect(Collectors.groupingBy(MediaMovieFile::getMovieId));
         Map<String, MediaMovieFile> result = new HashMap<>();
         for (MediaMovie movie : movies) {
-            List<MediaMovieFile> files = filesByMovie.getOrDefault(movie.getId(), List.of());
-            if (files.isEmpty()) {
-                continue;
+            MediaMovieFile chosen = MediaItemVoSupport.pickRepresentative(
+                    filesByMovie.getOrDefault(movie.getId(), List.of()), movie.getLastPlayFileId(),
+                    MediaMovieFile::getId, MediaMovieFile::getCreateTime);
+            if (chosen != null) {
+                result.put(movie.getId(), chosen);
             }
-            result.put(movie.getId(), files.stream()
-                    .filter(f -> f.getId().equals(movie.getLastPlayFileId())).findFirst()
-                    .orElseGet(() -> files.stream()
-                            .min(Comparator.comparing(MediaMovieFile::getCreateTime,
-                                            Comparator.nullsLast(Comparator.naturalOrder()))
-                                    .thenComparing(MediaMovieFile::getId))
-                            .orElse(files.getFirst())));
         }
         return result;
     }

@@ -58,7 +58,6 @@ public class MediaPlaybackServiceImpl implements MediaPlaybackService {
     private static final Set<String> DIRECT_CONTAINERS = Set.of("mp4", "mov", "m4v", "webm");
     private static final Set<String> DIRECT_VIDEO_CODECS = Set.of("h264", "hevc", "vp8", "vp9", "av1");
     private static final Set<String> DIRECT_AUDIO_CODECS = Set.of("aac", "mp3", "opus", "vorbis", "flac");
-    private static final String SUBTITLE_CACHE_DIR = "media/subtitles";
 
     private final MediaPlaybackResolveSupport mediaPlaybackResolveSupport;
     private final FileMapper fileMapper;
@@ -151,7 +150,8 @@ public class MediaPlaybackServiceImpl implements MediaPlaybackService {
         validateOffset(offsetMs);
         Playable playable = mediaPlaybackResolveSupport.resolve(id, userId, versionId);
         StorageSpace space = systemStorageSpaceProvider.getSystemSpace();
-        Path canonical = Path.of(space.getPath(), "system", SUBTITLE_CACHE_DIR, playable.fileRowId() + "_" + index + ".vtt");
+        Path canonical = Path.of(space.getPath(), "system", MediaSubtitleSupport.SUBTITLE_CACHE_DIR,
+                playable.fileRowId() + "_" + index + ".vtt");
         if (!Files.exists(canonical)) {
             FileNode node = requireFileNode(playable.fileNodeId(), userId);
             Path tempInput = null;

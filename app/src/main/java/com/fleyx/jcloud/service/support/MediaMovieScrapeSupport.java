@@ -49,7 +49,6 @@ public class MediaMovieScrapeSupport implements ScrapeStrategy<MediaMovie> {
     private final MediaMetadataSupport metadataV2Support;
     private final MediaMetadataCompleteSupport completeSupport;
     private final MediaArtworkPersistSupport persistSupport;
-    private final MediaArtworkPersistV2Support artworkPersistV2Support;
     private final MediaPlaybackResolveSupport playbackResolveSupport;
     private final MediaScrapeDriverSupport scrapeDriverSupport;
 
@@ -232,7 +231,7 @@ public class MediaMovieScrapeSupport implements ScrapeStrategy<MediaMovie> {
 
     @Override
     public void persist(MediaMovie movie, MediaMetadata bound, boolean force) {
-        artworkPersistV2Support.persistMovieV2(movie, bound, force);
+        persistSupport.persistMovieV2(movie, bound, force);
     }
 
     @Override
