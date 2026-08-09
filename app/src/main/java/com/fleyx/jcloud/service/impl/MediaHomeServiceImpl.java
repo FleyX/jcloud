@@ -6,7 +6,10 @@ import com.fleyx.jcloud.model.vo.MediaHomeVo;
 import com.fleyx.jcloud.model.vo.MediaItemVo;
 import com.fleyx.jcloud.service.MediaDirectoryService;
 import com.fleyx.jcloud.service.MediaHomeService;
-import com.fleyx.jcloud.service.support.MediaHomeQuerySupport;
+import com.fleyx.jcloud.service.support.MediaHomeContinueWatchingSupport;
+import com.fleyx.jcloud.service.support.MediaHomeItemSupport;
+import com.fleyx.jcloud.service.support.MediaHomeLatestSupport;
+import com.fleyx.jcloud.service.support.MediaHomeNextUpSupport;
 import com.fleyx.jcloud.service.support.MediaItemVoSupport;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -20,7 +23,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
- * 影视首页聚合服务实现（issue #19 起切新表，委托 {@link MediaHomeQuerySupport}）。
+ * 影视首页聚合服务实现（issue #19 起切新表，委托四个分区查询支撑组件，票据 06 拆分）。
  * <p>
  * 继续观看：电影/集/其他标题级行中「有进度且未看完」的条目，按最近播放时间倒序；
  * 接下来：仅电视剧，取每部有观看记录的剧按季/集顺序的第一集未观看集
@@ -36,7 +39,9 @@ public class MediaHomeServiceImpl implements MediaHomeService {
     static final int SECTION_LIMIT = 16;
 
     private final MediaDirectoryService mediaDirectoryService;
-    private final MediaHomeQuerySupport mediaHomeQuerySupport;
+    private final MediaHomeContinueWatchingSupport mediaHomeContinueWatchingSupport;
+    private final MediaHomeNextUpSupport mediaHomeNextUpSupport;
+    private final MediaHomeLatestSupport mediaHomeLatestSupport;
     private final MediaMetadataMapper mediaMetadataMapper;
     private final MediaItemVoSupport mediaItemVoSupport;
 
@@ -44,21 +49,21 @@ public class MediaHomeServiceImpl implements MediaHomeService {
     public MediaHomeVo getHome(String userId) {
         MediaHomeVo vo = new MediaHomeVo();
         vo.setLibraries(mediaDirectoryService.list(userId));
-        vo.setLatestMovies(toItemVos(mediaHomeQuerySupport.listLatestMovies(userId, SECTION_LIMIT)));
-        vo.setLatestSeries(toItemVos(mediaHomeQuerySupport.listLatestSeries(userId, SECTION_LIMIT)));
-        vo.setContinueWatching(toItemVos(mediaHomeQuerySupport.listContinueWatching(userId, SECTION_LIMIT)));
-        vo.setNextUp(toItemVos(mediaHomeQuerySupport.listNextUp(userId, SECTION_LIMIT)));
+        vo.setLatestMovies(toItemVos(mediaHomeLatestSupport.listLatestMovies(userId, SECTION_LIMIT)));
+        vo.setLatestSeries(toItemVos(mediaHomeLatestSupport.listLatestSeries(userId, SECTION_LIMIT)));
+        vo.setContinueWatching(toItemVos(mediaHomeContinueWatchingSupport.listContinueWatching(userId, SECTION_LIMIT)));
+        vo.setNextUp(toItemVos(mediaHomeNextUpSupport.listNextUp(userId, SECTION_LIMIT)));
         return vo;
     }
 
     /**
      * 首页条目转视图：补齐文件名与元数据（标题/海报/评分），标题缺失回退条目名。
      */
-    private List<MediaItemVo> toItemVos(List<MediaHomeQuerySupport.HomeItem> items) {
+    private List<MediaItemVo> toItemVos(List<MediaHomeItemSupport.HomeItem> items) {
         if (items.isEmpty()) {
             return List.of();
         }
-        List<String> metadataIds = items.stream().map(MediaHomeQuerySupport.HomeItem::metadataId)
+        List<String> metadataIds = items.stream().map(MediaHomeItemSupport.HomeItem::metadataId)
                 .filter(Objects::nonNull).distinct().toList();
         Map<String, MediaMetadata> metadataMap = metadataIds.isEmpty() ? Map.of() : loadMetadataMap(metadataIds);
         Map<String, MediaMetadata> seriesMetadataMap = loadSeriesMetadataMap(items);
@@ -67,7 +72,7 @@ public class MediaHomeServiceImpl implements MediaHomeService {
                         .map(MediaMetadata::getPosterFileNodeId)
                         .toList());
         List<MediaItemVo> result = new ArrayList<>();
-        for (MediaHomeQuerySupport.HomeItem item : items) {
+        for (MediaHomeItemSupport.HomeItem item : items) {
             MediaItemVo vo = new MediaItemVo();
             vo.setId(item.id());
             vo.setFileNodeId(item.fileNodeId());
@@ -119,9 +124,9 @@ public class MediaHomeServiceImpl implements MediaHomeService {
     /**
      * 集卡片用剧级元数据兜底海报（集元数据未派生时海报墙仍可用）。
      */
-    private Map<String, MediaMetadata> loadSeriesMetadataMap(List<MediaHomeQuerySupport.HomeItem> items) {
+    private Map<String, MediaMetadata> loadSeriesMetadataMap(List<MediaHomeItemSupport.HomeItem> items) {
         List<String> seriesMetadataIds = items.stream()
-                .map(MediaHomeQuerySupport.HomeItem::seriesMetadataId)
+                .map(MediaHomeItemSupport.HomeItem::seriesMetadataId)
                 .filter(Objects::nonNull).distinct().toList();
         if (seriesMetadataIds.isEmpty()) {
             return Map.of();
