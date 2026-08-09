@@ -15,6 +15,7 @@ import com.fleyx.jcloud.mapper.MediaEpisodeMapper;
 import com.fleyx.jcloud.mapper.MediaMetadataMapper;
 import com.fleyx.jcloud.mapper.MediaSeasonMapper;
 import com.fleyx.jcloud.mapper.MediaSeriesMapper;
+import com.fleyx.jcloud.mapper.UserMapper;
 import com.fleyx.jcloud.model.dto.FileCreateFolderDto;
 import com.fleyx.jcloud.model.dto.FileRenameDto;
 import com.fleyx.jcloud.model.dto.MediaPageQueryDto;
@@ -55,12 +56,14 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 /**
@@ -118,6 +121,9 @@ class MediaTvScanServiceTest {
 
     @Autowired
     private FileMapper fileMapper;
+
+    @Autowired
+    private UserMapper userMapper;
 
     @MockitoBean
     private MediaScrapeService mediaScrapeService;
@@ -849,6 +855,114 @@ class MediaTvScanServiceTest {
 
         assertEquals(Boolean.FALSE, mediaSeriesMapper.selectById(seriesARow.getId()).getMetadataComplete());
         assertEquals(Boolean.TRUE, mediaSeriesMapper.selectById(seriesBRow.getId()).getMetadataComplete());
+    }
+
+    // ---------- 票据 01：扫描链路表征测试补齐（增量 diff / 批次清理闸③ / FAILED 结局） ----------
+
+    /**
+     * 集文件内容变更（同路径同名，仅文件大小变化）后重扫：变更哈希变化 → 重跑 ffprobe 并更新明细行哈希，
+     * 明细行/集行 ID 与文件锚不变；播放进度与 manual 匹配保留；未变化重扫哈希命中跳过探测。
+     */
+    @Test
+    void shouldUpdateFileHashAndReprobeWhenEpisodeFileChanged() {
+        UserVo user = prepareUserWithStorageSpace();
+        FileNodeVo tvFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电视");
+        FileNodeVo seriesFolder = createFolder(user.getId(), tvFolder.getId(), "火星生活");
+        FileNodeVo seasonFolder = createFolder(user.getId(), seriesFolder.getId(), "Season 1");
+        FileNodeVo video = upload(user.getId(), seasonFolder.getId(), "火星生活.S01E01.mkv");
+        MediaDirectory directory = createTvDirectory(user.getId(), tvFolder.getId());
+        mediaScanService.scan(directory.getId());
+
+        MediaSeries series = querySingleSeries(directory.getId());
+        series.setMatchStatus(MediaMatchStatus.MANUAL.getCode());
+        series.setMetadataId("metaseries001");
+        mediaSeriesMapper.updateById(series);
+        MediaEpisode episode = episodesOfSeries(series.getId()).getFirst();
+        episode.setProgressMs(5000L);
+        mediaEpisodeMapper.updateById(episode);
+        MediaEpisodeFile fileRow = filesOfEpisode(episode.getId()).getFirst();
+        String oldHash = fileRow.getFileHash();
+
+        // 未变化重扫：哈希命中跳过探测
+        mediaScanService.scan(directory.getId());
+        verify(mediaProbeSupport, times(1)).probe(any(Path.class));
+
+        // 修改文件内容但保持路径与文件名：文件大小变化 → 变更哈希（含大小）变化 → 重走解析并重跑 ffprobe
+        FileNode fileNode = fileMapper.selectById(video.getId());
+        FileNode update = new FileNode();
+        update.setId(video.getId());
+        update.setSize(fileNode.getSize() + 100L);
+        fileMapper.updateById(update);
+        mediaScanService.scan(directory.getId());
+
+        verify(mediaProbeSupport, times(2)).probe(any(Path.class));
+        MediaEpisodeFile after = mediaEpisodeFileMapper.selectById(fileRow.getId());
+        assertNotNull(after);
+        assertEquals(fileRow.getId(), after.getId());
+        assertNotEquals(oldHash, after.getFileHash());
+        assertEquals(video.getId(), after.getFileNodeId());
+        MediaEpisode afterEpisode = episodesOfSeries(series.getId()).getFirst();
+        assertEquals(episode.getId(), afterEpisode.getId());
+        assertEquals(5000L, afterEpisode.getProgressMs());
+        MediaSeries afterSeries = querySingleSeries(directory.getId());
+        assertEquals(series.getId(), afterSeries.getId());
+        assertEquals(MediaMatchStatus.MANUAL.getCode(), afterSeries.getMatchStatus());
+        assertEquals("metaseries001", afterSeries.getMetadataId());
+    }
+
+    /**
+     * 批次清理闸③（scan_time 早于批次时间才清理）：剧文件夹已删除，但其行 scan_time 晚于本批批次时间
+     * （模拟本批扫描开始后该行被更新），本批不清理该行；目录记为 COMPLETED。
+     */
+    @Test
+    void shouldSkipBatchCleanupWhenScanTimeIsNotStale() {
+        UserVo user = prepareUserWithStorageSpace();
+        FileNodeVo tvFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电视");
+        FileNodeVo seriesFolder = createFolder(user.getId(), tvFolder.getId(), "火星生活");
+        FileNodeVo seasonFolder = createFolder(user.getId(), seriesFolder.getId(), "Season 1");
+        upload(user.getId(), seasonFolder.getId(), "火星生活.S01E01.mkv");
+        MediaDirectory directory = createTvDirectory(user.getId(), tvFolder.getId());
+        mediaScanService.scan(directory.getId());
+        MediaSeries series = querySingleSeries(directory.getId());
+
+        // 模拟该行在本批扫描开始后已被更新（scan_time 晚于批次时间）：文件夹虽已删除，本批仍不清理
+        series.setScanTime(LocalDateTime.now().plusHours(1));
+        mediaSeriesMapper.updateById(series);
+        purgeSubtree(user.getId(), seriesFolder.getId());
+        mediaScanService.scan(directory.getId());
+
+        assertEquals(MediaScanStatus.COMPLETED.name(),
+                mediaDirectoryMapper.selectById(directory.getId()).getLastScanStatus());
+        assertNotNull(mediaSeriesMapper.selectById(series.getId()));
+    }
+
+    /**
+     * 批次清理闸①（仅 COMPLETED 执行）：扫描在起点抛异常（用户行被删除导致用户名解析失败）整轮记为
+     * FAILED，批次清理不执行——过期剧行保留。
+     */
+    @Test
+    void shouldNotCleanupWhenScanFailed() {
+        UserVo user = prepareUserWithStorageSpace();
+        FileNodeVo tvFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电视");
+        FileNodeVo seriesFolder = createFolder(user.getId(), tvFolder.getId(), "火星生活");
+        FileNodeVo seasonFolder = createFolder(user.getId(), seriesFolder.getId(), "Season 1");
+        upload(user.getId(), seasonFolder.getId(), "火星生活.S01E01.mkv");
+        FileNodeVo otherSeriesFolder = createFolder(user.getId(), tvFolder.getId(), "亮剑");
+        FileNodeVo otherSeasonFolder = createFolder(user.getId(), otherSeriesFolder.getId(), "Season 1");
+        upload(user.getId(), otherSeasonFolder.getId(), "亮剑.S01E01.mkv");
+        MediaDirectory directory = createTvDirectory(user.getId(), tvFolder.getId());
+        mediaScanService.scan(directory.getId());
+        assertEquals(2, mediaSeriesMapper.selectCount(null));
+
+        // 亮剑剧文件夹删除：其剧行成为过期行（scan_time 早于批次时间），本应被批次清理
+        purgeSubtree(user.getId(), otherSeriesFolder.getId());
+        // 用户行删除使扫描在起点抛异常（用户名解析 NPE）→ 整轮记为 FAILED，批次清理不执行
+        userMapper.deleteById(user.getId());
+        mediaScanService.scan(directory.getId());
+
+        assertEquals(MediaScanStatus.FAILED.name(),
+                mediaDirectoryMapper.selectById(directory.getId()).getLastScanStatus());
+        assertEquals(2, mediaSeriesMapper.selectCount(null));
     }
 
     /**

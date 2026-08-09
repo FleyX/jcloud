@@ -5,11 +5,15 @@ import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.fleyx.jcloud.common.constant.FileNodeConstants;
 import com.fleyx.jcloud.common.context.CurrentUser;
 import com.fleyx.jcloud.common.context.UserContext;
+import com.fleyx.jcloud.common.enums.MediaFavoriteOwnerType;
 import com.fleyx.jcloud.common.enums.MediaScanStatus;
 import com.fleyx.jcloud.mapper.FileMapper;
 import com.fleyx.jcloud.mapper.MediaDirectoryMapper;
 import com.fleyx.jcloud.mapper.MediaDirectorySourceMapper;
+import com.fleyx.jcloud.mapper.MediaFavoriteMapper;
 import com.fleyx.jcloud.mapper.MediaOtherMapper;
+import com.fleyx.jcloud.mapper.MediaSubtitleMapper;
+import com.fleyx.jcloud.mapper.UserMapper;
 import com.fleyx.jcloud.model.bo.MediaProbeResult;
 import com.fleyx.jcloud.model.dto.FileCreateFolderDto;
 import com.fleyx.jcloud.model.dto.FileRenameDto;
@@ -19,7 +23,9 @@ import com.fleyx.jcloud.model.dto.UserSaveDto;
 import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.po.MediaDirectory;
 import com.fleyx.jcloud.model.po.MediaDirectorySource;
+import com.fleyx.jcloud.model.po.MediaFavorite;
 import com.fleyx.jcloud.model.po.MediaOther;
+import com.fleyx.jcloud.model.po.MediaSubtitle;
 import com.fleyx.jcloud.model.vo.FileNodeVo;
 import com.fleyx.jcloud.model.vo.MediaItemDetailVo;
 import com.fleyx.jcloud.model.vo.MediaItemVo;
@@ -43,12 +49,14 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 /**
@@ -94,6 +102,15 @@ class MediaOtherScanServiceTest {
 
     @Autowired
     private FileMapper fileMapper;
+
+    @Autowired
+    private UserMapper userMapper;
+
+    @Autowired
+    private MediaSubtitleMapper mediaSubtitleMapper;
+
+    @Autowired
+    private MediaFavoriteMapper mediaFavoriteMapper;
 
     @MockitoBean
     private MediaScrapeService mediaScrapeService;
@@ -379,6 +396,110 @@ class MediaOtherScanServiceTest {
         assertEquals("h264", detail.getVideoCodec());
         assertEquals("aac", detail.getAudioCodec());
         assertEquals(5000L, detail.getProgressMs());
+    }
+
+    // ---------- 票据 01：扫描链路表征测试补齐（增量 diff / FAILED 结局 / 级联删除） ----------
+
+    /**
+     * 文件内容变更（同路径同名，仅文件大小变化）后重扫：变更哈希变化 → 重跑 ffprobe 并更新行哈希，
+     * 行 ID 与文件锚不变（锚定 upsert）；播放进度保留；未变化重扫哈希命中跳过探测。
+     */
+    @Test
+    void shouldUpdateFileHashAndReprobeWhenFileChanged() {
+        UserVo user = prepareUserWithStorageSpace();
+        FileNodeVo root = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "其他");
+        FileNodeVo video = upload(user.getId(), root.getId(), "教学视频.01.mkv");
+        MediaDirectory directory = createOtherDirectory(user.getId(), root.getId());
+        mediaScanService.scan(directory.getId());
+
+        MediaOther row = querySingleOther(directory.getId());
+        row.setProgressMs(5000L);
+        mediaOtherMapper.updateById(row);
+        String oldHash = row.getFileHash();
+
+        // 未变化重扫：哈希命中跳过探测
+        mediaScanService.scan(directory.getId());
+        verify(mediaProbeSupport, times(1)).probe(any(Path.class));
+
+        // 修改文件内容但保持路径与文件名：文件大小变化 → 变更哈希（含大小）变化 → 重走解析并重跑 ffprobe
+        FileNode fileNode = fileMapper.selectById(video.getId());
+        FileNode update = new FileNode();
+        update.setId(video.getId());
+        update.setSize(fileNode.getSize() + 100L);
+        fileMapper.updateById(update);
+        mediaScanService.scan(directory.getId());
+
+        verify(mediaProbeSupport, times(2)).probe(any(Path.class));
+        MediaOther after = mediaOtherMapper.selectById(row.getId());
+        assertNotNull(after);
+        assertEquals(row.getId(), after.getId());
+        assertNotEquals(oldHash, after.getFileHash());
+        assertEquals(video.getId(), after.getFileNodeId());
+        assertEquals(5000L, after.getProgressMs());
+    }
+
+    /**
+     * 批次清理闸①（仅 COMPLETED 执行）：扫描在起点抛异常（用户行被删除导致用户名解析失败）整轮记为
+     * FAILED，批次清理与即时删除均不执行——锚文件已删的 other 行保留。
+     */
+    @Test
+    void shouldNotCleanupWhenScanFailed() {
+        UserVo user = prepareUserWithStorageSpace();
+        FileNodeVo root = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "其他");
+        FileNodeVo keep = upload(user.getId(), root.getId(), "保留.mkv");
+        FileNodeVo removed = upload(user.getId(), root.getId(), "删除.mkv");
+        MediaDirectory directory = createOtherDirectory(user.getId(), root.getId());
+        mediaScanService.scan(directory.getId());
+        assertEquals(2, mediaOtherMapper.selectCount(null));
+
+        // 删除文件后其行本应被即时删除；用户行被删除使扫描在起点抛异常（用户名解析 NPE）→ 整轮 FAILED，
+        // 即时删除与批次清理均不执行
+        fileMapper.deleteById(removed.getId());
+        userMapper.deleteById(user.getId());
+        mediaScanService.scan(directory.getId());
+
+        assertEquals(MediaScanStatus.FAILED.name(),
+                mediaDirectoryMapper.selectById(directory.getId()).getLastScanStatus());
+        assertEquals(2, mediaOtherMapper.selectCount(null));
+    }
+
+    /**
+     * 级联删除（应用层事务内）：other 行随其锚文件消失即时删除，连带外部字幕关联与收藏记录清理；
+     * 同库其他行完好。
+     */
+    @Test
+    void shouldCascadeDeleteOtherRowWithSubtitlesAndFavorites() {
+        UserVo user = prepareUserWithStorageSpace();
+        FileNodeVo root = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "其他");
+        FileNodeVo keep = upload(user.getId(), root.getId(), "保留.mkv");
+        FileNodeVo removed = upload(user.getId(), root.getId(), "删除.mkv");
+        MediaDirectory directory = createOtherDirectory(user.getId(), root.getId());
+        mediaScanService.scan(directory.getId());
+        assertEquals(2, mediaOtherMapper.selectCount(null));
+
+        MediaOther removedRow = mediaOtherMapper.selectOne(new LambdaQueryWrapper<MediaOther>()
+                .eq(MediaOther::getFileNodeId, removed.getId()));
+        // 模拟削刮/字幕扫描写入的外部字幕关联与用户收藏（owner 反向指针），验证级联连带清理
+        MediaSubtitle subtitle = new MediaSubtitle();
+        subtitle.setFileId(removedRow.getId());
+        subtitle.setFileNodeId(removed.getId());
+        subtitle.setFormat("srt");
+        mediaSubtitleMapper.insert(subtitle);
+        MediaFavorite favorite = new MediaFavorite();
+        favorite.setUserId(user.getId());
+        favorite.setOwnerType(MediaFavoriteOwnerType.OTHER.getCode());
+        favorite.setOwnerId(removedRow.getId());
+        mediaFavoriteMapper.insert(favorite);
+
+        fileMapper.deleteById(removed.getId());
+        mediaScanService.scan(directory.getId());
+
+        assertNull(mediaOtherMapper.selectById(removedRow.getId()));
+        assertEquals(0, mediaSubtitleMapper.selectCount(null));
+        assertEquals(0, mediaFavoriteMapper.selectCount(null));
+        assertEquals(1, mediaOtherMapper.selectCount(null));
+        assertNotNull(mediaOtherMapper.selectOne(new LambdaQueryWrapper<MediaOther>()
+                .eq(MediaOther::getFileNodeId, keep.getId())));
     }
 
     private MediaOther querySingleOther(String directoryId) {

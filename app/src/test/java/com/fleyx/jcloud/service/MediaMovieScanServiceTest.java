@@ -13,6 +13,7 @@ import com.fleyx.jcloud.mapper.MediaDirectorySourceMapper;
 import com.fleyx.jcloud.mapper.MediaMetadataMapper;
 import com.fleyx.jcloud.mapper.MediaMovieFileMapper;
 import com.fleyx.jcloud.mapper.MediaMovieMapper;
+import com.fleyx.jcloud.mapper.UserMapper;
 import com.fleyx.jcloud.model.bo.MediaProbeResult;
 import com.fleyx.jcloud.model.dto.FileCreateFolderDto;
 import com.fleyx.jcloud.model.dto.FileRenameDto;
@@ -32,6 +33,7 @@ import com.fleyx.jcloud.model.vo.MediaMovieVersionVo;
 import com.fleyx.jcloud.model.vo.StorageSpaceVo;
 import com.fleyx.jcloud.model.vo.UserVo;
 import com.fleyx.jcloud.service.support.MediaProbeSupport;
+import com.fleyx.jcloud.service.support.MediaTaskSupport;
 import com.fleyx.jcloud.util.FilePathUtil;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -49,12 +51,15 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 /**
@@ -107,6 +112,12 @@ class MediaMovieScanServiceTest {
 
     @Autowired
     private FileMapper fileMapper;
+
+    @Autowired
+    private UserMapper userMapper;
+
+    @Autowired
+    private MediaTaskSupport mediaTaskSupport;
 
     @MockitoBean
     private MediaScrapeService mediaScrapeService;
@@ -621,6 +632,141 @@ class MediaMovieScanServiceTest {
         mediaScanService.scan(directory.getId());
 
         assertEquals(Boolean.TRUE, mediaMovieMapper.selectById(movie.getId()).getMetadataComplete());
+    }
+
+    // ---------- 票据 01：扫描链路表征测试补齐（增量 diff / 批次清理闸③ / 非 COMPLETED 结局） ----------
+
+    /**
+     * 文件内容变更（同路径同名，仅文件大小变化）后重扫：变更哈希变化 → 重跑 ffprobe 并更新明细行哈希，
+     * 明细行 ID 与文件锚不变（锚定 upsert）；播放进度与 manual 匹配保留；未变化重扫哈希命中跳过探测。
+     */
+    @Test
+    void shouldUpdateFileHashAndReprobeWhenFileContentChanged() {
+        UserVo user = prepareUserWithStorageSpace();
+        FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
+        FileNodeVo dune = createFolder(user.getId(), movieFolder.getId(), "沙丘");
+        FileNodeVo video = upload(user.getId(), dune.getId(), "沙丘.2021.mkv");
+        MediaDirectory directory = createMovieDirectory(user.getId(), movieFolder.getId());
+        mediaScanService.scan(directory.getId());
+
+        MediaMovie movie = querySingleMovie(directory.getId());
+        movie.setProgressMs(5000L);
+        movie.setMatchStatus(MediaMatchStatus.MANUAL.getCode());
+        movie.setMetadataId("metamovie001");
+        mediaMovieMapper.updateById(movie);
+        MediaMovieFile fileRow = filesOfMovie(movie.getId()).getFirst();
+        String oldHash = fileRow.getFileHash();
+
+        // 未变化重扫：哈希命中跳过探测
+        mediaScanService.scan(directory.getId());
+        verify(mediaProbeSupport, times(1)).probe(any(Path.class));
+
+        // 修改文件内容但保持路径与文件名：文件大小变化 → 变更哈希（含大小）变化 → 重走解析并重跑 ffprobe
+        FileNode fileNode = fileMapper.selectById(video.getId());
+        FileNode update = new FileNode();
+        update.setId(video.getId());
+        update.setSize(fileNode.getSize() + 100L);
+        fileMapper.updateById(update);
+        mediaScanService.scan(directory.getId());
+
+        verify(mediaProbeSupport, times(2)).probe(any(Path.class));
+        MediaMovieFile after = mediaMovieFileMapper.selectById(fileRow.getId());
+        assertNotNull(after);
+        assertEquals(fileRow.getId(), after.getId());
+        assertNotEquals(oldHash, after.getFileHash());
+        assertEquals(video.getId(), after.getFileNodeId());
+        MediaMovie movieAfter = querySingleMovie(directory.getId());
+        assertEquals(movie.getId(), movieAfter.getId());
+        assertEquals(5000L, movieAfter.getProgressMs());
+        assertEquals(MediaMatchStatus.MANUAL.getCode(), movieAfter.getMatchStatus());
+        assertEquals("metamovie001", movieAfter.getMetadataId());
+    }
+
+    /**
+     * 批次清理闸③（scan_time 早于批次时间才清理）：电影文件夹已删除，但其行 scan_time 晚于本批批次时间
+     * （模拟本批扫描开始后该行被更新），本批不清理该行；目录记为 COMPLETED。
+     */
+    @Test
+    void shouldSkipBatchCleanupWhenScanTimeIsNotStale() {
+        UserVo user = prepareUserWithStorageSpace();
+        FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
+        FileNodeVo dune = createFolder(user.getId(), movieFolder.getId(), "沙丘");
+        upload(user.getId(), dune.getId(), "沙丘.2021.mkv");
+        MediaDirectory directory = createMovieDirectory(user.getId(), movieFolder.getId());
+        mediaScanService.scan(directory.getId());
+        MediaMovie movie = querySingleMovie(directory.getId());
+
+        // 模拟该行在本批扫描开始后已被更新（scan_time 晚于批次时间）：文件夹虽已删除，本批仍不清理
+        movie.setScanTime(LocalDateTime.now().plusHours(1));
+        mediaMovieMapper.updateById(movie);
+        purgeSubtree(user.getId(), dune.getId());
+        mediaScanService.scan(directory.getId());
+
+        assertEquals(MediaScanStatus.COMPLETED.name(),
+                mediaDirectoryMapper.selectById(directory.getId()).getLastScanStatus());
+        assertNotNull(mediaMovieMapper.selectById(movie.getId()));
+    }
+
+    /**
+     * 批次清理闸①（仅 COMPLETED 执行）：扫描在起点抛异常（用户行被删除导致用户名解析失败）整轮记为
+     * FAILED，批次清理不执行——过期电影行保留。
+     */
+    @Test
+    void shouldNotCleanupWhenScanFailed() {
+        UserVo user = prepareUserWithStorageSpace();
+        FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
+        FileNodeVo dune = createFolder(user.getId(), movieFolder.getId(), "沙丘");
+        upload(user.getId(), dune.getId(), "沙丘.2021.mkv");
+        FileNodeVo brightSword = createFolder(user.getId(), movieFolder.getId(), "亮剑");
+        upload(user.getId(), brightSword.getId(), "亮剑.mkv");
+        MediaDirectory directory = createMovieDirectory(user.getId(), movieFolder.getId());
+        mediaScanService.scan(directory.getId());
+        assertEquals(2, mediaMovieMapper.selectCount(null));
+
+        // 亮剑文件夹删除：其电影行成为过期行（scan_time 早于批次时间），本应被批次清理
+        purgeSubtree(user.getId(), brightSword.getId());
+        // 用户行删除使扫描在起点抛异常（用户名解析 NPE）→ 整轮记为 FAILED，批次清理不执行
+        userMapper.deleteById(user.getId());
+        mediaScanService.scan(directory.getId());
+
+        assertEquals(MediaScanStatus.FAILED.name(),
+                mediaDirectoryMapper.selectById(directory.getId()).getLastScanStatus());
+        assertEquals(2, mediaMovieMapper.selectCount(null));
+    }
+
+    /**
+     * 批次清理闸①（仅 COMPLETED 执行）：扫描中途收到协作式取消请求（下一次 ffprobe 探测时置取消标记）
+     * 整轮记为 FAILED（CANCELLED 映射），批次清理不执行——过期电影行保留。
+     */
+    @Test
+    void shouldNotCleanupWhenScanCancelled() {
+        UserVo user = prepareUserWithStorageSpace();
+        FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
+        FileNodeVo dune = createFolder(user.getId(), movieFolder.getId(), "沙丘");
+        FileNodeVo duneFile = upload(user.getId(), dune.getId(), "沙丘.2021.mkv");
+        FileNodeVo brightSword = createFolder(user.getId(), movieFolder.getId(), "亮剑");
+        upload(user.getId(), brightSword.getId(), "亮剑.mkv");
+        MediaDirectory directory = createMovieDirectory(user.getId(), movieFolder.getId());
+        mediaScanService.scan(directory.getId());
+        assertEquals(2, mediaMovieMapper.selectCount(null));
+
+        purgeSubtree(user.getId(), brightSword.getId());
+        // 文件大小变化使本轮必须重跑 ffprobe（哈希未变则跳过探测、取消钩子不会触发）；
+        // 探测时置协作式取消标记，扫描在阶段一结束检查点返回 CANCELLED
+        FileNode fileNode = fileMapper.selectById(duneFile.getId());
+        FileNode update = new FileNode();
+        update.setId(duneFile.getId());
+        update.setSize(fileNode.getSize() + 100L);
+        fileMapper.updateById(update);
+        doAnswer(invocation -> {
+            mediaTaskSupport.requestCancel(directory.getId());
+            return PROBE;
+        }).when(mediaProbeSupport).probe(any(Path.class));
+        mediaScanService.scan(directory.getId());
+
+        assertEquals(MediaScanStatus.FAILED.name(),
+                mediaDirectoryMapper.selectById(directory.getId()).getLastScanStatus());
+        assertEquals(2, mediaMovieMapper.selectCount(null));
     }
 
     /**
