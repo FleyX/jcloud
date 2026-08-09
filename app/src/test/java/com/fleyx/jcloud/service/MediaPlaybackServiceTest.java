@@ -16,6 +16,7 @@ import com.fleyx.jcloud.mapper.MediaMovieMapper;
 import com.fleyx.jcloud.mapper.MediaOtherMapper;
 import com.fleyx.jcloud.mapper.MediaSubtitleMapper;
 import com.fleyx.jcloud.mapper.MediaSeriesMapper;
+import com.fleyx.jcloud.model.bo.MediaProbeResult;
 import com.fleyx.jcloud.model.dto.FileCreateFolderDto;
 import com.fleyx.jcloud.model.dto.StorageSpaceSaveDto;
 import com.fleyx.jcloud.model.dto.UserSaveDto;
@@ -33,6 +34,7 @@ import com.fleyx.jcloud.model.vo.MediaPlaybackInfoVo;
 import com.fleyx.jcloud.model.vo.MediaSubtitleItemVo;
 import com.fleyx.jcloud.model.vo.StorageSpaceVo;
 import com.fleyx.jcloud.model.vo.UserVo;
+import com.fleyx.jcloud.service.support.MediaSubtitleSupport;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -43,6 +45,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -96,6 +99,9 @@ class MediaPlaybackServiceTest {
 
     @Autowired
     private MediaPlaybackService mediaPlaybackService;
+
+    @Autowired
+    private MediaSubtitleSupport mediaSubtitleSupport;
 
     @Autowired
     private MediaDirectoryMapper mediaDirectoryMapper;
@@ -299,6 +305,90 @@ class MediaPlaybackServiceTest {
         // 二次读取命中缓存，返回同一路径
         Path cached = mediaPlaybackService.extractExternalSubtitle(movie.getId(), subtitle.getId(), 0, user.getId(), null);
         assertEquals(vtt, cached);
+    }
+
+    /**
+     * 非 UTF-8（GBK）编码的外部 srt 字幕回退转 UTF-8 后再经 ffmpeg 转 webvtt，
+     * 中文内容正确解码（若未走 GBK 回退，中文将乱码）。
+     */
+    @Test
+    void shouldConvertGbkEncodedSrtToVtt() throws Exception {
+        UserVo user = prepareUserWithStorageSpace();
+        FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
+        FileNodeVo dune = createFolder(user.getId(), movieFolder.getId(), "沙丘");
+        fileService.upload(buildFile("沙丘.mkv", "video".getBytes()), user.getId(), dune.getId(), null);
+        fileService.upload(buildFile("沙丘.zh.srt", SRT_CONTENT.getBytes(Charset.forName("GBK"))),
+                user.getId(), dune.getId(), null);
+        MediaDirectory directory = createDirectory(user.getId(), movieFolder.getId(), "movie");
+        mediaScanService.scan(directory.getId());
+
+        MediaMovie movie = querySingleMovie(directory.getId());
+        MediaSubtitle subtitle = querySubtitle(queryMovieFile(movie.getId()).getId());
+
+        Path vtt = mediaPlaybackService.extractExternalSubtitle(movie.getId(), subtitle.getId(), 0, user.getId(), null);
+        assertTrue(Files.exists(vtt));
+        String content = Files.readString(vtt, StandardCharsets.UTF_8);
+        assertTrue(content.startsWith("WEBVTT"));
+        assertTrue(content.contains("你好，世界"));
+        assertTrue(content.contains("第二行"));
+    }
+
+    /**
+     * 统一字幕列表组装（MediaSubtitleSupport.buildSubtitleList）：
+     * 内嵌文本轨在前（按流序号，language - title 拼装、两者缺失回退「字幕 N」），
+     * 外部字幕在后（默认优先、再按标签）。探测层已过滤位图轨（MediaProbeSupportTest 覆盖），
+     * 此处直接喂文本轨列表验证组装行为。
+     */
+    @Test
+    void shouldAssembleUnifiedSubtitleListWithEmbeddedAndExternalTracks() {
+        UserVo user = prepareUserWithStorageSpace();
+        FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
+        FileNodeVo dune = createFolder(user.getId(), movieFolder.getId(), "沙丘");
+        fileService.upload(buildFile("沙丘.mkv", "video".getBytes()), user.getId(), dune.getId(), null);
+        fileService.upload(buildFile("沙丘.chs.srt", SRT_CONTENT.getBytes(StandardCharsets.UTF_8)),
+                user.getId(), dune.getId(), null);
+        fileService.upload(buildFile("沙丘.eng.default.srt", SRT_CONTENT.getBytes(StandardCharsets.UTF_8)),
+                user.getId(), dune.getId(), null);
+        MediaDirectory directory = createDirectory(user.getId(), movieFolder.getId(), "movie");
+        mediaScanService.scan(directory.getId());
+
+        MediaMovie movie = querySingleMovie(directory.getId());
+        MediaMovieFile file = queryMovieFile(movie.getId());
+        List<MediaProbeResult.Track> tracks = List.of(
+                new MediaProbeResult.Track(0, "subrip", "chi", "简体中文", false),
+                new MediaProbeResult.Track(1, "subrip", null, null, false),
+                new MediaProbeResult.Track(2, "ass", "eng", "English", true));
+
+        List<MediaSubtitleItemVo> subtitles = mediaSubtitleSupport.buildSubtitleList(tracks, file.getId());
+
+        assertEquals(5, subtitles.size());
+        // 内嵌轨在前、按流序号
+        MediaSubtitleItemVo embedded0 = subtitles.get(0);
+        assertEquals("embedded", embedded0.getType());
+        assertEquals(0, embedded0.getIndex());
+        assertEquals("chi", embedded0.getLanguage());
+        assertEquals("chi - 简体中文", embedded0.getLabel());
+        assertEquals(Boolean.FALSE, embedded0.getDefaulted());
+        // language/title 均缺失时回退「字幕 N」
+        MediaSubtitleItemVo embedded1 = subtitles.get(1);
+        assertEquals("embedded", embedded1.getType());
+        assertEquals(1, embedded1.getIndex());
+        assertEquals("字幕 2", embedded1.getLabel());
+        MediaSubtitleItemVo embedded2 = subtitles.get(2);
+        assertEquals("embedded", embedded2.getType());
+        assertEquals(2, embedded2.getIndex());
+        assertEquals("eng - English", embedded2.getLabel());
+        assertEquals(Boolean.TRUE, embedded2.getDefaulted());
+        // 外部在后：默认优先、再按标签
+        MediaSubtitleItemVo externalDefault = subtitles.get(3);
+        assertEquals("external", externalDefault.getType());
+        assertEquals("English", externalDefault.getLabel());
+        assertEquals(Boolean.TRUE, externalDefault.getDefaulted());
+        assertNotNull(externalDefault.getSubtitleId());
+        MediaSubtitleItemVo externalSecond = subtitles.get(4);
+        assertEquals("external", externalSecond.getType());
+        assertEquals("简体", externalSecond.getLabel());
+        assertEquals(Boolean.FALSE, externalSecond.getDefaulted());
     }
 
     /**
