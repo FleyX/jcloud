@@ -1,7 +1,6 @@
 package com.fleyx.jcloud.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.fleyx.jcloud.common.enums.MediaMatchStatus;
 import com.fleyx.jcloud.common.enums.MediaMetadataOwnerType;
 import com.fleyx.jcloud.common.enums.MediaRefreshMode;
 import com.fleyx.jcloud.common.enums.MediaScrapeStatus;
@@ -19,6 +18,7 @@ import com.fleyx.jcloud.model.po.MediaSeries;
 import com.fleyx.jcloud.service.MediaScrapeService;
 import com.fleyx.jcloud.service.support.MediaArtifactProbeSupport;
 import com.fleyx.jcloud.service.support.MediaMovieScrapeSupport;
+import com.fleyx.jcloud.service.support.MediaScrapeDriverSupport;
 import com.fleyx.jcloud.service.support.MediaSeriesScrapeSupport;
 import com.fleyx.jcloud.service.support.MediaTaskSupport;
 import lombok.extern.slf4j.Slf4j;
@@ -36,7 +36,8 @@ import java.util.Map;
  * 本类保留入口与整库调度：单条刷新（{@link #refreshItem}）按元数据归属类型分发给电影/剧集
  * 削刮支撑（{@link MediaMovieScrapeSupport}/{@link MediaSeriesScrapeSupport}）的刷新方法；
  * 整库削刮（{@link #scrapeOnce}）先经候选探测（{@link MediaArtifactProbeSupport}）批量收集
- * NFO/背景图产物缺失映射，逐行按 {@link #needScrape} 判定候选后调用对应支撑的削刮或产物补回，
+ * NFO/背景图产物缺失映射，逐行按 {@link MediaScrapeDriverSupport#needScrape} 判定候选后调用对应支撑
+ * 的削刮或产物补回，
  * 循环内 per-item 失败记录为 partial 不打断整库；结束时重算媒体库刮削状态
  * （{@link #markScraping}/{@link #updateScrapeResult}）。
  * 处理范围为「未匹配、不完整或 NFO 缺失」的非 manual 行（force 时全部非 manual 行）；
@@ -166,7 +167,7 @@ public class MediaScrapeServiceImpl implements MediaScrapeService {
                 return partial;
             }
             boolean nfoMissing = nfoMissingByMovie.getOrDefault(movie.getId(), false);
-            if (!needScrape(movie.getMatchStatus(), movie.getMetadataComplete(), force, nfoMissing)) {
+            if (!MediaScrapeDriverSupport.needScrape(movie.getMatchStatus(), movie.getMetadataComplete(), force, nfoMissing)) {
                 // manual/已完整行不削刮；完整性翻 false、NFO 缺失或背景图产物缺失时复用已有元数据补回
                 // （不重新匹配、不改绑定，工单 03/05/07）
                 if (!Boolean.TRUE.equals(movie.getMetadataComplete()) || nfoMissing
@@ -198,7 +199,7 @@ public class MediaScrapeServiceImpl implements MediaScrapeService {
                 return partial;
             }
             boolean nfoMissing = nfoMissingBySeries.getOrDefault(series.getId(), false);
-            if (!needScrape(series.getMatchStatus(), series.getMetadataComplete(), force, nfoMissing)) {
+            if (!MediaScrapeDriverSupport.needScrape(series.getMatchStatus(), series.getMetadataComplete(), force, nfoMissing)) {
                 // manual/已完整行不削刮；完整性翻 false、NFO 缺失或背景图产物缺失时复用已有元数据补回
                 // （不重新匹配、不改绑定，工单 03/05/07）
                 if (!Boolean.TRUE.equals(series.getMetadataComplete()) || nfoMissing
@@ -218,22 +219,6 @@ public class MediaScrapeServiceImpl implements MediaScrapeService {
     }
 
     // ---------- 通用 ----------
-
-    /**
-     * 是否需要削刮：manual 永不覆盖；force 处理全部非 manual，否则只处理「未匹配、不完整或 NFO 缺失」。
-     * NFO 存在性纳入候选（工单 05）：NFO 被删除后条目经削刮自动重建；manual 行恒 false，
-     * 其 NFO/背景图缺失重建走工单 03/07 的 refill 分支（persist 路径删跳过后自然重建）。
-     */
-    private boolean needScrape(String matchStatus, Boolean metadataComplete, boolean force, boolean nfoMissing) {
-        if (MediaMatchStatus.MANUAL.getCode().equals(matchStatus)) {
-            return false;
-        }
-        if (force) {
-            return true;
-        }
-        return MediaMatchStatus.UNMATCHED.getCode().equals(matchStatus)
-                || !Boolean.TRUE.equals(metadataComplete) || nfoMissing;
-    }
 
     private void markScraping(MediaDirectory directory) {
         MediaDirectory update = new MediaDirectory();

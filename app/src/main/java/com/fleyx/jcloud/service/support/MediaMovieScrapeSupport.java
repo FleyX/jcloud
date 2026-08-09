@@ -5,10 +5,7 @@ import com.fleyx.jcloud.common.enums.MediaMatchStatus;
 import com.fleyx.jcloud.common.enums.MediaMetadataOwnerType;
 import com.fleyx.jcloud.common.enums.MediaRefreshMode;
 import com.fleyx.jcloud.common.enums.MediaType;
-import com.fleyx.jcloud.common.enums.ResultCode;
-import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.FileMapper;
-import com.fleyx.jcloud.mapper.MediaDirectoryMapper;
 import com.fleyx.jcloud.mapper.MediaMetadataMapper;
 import com.fleyx.jcloud.mapper.MediaMovieMapper;
 import com.fleyx.jcloud.model.po.FileNode;
@@ -26,26 +23,26 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 /**
- * 电影削刮支撑组件（工单 08 由 {@code MediaScrapeServiceImpl} 拆分）：单部电影的本地优先削刮、
- * force 通道、匹配应用与产物补回。
+ * 电影削刮策略实现（工单 09 由 {@code MediaScrapeServiceImpl} 拆分、同构流程下沉
+ * {@link MediaScrapeDriverSupport}）：单部电影的本地优先削刮、force 通道、匹配应用与产物补回。
+ * 共享流程由驱动独占（{@link MediaScrapeDriverSupport#refreshItem}/{@link MediaScrapeDriverSupport#scrape}/
+ * {@link MediaScrapeDriverSupport#refillArtifacts}），本类仅保留电影差异：单层匹配应用、
+ * 文件名解析+文件夹名兜底、movie.nfo/同名 nfo/poster/fanart 本地识别链。
  * <p>
  * 本地优先（ADR 0023）：视频同目录存在 NFO 或本地媒体图片时本地字段优先、缺失字段由 TMDB 补全
  * （有 tmdbId 按 ID 拉详情合并，仅本地图片无 NFO 时经自动匹配补文本），合并结果整体写回 NFO；
  * 本地缺失时先文件名解析结果、失败用电影文件夹名兜底。
  * force=true 时先入 force 通道（工单 06/07）：有既有元数据且 tmdbId 非空按 ID 重新拉详情、
  * 否则自动匹配，TMDB 全量覆盖字段并全量替换图片/NFO 产物；拉取/匹配失败回退本地优先主流程
- * （退化为非强制 persist），不清空既有匹配（工单 07）。字段补全经
- * {@link MediaMetadataSupport#enrichLocalWithTmdb}，产物写回经 {@link MediaArtworkPersistV2Support}，
- * 每次削刮结束由 {@link MediaMetadataCompleteSupport} 重算完整性。
+ * （退化为非强制 persist），不清空既有匹配（工单 07）。
  */
 @Slf4j
 @Component
 @RequiredArgsConstructor
-public class MediaMovieScrapeSupport {
+public class MediaMovieScrapeSupport implements ScrapeStrategy<MediaMovie> {
 
     private final MediaMovieMapper mediaMovieMapper;
     private final MediaMetadataMapper mediaMetadataMapper;
-    private final MediaDirectoryMapper mediaDirectoryMapper;
     private final FileMapper fileMapper;
     private final TmdbService tmdbService;
     private final MediaNfoSupport mediaNfoSupport;
@@ -54,151 +51,67 @@ public class MediaMovieScrapeSupport {
     private final MediaArtworkPersistSupport persistSupport;
     private final MediaArtworkPersistV2Support artworkPersistV2Support;
     private final MediaPlaybackResolveSupport playbackResolveSupport;
+    private final MediaScrapeDriverSupport scrapeDriverSupport;
+
+    @Override
+    public MediaMovie loadRow(String ownerId) {
+        return mediaMovieMapper.selectById(ownerId);
+    }
+
+    @Override
+    public String entityName() {
+        return "电影";
+    }
+
+    @Override
+    public String mediaTypeCode() {
+        return MediaType.MOVIE.getCode();
+    }
+
+    @Override
+    public String directoryIdOf(MediaMovie movie) {
+        return movie.getDirectoryId();
+    }
+
+    @Override
+    public String userIdOf(MediaMovie movie) {
+        return movie.getUserId();
+    }
+
+    @Override
+    public String metadataIdOf(MediaMovie movie) {
+        return movie.getMetadataId();
+    }
+
+    @Override
+    public boolean isManual(MediaMovie movie) {
+        return MediaMatchStatus.MANUAL.getCode().equals(movie.getMatchStatus());
+    }
+
+    @Override
+    public boolean isMatched(MediaMovie movie) {
+        return MediaMatchStatus.MATCHED.getCode().equals(movie.getMatchStatus());
+    }
 
     /**
-     * 单条刷新电影（工单 06/07）：missing 模式已匹配行复用元数据行——文本缺失由 TMDB 补全（已完整行
-     * 方法内短路不拉网络）、已有字段不动，产物经 persist IfMissing 校验缺失重建；manual 行只做产物补回
-     * 不改字段；未匹配行走完整非强制削刮。force 模式非 manual 行走整库 force 同路径（TMDB 全量覆盖，
-     * 失败回退本地优先不清空匹配）；manual 行豁免字段覆盖，复用既有元数据行按 force 语义全量替换产物。
+     * 单条刷新电影（工单 06/07，四分支流程见 {@link MediaScrapeDriverSupport#refreshItem}）。
      */
     public void refreshMovieItem(MediaMetadata metadata, String userId, MediaRefreshMode mode) {
-        MediaMovie movie = mediaMovieMapper.selectById(metadata.getOwnerId());
-        if (movie == null) {
-            throw new BusinessException(ResultCode.NOT_FOUND, "电影不存在");
-        }
-        if (MediaRefreshMode.FORCE == mode) {
-            if (MediaMatchStatus.MANUAL.getCode().equals(movie.getMatchStatus())) {
-                refillMovieArtifacts(movie, true);
-                return;
-            }
-            MediaDirectory directory = mediaDirectoryMapper.selectById(movie.getDirectoryId());
-            if (directory == null) {
-                throw new BusinessException(ResultCode.NOT_FOUND, "媒体库不存在");
-            }
-            scrapeMovie(directory, movie, true);
-            return;
-        }
-        if (MediaMatchStatus.MANUAL.getCode().equals(movie.getMatchStatus())) {
-            refillMovieArtifacts(movie, false);
-            return;
-        }
-        if (MediaMatchStatus.MATCHED.getCode().equals(movie.getMatchStatus()) && movie.getMetadataId() != null) {
-            MediaMetadata existing = mediaMetadataMapper.selectById(movie.getMetadataId());
-            if (existing != null) {
-                MediaMetadata enriched = metadataV2Support.enrichLocalWithTmdb(existing, userId, MediaType.MOVIE.getCode());
-                // rawJson 水合（工单 09）：enrich 补字段、hydrate 补 rawJson，职责分开；两者都短路时无网络开销
-                MediaMetadata hydrated = metadataV2Support.hydrateRawJson(enriched, userId, MediaType.MOVIE.getCode());
-                MediaMetadata bound = applyMovieMatch(movie, hydrated);
-                if (bound != null) {
-                    artworkPersistV2Support.persistMovieV2(movie, bound, false);
-                }
-            }
-            completeSupport.refreshMovieComplete(movie);
-            return;
-        }
-        MediaDirectory directory = mediaDirectoryMapper.selectById(movie.getDirectoryId());
-        if (directory != null) {
-            scrapeMovie(directory, movie, false);
-        }
+        scrapeDriverSupport.refreshItem(this, metadata, userId, mode);
     }
 
     /**
-     * 单部电影削刮：本地优先（movie.nfo 优先、同名 .nfo 兜底 / poster / fanart），本地内容存在时本地字段优先、
-     * 缺失字段由 TMDB 补全（有 tmdbId 按 ID 拉详情，仅本地图片无 NFO 时经自动匹配补文本）；无本地内容时 TMDB
-     * 先文件名解析结果、失败用电影文件夹名兜底；已匹配行无本地内容时复用已有元数据行补产物，不重新搜索。
-     * force=true 时先入 force 通道（工单 06/07）：有既有元数据且 tmdbId 非空按 ID 重新拉详情、否则自动匹配，
-     * 匹配成功则全量覆盖字段并全量替换图片/NFO 产物；拉取/匹配失败不打断、不 unmatch，回退本地优先主流程
-     * （force 自动退化为非强制 persist）。
+     * 单部电影削刮（force 通道控制流见 {@link MediaScrapeDriverSupport#scrape}）。
      */
     public void scrapeMovie(MediaDirectory directory, MediaMovie movie, boolean force) {
-        if (force) {
-            MediaMetadata pulled = pullTmdbForForce(directory, movie);
-            if (pulled != null) {
-                MediaMetadata bound = applyMovieMatch(movie, pulled);
-                if (bound != null) {
-                    artworkPersistV2Support.persistMovieV2(movie, bound, true);
-                }
-                completeSupport.refreshMovieComplete(movie);
-                return;
-            }
-            log.debug("电影强制削刮 TMDB 拉取失败，回退本地优先流程: movie={}", movie.getId());
-        }
-        scrapeMovieLocalFirst(directory, movie);
+        scrapeDriverSupport.scrape(this, movie, force);
     }
 
     /**
-     * 电影本地优先主流程（非强制 persist）：本地优先削刮 + TMDB 补全；force 通道失败后同样回退到此
-     * （退化为非强制，不清空既有匹配，工单 07）。
+     * 已匹配（含 manual）电影的图片/NFO 产物补回（见 {@link MediaScrapeDriverSupport#refillArtifacts}）。
      */
-    private void scrapeMovieLocalFirst(MediaDirectory directory, MediaMovie movie) {
-        MediaMetadata local = scrapeMovieLocalNfo(movie);
-        MediaMetadata metadata = local;
-        if (metadata != null && metadata.getTmdbId() != null) {
-            metadata = metadataV2Support.enrichLocalWithTmdb(metadata, directory.getUserId(), MediaType.MOVIE.getCode());
-        }
-        if (metadata == null) {
-            if (MediaMatchStatus.MATCHED.getCode().equals(movie.getMatchStatus())
-                    && movie.getMetadataId() != null) {
-                metadata = mediaMetadataMapper.selectById(movie.getMetadataId());
-            }
-            if (metadata == null) {
-                metadata = matchMovieByFile(directory, movie);
-            }
-        } else if (metadata.getTmdbId() == null) {
-            // 本地仅图片无 NFO 或 NFO 未含 tmdbid：文本字段由 TMDB 自动匹配补全，图片沿用本地
-            MediaMetadata matched = matchMovieByFile(directory, movie);
-            if (matched != null) {
-                metadata = metadataV2Support.mergeLocalWithTmdb(metadata, matched);
-            }
-        }
-        MediaMetadata bound = applyMovieMatch(movie, metadata);
-        if (bound != null) {
-            artworkPersistV2Support.persistMovieV2(movie, bound, false);
-        }
-        completeSupport.refreshMovieComplete(movie);
-    }
-
-    /**
-     * 电影 force 通道（工单 06/07）：有既有元数据且 tmdbId 非空按 ID 重新拉取详情，否则经文件名/文件夹名
-     * 自动匹配；详情拉取异常视为失败（不打断削刮）。
-     *
-     * @return 全量 TMDB 元数据；拉取/匹配失败返回 null（调用方回退本地优先主流程）
-     */
-    private MediaMetadata pullTmdbForForce(MediaDirectory directory, MediaMovie movie) {
-        MediaMetadata existing = movie.getMetadataId() == null ? null
-                : mediaMetadataMapper.selectById(movie.getMetadataId());
-        if (existing != null && existing.getTmdbId() != null) {
-            try {
-                return tmdbService.fetchDetailV2(directory.getUserId(), existing.getTmdbId(),
-                        MediaType.MOVIE.getCode());
-            } catch (Exception e) {
-                log.debug("电影强制削刮拉取详情失败，回退本地优先: movie={}, tmdbId={}, error={}",
-                        movie.getId(), existing.getTmdbId(), e.getMessage());
-                return null;
-            }
-        }
-        return matchMovieByFile(directory, movie);
-    }
-
-    /**
-     * TMDB 自动匹配电影：先按视频文件名解析结果匹配，失败用电影文件夹名兜底
-     * （扫描已把文件夹名清理为 movie.title）。
-     */
-    private MediaMetadata matchMovieByFile(MediaDirectory directory, MediaMovie movie) {
-        MediaMovieFile file = playbackResolveSupport.pickMovieFile(movie);
-        FileNode video = file == null ? null : fileMapper.selectById(file.getFileNodeId());
-        if (video == null) {
-            return null;
-        }
-        MediaFileNameParser.ParseResult parsed = MediaFileNameParser.parse(video.getName(), null, null);
-        MediaMetadata metadata = tmdbService.autoMatchV2(directory.getUserId(), MediaType.MOVIE.getCode(),
-                parsed.title(), parsed.year());
-        String fallback = movie.getTitle();
-        if (metadata == null && !fallback.isBlank() && !fallback.equals(parsed.title())) {
-            metadata = tmdbService.autoMatchV2(directory.getUserId(), MediaType.MOVIE.getCode(),
-                    fallback, parsed.year());
-        }
-        return metadata;
+    public void refillMovieArtifacts(MediaMovie movie, boolean force) {
+        scrapeDriverSupport.refillArtifacts(this, movie, force);
     }
 
     /**
@@ -209,7 +122,8 @@ public class MediaMovieScrapeSupport {
      *
      * @return 已绑定 owner 的本地元数据，无 NFO 且无本地图片时返回 null
      */
-    private MediaMetadata scrapeMovieLocalNfo(MediaMovie movie) {
+    @Override
+    public MediaMetadata scrapeLocalNfo(MediaMovie movie) {
         FileNode folder = fileMapper.selectById(movie.getFolderNodeId());
         MediaMovieFile file = playbackResolveSupport.pickMovieFile(movie);
         FileNode video = file == null ? null : fileMapper.selectById(file.getFileNodeId());
@@ -231,12 +145,58 @@ public class MediaMovieScrapeSupport {
     }
 
     /**
+     * 本地元数据 TMDB 补全：有 tmdbId 按 ID 拉详情合并；无 tmdbId（仅本地图片无 NFO 或 NFO 未含
+     * tmdbid）时经文件名解析+文件夹名兜底自动匹配补文本，匹配失败维持本地。
+     */
+    @Override
+    public MediaMetadata enrichLocal(MediaMovie movie, MediaMetadata local) {
+        if (local.getTmdbId() != null) {
+            return metadataV2Support.enrichLocalWithTmdb(local, movie.getUserId(), MediaType.MOVIE.getCode());
+        }
+        MediaMetadata matched = matchMovieByFile(movie);
+        return matched == null ? local : metadataV2Support.mergeLocalWithTmdb(local, matched);
+    }
+
+    /**
+     * TMDB 自动匹配电影：先按视频文件名解析结果匹配，失败用电影文件夹名兜底
+     * （扫描已把文件夹名清理为 movie.title）。
+     */
+    @Override
+    public MediaMetadata autoMatch(MediaMovie movie) {
+        return matchMovieByFile(movie);
+    }
+
+    /**
+     * 电影 force 通道（工单 06/07）：有既有元数据且 tmdbId 非空按 ID 重新拉取详情，否则经文件名/文件夹名
+     * 自动匹配；详情拉取异常视为失败（不打断削刮）。
+     *
+     * @return 全量 TMDB 元数据；拉取/匹配失败返回 null（调用方回退本地优先主流程）
+     */
+    @Override
+    public MediaMetadata pullByTmdbId(MediaMovie movie) {
+        MediaMetadata existing = movie.getMetadataId() == null ? null
+                : mediaMetadataMapper.selectById(movie.getMetadataId());
+        if (existing != null && existing.getTmdbId() != null) {
+            try {
+                return tmdbService.fetchDetailV2(movie.getUserId(), existing.getTmdbId(),
+                        MediaType.MOVIE.getCode());
+            } catch (Exception e) {
+                log.debug("电影强制削刮拉取详情失败，回退本地优先: movie={}, tmdbId={}, error={}",
+                        movie.getId(), existing.getTmdbId(), e.getMessage());
+                return null;
+            }
+        }
+        return matchMovieByFile(movie);
+    }
+
+    /**
      * 应用电影匹配结果并返回绑定后的元数据行：本地元数据已绑定 owner 直接回写关联；
      * TMDB 游离元数据先绑定 owner 再回写；匹配失败清空元数据行（owner 指针不留孤儿）并置未匹配。
      *
      * @return 绑定后的元数据行；未匹配时返回 null
      */
-    private MediaMetadata applyMovieMatch(MediaMovie movie, MediaMetadata metadata) {
+    @Override
+    public MediaMetadata applyMatch(MediaMovie movie, MediaMetadata metadata, boolean force) {
         String metadataId;
         String matchStatus;
         MediaMetadata bound;
@@ -262,23 +222,43 @@ public class MediaMovieScrapeSupport {
     }
 
     /**
-     * 已匹配（含 manual）行的图片/NFO 产物补回（工单 03/05/07）：复用已有元数据行的 rawJson 重建缺失产物，
-     * 不触碰 matchStatus/metadataId、不重新匹配。无元数据行直接返回；local_nfo 来源同样经
-     * persistMovieV2 整体写回（其补全由削刮主路径完成，工单 05）。
-     * force=true 时（manual 单条强制刷新，工单 07）按 force 语义全量替换图片/NFO 产物，同样不改字段。
+     * 应用电影匹配失败：清空元数据行（owner 指针不留孤儿）置未匹配并重算完整性。
      */
-    public void refillMovieArtifacts(MediaMovie movie, boolean force) {
-        if (movie.getMetadataId() == null) {
-            return;
-        }
-        MediaMetadata metadata = mediaMetadataMapper.selectById(movie.getMetadataId());
-        if (metadata == null) {
-            return;
-        }
-        // rawJson 缺失且已绑定 tmdbId 时先按 ID 水合（工单 09），否则无 rawJson 可取图、产物无法重建
-        metadata = metadataV2Support.hydrateRawJson(metadata, movie.getUserId(), MediaType.MOVIE.getCode());
-        artworkPersistV2Support.persistMovieV2(movie, metadata, force);
+    @Override
+    public void applyUnmatch(MediaMovie movie) {
+        applyMatch(movie, null, false);
         completeSupport.refreshMovieComplete(movie);
+    }
+
+    @Override
+    public void persist(MediaMovie movie, MediaMetadata bound, boolean force) {
+        artworkPersistV2Support.persistMovieV2(movie, bound, force);
+    }
+
+    @Override
+    public void refreshComplete(MediaMovie movie) {
+        completeSupport.refreshMovieComplete(movie);
+    }
+
+    /**
+     * TMDB 自动匹配电影：先按视频文件名解析结果匹配，失败用电影文件夹名兜底
+     * （扫描已把文件夹名清理为 movie.title）。
+     */
+    private MediaMetadata matchMovieByFile(MediaMovie movie) {
+        MediaMovieFile file = playbackResolveSupport.pickMovieFile(movie);
+        FileNode video = file == null ? null : fileMapper.selectById(file.getFileNodeId());
+        if (video == null) {
+            return null;
+        }
+        MediaFileNameParser.ParseResult parsed = MediaFileNameParser.parse(video.getName(), null, null);
+        MediaMetadata metadata = tmdbService.autoMatchV2(movie.getUserId(), MediaType.MOVIE.getCode(),
+                parsed.title(), parsed.year());
+        String fallback = movie.getTitle();
+        if (metadata == null && !fallback.isBlank() && !fallback.equals(parsed.title())) {
+            metadata = tmdbService.autoMatchV2(movie.getUserId(), MediaType.MOVIE.getCode(),
+                    fallback, parsed.year());
+        }
+        return metadata;
     }
 
     private MediaNfoSupport.NfoData readNfo(FileNode nfoNode) {

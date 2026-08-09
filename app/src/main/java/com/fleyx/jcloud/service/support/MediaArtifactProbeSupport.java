@@ -126,46 +126,48 @@ public class MediaArtifactProbeSupport {
     }
 
     /**
-     * 批量收集各电影背景图产物是否缺失（工单 07）：按 metadataId 一次 selectBatchIds 加载元数据行，
-     * 非空 backdropFileNodeId 合并做一次 IN 查询得存活集合；缺失判定见 {@link #backdropMissing}。
+     * 批量收集各电影背景图产物是否缺失（工单 07）：判定逻辑见共享实现 {@link #collectBackdropMissing}。
      * 无元数据行的电影不判缺失（本就在削刮候选里）。
      *
      * @return movieId → backdropMissing
      */
     public Map<String, Boolean> collectMovieBackdropMissing(List<MediaMovie> movies) {
-        if (movies.isEmpty()) {
-            return Map.of();
-        }
-        Map<String, MediaMetadata> metadataById = loadMetadataById(movies.stream()
-                .map(MediaMovie::getMetadataId).filter(Objects::nonNull).distinct().toList());
-        Set<String> aliveNodeIds = loadFileById(metadataById.values().stream()
-                .map(MediaMetadata::getBackdropFileNodeId).filter(Objects::nonNull).toList()).keySet();
-        Map<String, Boolean> result = new HashMap<>();
-        for (MediaMovie movie : movies) {
-            result.put(movie.getId(), backdropMissing(
-                    movie.getMetadataId() == null ? null : metadataById.get(movie.getMetadataId()), aliveNodeIds));
-        }
-        return result;
+        return collectBackdropMissing(movies, MediaMovie::getId, MediaMovie::getMetadataId);
     }
 
     /**
-     * 批量收集各剧集背景图产物是否缺失（工单 07）：只看剧级元数据行（季海报/集剧照指针悬空已由
-     * 完整性聚合覆盖，不重复探测），判定逻辑与电影版一致。
+     * 批量收集各剧集背景图产物是否缺失（工单 07）：判定逻辑见共享实现 {@link #collectBackdropMissing}，
+     * 只看剧级元数据行（季海报/集剧照指针悬空已由完整性聚合覆盖，不重复探测）。
      *
      * @return seriesId → backdropMissing
      */
     public Map<String, Boolean> collectSeriesBackdropMissing(List<MediaSeries> seriesList) {
-        if (seriesList.isEmpty()) {
+        return collectBackdropMissing(seriesList, MediaSeries::getId, MediaSeries::getMetadataId);
+    }
+
+    /**
+     * 背景图产物缺失收集共享实现（工单 09）：按行类型访问器参数化的通用逻辑——按 metadataId 一次
+     * selectBatchIds 加载元数据行，非空 backdropFileNodeId 合并做一次 IN 查询得存活集合；
+     * 缺失判定见 {@link #backdropMissing}。无元数据行的行不判缺失（本就在削刮候选里）。
+     *
+     * @param idOf         行 ID 访问器（movieId/seriesId）
+     * @param metadataIdOf 行元数据行 ID 访问器
+     */
+    private <Row> Map<String, Boolean> collectBackdropMissing(List<Row> rows,
+                                                              Function<Row, String> idOf,
+                                                              Function<Row, String> metadataIdOf) {
+        if (rows.isEmpty()) {
             return Map.of();
         }
-        Map<String, MediaMetadata> metadataById = loadMetadataById(seriesList.stream()
-                .map(MediaSeries::getMetadataId).filter(Objects::nonNull).distinct().toList());
+        Map<String, MediaMetadata> metadataById = loadMetadataById(rows.stream()
+                .map(metadataIdOf).filter(Objects::nonNull).distinct().toList());
         Set<String> aliveNodeIds = loadFileById(metadataById.values().stream()
                 .map(MediaMetadata::getBackdropFileNodeId).filter(Objects::nonNull).toList()).keySet();
         Map<String, Boolean> result = new HashMap<>();
-        for (MediaSeries series : seriesList) {
-            result.put(series.getId(), backdropMissing(
-                    series.getMetadataId() == null ? null : metadataById.get(series.getMetadataId()), aliveNodeIds));
+        for (Row row : rows) {
+            String metadataId = metadataIdOf.apply(row);
+            result.put(idOf.apply(row), backdropMissing(
+                    metadataId == null ? null : metadataById.get(metadataId), aliveNodeIds));
         }
         return result;
     }

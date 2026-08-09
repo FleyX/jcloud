@@ -78,14 +78,31 @@ public class MediaTvScrapeSupport {
     }
 
     /**
+     * 绑定剧级匹配并派生季/集元数据（不含写回与完整性重算）：绑定剧行 → 派生季/集。
+     * 供削刮驱动（{@link MediaScrapeDriverSupport}）按「绑定 → 写回 → 重算」三段复用；
+     * {@link #applySeriesMatchWithDerivation} 为本方法 + 写回 + 完整性重算的完整流程。
+     *
+     * @param series      剧行
+     * @param detached    未绑定 owner 的剧元数据（TMDB 拉取结果/本地合并结果）
+     * @param matchStatus 剧行匹配状态（matched / manual）
+     * @param force       是否强制写回（true 时图片按 rawJson 重新下载覆盖、季/集 local_nfo 行也全量覆盖，工单 06）
+     * @return 绑定后的剧元数据行
+     */
+    public MediaMetadata bindSeriesMatch(MediaSeries series, MediaMetadata detached,
+                                         String matchStatus, boolean force) {
+        MediaMetadata bound = metadataV2Support.upsertByOwner(
+                MediaMetadataOwnerType.SERIES.getCode(), series.getId(), detached);
+        bindSeriesRow(series, bound, matchStatus);
+        deriveSeasonEpisodes(series, bound, force);
+        return bound;
+    }
+
+    /**
      * 应用本地优先削刮结果：绑定剧行（matched）→ 本地季/集缺失字段由 TMDB 补全派生（无 tmdbId 维持现状）
      * → 写回（local_nfo 同样整体写回，ADR 0023）→ 重算完整性。
      */
     public void applyLocalSeriesMatch(MediaSeries series, MediaMetadata localMetadata) {
-        MediaMetadata bound = metadataV2Support.upsertByOwner(
-                MediaMetadataOwnerType.SERIES.getCode(), series.getId(), localMetadata);
-        bindSeriesRow(series, bound, MediaMatchStatus.MATCHED.getCode());
-        deriveSeasonEpisodes(series, bound, false);
+        MediaMetadata bound = bindSeriesMatch(series, localMetadata, MediaMatchStatus.MATCHED.getCode(), false);
         artworkPersistV2Support.persistSeriesV2(series, bound);
         completeSupport.refreshSeriesComplete(series);
     }
@@ -100,10 +117,7 @@ public class MediaTvScrapeSupport {
      */
     public void applySeriesMatchWithDerivation(MediaSeries series, MediaMetadata detached,
                                                String matchStatus, boolean force) {
-        MediaMetadata bound = metadataV2Support.upsertByOwner(
-                MediaMetadataOwnerType.SERIES.getCode(), series.getId(), detached);
-        bindSeriesRow(series, bound, matchStatus);
-        deriveSeasonEpisodes(series, bound, force);
+        MediaMetadata bound = bindSeriesMatch(series, detached, matchStatus, force);
         artworkPersistV2Support.persistSeriesV2(series, bound, force);
         completeSupport.refreshSeriesComplete(series);
     }
