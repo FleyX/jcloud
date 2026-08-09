@@ -2,9 +2,7 @@ package com.fleyx.jcloud.service.support;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fleyx.jcloud.common.enums.MediaFavoriteOwnerType;
-import com.fleyx.jcloud.mapper.FileMapper;
 import com.fleyx.jcloud.mapper.MediaOtherMapper;
-import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.po.MediaOther;
 import com.fleyx.jcloud.service.MediaFavoriteService;
 import lombok.RequiredArgsConstructor;
@@ -12,7 +10,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Set;
@@ -20,8 +17,10 @@ import java.util.Set;
 /**
  * 其他库新模型级联删除支撑组件（ADR 0021 / issue #19）。
  * <p>
- * 应用层事务内执行（项目禁用外键）：删 other 行时连带其外部字幕记录
- * （t_media_subtitle.file_id 指向 other 行 ID）。即时 reconcile 的删除、批次清理与媒体库删除共用同一套级联。
+ * 票据 07 共享骨架重构后仅保留删除深度差异：单层「other 行」级联（连带其外部字幕记录，
+ * t_media_subtitle.file_id 指向 other 行 ID）与收藏归属类型；锚文件来源内守卫、
+ * 「选 ids→委派」骨架、未见行删除循环等公共部分委托 {@link MediaCascadeDriverSupport}。
+ * 即时 reconcile 的删除、批次清理与媒体库删除共用同一套级联。
  */
 @Slf4j
 @Component
@@ -29,9 +28,8 @@ import java.util.Set;
 public class MediaOtherCascadeSupport {
 
     private final MediaOtherMapper mediaOtherMapper;
-    private final MediaSubtitleSupport mediaSubtitleSupport;
-    private final FileMapper fileMapper;
     private final MediaFavoriteService mediaFavoriteService;
+    private final MediaCascadeDriverSupport mediaCascadeDriverSupport;
 
     /**
      * 级联删除若干 other 行：外部字幕记录 → other 行。
@@ -43,7 +41,7 @@ public class MediaOtherCascadeSupport {
         if (otherIds == null || otherIds.isEmpty()) {
             return;
         }
-        mediaSubtitleSupport.deleteByFileIds(otherIds);
+        mediaCascadeDriverSupport.deleteSubtitleByFileIds(otherIds);
         mediaOtherMapper.deleteBatchIds(otherIds);
         // 实体删除后清理其收藏记录（不限用户）
         mediaFavoriteService.deleteByOwners(MediaFavoriteOwnerType.OTHER, otherIds);
@@ -55,15 +53,13 @@ public class MediaOtherCascadeSupport {
      */
     @Transactional(rollbackFor = Exception.class)
     public void deleteByDirectoryAndSourceIds(String directoryId, Collection<String> sourceIds) {
-        if (sourceIds == null || sourceIds.isEmpty()) {
-            return;
-        }
-        List<String> otherIds = mediaOtherMapper.selectList(new LambdaQueryWrapper<MediaOther>()
-                        .eq(MediaOther::getDirectoryId, directoryId)
-                        .in(MediaOther::getSourceId, sourceIds)
-                        .select(MediaOther::getId))
-                .stream().map(MediaOther::getId).toList();
-        deleteOthersCascade(otherIds);
+        mediaCascadeDriverSupport.deleteByDirectoryAndSourceIds(directoryId, sourceIds,
+                (dirId, srcIds) -> mediaOtherMapper.selectList(new LambdaQueryWrapper<MediaOther>()
+                                .eq(MediaOther::getDirectoryId, dirId)
+                                .in(MediaOther::getSourceId, srcIds)
+                                .select(MediaOther::getId))
+                        .stream().map(MediaOther::getId).toList(),
+                this::deleteOthersCascade);
     }
 
     /**
@@ -71,11 +67,12 @@ public class MediaOtherCascadeSupport {
      */
     @Transactional(rollbackFor = Exception.class)
     public void deleteByDirectoryId(String directoryId) {
-        List<String> otherIds = mediaOtherMapper.selectList(new LambdaQueryWrapper<MediaOther>()
-                        .eq(MediaOther::getDirectoryId, directoryId)
-                        .select(MediaOther::getId))
-                .stream().map(MediaOther::getId).toList();
-        deleteOthersCascade(otherIds);
+        mediaCascadeDriverSupport.deleteByDirectoryId(directoryId,
+                dirId -> mediaOtherMapper.selectList(new LambdaQueryWrapper<MediaOther>()
+                                .eq(MediaOther::getDirectoryId, dirId)
+                                .select(MediaOther::getId))
+                        .stream().map(MediaOther::getId).toList(),
+                this::deleteOthersCascade);
     }
 
     /**
@@ -88,39 +85,8 @@ public class MediaOtherCascadeSupport {
      */
     public void deleteUnseenOthers(List<MediaOther> existingRows, Set<String> seenRowIds,
                                    List<String> sourceFullIdPaths) {
-        List<String> removedIds = new ArrayList<>();
-        for (MediaOther row : existingRows) {
-            if (row.getId() == null || seenRowIds.contains(row.getId())) {
-                continue;
-            }
-            if (anchoredNodeInSources(row.getFileNodeId(), sourceFullIdPaths)) {
-                log.debug("锚文件已移至本库其他位置，other 行留给新来源改挂: {}", row.getFileNodeId());
-                continue;
-            }
-            removedIds.add(row.getId());
-        }
-        if (!removedIds.isEmpty()) {
-            mediaSubtitleSupport.deleteByFileIds(removedIds);
-            mediaOtherMapper.deleteBatchIds(removedIds);
-            // 实体删除后清理其收藏记录（不限用户）
-            mediaFavoriteService.deleteByOwners(MediaFavoriteOwnerType.OTHER, removedIds);
-            log.info("即时删除消失的其他条目 {} 条: ids={}", removedIds.size(), removedIds);
-        }
-    }
-
-    /**
-     * 锚文件节点仍存在且仍位于本库任一来源目录子树内。
-     */
-    private boolean anchoredNodeInSources(String fileNodeId, List<String> sourceFullIdPaths) {
-        FileNode node = fileMapper.selectById(fileNodeId);
-        if (node == null || node.getPath() == null) {
-            return false;
-        }
-        for (String sourcePath : sourceFullIdPaths) {
-            if (node.getPath().startsWith(sourcePath + ".")) {
-                return true;
-            }
-        }
-        return false;
+        mediaCascadeDriverSupport.deleteUnseenRows(existingRows, seenRowIds, sourceFullIdPaths,
+                MediaOther::getId, MediaOther::getFileNodeId,
+                mediaOtherMapper::deleteBatchIds, MediaFavoriteOwnerType.OTHER, "即时删除消失的其他条目");
     }
 }

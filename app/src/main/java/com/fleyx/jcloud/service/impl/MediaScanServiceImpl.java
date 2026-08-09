@@ -11,6 +11,7 @@ import com.fleyx.jcloud.service.MediaScanService;
 import com.fleyx.jcloud.service.MediaScrapeService;
 import com.fleyx.jcloud.service.support.MediaDirectorySourceSupport;
 import com.fleyx.jcloud.service.support.MediaOtherScanSupport;
+import com.fleyx.jcloud.service.support.MediaScanDriverSupport;
 import com.fleyx.jcloud.service.support.MediaScanSupport;
 import com.fleyx.jcloud.service.support.MediaMovieScanSupport;
 import com.fleyx.jcloud.service.support.MediaTaskSupport;
@@ -48,6 +49,7 @@ public class MediaScanServiceImpl implements MediaScanService {
     private final MediaTaskSupport mediaTaskSupport;
     private final MediaScrapeService mediaScrapeService;
     private final MediaDirectorySourceSupport sourceSupport;
+    private final MediaScanDriverSupport mediaScanDriverSupport;
     private final MediaTvScanSupport mediaTvScanSupport;
     private final MediaMovieScanSupport mediaMovieScanSupport;
     private final MediaOtherScanSupport mediaOtherScanSupport;
@@ -57,7 +59,9 @@ public class MediaScanServiceImpl implements MediaScanService {
                                 UserMapper userMapper,
                                 MediaScanSupport mediaScanSupport,
                                 MediaTaskSupport mediaTaskSupport, MediaScrapeService mediaScrapeService,
-                                MediaDirectorySourceSupport sourceSupport, MediaTvScanSupport mediaTvScanSupport,
+                                MediaDirectorySourceSupport sourceSupport,
+                                MediaScanDriverSupport mediaScanDriverSupport,
+                                MediaTvScanSupport mediaTvScanSupport,
                                 MediaMovieScanSupport mediaMovieScanSupport,
                                 MediaOtherScanSupport mediaOtherScanSupport,
                                 @Qualifier("applicationTaskExecutor") TaskExecutor taskExecutor) {
@@ -67,6 +71,7 @@ public class MediaScanServiceImpl implements MediaScanService {
         this.mediaTaskSupport = mediaTaskSupport;
         this.mediaScrapeService = mediaScrapeService;
         this.sourceSupport = sourceSupport;
+        this.mediaScanDriverSupport = mediaScanDriverSupport;
         this.mediaTvScanSupport = mediaTvScanSupport;
         this.mediaMovieScanSupport = mediaMovieScanSupport;
         this.mediaOtherScanSupport = mediaOtherScanSupport;
@@ -180,16 +185,14 @@ public class MediaScanServiceImpl implements MediaScanService {
         List<MediaDirectorySource> sources = sourceSupport.listByDirectoryId(directory.getId());
 
         MediaType mediaType = MediaType.of(directory.getMediaType());
-        if (mediaType == MediaType.TV) {
-            // 电视库：新模型端到端扫描（ADR 0021），含按剧即时 reconcile 与三道闸批次清理
-            return mediaTvScanSupport.scanDirectory(directory, sources, force, username);
-        }
-        if (mediaType == MediaType.MOVIE) {
-            // 电影库：新模型端到端扫描（issue #18），含按电影即时 reconcile 与三道闸批次清理
-            return mediaMovieScanSupport.scanDirectory(directory, sources, force, username);
-        }
-        // 其他库：新模型端到端扫描（issue #19），文件级 reconcile 与三道闸批次清理
-        return mediaOtherScanSupport.scanDirectory(directory, sources, force, username);
+        return switch (mediaType) {
+            // 分派点保留在 Service：按类型取策略调共享驱动器（票据 07 共享骨架）
+            case TV -> mediaScanDriverSupport.scanDirectory(directory, sources, force, username, mediaTvScanSupport);
+            case MOVIE -> mediaScanDriverSupport.scanDirectory(directory, sources, force, username,
+                    mediaMovieScanSupport);
+            case OTHER -> mediaScanDriverSupport.scanDirectory(directory, sources, force, username,
+                    mediaOtherScanSupport);
+        };
     }
 
     /**

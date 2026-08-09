@@ -8,14 +8,14 @@ import com.fleyx.jcloud.mapper.MediaEpisodeFileMapper;
 import com.fleyx.jcloud.mapper.MediaEpisodeMapper;
 import com.fleyx.jcloud.mapper.MediaSeasonMapper;
 import com.fleyx.jcloud.mapper.MediaSeriesMapper;
-import com.fleyx.jcloud.model.bo.MediaProbeResult;
 import com.fleyx.jcloud.model.po.FileNode;
-import com.fleyx.jcloud.model.po.MediaDirectory;
-import com.fleyx.jcloud.model.po.MediaDirectorySource;
 import com.fleyx.jcloud.model.po.MediaEpisode;
 import com.fleyx.jcloud.model.po.MediaEpisodeFile;
 import com.fleyx.jcloud.model.po.MediaSeason;
 import com.fleyx.jcloud.model.po.MediaSeries;
+import com.fleyx.jcloud.service.support.MediaReconcileDriverSupport.RowReconciler;
+import com.fleyx.jcloud.service.support.MediaScanDriverSupport.FileProbe;
+import com.fleyx.jcloud.service.support.MediaScanDriverSupport.MediaScanContext;
 import com.fleyx.jcloud.util.MediaFileNameParser;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -33,11 +33,13 @@ import java.util.Set;
  * 电视库单剧 reconcile 支撑组件（新模型，ADR 0021 / issue #17）。
  * <p>
  * 与 {@link MediaTvScanSupport} 协作的两阶段编排：① {@link MediaTvScanSupport#prepareSeries}（事务外）
- * 预计算文件哈希与 ffprobe 探测，{@link #upsertSeries}（事务内）只做 DB 读写——剧/季按文件夹节点锚定 upsert，
- * 集按 (season_id, episode_no) 唯一键定位，集文件按视频文件节点锚定 upsert 或改挂；
+ * 预计算文件哈希与 ffprobe 探测，{@link #upsertSeries}（事务内）只做 DB 读写——剧/季按文件夹节点锚定
+ * upsert，集按 (season_id, episode_no) 唯一键定位，集文件按视频文件节点锚定 upsert 或改挂；
  * ② 同一来源全部剧 upsert 完成后，{@link #deleteUnseenSeriesChildren}（事务内）按剧删除亲眼确认消失的
- * 季/集/集文件（连带元数据行）。跨剧移动的子项在阶段②开始前已被目标剧按锚认领，配合 sourceFullIdPaths
- * 删除守卫，进度与手动修正不丢失（issue #17 F1）；ffprobe 探测移出事务边界，长耗时远程下载不再占用
+ * 季/集/集文件（连带元数据行）。票据 07 共享骨架重构后，剧行锚定 upsert 与明细行 reconcile 循环
+ * 委托 {@link MediaReconcileDriverSupport}，集并入语义 {@link #placeEpisodeFile} 作为钩子保留。
+ * 跨剧移动的子项在阶段②开始前已被目标剧按锚认领，配合 sourceFullIdPaths 删除守卫，
+ * 进度与手动修正不丢失（issue #17 F1）；ffprobe 探测移出事务边界，长耗时远程下载不再占用
  * 数据库连接（issue #17 F2）。剧级级联删除见 {@link MediaTvCascadeSupport}（即时删除、批次清理与媒体库删除共用）。
  */
 @Slf4j
@@ -50,24 +52,10 @@ public class MediaTvReconcileSupport {
     private final MediaEpisodeMapper mediaEpisodeMapper;
     private final MediaEpisodeFileMapper mediaEpisodeFileMapper;
     private final MediaTvCascadeSupport mediaTvCascadeSupport;
-    private final MediaScanSupport mediaScanSupport;
-
-    /**
-     * 一轮来源扫描共享上下文（收束 username/idToName/sourceFullIdPath 等整簇透传参数，issue #17 F4）。
-     *
-     * @param sourceFullIdPaths 本库全部可达来源目录的完整物化路径（即时删除的跨剧移动守卫）
-     */
-    public record TvScanContext(MediaDirectory directory, MediaDirectorySource source, boolean force,
-                                LocalDateTime batchTime, String username, Map<String, String> idToName,
-                                String sourceFullIdPath, List<String> sourceFullIdPaths) {
-    }
+    private final MediaReconcileDriverSupport mediaReconcileDriverSupport;
 
     /** 一季内待 reconcile 的集文件。 */
     public record SeasonFiles(FileNode seasonFolder, List<FileNode> videoFiles) {
-    }
-
-    /** 单文件探测结果（事务外预计算）。探测失败为 null，仅记日志不中断扫描。 */
-    public record FileProbe(String fileHash, MediaProbeResult probe) {
     }
 
     /** 单剧 prepare 结果：存量行、锚映射与探测结果，供事务内 upsert 直接使用。 */
@@ -89,7 +77,7 @@ public class MediaTvReconcileSupport {
      * 跨剧移动时目标剧先按锚认领，源剧的删除才不误删（issue #17 F1）。
      */
     @Transactional(rollbackFor = Exception.class)
-    public ReconcileResult upsertSeries(TvScanContext ctx, FileNode seriesFolder,
+    public ReconcileResult upsertSeries(MediaScanContext ctx, FileNode seriesFolder,
                                         List<SeasonFiles> seasonFilesList, SeriesPrepare prepare) {
         MediaSeries series = upsertSeriesRow(ctx, seriesFolder, ctx.batchTime());
         Set<String> seenSeasonIds = new HashSet<>();
@@ -111,7 +99,7 @@ public class MediaTvReconcileSupport {
      * 仅在本来源全部剧 upsert 成功（来源未部分失败）后调用（issue #17 F1）。
      */
     @Transactional(rollbackFor = Exception.class)
-    public void deleteUnseenSeriesChildren(TvScanContext ctx, SeriesPrepare prepare, ReconcileResult result) {
+    public void deleteUnseenSeriesChildren(MediaScanContext ctx, SeriesPrepare prepare, ReconcileResult result) {
         mediaTvCascadeSupport.deleteUnseenChildren(prepare.existingSeasons(), prepare.existingEpisodes(),
                 prepare.existingFiles(), result.seenSeasonIds(), result.seenEpisodeIds(), result.seenFileRowIds(),
                 ctx.sourceFullIdPaths());
@@ -121,65 +109,49 @@ public class MediaTvReconcileSupport {
 
     /**
      * 剧行锚定 upsert：锚 = 剧文件夹节点。重命名仅更新标题字段（manual 保留、非 manual 重置）；
-     * 跨库/跨来源移动时改挂归属；批次扫描时间写入剧行。
+     * 跨库/跨来源移动时改挂归属；批次扫描时间写入剧行。公共骨架委托
+     * {@link MediaReconcileDriverSupport#upsertAnchoredRow}。
      */
-    private MediaSeries upsertSeriesRow(TvScanContext ctx, FileNode seriesFolder, LocalDateTime batchTime) {
-        MediaDirectory directory = ctx.directory();
-        MediaDirectorySource source = ctx.source();
+    private MediaSeries upsertSeriesRow(MediaScanContext ctx, FileNode seriesFolder, LocalDateTime batchTime) {
         String seriesName = MediaFileNameParser.cleanTitle(seriesFolder.getName());
         Integer releaseYear = MediaFileNameParser.parseYear(seriesFolder.getName());
-        MediaSeries series = mediaSeriesMapper.selectOne(new LambdaQueryWrapper<MediaSeries>()
-                .eq(MediaSeries::getFolderNodeId, seriesFolder.getId()));
-        if (series == null) {
-            series = new MediaSeries();
-            series.setUserId(directory.getUserId());
-            series.setDirectoryId(directory.getId());
-            series.setSourceId(source.getId());
-            series.setFolderNodeId(seriesFolder.getId());
-            series.setSeriesName(seriesName);
-            series.setReleaseYear(releaseYear);
-            series.setMatchStatus(MediaMatchStatus.UNMATCHED.getCode());
-            series.setMetadataComplete(false);
-            series.setScanTime(batchTime);
-            mediaSeriesMapper.insert(series);
-            return series;
-        }
-        boolean renamed = !Objects.equals(series.getSeriesName(), seriesName)
-                || !Objects.equals(series.getReleaseYear(), releaseYear);
-        boolean resetMatch = renamed && !MediaMatchStatus.MANUAL.getCode().equals(series.getMatchStatus())
-                && (!MediaMatchStatus.UNMATCHED.getCode().equals(series.getMatchStatus())
-                || series.getMetadataId() != null);
-        if (resetMatch) {
-            mediaTvCascadeSupport.deleteMetadata(MediaMetadataOwnerType.SERIES.getCode(), series.getId());
-        }
-        mediaSeriesMapper.update(null, new LambdaUpdateWrapper<MediaSeries>()
-                .eq(MediaSeries::getId, series.getId())
-                .set(MediaSeries::getDirectoryId, directory.getId())
-                .set(MediaSeries::getSourceId, source.getId())
-                .set(MediaSeries::getSeriesName, seriesName)
-                .set(MediaSeries::getReleaseYear, releaseYear)
-                .set(MediaSeries::getScanTime, batchTime)
-                .set(resetMatch, MediaSeries::getMetadataId, null)
-                .set(resetMatch, MediaSeries::getMatchStatus, MediaMatchStatus.UNMATCHED.getCode())
-                .set(resetMatch, MediaSeries::getMetadataComplete, false));
-        series.setDirectoryId(directory.getId());
-        series.setSourceId(source.getId());
-        series.setSeriesName(seriesName);
-        series.setReleaseYear(releaseYear);
-        series.setScanTime(batchTime);
-        if (resetMatch) {
-            series.setMetadataId(null);
-            series.setMatchStatus(MediaMatchStatus.UNMATCHED.getCode());
-            series.setMetadataComplete(false);
-        }
-        return series;
+        return mediaReconcileDriverSupport.upsertAnchoredRow(seriesName, releaseYear,
+                MediaMetadataOwnerType.SERIES.getCode(),
+                () -> mediaSeriesMapper.selectOne(new LambdaQueryWrapper<MediaSeries>()
+                        .eq(MediaSeries::getFolderNodeId, seriesFolder.getId())),
+                () -> {
+                    MediaSeries series = new MediaSeries();
+                    series.setUserId(ctx.directory().getUserId());
+                    series.setDirectoryId(ctx.directory().getId());
+                    series.setSourceId(ctx.source().getId());
+                    series.setFolderNodeId(seriesFolder.getId());
+                    series.setSeriesName(seriesName);
+                    series.setReleaseYear(releaseYear);
+                    series.setMatchStatus(MediaMatchStatus.UNMATCHED.getCode());
+                    series.setMetadataComplete(false);
+                    series.setScanTime(batchTime);
+                    mediaSeriesMapper.insert(series);
+                    return series;
+                },
+                (series, resetMatch) -> mediaSeriesMapper.update(null, new LambdaUpdateWrapper<MediaSeries>()
+                        .eq(MediaSeries::getId, series.getId())
+                        .set(MediaSeries::getDirectoryId, ctx.directory().getId())
+                        .set(MediaSeries::getSourceId, ctx.source().getId())
+                        .set(MediaSeries::getSeriesName, seriesName)
+                        .set(MediaSeries::getReleaseYear, releaseYear)
+                        .set(MediaSeries::getScanTime, batchTime)
+                        .set(resetMatch, MediaSeries::getMetadataId, null)
+                        .set(resetMatch, MediaSeries::getMatchStatus, MediaMatchStatus.UNMATCHED.getCode())
+                        .set(resetMatch, MediaSeries::getMetadataComplete, false)),
+                MediaSeries::getId, MediaSeries::getSeriesName, MediaSeries::getReleaseYear,
+                MediaSeries::getMatchStatus, MediaSeries::getMetadataId);
     }
 
     /**
      * 季行锚定 upsert：锚 = 季文件夹节点。重命名更新季号；跨剧移动时改挂到新剧（其下集随行）。
      */
     private MediaSeason upsertSeason(MediaSeries series, FileNode seasonFolder,
-                                       List<MediaSeason> existingSeasons) {
+                                     List<MediaSeason> existingSeasons) {
         Integer seasonNo = MediaFileNameParser.parseSeasonNo(seasonFolder.getName());
         MediaSeason season = existingSeasons.stream()
                 .filter(s -> s.getFolderNodeId().equals(seasonFolder.getId())).findFirst().orElse(null);
@@ -222,8 +194,9 @@ public class MediaTvReconcileSupport {
      * 集文件 reconcile：锚命中且未变化则跳过；否则按锚 upsert 或改挂（目标已有同号集时并入作为版本）。
      * 锚全局唯一：文件跨剧/跨库移动时，锚命中的行可能属于其他剧的集，此时直接改挂到本剧目标集，
      * 源剧被清空的集由源剧删除阶段（{@link #deleteUnseenSeriesChildren}）删除。
+     * 循环骨架委托 {@link MediaReconcileDriverSupport#reconcileRow}，集并入语义见 {@link #placeEpisodeFile}。
      */
-    private void reconcileEpisodeFile(TvScanContext ctx, MediaSeries series, MediaSeason season,
+    private void reconcileEpisodeFile(MediaScanContext ctx, MediaSeries series, MediaSeason season,
                                       FileNode file, SeriesPrepare prepare,
                                       Set<String> seenEpisodeIds, Set<String> seenFileRowIds) {
         Integer episodeNo = MediaFileNameParser.parse(file.getName(), null, null).episodeNo();
@@ -231,62 +204,65 @@ public class MediaTvReconcileSupport {
             log.debug("集号无法解析，文件丢弃: {}", file.getName());
             return;
         }
-        FileProbe fp = prepare.probeByFileId().get(file.getId());
-        if (fp == null) {
-            log.debug("文件未在预计算中命中，跳过: {}", file.getName());
-            return;
-        }
-        MediaEpisodeFile row = prepare.fileByNodeId().get(file.getId());
-        if (row != null && !ctx.force() && Objects.equals(row.getFileHash(), fp.fileHash())) {
-            MediaEpisode anchored = prepare.episodeById().get(row.getEpisodeId());
-            if (anchored == null) {
-                anchored = mediaEpisodeMapper.selectById(row.getEpisodeId());
-            }
-            if (anchored != null && anchored.getSeasonId().equals(season.getId())
-                    && Objects.equals(anchored.getEpisodeNo(), episodeNo)) {
-                seenFileRowIds.add(row.getId());
-                seenEpisodeIds.add(row.getEpisodeId());
-                return;
-            }
-            // 哈希相同但锚归属与解析结果不一致（脏数据/同名路径迁移）：继续走改挂
-        }
-        if (row == null) {
-            // 本剧明细中未命中时按锚全局查找：跨剧/跨库移动的文件行直接改挂
-            row = mediaEpisodeFileMapper.selectOne(new LambdaQueryWrapper<MediaEpisodeFile>()
-                    .eq(MediaEpisodeFile::getFileNodeId, file.getId()));
-            if (row != null) {
-                prepare.existingFiles().add(row);
-                prepare.fileByNodeId().put(file.getId(), row);
-            }
-        }
-        if (row == null) {
-            row = new MediaEpisodeFile();
-            row.setFileNodeId(file.getId());
-            prepare.existingFiles().add(row);
-            prepare.fileByNodeId().put(file.getId(), row);
-        }
-        MediaEpisode episode = placeEpisodeFile(series, season, episodeNo, row, prepare.episodeById(),
-                prepare.existingEpisodes(), prepare.existingFiles());
-        boolean isNew = row.getId() == null;
-        row.setEpisodeId(episode.getId());
-        row.setFileHash(fp.fileHash());
-        row.setFileSize(file.getSize());
-        row.setFileLastModified(file.getLastModified());
-        if (fp.probe() != null) {
-            row.setDurationMs(fp.probe().durationMs());
-            row.setContainer(fp.probe().container());
-            row.setVideoCodec(fp.probe().videoCodec());
-            row.setAudioCodec(fp.probe().audioCodec());
-            row.setWidth(fp.probe().width());
-            row.setHeight(fp.probe().height());
-        }
-        if (isNew) {
-            mediaEpisodeFileMapper.insert(row);
-        } else {
-            mediaEpisodeFileMapper.updateById(row);
-        }
-        seenFileRowIds.add(row.getId());
-        seenEpisodeIds.add(episode.getId());
+        mediaReconcileDriverSupport.reconcileRow(ctx, file, prepare.probeByFileId(),
+                prepare.fileByNodeId(), prepare.existingFiles(), new RowReconciler<MediaEpisodeFile>() {
+                    @Override
+                    public String fileHash(MediaEpisodeFile row) {
+                        return row.getFileHash();
+                    }
+
+                    @Override
+                    public boolean hashHitExtraOk(MediaEpisodeFile row, MediaScanContext c, FileProbe fp) {
+                        MediaEpisode anchored = prepare.episodeById().get(row.getEpisodeId());
+                        if (anchored == null) {
+                            anchored = mediaEpisodeMapper.selectById(row.getEpisodeId());
+                        }
+                        return anchored != null && anchored.getSeasonId().equals(season.getId())
+                                && Objects.equals(anchored.getEpisodeNo(), episodeNo);
+                    }
+
+                    @Override
+                    public void markSeen(MediaEpisodeFile row) {
+                        seenFileRowIds.add(row.getId());
+                        seenEpisodeIds.add(row.getEpisodeId());
+                    }
+
+                    @Override
+                    public MediaEpisodeFile findByFileNodeId(String fileNodeId) {
+                        return mediaEpisodeFileMapper.selectOne(new LambdaQueryWrapper<MediaEpisodeFile>()
+                                .eq(MediaEpisodeFile::getFileNodeId, fileNodeId));
+                    }
+
+                    @Override
+                    public MediaEpisodeFile newRow(FileNode f) {
+                        MediaEpisodeFile row = new MediaEpisodeFile();
+                        row.setFileNodeId(f.getId());
+                        return row;
+                    }
+
+                    @Override
+                    public void assignAndPersist(MediaEpisodeFile row, MediaScanContext c, FileNode f, FileProbe fp) {
+                        MediaEpisode episode = placeEpisodeFile(series, season, episodeNo, row,
+                                prepare.episodeById(), prepare.existingEpisodes(), prepare.existingFiles());
+                        row.setEpisodeId(episode.getId());
+                        row.setFileHash(fp.fileHash());
+                        row.setFileSize(f.getSize());
+                        row.setFileLastModified(f.getLastModified());
+                        if (fp.probe() != null) {
+                            row.setDurationMs(fp.probe().durationMs());
+                            row.setContainer(fp.probe().container());
+                            row.setVideoCodec(fp.probe().videoCodec());
+                            row.setAudioCodec(fp.probe().audioCodec());
+                            row.setWidth(fp.probe().width());
+                            row.setHeight(fp.probe().height());
+                        }
+                        if (row.getId() == null) {
+                            mediaEpisodeFileMapper.insert(row);
+                        } else {
+                            mediaEpisodeFileMapper.updateById(row);
+                        }
+                    }
+                });
     }
 
     /**
