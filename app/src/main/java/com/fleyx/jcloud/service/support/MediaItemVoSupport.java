@@ -2,14 +2,18 @@ package com.fleyx.jcloud.service.support;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fleyx.jcloud.mapper.FileMapper;
+import com.fleyx.jcloud.mapper.MediaMetadataMapper;
 import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.po.MediaMetadata;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
+import java.time.LocalDateTime;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -17,13 +21,16 @@ import java.util.stream.Collectors;
  * <p>
  * 除纯 URL 拼接外（issue #21 起旧表条目视图组装已删除），还收口文件节点版本参数批量加载
  * （{@link #loadNodeVersionMap}）与元数据海报/背景图 URL 组装（{@link #posterUrlOf}/{@link #backdropUrlOf}），
- * 各查询支撑类与 Home/目录实现类共用同一份实现（工单 08 消除逐字重复）。
+ * 并下沉海报墙管线的批量加载原语（{@link #loadMetadataMap}/{@link #loadFileNameMap}）与代表文件选取助手
+ * （{@link #pickRepresentative}），各查询支撑类与 Home/目录实现类共用同一份实现
+ * （工单 08 消除逐字重复；票据 10 起首页与播放链路复用代表文件选取助手）。
  */
 @Component
 @RequiredArgsConstructor
 public class MediaItemVoSupport {
 
     private final FileMapper fileMapper;
+    private final MediaMetadataMapper mediaMetadataMapper;
 
     /**
      * 指定元数据 ID 的海报图 URL（调用方需保证海报存在）。
@@ -88,5 +95,58 @@ public class MediaItemVoSupport {
             return null;
         }
         return metadataBackdropUrl(metadata.getId(), nodeVersionMap.get(metadata.getBackdropFileNodeId()));
+    }
+
+    /**
+     * 元数据批量加载（id → 实体），null/空输入返回空映射；供海报墙装配管线共用。
+     */
+    public Map<String, MediaMetadata> loadMetadataMap(List<String> metadataIds) {
+        List<String> ids = metadataIds.stream().filter(Objects::nonNull).distinct().toList();
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+        return mediaMetadataMapper.selectBatchIds(ids).stream()
+                .collect(Collectors.toMap(MediaMetadata::getId, Function.identity()));
+    }
+
+    /**
+     * 文件节点名批量加载（id → name），null/空输入返回空映射。
+     */
+    public Map<String, String> loadFileNameMap(List<String> fileNodeIds) {
+        List<String> ids = fileNodeIds.stream().filter(Objects::nonNull).distinct().toList();
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+        return fileMapper.selectBatchIds(ids).stream()
+                .collect(Collectors.toMap(FileNode::getId, FileNode::getName));
+    }
+
+    /**
+     * 空白字符串归一化为 null（trim 后），用于分页过滤装配。
+     */
+    public static String blankToNull(String text) {
+        return text == null || text.isBlank() ? null : text.trim();
+    }
+
+    /**
+     * 代表文件选取：last_play_file_id 命中的明细优先，否则取 create_time 升序（null 排后）最早一条、
+     * id 兜底；空列表返回 null。泛型助手供三型海报墙、影视首页与播放链路共用（票据 10 复用同一实现）。
+     *
+     * @param files            待选明细行
+     * @param lastPlayFileId   最近播放文件明细 ID，可为空
+     * @param idGetter         明细行 ID 访问器
+     * @param createTimeGetter 明细行入库时间访问器
+     */
+    public static <T> T pickRepresentative(List<T> files, String lastPlayFileId,
+                                           Function<T, String> idGetter, Function<T, LocalDateTime> createTimeGetter) {
+        if (files.isEmpty()) {
+            return null;
+        }
+        return files.stream().filter(f -> lastPlayFileId != null && lastPlayFileId.equals(idGetter.apply(f))).findFirst()
+                .orElseGet(() -> files.stream()
+                        .min(Comparator.comparing(createTimeGetter,
+                                        Comparator.nullsLast(Comparator.naturalOrder()))
+                                .thenComparing(idGetter))
+                        .orElse(files.getFirst()));
     }
 }

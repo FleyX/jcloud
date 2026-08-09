@@ -29,8 +29,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -38,12 +36,14 @@ import java.util.stream.Collectors;
  * （t_media_movie / t_media_movie_file / t_media_metadata），视图对象沿用现有 VO 并在
  * 详情中附加版本列表，保持响应结构兼容（前端适配在 issue #21）。
  * <p>
- * 海报墙一部电影一行（多版本聚合为一张卡片）：卡片文件事实取代表文件明细
- * （last_play_file_id 指向的明细，未播放时取最早一条）；播放进度/最近播放时间取自电影行。
+ * 海报墙装配走 {@link MediaItemQueryDriver} 共享管线（工单 08），本类仅保留类型差异层：
+ * 版本聚合（版本列表/默认版本解析）、明细行代表文件与收藏 ownerType；分页 SQL 沿用 selectMoviePage。
+ * 卡片文件事实取代表文件明细（last_play_file_id 指向的明细，未播放时取最早一条）；
+ * 播放进度/最近播放时间取自电影行。
  */
 @Component
 @RequiredArgsConstructor
-public class MediaMovieQuerySupport {
+public class MediaMovieQuerySupport implements MediaItemQueryStrategy<MediaMovie, MediaMovieFile, MediaItemVo> {
 
     private final MediaMovieMapper mediaMovieMapper;
     private final MediaMovieFileMapper mediaMovieFileMapper;
@@ -51,60 +51,93 @@ public class MediaMovieQuerySupport {
     private final FileMapper fileMapper;
     private final MediaItemVoSupport mediaItemVoSupport;
     private final MediaFavoriteService mediaFavoriteService;
+    private final MediaItemQueryDriver queryDriver;
 
     /**
      * 电影海报墙：按电影聚合分页（新表，一部电影一张卡片），含匹配状态、进度与最近播放时间。
      */
     public IPage<MediaItemVo> listMovies(String userId, MediaPageQueryDto query) {
-        Page<MediaMovie> page = new Page<>(query.normalizedPageNum(), query.normalizedPageSize());
-        IPage<MediaMovie> result = mediaMovieMapper.selectMoviePage(page, userId,
-                blankToNull(query.getKeyword()), blankToNull(query.getDirectoryId()),
-                blankToNull(query.getGenre()),
-                query.resolveSortField(), query.asc());
-        List<MediaMovie> movies = result.getRecords();
-        Map<String, MediaMetadata> metadataMap = loadMetadataMap(
-                movies.stream().map(MediaMovie::getMetadataId).toList());
-        Map<String, Long> nodeVersionMap = mediaItemVoSupport.loadNodeVersionMap(
-                metadataMap.values().stream().map(MediaMetadata::getPosterFileNodeId).toList());
-        Map<String, MediaMovieFile> representativeFile = representativeFiles(movies);
-        Map<String, String> fileNameMap = loadFileNameMap(
-                representativeFile.values().stream().map(MediaMovieFile::getFileNodeId).toList());
+        return queryDriver.run(this, userId, query);
+    }
 
-        List<MediaItemVo> vos = new ArrayList<>();
-        for (MediaMovie movie : movies) {
-            MediaMovieFile file = representativeFile.get(movie.getId());
-            MediaMetadata metadata = movie.getMetadataId() == null ? null : metadataMap.get(movie.getMetadataId());
-            MediaItemVo vo = new MediaItemVo();
-            vo.setId(movie.getId());
-            vo.setFileNodeId(file == null ? null : file.getFileNodeId());
-            vo.setItemType(MediaItemType.MOVIE.getCode());
-            vo.setFileName(file == null ? null : fileNameMap.get(file.getFileNodeId()));
-            vo.setMatchStatus(movie.getMatchStatus());
-            vo.setMetadataComplete(movie.getMetadataComplete());
-            vo.setMetadataId(movie.getMetadataId());
-            vo.setDurationMs(file == null ? null : file.getDurationMs());
-            vo.setProgressMs(movie.getProgressMs());
-            vo.setLastPlayTime(movie.getLastPlayTime());
-            if (metadata != null) {
-                vo.setTitle(metadata.getTitle());
-                vo.setReleaseDate(metadata.getReleaseDate());
-                vo.setVoteAverage(metadata.getVoteAverage());
-                vo.setPosterUrl(mediaItemVoSupport.posterUrlOf(metadata, nodeVersionMap));
-            }
-            if (vo.getTitle() == null) {
-                vo.setTitle(movie.getTitle());
-            }
-            vos.add(vo);
+    @Override
+    public IPage<MediaMovie> page(String userId, MediaPageQueryDto query) {
+        Page<MediaMovie> page = new Page<>(query.normalizedPageNum(), query.normalizedPageSize());
+        return mediaMovieMapper.selectMoviePage(page, userId,
+                MediaItemVoSupport.blankToNull(query.getKeyword()),
+                MediaItemVoSupport.blankToNull(query.getDirectoryId()),
+                MediaItemVoSupport.blankToNull(query.getGenre()),
+                query.resolveSortField(), query.asc());
+    }
+
+    @Override
+    public String metadataIdOf(MediaMovie row) {
+        return row.getMetadataId();
+    }
+
+    @Override
+    public Map<String, MediaMovieFile> representativeFiles(List<MediaMovie> rows) {
+        List<String> movieIds = rows.stream().map(MediaMovie::getId).toList();
+        if (movieIds.isEmpty()) {
+            return Map.of();
         }
-        // 当前用户收藏状态批量填充（ownerType=MOVIE）
-        Set<String> favoritedIds = mediaFavoriteService.listFavoritedOwnerIds(userId, MediaFavoriteOwnerType.MOVIE,
-                movies.stream().map(MediaMovie::getId).toList());
-        for (MediaItemVo vo : vos) {
-            vo.setFavorited(favoritedIds.contains(vo.getId()));
+        Map<String, List<MediaMovieFile>> filesByMovie = mediaMovieFileMapper.selectList(
+                        new LambdaQueryWrapper<MediaMovieFile>().in(MediaMovieFile::getMovieId, movieIds))
+                .stream().collect(Collectors.groupingBy(MediaMovieFile::getMovieId));
+        Map<String, MediaMovieFile> result = new HashMap<>();
+        for (MediaMovie movie : rows) {
+            MediaMovieFile chosen = MediaItemVoSupport.pickRepresentative(
+                    filesByMovie.getOrDefault(movie.getId(), List.of()), movie.getLastPlayFileId(),
+                    MediaMovieFile::getId, MediaMovieFile::getCreateTime);
+            if (chosen != null) {
+                result.put(movie.getId(), chosen);
+            }
         }
-        Page<MediaItemVo> voPage = new Page<>(result.getCurrent(), result.getSize(), result.getTotal());
-        voPage.setRecords(vos);
-        return voPage;
+        return result;
+    }
+
+    @Override
+    public List<String> fileNodeIdsOf(Map<String, MediaMovieFile> representativeFiles) {
+        return representativeFiles.values().stream().map(MediaMovieFile::getFileNodeId)
+                .filter(Objects::nonNull).distinct().toList();
+    }
+
+    @Override
+    public List<String> ownerIdsOf(List<MediaMovie> rows) {
+        return rows.stream().map(MediaMovie::getId).toList();
+    }
+
+    @Override
+    public MediaItemVo toCard(MediaMovie movie, MediaItemAssemblyContext<MediaMovieFile> ctx) {
+        MediaMovieFile file = ctx.representativeOf(movie.getId());
+        MediaMetadata metadata = ctx.metadataOf(movie.getMetadataId());
+        MediaItemVo vo = new MediaItemVo();
+        vo.setId(movie.getId());
+        vo.setFileNodeId(file == null ? null : file.getFileNodeId());
+        vo.setItemType(MediaItemType.MOVIE.getCode());
+        vo.setFileName(file == null ? null : ctx.fileNameOf(file.getFileNodeId()));
+        vo.setMatchStatus(movie.getMatchStatus());
+        vo.setMetadataComplete(movie.getMetadataComplete());
+        vo.setMetadataId(movie.getMetadataId());
+        vo.setDurationMs(file == null ? null : file.getDurationMs());
+        vo.setProgressMs(movie.getProgressMs());
+        vo.setLastPlayTime(movie.getLastPlayTime());
+        if (metadata != null) {
+            vo.setTitle(metadata.getTitle());
+            vo.setReleaseDate(metadata.getReleaseDate());
+            vo.setVoteAverage(metadata.getVoteAverage());
+            vo.setPosterUrl(mediaItemVoSupport.posterUrlOf(metadata, ctx.nodeVersionMap()));
+        }
+        if (vo.getTitle() == null) {
+            vo.setTitle(movie.getTitle());
+        }
+        vo.setFavorited(ctx.isFavorited(movie.getId()));
+        return vo;
+    }
+
+    @Override
+    public MediaFavoriteOwnerType favoriteOwner() {
+        return MediaFavoriteOwnerType.MOVIE;
     }
 
     /**
@@ -117,7 +150,8 @@ public class MediaMovieQuerySupport {
         }
         List<MediaMovieFile> files = mediaMovieFileMapper.selectList(
                 new LambdaQueryWrapper<MediaMovieFile>().eq(MediaMovieFile::getMovieId, movieId));
-        MediaMovieFile representative = pickRepresentative(movie, files);
+        MediaMovieFile representative = MediaItemVoSupport.pickRepresentative(
+                files, movie.getLastPlayFileId(), MediaMovieFile::getId, MediaMovieFile::getCreateTime);
         FileNode node = representative == null ? null : fileMapper.selectById(representative.getFileNodeId());
         MediaMetadata metadata = movie.getMetadataId() == null ? null
                 : mediaMetadataMapper.selectById(movie.getMetadataId());
@@ -168,7 +202,7 @@ public class MediaMovieQuerySupport {
         if (files.isEmpty()) {
             return List.of();
         }
-        Map<String, String> nameMap = loadFileNameMap(
+        Map<String, String> nameMap = mediaItemVoSupport.loadFileNameMap(
                 files.stream().map(MediaMovieFile::getFileNodeId).toList());
         List<MediaMovieVersionVo> result = new ArrayList<>();
         for (MediaMovieFile file : sortedByCreateTime(files)) {
@@ -211,60 +245,5 @@ public class MediaMovieQuerySupport {
                                 Comparator.nullsLast(Comparator.naturalOrder()))
                         .thenComparing(MediaMovieFile::getId))
                 .toList();
-    }
-
-    /**
-     * 各电影的代表文件明细：last_play_file_id 优先，否则取最早一条明细。
-     */
-    private Map<String, MediaMovieFile> representativeFiles(List<MediaMovie> movies) {
-        List<String> movieIds = movies.stream().map(MediaMovie::getId).toList();
-        if (movieIds.isEmpty()) {
-            return Map.of();
-        }
-        Map<String, List<MediaMovieFile>> filesByMovie = mediaMovieFileMapper.selectList(
-                        new LambdaQueryWrapper<MediaMovieFile>().in(MediaMovieFile::getMovieId, movieIds))
-                .stream().collect(Collectors.groupingBy(MediaMovieFile::getMovieId));
-        Map<String, MediaMovieFile> result = new HashMap<>();
-        for (MediaMovie movie : movies) {
-            MediaMovieFile chosen = pickRepresentative(movie, filesByMovie.getOrDefault(movie.getId(), List.of()));
-            if (chosen != null) {
-                result.put(movie.getId(), chosen);
-            }
-        }
-        return result;
-    }
-
-    private MediaMovieFile pickRepresentative(MediaMovie movie, List<MediaMovieFile> files) {
-        if (files.isEmpty()) {
-            return null;
-        }
-        return files.stream().filter(f -> f.getId().equals(movie.getLastPlayFileId())).findFirst()
-                .orElseGet(() -> files.stream()
-                        .min(Comparator.comparing(MediaMovieFile::getCreateTime,
-                                        Comparator.nullsLast(Comparator.naturalOrder()))
-                                .thenComparing(MediaMovieFile::getId))
-                        .orElse(files.getFirst()));
-    }
-
-    private Map<String, MediaMetadata> loadMetadataMap(List<String> metadataIds) {
-        List<String> ids = metadataIds.stream().filter(Objects::nonNull).distinct().toList();
-        if (ids.isEmpty()) {
-            return Map.of();
-        }
-        return mediaMetadataMapper.selectBatchIds(ids).stream()
-                .collect(Collectors.toMap(MediaMetadata::getId, Function.identity()));
-    }
-
-    private Map<String, String> loadFileNameMap(List<String> fileNodeIds) {
-        List<String> ids = fileNodeIds.stream().filter(Objects::nonNull).distinct().toList();
-        if (ids.isEmpty()) {
-            return Map.of();
-        }
-        return fileMapper.selectBatchIds(ids).stream()
-                .collect(Collectors.toMap(FileNode::getId, FileNode::getName));
-    }
-
-    private String blankToNull(String text) {
-        return text == null || text.isBlank() ? null : text.trim();
     }
 }

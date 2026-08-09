@@ -31,6 +31,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -43,12 +44,14 @@ import java.util.stream.Collectors;
  * （t_media_series / t_media_season / t_media_episode / t_media_episode_file / t_media_metadata），
  * 视图对象沿用现有 VO，保持响应结构兼容（前端适配在 issue #21）。
  * <p>
+ * 海报墙装配走 {@link MediaItemQueryDriver} 共享管线（工单 08），本类仅保留类型差异层：
+ * 剧集季集结构（季卡片/集列表）、集代表文件与收藏 ownerType；分页 SQL 沿用 selectSeriesPage。
  * 集以集行为卡片单位：代表文件取 last_play_file_id 指向的明细，未播放时取最早一条明细；
  * 播放进度/最近播放时间取自集行，时长等文件事实取自代表文件明细。
  */
 @Component
 @RequiredArgsConstructor
-public class MediaTvQuerySupport {
+public class MediaTvQuerySupport implements MediaItemQueryStrategy<MediaSeries, List<MediaEpisode>, MediaSeriesVo> {
 
     private final MediaSeriesMapper mediaSeriesMapper;
     private final MediaSeasonMapper mediaSeasonMapper;
@@ -58,55 +61,76 @@ public class MediaTvQuerySupport {
     private final FileMapper fileMapper;
     private final MediaItemVoSupport mediaItemVoSupport;
     private final MediaFavoriteService mediaFavoriteService;
+    private final MediaItemQueryDriver queryDriver;
 
     /**
      * 电视海报墙：按剧聚合分页（新表），含集数、匹配状态与最近播放时间。
      */
     public IPage<MediaSeriesVo> listSeries(String userId, MediaPageQueryDto query) {
-        Page<MediaSeries> page = new Page<>(query.normalizedPageNum(), query.normalizedPageSize());
-        IPage<MediaSeries> result = mediaSeriesMapper.selectSeriesPage(page, userId,
-                blankToNull(query.getKeyword()), blankToNull(query.getDirectoryId()),
-                blankToNull(query.getGenre()),
-                query.resolveSortField(), query.asc());
-        List<MediaSeries> seriesList = result.getRecords();
-        Map<String, MediaMetadata> metadataMap = loadMetadataMap(
-                seriesList.stream().map(MediaSeries::getMetadataId).toList());
-        Map<String, Long> nodeVersionMap = mediaItemVoSupport.loadNodeVersionMap(
-                metadataMap.values().stream().map(MediaMetadata::getPosterFileNodeId).toList());
-        Map<String, List<MediaEpisode>> episodeMap = seriesList.isEmpty() ? Map.of()
-                : mediaEpisodeMapper.selectList(new LambdaQueryWrapper<MediaEpisode>()
-                                .in(MediaEpisode::getSeriesId,
-                                        seriesList.stream().map(MediaSeries::getId).toList()))
-                        .stream().collect(Collectors.groupingBy(MediaEpisode::getSeriesId));
+        return queryDriver.run(this, userId, query);
+    }
 
-        List<MediaSeriesVo> vos = new ArrayList<>();
-        for (MediaSeries series : seriesList) {
-            List<MediaEpisode> episodes = episodeMap.getOrDefault(series.getId(), List.of());
-            MediaMetadata metadata = series.getMetadataId() == null ? null : metadataMap.get(series.getMetadataId());
-            MediaSeriesVo vo = new MediaSeriesVo();
-            vo.setId(series.getId());
-            vo.setSeriesName(series.getSeriesName());
-            vo.setEpisodeCount((long) episodes.size());
-            vo.setMatchStatus(series.getMatchStatus());
-            vo.setMetadataComplete(series.getMetadataComplete());
-            vo.setLastPlayTime(episodes.stream().map(MediaEpisode::getLastPlayTime)
-                    .filter(Objects::nonNull).max(Comparator.naturalOrder()).orElse(null));
-            vo.setMetadataId(series.getMetadataId());
-            vo.setTitle(metadata != null && metadata.getTitle() != null ? metadata.getTitle() : series.getSeriesName());
-            vo.setReleaseDate(metadata == null ? null : metadata.getReleaseDate());
-            vo.setVoteAverage(metadata == null ? null : metadata.getVoteAverage());
-            vo.setPosterUrl(mediaItemVoSupport.posterUrlOf(metadata, nodeVersionMap));
-            vos.add(vo);
+    @Override
+    public IPage<MediaSeries> page(String userId, MediaPageQueryDto query) {
+        Page<MediaSeries> page = new Page<>(query.normalizedPageNum(), query.normalizedPageSize());
+        return mediaSeriesMapper.selectSeriesPage(page, userId,
+                MediaItemVoSupport.blankToNull(query.getKeyword()),
+                MediaItemVoSupport.blankToNull(query.getDirectoryId()),
+                MediaItemVoSupport.blankToNull(query.getGenre()),
+                query.resolveSortField(), query.asc());
+    }
+
+    @Override
+    public String metadataIdOf(MediaSeries row) {
+        return row.getMetadataId();
+    }
+
+    @Override
+    public Map<String, List<MediaEpisode>> representativeFiles(List<MediaSeries> rows) {
+        if (rows.isEmpty()) {
+            return Map.of();
         }
-        // 当前用户收藏状态批量填充（ownerType=SERIES）
-        Set<String> favoritedIds = mediaFavoriteService.listFavoritedOwnerIds(userId, MediaFavoriteOwnerType.SERIES,
-                seriesList.stream().map(MediaSeries::getId).toList());
-        for (MediaSeriesVo vo : vos) {
-            vo.setFavorited(favoritedIds.contains(vo.getId()));
-        }
-        Page<MediaSeriesVo> voPage = new Page<>(result.getCurrent(), result.getSize(), result.getTotal());
-        voPage.setRecords(vos);
-        return voPage;
+        return mediaEpisodeMapper.selectList(new LambdaQueryWrapper<MediaEpisode>()
+                        .in(MediaEpisode::getSeriesId, rows.stream().map(MediaSeries::getId).toList()))
+                .stream().collect(Collectors.groupingBy(MediaEpisode::getSeriesId));
+    }
+
+    @Override
+    public List<String> fileNodeIdsOf(Map<String, List<MediaEpisode>> representativeFiles) {
+        // 剧集海报墙卡片无文件名
+        return List.of();
+    }
+
+    @Override
+    public List<String> ownerIdsOf(List<MediaSeries> rows) {
+        return rows.stream().map(MediaSeries::getId).toList();
+    }
+
+    @Override
+    public MediaSeriesVo toCard(MediaSeries series, MediaItemAssemblyContext<List<MediaEpisode>> ctx) {
+        List<MediaEpisode> episodes = ctx.representativeOf(series.getId());
+        episodes = episodes == null ? List.of() : episodes;
+        MediaMetadata metadata = ctx.metadataOf(series.getMetadataId());
+        MediaSeriesVo vo = new MediaSeriesVo();
+        vo.setId(series.getId());
+        vo.setSeriesName(series.getSeriesName());
+        vo.setEpisodeCount((long) episodes.size());
+        vo.setMatchStatus(series.getMatchStatus());
+        vo.setMetadataComplete(series.getMetadataComplete());
+        vo.setLastPlayTime(episodes.stream().map(MediaEpisode::getLastPlayTime)
+                .filter(Objects::nonNull).max(Comparator.naturalOrder()).orElse(null));
+        vo.setMetadataId(series.getMetadataId());
+        vo.setTitle(metadata != null && metadata.getTitle() != null ? metadata.getTitle() : series.getSeriesName());
+        vo.setReleaseDate(metadata == null ? null : metadata.getReleaseDate());
+        vo.setVoteAverage(metadata == null ? null : metadata.getVoteAverage());
+        vo.setPosterUrl(mediaItemVoSupport.posterUrlOf(metadata, ctx.nodeVersionMap()));
+        vo.setFavorited(ctx.isFavorited(series.getId()));
+        return vo;
+    }
+
+    @Override
+    public MediaFavoriteOwnerType favoriteOwner() {
+        return MediaFavoriteOwnerType.SERIES;
     }
 
     /**
@@ -240,8 +264,9 @@ public class MediaTvQuerySupport {
                         episodes.stream().map(MediaEpisode::getSeasonId).distinct().toList())
                 .stream().collect(Collectors.toMap(MediaSeason::getId, Function.identity()));
         Map<String, MediaEpisodeFile> fileMap = representativeFile(episodes);
-        Map<String, String> fileNameMap = loadFileNameMap(fileMap);
-        Map<String, MediaMetadata> metadataMap = loadMetadataMap(
+        Map<String, String> fileNameMap = mediaItemVoSupport.loadFileNameMap(
+                fileMap.values().stream().map(MediaEpisodeFile::getFileNodeId).toList());
+        Map<String, MediaMetadata> metadataMap = mediaItemVoSupport.loadMetadataMap(
                 episodes.stream().map(MediaEpisode::getMetadataId).toList());
         Map<String, Long> nodeVersionMap = mediaItemVoSupport.loadNodeVersionMap(
                 metadataMap.values().stream().map(MediaMetadata::getPosterFileNodeId).toList());
@@ -300,7 +325,7 @@ public class MediaTvQuerySupport {
         if (seasons.isEmpty()) {
             return List.of();
         }
-        Map<String, MediaMetadata> metadataMap = loadMetadataMap(
+        Map<String, MediaMetadata> metadataMap = mediaItemVoSupport.loadMetadataMap(
                 seasons.stream().map(MediaSeason::getMetadataId).toList());
         Map<String, Long> nodeVersionMap = mediaItemVoSupport.loadNodeVersionMap(
                 metadataMap.values().stream().map(MediaMetadata::getPosterFileNodeId).toList());
@@ -331,20 +356,14 @@ public class MediaTvQuerySupport {
         Map<String, List<MediaEpisodeFile>> filesByEpisode = mediaEpisodeFileMapper.selectList(
                         new LambdaQueryWrapper<MediaEpisodeFile>().in(MediaEpisodeFile::getEpisodeId, episodeIds))
                 .stream().collect(Collectors.groupingBy(MediaEpisodeFile::getEpisodeId));
-        Map<String, MediaEpisodeFile> result = new java.util.HashMap<>();
+        Map<String, MediaEpisodeFile> result = new HashMap<>();
         for (MediaEpisode episode : episodes) {
-            List<MediaEpisodeFile> files = filesByEpisode.getOrDefault(episode.getId(), List.of());
-            if (files.isEmpty()) {
-                continue;
+            MediaEpisodeFile chosen = MediaItemVoSupport.pickRepresentative(
+                    filesByEpisode.getOrDefault(episode.getId(), List.of()), episode.getLastPlayFileId(),
+                    MediaEpisodeFile::getId, MediaEpisodeFile::getCreateTime);
+            if (chosen != null) {
+                result.put(episode.getId(), chosen);
             }
-            MediaEpisodeFile chosen = files.stream()
-                    .filter(f -> f.getId().equals(episode.getLastPlayFileId())).findFirst()
-                    .orElseGet(() -> files.stream()
-                            .min(Comparator.comparing(MediaEpisodeFile::getCreateTime,
-                                    Comparator.nullsLast(Comparator.naturalOrder()))
-                                    .thenComparing(MediaEpisodeFile::getId))
-                            .orElse(files.getFirst()));
-            result.put(episode.getId(), chosen);
         }
         return result;
     }
@@ -355,28 +374,5 @@ public class MediaTvQuerySupport {
             throw new BusinessException(ResultCode.NOT_FOUND, "电视剧不存在");
         }
         return series;
-    }
-
-    private Map<String, MediaMetadata> loadMetadataMap(List<String> metadataIds) {
-        List<String> ids = metadataIds.stream().filter(Objects::nonNull).distinct().toList();
-        if (ids.isEmpty()) {
-            return Map.of();
-        }
-        return mediaMetadataMapper.selectBatchIds(ids).stream()
-                .collect(Collectors.toMap(MediaMetadata::getId, Function.identity()));
-    }
-
-    private Map<String, String> loadFileNameMap(Map<String, MediaEpisodeFile> fileMap) {
-        List<String> fileNodeIds = fileMap.values().stream().map(MediaEpisodeFile::getFileNodeId)
-                .filter(Objects::nonNull).distinct().toList();
-        if (fileNodeIds.isEmpty()) {
-            return Map.of();
-        }
-        return fileMapper.selectBatchIds(fileNodeIds).stream()
-                .collect(Collectors.toMap(FileNode::getId, FileNode::getName));
-    }
-
-    private String blankToNull(String text) {
-        return text == null || text.isBlank() ? null : text.trim();
     }
 }
