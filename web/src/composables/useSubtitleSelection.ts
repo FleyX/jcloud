@@ -53,8 +53,9 @@ export function useSubtitleSelection(deps: SubtitleSelectionDeps) {
     const item = subtitles.value.find((s) => subtitleItemKey(s) === key)
     if (!item) return null
     const versionId = currentVersionId.value ?? undefined
-    // 转码播放的字幕时间轴相对当前转码会话起点偏移，直放使用原片时间轴（offset 0）
-    const offsetMs = transcodeActive.value ? transcodeBaseMs.value : 0
+    // 转码播放的字幕时间轴相对当前转码会话起点偏移，直放使用原片时间轴（offset 0）。
+    // transcodeBaseMs 可能含小数（由 currentTime*1000 换算），后端 offsetMs 为整型，必须取整
+    const offsetMs = transcodeActive.value ? Math.floor(transcodeBaseMs.value) : 0
     const src = item.type === 'embedded' && item.index !== null
       ? subtitleUrl(id, item.index, versionId, offsetMs)
       : item.subtitleId

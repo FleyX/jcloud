@@ -105,6 +105,16 @@ describe('useSubtitleSelection activeSubtitle URL 构造', () => {
     expect(mocks.externalSubtitleUrl).toHaveBeenCalledWith('item-1', 'ext-zh', undefined, 120_000)
   })
 
+  it('转码：transcodeBaseMs 含小数时 offsetMs 取整（后端为整型，小数会 400）', () => {
+    const { selection, transcodeActive, transcodeBaseMs } = createSelection()
+    transcodeActive.value = true
+    transcodeBaseMs.value = 60_000.9
+    selection.selectSubtitle('external:ext-zh')
+
+    expect(selection.activeSubtitle.value).not.toBeNull()
+    expect(mocks.externalSubtitleUrl).toHaveBeenCalledWith('item-1', 'ext-zh', undefined, 60_000)
+  })
+
   it('内嵌字幕走 subtitleUrl（index），外置字幕走 externalSubtitleUrl（subtitleId），版本参数透传', () => {
     const { selection, currentVersionId, transcodeActive, transcodeBaseMs } = createSelection()
     currentVersionId.value = 'ver-1'
