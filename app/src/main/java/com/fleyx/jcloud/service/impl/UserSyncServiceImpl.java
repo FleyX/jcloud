@@ -89,6 +89,9 @@ public class UserSyncServiceImpl implements UserSyncService {
 
         CronExpression expression = syncTaskSupport.parseCron(dto.getCronExpr());
         LocalDateTime nextSyncTime = expression.next(LocalDateTime.now());
+        if (nextSyncTime == null) {
+            throw new BusinessException(ResultCode.PARAM_ERROR, "cron 表达式在未来没有可执行的时间");
+        }
 
         UserSyncConfig config = userSyncConfigMapper.selectById(userId);
         if (config == null) {

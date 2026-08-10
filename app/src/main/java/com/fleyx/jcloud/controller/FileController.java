@@ -42,6 +42,7 @@ import com.fleyx.jcloud.service.FileOperationService;
 import com.fleyx.jcloud.service.FilePreviewService;
 import com.fleyx.jcloud.service.FileRecycleService;
 import com.fleyx.jcloud.service.FileService;
+import com.fleyx.jcloud.util.ContentDispositionUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.InputStreamResource;
 import org.springframework.http.HttpHeaders;
@@ -180,7 +181,7 @@ public class FileController {
         }
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION,
-                        "inline; filename=\"" + result.getFileName() + "\"")
+                        ContentDispositionUtil.inline(result.getFileName()))
                 .contentType(MediaType.parseMediaType(result.getContentType()))
                 .contentLength(result.getSize())
                 .body(new InputStreamResource(result.getInputStream()));
@@ -197,7 +198,7 @@ public class FileController {
                 : MediaType.APPLICATION_OCTET_STREAM_VALUE;
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION,
-                        "attachment; filename=\"" + result.getFileName() + "\"")
+                        ContentDispositionUtil.attachment(result.getFileName()))
                 .contentType(MediaType.parseMediaType(contentType))
                 .contentLength(result.getSize())
                 .body(new InputStreamResource(result.getInputStream()));
@@ -294,7 +295,7 @@ public class FileController {
         if (result instanceof BatchDownloadResult.StreamResult streamResult) {
             return ResponseEntity.ok()
                     .header(HttpHeaders.CONTENT_DISPOSITION,
-                            "attachment; filename=\"" + streamResult.fileName() + "\"")
+                            ContentDispositionUtil.attachment(streamResult.fileName()))
                     .contentType(MediaType.APPLICATION_OCTET_STREAM)
                     .contentLength(streamResult.totalSize())
                     .body(new InputStreamResource(streamResult.inputStream()));
@@ -320,7 +321,7 @@ public class FileController {
         FileDownloadResult result = fileDownloadService.downloadTaskResult(taskId, UserContext.get().id());
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION,
-                        "attachment; filename=\"" + result.getFileName() + "\"")
+                        ContentDispositionUtil.attachment(result.getFileName()))
                 .contentType(MediaType.APPLICATION_OCTET_STREAM)
                 .contentLength(result.getSize())
                 .body(new InputStreamResource(result.getInputStream()));

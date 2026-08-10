@@ -2,6 +2,7 @@ package com.fleyx.jcloud.service;
 
 import cn.hutool.crypto.digest.DigestUtil;
 import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.fleyx.jcloud.common.IntegrationTestBase;
 import com.fleyx.jcloud.common.enums.BatchUploadErrorCode;
 import com.fleyx.jcloud.common.enums.ConflictStrategy;
 import com.fleyx.jcloud.common.exception.BusinessException;
@@ -12,24 +13,18 @@ import com.fleyx.jcloud.model.dto.FileInstantUploadDto;
 import com.fleyx.jcloud.model.dto.FilePageQueryDto;
 import com.fleyx.jcloud.model.dto.FileUploadPreCheckDto;
 import com.fleyx.jcloud.model.dto.OperationItemDto;
-import com.fleyx.jcloud.model.dto.StorageSpaceSaveDto;
-import com.fleyx.jcloud.model.dto.UserSaveDto;
+import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.vo.BatchUploadPreCheckItemVo;
 import com.fleyx.jcloud.model.vo.ConflictItemVo;
 import com.fleyx.jcloud.model.vo.FileNodeVo;
-import com.fleyx.jcloud.model.vo.StorageSpaceVo;
 import com.fleyx.jcloud.model.vo.UploadPreCheckVo;
 import com.fleyx.jcloud.model.vo.UserVo;
 import com.fleyx.jcloud.util.FileHashUtil;
 import com.fleyx.jcloud.common.constant.FileNodeConstants;
-import com.fleyx.jcloud.common.context.CurrentUser;
-import com.fleyx.jcloud.common.context.UserContext;
+import com.fleyx.jcloud.mapper.FileMapper;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.mock.web.MockMultipartFile;
-import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -50,25 +45,17 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * 文件服务测试。
  */
-@SpringBootTest
-@ActiveProfiles("test")
 @Transactional
-class FileServiceTest {
+class FileServiceTest extends IntegrationTestBase {
 
     @Autowired
     private FileService fileService;
 
     @Autowired
-    private UserService userService;
-
-    @Autowired
-    private StorageSpaceService storageSpaceService;
-
-    @Autowired
     private FileOperationService fileOperationService;
 
-    @TempDir
-    Path tempDir;
+    @Autowired
+    private FileMapper fileMapper;
 
     @Test
     void shouldUploadFileToRoot() throws Exception {
@@ -322,8 +309,14 @@ class FileServiceTest {
                 ConflictStrategy.SKIP.getCode());
 
         assertNull(skipped);
-        FileNodeVo current = fileService.download(existing.getId(), user.getId()) != null ? existing : null;
+        // SKIP 策略下原文件不应被覆盖：DB 记录 size/hash 与上传前一致，物理文件内容也未变
+        FileNode current = fileMapper.selectById(existing.getId());
         assertNotNull(current);
+        assertEquals(existing.getHash(), current.getHash());
+        assertEquals(Long.parseLong(existing.getSize()), current.getSize());
+        try (InputStream is = fileService.download(existing.getId(), user.getId()).getInputStream()) {
+            assertEquals("hello", new String(is.readAllBytes(), StandardCharsets.UTF_8));
+        }
     }
 
     @Test
@@ -808,47 +801,6 @@ class FileServiceTest {
         item.setId(fileId);
         dto.setItems(List.of(item));
         fileOperationService.move(dto, userId);
-    }
-
-    private Path resolvePhysicalPath(UserWithSpace userWithSpace, String physicalPath) {
-        return userWithSpace.spacePath()
-                .resolve("files")
-                .resolve(userWithSpace.user().getUsername())
-                .resolve(physicalPath);
-    }
-
-    private UserWithSpace prepareUserWithStorageSpace() {
-        return prepareUserWithStorageSpace(10737418240L);
-    }
-
-    private UserWithSpace prepareUserWithStorageSpace(long quota) {
-        Path spacePath = tempDir.resolve("space-" + System.nanoTime());
-        StorageSpaceSaveDto spaceDto = new StorageSpaceSaveDto();
-        spaceDto.setName("用户空间");
-        spaceDto.setPath(spacePath.toString());
-        StorageSpaceVo space = storageSpaceService.save(spaceDto);
-
-        UserSaveDto userDto = new UserSaveDto();
-        userDto.setUsername("user_" + Long.toUnsignedString(System.nanoTime(), 36));
-        userDto.setPassword("123456");
-        userDto.setStorageSpaceId(space.getId());
-        userDto.setQuota(toQuotaValue(quota));
-        userDto.setQuotaUnit(toQuotaUnit(quota));
-        UserVo user = userService.saveUser(userDto);
-        UserContext.set(new CurrentUser(user.getId(), user.getUsername()));
-
-        return new UserWithSpace(user, spacePath);
-    }
-
-    private static long toQuotaValue(long quotaBytes) {
-        return quotaBytes == 10737418240L ? 10L : quotaBytes;
-    }
-
-    private static String toQuotaUnit(long quotaBytes) {
-        return quotaBytes == 10737418240L ? "GB" : "B";
-    }
-
-    private record UserWithSpace(UserVo user, Path spacePath) {
     }
 
     /**

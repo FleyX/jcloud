@@ -15,6 +15,7 @@ import com.fleyx.jcloud.service.impl.RemoteMountSyncExecutor;
 import com.fleyx.jcloud.service.impl.RemoteProtocolAdapterFactory;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -60,6 +61,9 @@ class RemoteMountSyncExecutorTest {
 
     @MockitoBean
     private RemoteProtocolAdapterFactory adapterFactory;
+
+    @TempDir
+    Path tempDir;
 
     private RemoteProtocolAdapter adapter;
 
@@ -191,7 +195,7 @@ class RemoteMountSyncExecutorTest {
 
     private UserVo prepareUser() {
         try {
-            Path spacePath = Files.createTempDirectory("remote-sync-exec-space-");
+            Path spacePath = Files.createTempDirectory(tempDir, "remote-sync-exec-space-");
             StorageSpaceSaveDto spaceDto = new StorageSpaceSaveDto();
             spaceDto.setName("remote-sync-exec-space-" + System.nanoTime());
             spaceDto.setPath(spacePath.toString());

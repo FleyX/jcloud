@@ -13,6 +13,7 @@ import com.fleyx.jcloud.model.vo.StorageSpaceVo;
 import com.fleyx.jcloud.model.vo.UserVo;
 import com.fleyx.jcloud.util.IdUtil;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
@@ -45,6 +46,9 @@ class RemoteMountServiceTest {
 
     @Autowired
     private RemoteMountMapper remoteMountMapper;
+
+    @TempDir
+    Path tempDir;
 
     @Test
     void shouldCreateRemoteMount() throws Exception {
@@ -118,8 +122,35 @@ class RemoteMountServiceTest {
         assertEquals("legacy-user", detail.getUsername());
     }
 
+    @Test
+    void shouldRejectInvalidCronOnSave() throws Exception {
+        UserVo user = prepareUser();
+        RemoteMountSaveDto dto = buildSaveDto();
+        dto.setCronExpr("not-a-cron");
+
+        assertThrows(BusinessException.class, () -> remoteMountService.save(dto, user.getId()));
+    }
+
+    @Test
+    void shouldRejectInvalidCronOnUpdate() throws Exception {
+        UserVo user = prepareUser();
+        RemoteMountVo mount = remoteMountService.save(buildSaveDto(), user.getId());
+
+        RemoteMountUpdateDto updateDto = new RemoteMountUpdateDto();
+        updateDto.setId(mount.getId());
+        updateDto.setName(mount.getName());
+        updateDto.setType("webdav");
+        updateDto.setUrl("http://example.com/dav");
+        updateDto.setUsername("user");
+        updateDto.setPassword("pass");
+        updateDto.setEnabled(1);
+        updateDto.setCronExpr("not-a-cron");
+
+        assertThrows(BusinessException.class, () -> remoteMountService.update(updateDto, user.getId()));
+    }
+
     private UserVo prepareUser() throws Exception {
-        Path spacePath = Files.createTempDirectory("mount-space-");
+        Path spacePath = Files.createTempDirectory(tempDir, "mount-space-");
         StorageSpaceSaveDto spaceDto = new StorageSpaceSaveDto();
         spaceDto.setName("mount-space-" + System.nanoTime());
         spaceDto.setPath(spacePath.toString());

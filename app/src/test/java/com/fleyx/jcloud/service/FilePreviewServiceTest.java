@@ -1,26 +1,20 @@
 package com.fleyx.jcloud.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.fleyx.jcloud.common.IntegrationTestBase;
 import com.fleyx.jcloud.common.enums.PreviewType;
 import com.fleyx.jcloud.mapper.PreviewFileMapper;
 import com.fleyx.jcloud.model.bo.PreviewResult;
 import com.fleyx.jcloud.model.po.PreviewFile;
-import com.fleyx.jcloud.model.dto.StorageSpaceSaveDto;
-import com.fleyx.jcloud.model.dto.UserSaveDto;
 import com.fleyx.jcloud.model.vo.FileNodeVo;
 import com.fleyx.jcloud.model.vo.StorageSpaceVo;
 import com.fleyx.jcloud.model.vo.UserVo;
 import com.fleyx.jcloud.service.SystemConfigService;
 import com.fleyx.jcloud.common.constant.FileNodeConstants;
-import com.fleyx.jcloud.common.context.CurrentUser;
-import com.fleyx.jcloud.common.context.UserContext;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.mock.web.MockMultipartFile;
-import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -42,10 +36,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * 文件预览服务测试。
  */
-@SpringBootTest
-@ActiveProfiles("test")
 @Transactional
-class FilePreviewServiceTest {
+class FilePreviewServiceTest extends IntegrationTestBase {
 
     @Autowired
     private FilePreviewService filePreviewService;
@@ -54,19 +46,15 @@ class FilePreviewServiceTest {
     private FileService fileService;
 
     @Autowired
-    private UserService userService;
-
-    @Autowired
-    private StorageSpaceService storageSpaceService;
-
-    @Autowired
     private PreviewFileMapper previewFileMapper;
 
     @Autowired
     private SystemConfigService systemConfigService;
 
-    @TempDir
-    static Path tempDir;
+    @Override
+    protected void afterSpaceCreated(StorageSpaceVo space) {
+        systemConfigService.setValue("system.storage.space.id", String.valueOf(space.getId()));
+    }
 
     @Test
     void shouldGenerateImageThumbnail() throws Exception {
@@ -107,17 +95,32 @@ class FilePreviewServiceTest {
         MultipartFile file = new MockMultipartFile("file", "photo.png", "image/png", createImageBytes());
         FileNodeVo uploaded = fileService.upload(file, user.getId(), FileNodeConstants.ROOT_ID, null);
 
-        filePreviewService.preview(uploaded.getId(), user.getId(), PreviewType.THUMBNAIL);
+        PreviewResult first = filePreviewService.preview(uploaded.getId(), user.getId(), PreviewType.THUMBNAIL);
+        byte[] firstBytes = first.getInputStream().readAllBytes();
+
         PreviewFile recordBefore = previewFileMapper.selectList(
                 new LambdaQueryWrapper<PreviewFile>()
                         .eq(PreviewFile::getFileNodeId, uploaded.getId())
                         .eq(PreviewFile::getType, PreviewType.THUMBNAIL.getCode())
         ).get(0);
 
+        // 保证两次调用跨秒：若发生“重新生成”并通过 updateById 重写记录，update_time 必定会变化
+        Thread.sleep(1100);
+
         PreviewResult result = filePreviewService.preview(uploaded.getId(), user.getId(), PreviewType.THUMBNAIL);
+        byte[] secondBytes = result.getInputStream().readAllBytes();
         PreviewFile recordAfter = previewFileMapper.selectById(recordBefore.getId());
 
-        assertEquals(recordBefore.getSize(), recordAfter.getSize());
+        // 命中缓存：两次返回内容一致，且未新增、未重写预览记录
+        assertNotNull(recordAfter);
+        assertArrayEquals(firstBytes, secondBytes);
+        assertEquals(recordBefore.getFileNodeId(), recordAfter.getFileNodeId());
+        assertEquals(recordBefore.getUpdateTime(), recordAfter.getUpdateTime());
+        long cacheCount = previewFileMapper.selectCount(
+                new LambdaQueryWrapper<PreviewFile>()
+                        .eq(PreviewFile::getFileNodeId, uploaded.getId())
+                        .eq(PreviewFile::getType, PreviewType.THUMBNAIL.getCode()));
+        assertEquals(1, cacheCount);
         assertEquals("image/jpeg", result.getContentType());
     }
 
@@ -143,6 +146,7 @@ class FilePreviewServiceTest {
 
     @Test
     void shouldGenerateVideoPoster() throws Exception {
+        Assumptions.assumeTrue(isFfmpegAvailable(), "ffmpeg 不可用，跳过视频海报测试");
         UserWithSpace userWithSpace = prepareUserWithStorageSpace();
         UserVo user = userWithSpace.user();
         Path videoPath = createTestVideo();
@@ -251,6 +255,15 @@ class FilePreviewServiceTest {
         }
     }
 
+    private boolean isFfmpegAvailable() {
+        try {
+            Process process = new ProcessBuilder("ffmpeg", "-version").start();
+            return process.waitFor() == 0;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     private Path createTestVideo() throws Exception {
         Path videoPath = tempDir.resolve("test-video-" + System.nanoTime() + ".mp4");
         ProcessBuilder builder = new ProcessBuilder(
@@ -283,40 +296,5 @@ class FilePreviewServiceTest {
 
     private MultipartFile buildFile(String name, String content) {
         return new MockMultipartFile("file", name, "text/plain", content.getBytes());
-    }
-
-    private UserWithSpace prepareUserWithStorageSpace() {
-        return prepareUserWithStorageSpace(10737418240L);
-    }
-
-    private UserWithSpace prepareUserWithStorageSpace(long quota) {
-        Path spacePath = tempDir.resolve("space-" + System.nanoTime());
-        StorageSpaceSaveDto spaceDto = new StorageSpaceSaveDto();
-        spaceDto.setName("用户空间");
-        spaceDto.setPath(spacePath.toString());
-        StorageSpaceVo space = storageSpaceService.save(spaceDto);
-        systemConfigService.setValue("system.storage.space.id", String.valueOf(space.getId()));
-
-        UserSaveDto userDto = new UserSaveDto();
-        userDto.setUsername("user_" + Long.toUnsignedString(System.nanoTime(), 36));
-        userDto.setPassword("123456");
-        userDto.setStorageSpaceId(space.getId());
-        userDto.setQuota(toQuotaValue(quota));
-        userDto.setQuotaUnit(toQuotaUnit(quota));
-        UserVo user = userService.saveUser(userDto);
-        UserContext.set(new CurrentUser(user.getId(), user.getUsername()));
-
-        return new UserWithSpace(user, spacePath);
-    }
-
-    private static long toQuotaValue(long quotaBytes) {
-        return quotaBytes == 10737418240L ? 10L : quotaBytes;
-    }
-
-    private static String toQuotaUnit(long quotaBytes) {
-        return quotaBytes == 10737418240L ? "GB" : "B";
-    }
-
-    private record UserWithSpace(UserVo user, Path spacePath) {
     }
 }

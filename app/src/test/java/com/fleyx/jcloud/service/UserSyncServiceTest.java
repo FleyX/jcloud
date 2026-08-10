@@ -11,6 +11,7 @@ import com.fleyx.jcloud.model.vo.UserSyncTaskVo;
 import com.fleyx.jcloud.model.vo.UserVo;
 import com.fleyx.jcloud.mapper.UserMapper;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
@@ -42,6 +43,9 @@ class UserSyncServiceTest {
 
     @Autowired
     private UserMapper userMapper;
+
+    @TempDir
+    Path tempDir;
 
     @Test
     void shouldSubmitImmediateSyncTask() throws Exception {
@@ -105,8 +109,19 @@ class UserSyncServiceTest {
         assertThrows(BusinessException.class, () -> userSyncService.updateConfig(dto));
     }
 
+    @Test
+    void shouldRejectBoundedCronWithNoFutureExecution() throws Exception {
+        UserVo user = prepareUser();
+        UserSyncConfigUpdateDto dto = new UserSyncConfigUpdateDto();
+        dto.setUserId(user.getId());
+        dto.setCronExpr("0 0 2 1 1 * 2025");
+        dto.setEnabled(1);
+
+        assertThrows(BusinessException.class, () -> userSyncService.updateConfig(dto));
+    }
+
     private UserVo prepareUser() throws Exception {
-        Path spacePath = Files.createTempDirectory("sync-space-");
+        Path spacePath = Files.createTempDirectory(tempDir, "sync-space-");
         StorageSpaceSaveDto spaceDto = new StorageSpaceSaveDto();
         spaceDto.setName("sync-space-" + System.nanoTime());
         spaceDto.setPath(spacePath.toString());

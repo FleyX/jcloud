@@ -47,7 +47,7 @@ public class TranscodeSessionManager {
         this.concurrencyPermits = new Semaphore(Math.max(1, mediaProperties.getTranscodeConcurrency()));
     }
 
-    private final Map<String, TranscodeSession> sessions = new ConcurrentHashMap<>();
+    final Map<String, TranscodeSession> sessions = new ConcurrentHashMap<>();
 
     /**
      * 创建转码会话并启动 ffmpeg。

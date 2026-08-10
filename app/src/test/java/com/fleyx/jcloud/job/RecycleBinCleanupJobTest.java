@@ -1,43 +1,35 @@
 package com.fleyx.jcloud.job;
 
+import com.fleyx.jcloud.common.IntegrationTestBase;
 import com.fleyx.jcloud.mapper.RecycleRecordMapper;
 import com.fleyx.jcloud.model.dto.FileDeleteDto;
-import com.fleyx.jcloud.model.dto.StorageSpaceSaveDto;
-import com.fleyx.jcloud.model.dto.UserSaveDto;
 import com.fleyx.jcloud.model.po.RecycleRecord;
 import com.fleyx.jcloud.model.vo.FileNodeVo;
-import com.fleyx.jcloud.model.vo.StorageSpaceVo;
 import com.fleyx.jcloud.model.vo.UserVo;
 import com.fleyx.jcloud.service.FileRecycleService;
 import com.fleyx.jcloud.service.FileService;
-import com.fleyx.jcloud.service.StorageSpaceService;
-import com.fleyx.jcloud.service.UserService;
 import com.fleyx.jcloud.common.constant.FileNodeConstants;
-import com.fleyx.jcloud.common.context.CurrentUser;
-import com.fleyx.jcloud.common.context.UserContext;
+import com.fleyx.jcloud.common.constant.StorageConstant;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.mock.web.MockMultipartFile;
-import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * 回收站自动清理任务测试。
  */
-@SpringBootTest
-@ActiveProfiles("test")
 @Transactional
-class RecycleBinCleanupJobTest {
+class RecycleBinCleanupJobTest extends IntegrationTestBase {
 
     @Autowired
     private RecycleBinCleanupJob cleanupJob;
@@ -49,16 +41,7 @@ class RecycleBinCleanupJobTest {
     private FileService fileService;
 
     @Autowired
-    private UserService userService;
-
-    @Autowired
-    private StorageSpaceService storageSpaceService;
-
-    @Autowired
     private RecycleRecordMapper recycleRecordMapper;
-
-    @TempDir
-    Path tempDir;
 
     @Test
     void shouldDeleteExpiredRecycleRecords() {
@@ -98,29 +81,57 @@ class RecycleBinCleanupJobTest {
         assertEquals(recordId, recycleRecordMapper.selectById(recordId).getId());
     }
 
+    @Test
+    void shouldFinishCleanupWithoutSideEffectWhenTrashIsEmpty() {
+        prepareUserWithStorageSpace();
+
+        long before = recycleRecordMapper.selectCount(null);
+        cleanupJob.cleanup();
+        long after = recycleRecordMapper.selectCount(null);
+
+        // 回收站为空：任务正常结束，回收站表无任何变化
+        assertEquals(before, after);
+    }
+
+    @Test
+    void shouldCountFailedRecordAndContinueWhenPermanentDeleteFails() {
+        UserWithSpace userWithSpace = prepareUserWithStorageSpace();
+        UserVo user = userWithSpace.user();
+        FileNodeVo file = fileService.upload(buildFile("clean.txt", "Clean"), user.getId(),
+                FileNodeConstants.ROOT_ID, null);
+
+        FileDeleteDto deleteDto = new FileDeleteDto();
+        deleteDto.setIds(List.of(file.getId()));
+        String recordId = fileRecycleService.deleteToTrash(deleteDto, user.getId()).get(0).getNodeId();
+
+        RecycleRecord validRecord = recycleRecordMapper.selectById(recordId);
+        validRecord.setCreateTime(LocalDateTime.now().minusDays(31));
+        recycleRecordMapper.updateById(validRecord);
+
+        // 构造一条过期但用户已不存在的记录：permanentDelete 内部 requireUser 抛 BusinessException，
+        // 对应 RecycleBinCleanupJob#cleanup 的 catch(BusinessException) 容错分支
+        RecycleRecord ghostRecord = new RecycleRecord();
+        ghostRecord.setUserId("00000000000zz");
+        ghostRecord.setName("ghost.txt");
+        ghostRecord.setType("file");
+        ghostRecord.setOriginalPathName("/ghost.txt");
+        ghostRecord.setTotalSize(0L);
+        ghostRecord.setStatus(1);
+        recycleRecordMapper.insert(ghostRecord);
+        ghostRecord.setCreateTime(LocalDateTime.now().minusDays(31));
+        recycleRecordMapper.updateById(ghostRecord);
+
+        cleanupJob.cleanup();
+
+        // 正常记录被彻底删除（DB 记录与回收站物理文件均清理），失败记录保留且任务不中断
+        assertNull(recycleRecordMapper.selectById(recordId));
+        Path trashRoot = Path.of(userWithSpace.spacePath().toString(), StorageConstant.TRASH_DIR,
+                user.getUsername(), recordId);
+        assertTrue(Files.notExists(trashRoot));
+        assertEquals(ghostRecord.getId(), recycleRecordMapper.selectById(ghostRecord.getId()).getId());
+    }
+
     private MultipartFile buildFile(String name, String content) {
         return new MockMultipartFile("file", name, "text/plain", content.getBytes());
-    }
-
-    private UserWithSpace prepareUserWithStorageSpace() {
-        Path spacePath = tempDir.resolve("space-" + System.nanoTime());
-        StorageSpaceSaveDto spaceDto = new StorageSpaceSaveDto();
-        spaceDto.setName("用户空间");
-        spaceDto.setPath(spacePath.toString());
-        StorageSpaceVo space = storageSpaceService.save(spaceDto);
-
-        UserSaveDto userDto = new UserSaveDto();
-        userDto.setUsername("user_" + Long.toUnsignedString(System.nanoTime(), 36));
-        userDto.setPassword("123456");
-        userDto.setStorageSpaceId(space.getId());
-        userDto.setQuota(10L);
-        userDto.setQuotaUnit("GB");
-        UserVo user = userService.saveUser(userDto);
-        UserContext.set(new CurrentUser(user.getId(), user.getUsername()));
-
-        return new UserWithSpace(user, spacePath);
-    }
-
-    private record UserWithSpace(UserVo user, Path spacePath) {
     }
 }

@@ -28,7 +28,8 @@ public final class FileLinkUtil {
      * @throws IOException 复制也失败时抛出
      */
     public static void linkOrCopy(Path source, Path target) throws IOException {
-        linkOrCopy(source, target, Files::createLink);
+        // Files.createLink(link, existing) 参数顺序与 Linker(source, target) 相反，需交换
+        linkOrCopy(source, target, (s, t) -> Files.createLink(t, s));
     }
 
     /**

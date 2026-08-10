@@ -12,6 +12,7 @@ import com.fleyx.jcloud.model.vo.UserSyncTaskVo;
 import com.fleyx.jcloud.model.vo.UserVo;
 import com.fleyx.jcloud.service.impl.UserSyncExecutor;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.mock.web.MockMultipartFile;
@@ -21,6 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -53,6 +55,9 @@ class UserSyncExecutorTest {
 
     @Autowired
     private FileMapper fileMapper;
+
+    @TempDir
+    Path tempDir;
 
     @Test
     void shouldSyncPhysicalFilesToDatabase() throws Exception {
@@ -122,10 +127,10 @@ class UserSyncExecutorTest {
         FileNodeVo uploaded = fileService.upload(multipartFile, userId, FileNodeConstants.ROOT_ID, null);
         String nodeId = uploaded.getId();
 
-        // 覆盖物理文件，改变内容与大小
-        Thread.sleep(10);
+        // 覆盖物理文件，改变内容与大小，并显式设置一个与 DB 记录明显不同的 mtime，消除毫秒级时序依赖
         Path physicalFile = filesDir.resolve("note.txt");
         Files.writeString(physicalFile, "updated content");
+        Files.setLastModifiedTime(physicalFile, FileTime.fromMillis(System.currentTimeMillis() + 60_000));
 
         UserSyncTaskVo task = userSyncService.submitImmediate(userId);
         executor.execute(task.getId());
@@ -139,7 +144,7 @@ class UserSyncExecutorTest {
     }
 
     private UserSpacePrepared prepareUserSpace() throws Exception {
-        Path spacePath = Files.createTempDirectory("sync-exec-space-");
+        Path spacePath = Files.createTempDirectory(tempDir, "sync-exec-space-");
         StorageSpaceSaveDto spaceDto = new StorageSpaceSaveDto();
         spaceDto.setName("sync-exec-space-" + System.nanoTime());
         spaceDto.setPath(spacePath.toString());

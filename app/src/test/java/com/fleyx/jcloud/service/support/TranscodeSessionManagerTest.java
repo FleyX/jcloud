@@ -4,7 +4,6 @@ import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.config.MediaProperties;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.springframework.test.util.ReflectionTestUtils;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -34,9 +33,8 @@ class TranscodeSessionManagerTest {
                 mock(TranscodeConfigResolver.class), mock(TranscodeProcessLauncher.class));
     }
 
-    @SuppressWarnings("unchecked")
     private Map<String, TranscodeSession> sessionsOf(TranscodeSessionManager manager) {
-        return (Map<String, TranscodeSession>) ReflectionTestUtils.getField(manager, "sessions");
+        return manager.sessions;
     }
 
     private TranscodeSession newSession(String id, Path dir) {
@@ -44,7 +42,6 @@ class TranscodeSessionManagerTest {
     }
 
     @Test
-    @SuppressWarnings("unchecked")
     void shouldTreatZeroByteFileAsNotReady(@TempDir Path tempDir) throws Exception {
         // ffmpeg 启动时会先创建 0 字节的 init.mp4 占位文件再写入内容，
         // 若按“存在即就绪”返回，客户端会拿到空初始化段导致播放失败
@@ -53,7 +50,7 @@ class TranscodeSessionManagerTest {
                 new TranscodeCommandBuilder(properties), mock(TranscodeThrottleSupport.class),
                 mock(TranscodeConfigResolver.class), mock(TranscodeProcessLauncher.class));
         TranscodeSession session = new TranscodeSession("s1", "u1", tempDir, null, "copy", Instant.now());
-        ((Map<String, TranscodeSession>) ReflectionTestUtils.getField(manager, "sessions")).put("s1", session);
+        manager.sessions.put("s1", session);
 
         // 文件不存在：未就绪
         assertNull(manager.touchAndResolve("s1", "u1", "init.mp4"));

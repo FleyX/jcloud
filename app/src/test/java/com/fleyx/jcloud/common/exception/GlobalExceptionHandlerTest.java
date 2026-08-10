@@ -89,4 +89,66 @@ class GlobalExceptionHandlerTest {
         assertEquals(ResultCode.PARAM_ERROR.getCode(), result.getCode());
         assertEquals("参数类型不匹配：id", result.getMsg());
     }
+
+    @Test
+    void handleBusinessExceptionShouldReturnMappedCodeAndMsg() {
+        BusinessException ex = new BusinessException(ResultCode.FORBIDDEN);
+
+        R<Void> result = handler.handleBusinessException(ex, request);
+
+        assertNotNull(result);
+        assertEquals(ResultCode.FORBIDDEN.getCode(), result.getCode());
+        assertEquals(ResultCode.FORBIDDEN.getMsg(), result.getMsg());
+        assertEquals("test-trace-id", result.getTraceId());
+    }
+
+    @Test
+    void handleBusinessExceptionWithoutResultCodeShouldReturnBusinessError() {
+        BusinessException ex = new BusinessException("文件重名");
+
+        R<Void> result = handler.handleBusinessException(ex, request);
+
+        assertNotNull(result);
+        assertEquals(ResultCode.BUSINESS_ERROR.getCode(), result.getCode());
+        assertEquals("文件重名", result.getMsg());
+    }
+
+    @Test
+    void handleBusinessExceptionWithCauseShouldReturnMappedCodeAndMsg() {
+        BusinessException ex = new BusinessException(ResultCode.SYSTEM_ERROR, new IllegalStateException("root cause"));
+
+        R<Void> result = handler.handleBusinessException(ex, request);
+
+        assertNotNull(result);
+        assertEquals(ResultCode.SYSTEM_ERROR.getCode(), result.getCode());
+        assertEquals(ResultCode.SYSTEM_ERROR.getMsg(), result.getMsg());
+        assertEquals("test-trace-id", result.getTraceId());
+        assertNotNull(ex.getCause());
+    }
+
+    @Test
+    void handleExceptionShouldReturnSystemErrorForUnknownException() {
+        Exception ex = new IllegalStateException("unexpected");
+
+        R<Void> result = handler.handleException(ex, request);
+
+        assertNotNull(result);
+        assertEquals(ResultCode.SYSTEM_ERROR.getCode(), result.getCode());
+        assertEquals(ResultCode.SYSTEM_ERROR.getMsg(), result.getMsg());
+        assertEquals("test-trace-id", result.getTraceId());
+    }
+
+    @Test
+    void handleSystemExceptionShouldFallbackToSystemError() {
+        SystemException ex = new SystemException(
+                ResultCode.SYSTEM_ERROR, "数据库连接失败", new IllegalStateException("connection refused"));
+
+        R<Void> result = handler.handleException(ex, request);
+
+        assertNotNull(result);
+        assertEquals(ResultCode.SYSTEM_ERROR.getCode(), result.getCode());
+        assertEquals(ResultCode.SYSTEM_ERROR.getMsg(), result.getMsg());
+        assertEquals("test-trace-id", result.getTraceId());
+        assertNotNull(ex.getCause());
+    }
 }

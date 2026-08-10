@@ -20,6 +20,7 @@ import com.fleyx.jcloud.service.impl.UserSyncExecutor;
 import com.fleyx.jcloud.util.IdUtil;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
@@ -74,6 +75,9 @@ class MediaPostSyncScanTest {
 
     @MockitoBean
     private MediaScanService mediaScanService;
+
+    @TempDir
+    Path tempDir;
 
     /**
      * 本测试类不使用事务回滚（异步线程看不到未提交数据），创建的测试数据按 ID 登记，
@@ -182,7 +186,7 @@ class MediaPostSyncScanTest {
     }
 
     private UserVo prepareUserWithStorageSpace() throws Exception {
-        Path spacePath = Files.createTempDirectory("post-sync-scan-space-");
+        Path spacePath = Files.createTempDirectory(tempDir, "post-sync-scan-space-");
         StorageSpaceSaveDto spaceDto = new StorageSpaceSaveDto();
         spaceDto.setName("post-sync-scan-space-" + System.nanoTime());
         spaceDto.setPath(spacePath.toString());

@@ -16,6 +16,7 @@ import com.fleyx.jcloud.model.vo.RemoteSyncTaskVo;
 import com.fleyx.jcloud.model.vo.StorageSpaceVo;
 import com.fleyx.jcloud.model.vo.UserVo;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
@@ -54,6 +55,9 @@ class RemoteMountSyncServiceTest {
 
     @Autowired
     private RemoteSyncTaskMapper remoteSyncTaskMapper;
+
+    @TempDir
+    Path tempDir;
 
     @Test
     void shouldSubmitImmediateAndReplacePendingTask() {
@@ -144,6 +148,19 @@ class RemoteMountSyncServiceTest {
                 () -> remoteMountSyncService.updateConfig(mount.getId(), dto, user.getId()));
     }
 
+    @Test
+    void shouldRejectBoundedCronWithNoFutureExecution() {
+        UserVo user = prepareUser();
+        RemoteMountVo mount = createMount(user.getId());
+
+        RemoteMountSyncConfigUpdateDto dto = new RemoteMountSyncConfigUpdateDto();
+        dto.setCronExpr("0 0 2 1 1 * 2025");
+        dto.setEnabled(1);
+
+        assertThrows(BusinessException.class,
+                () -> remoteMountSyncService.updateConfig(mount.getId(), dto, user.getId()));
+    }
+
     private RemoteMountVo createMount(String userId) {
         RemoteMountSaveDto dto = new RemoteMountSaveDto();
         dto.setName("mount-" + System.nanoTime());
@@ -157,7 +174,7 @@ class RemoteMountSyncServiceTest {
 
     private UserVo prepareUser() {
         try {
-            Path spacePath = Files.createTempDirectory("remote-sync-space-");
+            Path spacePath = Files.createTempDirectory(tempDir, "remote-sync-space-");
             StorageSpaceSaveDto spaceDto = new StorageSpaceSaveDto();
             spaceDto.setName("remote-sync-space-" + System.nanoTime());
             spaceDto.setPath(spacePath.toString());

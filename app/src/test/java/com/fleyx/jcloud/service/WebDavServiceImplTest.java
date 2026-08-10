@@ -19,6 +19,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -158,6 +159,34 @@ class WebDavServiceImplTest {
             MockHttpServletResponse getResp = new MockHttpServletResponse();
             webDavService.handle(user.getUsername(), get, getResp);
             assertEquals(404, getResp.getStatus());
+        } finally {
+            UserContext.clear();
+        }
+    }
+
+    @Test
+    void shouldReturn423OnRelockOfLockedResource() throws Exception {
+        UserVo user = createUser("webdavRelockUser");
+        UserContext.set(new com.fleyx.jcloud.common.context.CurrentUser(user.getId(), user.getUsername()));
+        try {
+            MockHttpServletRequest first = new MockHttpServletRequest("LOCK", "/dav/" + user.getUsername() + "/locked.txt");
+            MockHttpServletResponse firstResp = new MockHttpServletResponse();
+            webDavService.handle(user.getUsername(), first, firstResp);
+            assertEquals(200, firstResp.getStatus());
+            assertNotNull(firstResp.getHeader("Lock-Token"));
+
+            // 资源已被锁定：重复 LOCK 按 RFC 4918 返回 423 Locked
+            MockHttpServletRequest second = new MockHttpServletRequest("LOCK", "/dav/" + user.getUsername() + "/locked.txt");
+            MockHttpServletResponse secondResp = new MockHttpServletResponse();
+            webDavService.handle(user.getUsername(), second, secondResp);
+            assertEquals(423, secondResp.getStatus());
+
+            // 清理：用旧 token 解锁，避免污染共享 Redis（test 配置 database 1）
+            MockHttpServletRequest unlock = new MockHttpServletRequest("UNLOCK", "/dav/" + user.getUsername() + "/locked.txt");
+            unlock.addHeader("Lock-Token", firstResp.getHeader("Lock-Token"));
+            MockHttpServletResponse unlockResp = new MockHttpServletResponse();
+            webDavService.handle(user.getUsername(), unlock, unlockResp);
+            assertEquals(204, unlockResp.getStatus());
         } finally {
             UserContext.clear();
         }

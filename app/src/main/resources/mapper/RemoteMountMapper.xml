@@ -2,7 +2,7 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.fleyx.jcloud.mapper.RemoteMountMapper">
 
-    <!-- 查询已到期的启用定时同步挂载点 -->
+    <!-- 查询已到期的启用定时同步挂载点；next_sync_time 为 NULL 表示无有效调度，不再视为到期 -->
     <select id="selectEnabledDue" resultType="com.fleyx.jcloud.model.po.RemoteMount">
         SELECT *
         FROM t_remote_mount
@@ -10,10 +10,7 @@
           AND delete_at = 0
           AND cron_expr IS NOT NULL
           AND cron_expr != ''
-          AND (
-            next_sync_time IS NULL
-            OR next_sync_time &lt;= #{now}
-          )
+          AND next_sync_time &lt;= #{now}
         ORDER BY next_sync_time
     </select>
 

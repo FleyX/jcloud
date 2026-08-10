@@ -2,39 +2,29 @@ package com.fleyx.jcloud.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fleyx.jcloud.common.constant.FileNodeConstants;
-import com.fleyx.jcloud.common.context.CurrentUser;
-import com.fleyx.jcloud.common.context.UserContext;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.MediaDirectoryMapper;
 import com.fleyx.jcloud.mapper.MediaEpisodeMapper;
 import com.fleyx.jcloud.mapper.MediaSeasonMapper;
 import com.fleyx.jcloud.mapper.MediaSeriesMapper;
-import com.fleyx.jcloud.model.dto.FileCreateFolderDto;
 import com.fleyx.jcloud.model.dto.MediaDirectorySaveDto;
 import com.fleyx.jcloud.model.dto.MediaDirectoryUpdateDto;
-import com.fleyx.jcloud.model.dto.StorageSpaceSaveDto;
-import com.fleyx.jcloud.model.dto.UserSaveDto;
 import com.fleyx.jcloud.model.po.MediaEpisode;
 import com.fleyx.jcloud.model.po.MediaSeason;
 import com.fleyx.jcloud.model.po.MediaSeries;
 import com.fleyx.jcloud.model.vo.FileNodeVo;
 import com.fleyx.jcloud.model.vo.MediaDirectoryVo;
-import com.fleyx.jcloud.model.vo.StorageSpaceVo;
 import com.fleyx.jcloud.model.vo.UserVo;
 import com.fleyx.jcloud.util.IdUtil;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.mock.web.MockMultipartFile;
-import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.nio.file.Path;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -47,22 +37,8 @@ import static org.mockito.Mockito.verify;
 /**
  * 媒体库管理服务测试。
  */
-@SpringBootTest
-@ActiveProfiles("test")
 @Transactional
-class MediaDirectoryServiceTest {
-
-    @Autowired
-    private FileService fileService;
-
-    @Autowired
-    private UserService userService;
-
-    @Autowired
-    private StorageSpaceService storageSpaceService;
-
-    @Autowired
-    private FileOperationService fileOperationService;
+class MediaDirectoryServiceTest extends MediaScanTestBase {
 
     @Autowired
     private MediaDirectoryService mediaDirectoryService;
@@ -79,15 +55,12 @@ class MediaDirectoryServiceTest {
     @MockitoBean
     private MediaScanService mediaScanService;
 
-    @TempDir
-    Path tempDir;
-
     /**
      * 创建媒体库：来源目录落库并在视图中返回（含文件夹名称与来源类型），提交后触发首次扫描。
      */
     @Test
     void shouldCreateLibraryWithSources() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo folderA = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影A");
         FileNodeVo folderB = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影B");
 
@@ -107,7 +80,7 @@ class MediaDirectoryServiceTest {
      */
     @Test
     void shouldDefaultNameToFirstSourceFolder() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo folder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "我的电影");
         MediaDirectorySaveDto dto = buildSaveDto(List.of(folder.getId()));
         dto.setName(null);
@@ -122,7 +95,7 @@ class MediaDirectoryServiceTest {
      */
     @Test
     void shouldThrowWhenSourceDuplicatedInRequest() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo folder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         MediaDirectorySaveDto dto = buildSaveDto(List.of(folder.getId(), folder.getId()));
 
@@ -134,7 +107,7 @@ class MediaDirectoryServiceTest {
      */
     @Test
     void shouldThrowWhenSourceNotFolder() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo file = fileService.upload(
                 new MockMultipartFile("file", "a.mp4", "video/mp4", "video".getBytes()),
                 user.getId(), FileNodeConstants.ROOT_ID, null);
@@ -148,7 +121,7 @@ class MediaDirectoryServiceTest {
      */
     @Test
     void shouldThrowWhenSourceUsedByOtherLibrary() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo folder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         mediaDirectoryService.save(buildSaveDto(List.of(folder.getId())), user.getId());
 
@@ -161,7 +134,7 @@ class MediaDirectoryServiceTest {
      */
     @Test
     void shouldThrowWhenSourcesOverlap() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo parent = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "影视");
         FileNodeVo child = createFolder(user.getId(), parent.getId(), "电影");
 
@@ -174,7 +147,7 @@ class MediaDirectoryServiceTest {
      */
     @Test
     void shouldThrowWhenMediaTypeChangedOnUpdate() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo folder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         MediaDirectoryVo vo = mediaDirectoryService.save(buildSaveDto(List.of(folder.getId())), user.getId());
 
@@ -196,7 +169,7 @@ class MediaDirectoryServiceTest {
      */
     @Test
     void shouldRescanAndCleanItemsWhenSourcesChanged() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo folderA = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电视A");
         FileNodeVo folderB = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电视B");
         MediaDirectorySaveDto saveDto = buildSaveDto(List.of(folderA.getId(), folderB.getId()));
@@ -236,7 +209,7 @@ class MediaDirectoryServiceTest {
      */
     @Test
     void shouldNotRescanWhenOnlyNameChanged() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo folder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         MediaDirectoryVo vo = mediaDirectoryService.save(buildSaveDto(List.of(folder.getId())), user.getId());
         int syncCountBefore = TransactionSynchronizationManager.getSynchronizations().size();
@@ -256,7 +229,7 @@ class MediaDirectoryServiceTest {
      */
     @Test
     void shouldDeleteLibraryCascade() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo folder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电视");
         MediaDirectorySaveDto saveDto = buildSaveDto(List.of(folder.getId()));
         saveDto.setMediaType("tv");
@@ -325,28 +298,4 @@ class MediaDirectoryServiceTest {
         return dto;
     }
 
-    private FileNodeVo createFolder(String userId, String parentId, String name) {
-        FileCreateFolderDto dto = new FileCreateFolderDto();
-        dto.setParentId(parentId);
-        dto.setName(name);
-        return fileOperationService.createFolder(dto, userId);
-    }
-
-    private UserVo prepareUserWithStorageSpace() {
-        Path spacePath = tempDir.resolve("space-" + System.nanoTime());
-        StorageSpaceSaveDto spaceDto = new StorageSpaceSaveDto();
-        spaceDto.setName("用户空间");
-        spaceDto.setPath(spacePath.toString());
-        StorageSpaceVo space = storageSpaceService.save(spaceDto);
-
-        UserSaveDto userDto = new UserSaveDto();
-        userDto.setUsername("user_" + Long.toUnsignedString(System.nanoTime(), 36));
-        userDto.setPassword("123456");
-        userDto.setStorageSpaceId(space.getId());
-        userDto.setQuota(10L);
-        userDto.setQuotaUnit("GB");
-        UserVo user = userService.saveUser(userDto);
-        UserContext.set(new CurrentUser(user.getId(), user.getUsername()));
-        return user;
-    }
 }

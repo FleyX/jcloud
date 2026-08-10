@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
@@ -31,8 +32,8 @@ class RemoteConfigCryptoTest {
         properties.setEncryptionKey("test-encryption-key");
         RemoteConfigCrypto crypto = new RemoteConfigCrypto(properties);
 
-        assertEquals(null, crypto.encrypt(null));
-        assertEquals(null, crypto.decrypt(null));
+        assertNull(crypto.encrypt(null));
+        assertNull(crypto.decrypt(null));
     }
 
     @Test

@@ -173,7 +173,7 @@ public class WebDavProtocolAdapter implements RemoteProtocolAdapter {
         return normalized;
     }
 
-    private String buildFullUrl(String remotePath) {
+    String buildFullUrl(String remotePath) {
         String encodedPath = RemotePathUtil.encodePath(remotePath);
         return baseUrl + encodedPath;
     }

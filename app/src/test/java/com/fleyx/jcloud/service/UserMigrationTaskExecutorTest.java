@@ -13,6 +13,7 @@ import com.fleyx.jcloud.model.vo.UserVo;
 import com.fleyx.jcloud.service.impl.UserMigrationTaskExecutor;
 import com.fleyx.jcloud.common.constant.FileNodeConstants;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.mock.web.MockMultipartFile;
@@ -60,11 +61,14 @@ class UserMigrationTaskExecutorTest {
     @Autowired
     private com.fleyx.jcloud.mapper.FileMapper fileMapper;
 
+    @TempDir
+    Path tempDir;
+
     @Test
     void shouldMoveUserDirAndUpdateUserSpace() throws Exception {
         String testId = String.valueOf(System.nanoTime());
-        Path sourcePath = Files.createTempDirectory("jcloud-source-" + testId);
-        Path targetPath = Files.createTempDirectory("jcloud-target-" + testId);
+        Path sourcePath = Files.createTempDirectory(tempDir, "jcloud-source-" + testId);
+        Path targetPath = Files.createTempDirectory(tempDir, "jcloud-target-" + testId);
 
         StorageSpaceSaveDto sourceDto = buildSpaceDto("source-" + testId, sourcePath.toString());
         StorageSpaceVo sourceSpace = storageSpaceService.save(sourceDto);
@@ -118,8 +122,8 @@ class UserMigrationTaskExecutorTest {
     @Test
     void shouldRollbackOnMoveFailure() throws Exception {
         String testId = String.valueOf(System.nanoTime());
-        Path sourcePath = Files.createTempDirectory("jcloud-source-" + testId);
-        Path targetPath = Files.createTempDirectory("jcloud-target-" + testId);
+        Path sourcePath = Files.createTempDirectory(tempDir, "jcloud-source-" + testId);
+        Path targetPath = Files.createTempDirectory(tempDir, "jcloud-target-" + testId);
 
         StorageSpaceSaveDto sourceDto = buildSpaceDto("source-" + testId, sourcePath.toString());
         StorageSpaceVo sourceSpace = storageSpaceService.save(sourceDto);

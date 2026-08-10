@@ -3,17 +3,14 @@ package com.fleyx.jcloud.controller;
 import com.fleyx.jcloud.common.context.CurrentUser;
 import com.fleyx.jcloud.common.context.UserContext;
 import com.fleyx.jcloud.common.exception.GlobalExceptionHandler;
-import com.fleyx.jcloud.model.vo.MediaPlaybackConfigVo;
 import com.fleyx.jcloud.service.MediaPlaybackService;
+import com.fleyx.jcloud.service.support.PlaybackConfigConstants;
 import com.fleyx.jcloud.service.support.TranscodeSessionManager;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
-
-import java.util.List;
-import java.util.Set;
 
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.nullValue;
@@ -54,7 +51,7 @@ class MediaPlaybackControllerTest {
      */
     @Test
     void shouldReturnPlaybackConfig() throws Exception {
-        when(mediaPlaybackService.getPlaybackConfig()).thenReturn(buildConfig());
+        when(mediaPlaybackService.getPlaybackConfig()).thenReturn(PlaybackConfigConstants.buildConfig());
 
         mockMvc.perform(get("/jcloud/api/media/playback-config"))
                 .andExpect(status().isOk())
@@ -99,22 +96,5 @@ class MediaPlaybackControllerTest {
                 .andExpect(jsonPath("$.data.remux.audioCopyCodecs",
                         containsInAnyOrder("aac", "mp3")))
                 .andExpect(jsonPath("$.data.finishedRatio").value(0.95));
-    }
-
-    private MediaPlaybackConfigVo buildConfig() {
-        return new MediaPlaybackConfigVo(List.of(
-                new MediaPlaybackConfigVo.BitrateTierVo("original", "原画", null, null),
-                new MediaPlaybackConfigVo.BitrateTierVo("20000-2160", "20M · 4K", 20000, 2160),
-                new MediaPlaybackConfigVo.BitrateTierVo("8000-1080", "8M · 1080p", 8000, 1080),
-                new MediaPlaybackConfigVo.BitrateTierVo("4000-1080", "4M · 1080p", 4000, 1080),
-                new MediaPlaybackConfigVo.BitrateTierVo("2000-720", "2M · 720p", 2000, 720),
-                new MediaPlaybackConfigVo.BitrateTierVo("1000-480", "1M · 480p", 1000, 480),
-                new MediaPlaybackConfigVo.BitrateTierVo("500-360", "500K · 360p", 500, 360)),
-                new MediaPlaybackConfigVo.DirectPlayVo(
-                        Set.of("mp4", "mov", "m4v", "webm"),
-                        Set.of("h264", "hevc", "vp8", "vp9", "av1"),
-                        Set.of("aac", "mp3", "opus", "vorbis", "flac")),
-                new MediaPlaybackConfigVo.RemuxVo(Set.of("h264", "hevc", "vp9", "av1"), Set.of("aac", "mp3")),
-                0.95);
     }
 }

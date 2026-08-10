@@ -16,6 +16,7 @@ import com.fleyx.jcloud.model.vo.UserVo;
 import com.fleyx.jcloud.service.impl.RemoteProtocolAdapterFactory;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -25,6 +26,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.io.ByteArrayInputStream;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -68,6 +70,9 @@ class RemoteFileServiceTest {
 
     @MockitoBean
     private RemoteProtocolAdapterFactory adapterFactory;
+
+    @TempDir
+    Path tempDir;
 
     private RemoteProtocolAdapter adapter;
 
@@ -135,7 +140,7 @@ class RemoteFileServiceTest {
     }
 
     @Test
-    void shouldDownloadRemoteFile() {
+    void shouldDownloadRemoteFile() throws Exception {
         UserVo user = prepareUser();
         FileNode mountNode = createMountNode(user.getId());
         FileNodeVo uploaded = remoteFileService.upload(buildFile("a.txt", "hello"), mountNode, user.getId(), "a.txt");
@@ -145,7 +150,9 @@ class RemoteFileServiceTest {
         FileDownloadResult result = remoteFileService.download(node, user.getId());
 
         assertEquals("a.txt", result.getFileName());
-        assertNotNull(result.getInputStream());
+        InputStream stream = result.getInputStream();
+        assertNotNull(stream);
+        assertEquals("data", new String(stream.readAllBytes(), StandardCharsets.UTF_8));
     }
 
     @Test
@@ -202,7 +209,7 @@ class RemoteFileServiceTest {
 
     private UserVo prepareUser() {
         try {
-            Path spacePath = Files.createTempDirectory("remote-file-space-");
+            Path spacePath = Files.createTempDirectory(tempDir, "remote-file-space-");
             StorageSpaceSaveDto spaceDto = new StorageSpaceSaveDto();
             spaceDto.setName("remote-file-space-" + System.nanoTime());
             spaceDto.setPath(spacePath.toString());

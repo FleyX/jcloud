@@ -1,5 +1,6 @@
 package com.fleyx.jcloud.service;
 
+import com.fleyx.jcloud.common.IntegrationTestBase;
 import com.fleyx.jcloud.common.enums.FileZipTaskStatus;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.model.bo.BatchDownloadResult;
@@ -9,32 +10,23 @@ import com.fleyx.jcloud.model.dto.FileBatchDownloadDto;
 import com.fleyx.jcloud.model.dto.FileCreateFolderDto;
 import com.fleyx.jcloud.model.dto.FileExecuteOperationDto;
 import com.fleyx.jcloud.model.dto.OperationItemDto;
-import com.fleyx.jcloud.model.dto.StorageSpaceSaveDto;
-import com.fleyx.jcloud.model.dto.UserSaveDto;
 import com.fleyx.jcloud.model.vo.FileNodeVo;
 import com.fleyx.jcloud.model.vo.OperationResultVo;
 import com.fleyx.jcloud.model.vo.StorageSpaceVo;
 import com.fleyx.jcloud.model.vo.UserVo;
 import com.fleyx.jcloud.service.impl.FileDownloadServiceImpl;
 import com.fleyx.jcloud.common.constant.FileNodeConstants;
-import com.fleyx.jcloud.common.context.CurrentUser;
-import com.fleyx.jcloud.common.context.UserContext;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 import org.springframework.core.task.SyncTaskExecutor;
 import org.springframework.core.task.TaskExecutor;
 import org.springframework.mock.web.MockMultipartFile;
-import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
-
-import java.lang.reflect.Field;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -53,14 +45,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * 批量下载服务测试。
  */
-@SpringBootTest
-@ActiveProfiles("test")
 @TestPropertySource(properties = {
         "jcloud.download.zip-stream-threshold-size=104857600",
         "jcloud.download.zip-stream-threshold-count=100"
 })
 @Transactional
-class FileDownloadServiceTest {
+class FileDownloadServiceTest extends IntegrationTestBase {
 
     @TestConfiguration
     static class SyncExecutorConfig {
@@ -82,16 +72,12 @@ class FileDownloadServiceTest {
     private FileOperationService fileOperationService;
 
     @Autowired
-    private UserService userService;
-
-    @Autowired
-    private StorageSpaceService storageSpaceService;
-
-    @Autowired
     private SystemConfigService systemConfigService;
 
-    @TempDir
-    Path tempDir;
+    @Override
+    protected void afterSpaceCreated(StorageSpaceVo space) {
+        systemConfigService.setValue("system.storage.space.id", String.valueOf(space.getId()));
+    }
 
     @Test
     void shouldDownloadSingleFileAsZip() throws Exception {
@@ -148,25 +134,28 @@ class FileDownloadServiceTest {
         UserVo user = userWithSpace.user();
         FileNodeVo file = fileService.upload(buildFile("big.txt", "Large content"), user.getId(), FileNodeConstants.ROOT_ID, null);
 
-        // 临时把阈值降到 1 字节，强制走异步任务
-        setField(fileDownloadService, "streamThresholdSize", 1L);
+        // 临时把阈值降到 1 字节，强制走异步任务；用例结束前恢复原值，避免污染单例 bean 状态
+        long originalThreshold = setField(fileDownloadService, "streamThresholdSize", 1L);
+        try {
+            FileBatchDownloadDto dto = new FileBatchDownloadDto();
+            dto.setIds(List.of(file.getId()));
 
-        FileBatchDownloadDto dto = new FileBatchDownloadDto();
-        dto.setIds(List.of(file.getId()));
+            BatchDownloadResult result = fileDownloadService.downloadBatch(dto, user.getId());
 
-        BatchDownloadResult result = fileDownloadService.downloadBatch(dto, user.getId());
+            assertTrue(result instanceof BatchDownloadResult.TaskResult);
+            BatchDownloadResult.TaskResult taskResult = (BatchDownloadResult.TaskResult) result;
+            assertEquals(FileZipTaskStatus.COMPLETED, taskResult.status());
 
-        assertTrue(result instanceof BatchDownloadResult.TaskResult);
-        BatchDownloadResult.TaskResult taskResult = (BatchDownloadResult.TaskResult) result;
-        assertEquals(FileZipTaskStatus.COMPLETED, taskResult.status());
-
-        FileDownloadResult downloadResult = fileDownloadService.downloadTaskResult(taskResult.taskId(), user.getId());
-        assertEquals("archive.zip", downloadResult.getFileName());
-        try (InputStream is = downloadResult.getInputStream();
-             ZipInputStream zis = new ZipInputStream(is)) {
-            ZipEntry entry = zis.getNextEntry();
-            assertNotNull(entry);
-            assertEquals("big.txt", entry.getName());
+            FileDownloadResult downloadResult = fileDownloadService.downloadTaskResult(taskResult.taskId(), user.getId());
+            assertEquals("archive.zip", downloadResult.getFileName());
+            try (InputStream is = downloadResult.getInputStream();
+                 ZipInputStream zis = new ZipInputStream(is)) {
+                ZipEntry entry = zis.getNextEntry();
+                assertNotNull(entry);
+                assertEquals("big.txt", entry.getName());
+            }
+        } finally {
+            setField(fileDownloadService, "streamThresholdSize", originalThreshold);
         }
     }
 
@@ -176,15 +165,20 @@ class FileDownloadServiceTest {
         UserVo userB = prepareUserWithStorageSpace().user();
         FileNodeVo fileA = fileService.upload(buildFile("a.txt", "A"), userA.getId(), FileNodeConstants.ROOT_ID, null);
 
-        setField(fileDownloadService, "streamThresholdSize", 0L);
-        BatchDownloadResult result = fileDownloadService.downloadBatch(
-                newBatchDto(fileA.getId()), userA.getId());
-        String taskId = ((BatchDownloadResult.TaskResult) result).taskId();
+        // 临时把阈值降到 0，强制走异步任务；用例结束前恢复原值，避免污染单例 bean 状态
+        long originalThreshold = setField(fileDownloadService, "streamThresholdSize", 0L);
+        try {
+            BatchDownloadResult result = fileDownloadService.downloadBatch(
+                    newBatchDto(fileA.getId()), userA.getId());
+            String taskId = ((BatchDownloadResult.TaskResult) result).taskId();
 
-        assertThrows(BusinessException.class,
-                () -> fileDownloadService.getTask(taskId, userB.getId()));
-        assertThrows(BusinessException.class,
-                () -> fileDownloadService.downloadTaskResult(taskId, userB.getId()));
+            assertThrows(BusinessException.class,
+                    () -> fileDownloadService.getTask(taskId, userB.getId()));
+            assertThrows(BusinessException.class,
+                    () -> fileDownloadService.downloadTaskResult(taskId, userB.getId()));
+        } finally {
+            setField(fileDownloadService, "streamThresholdSize", originalThreshold);
+        }
     }
 
     @Test
@@ -227,53 +221,13 @@ class FileDownloadServiceTest {
         return new MockMultipartFile("file", name, "text/plain", content.getBytes());
     }
 
-    private Path resolvePhysicalPath(UserWithSpace userWithSpace, String relativePath) {
-        return userWithSpace.spacePath()
-                .resolve("files")
-                .resolve(userWithSpace.user().getUsername())
-                .resolve(relativePath);
-    }
-
-    private UserWithSpace prepareUserWithStorageSpace() {
-        return prepareUserWithStorageSpace(10737418240L);
-    }
-
-    private UserWithSpace prepareUserWithStorageSpace(long quota) {
-        Path spacePath = tempDir.resolve("space-" + System.nanoTime());
-        StorageSpaceSaveDto spaceDto = new StorageSpaceSaveDto();
-        spaceDto.setName("用户空间");
-        spaceDto.setPath(spacePath.toString());
-        StorageSpaceVo space = storageSpaceService.save(spaceDto);
-        systemConfigService.setValue("system.storage.space.id", String.valueOf(space.getId()));
-
-        UserSaveDto userDto = new UserSaveDto();
-        userDto.setUsername("user_" + Long.toUnsignedString(System.nanoTime(), 36));
-        userDto.setPassword("123456");
-        userDto.setStorageSpaceId(space.getId());
-        userDto.setQuota(toQuotaValue(quota));
-        userDto.setQuotaUnit(toQuotaUnit(quota));
-        UserVo user = userService.saveUser(userDto);
-        UserContext.set(new CurrentUser(user.getId(), user.getUsername()));
-
-        return new UserWithSpace(user, spacePath);
-    }
-
-    private static long toQuotaValue(long quotaBytes) {
-        return quotaBytes == 10737418240L ? 10L : quotaBytes;
-    }
-
-    private static String toQuotaUnit(long quotaBytes) {
-        return quotaBytes == 10737418240L ? "GB" : "B";
-    }
-
-    private record UserWithSpace(UserVo user, Path spacePath) {
-    }
-
-    private void setField(Object target, String fieldName, Object value) {
+    private long setField(Object target, String fieldName, long value) {
         try {
             java.lang.reflect.Field field = FileDownloadServiceImpl.class.getDeclaredField(fieldName);
             field.setAccessible(true);
-            field.set(target, value);
+            long original = field.getLong(target);
+            field.setLong(target, value);
+            return original;
         } catch (Exception e) {
             throw new RuntimeException(e);
         }

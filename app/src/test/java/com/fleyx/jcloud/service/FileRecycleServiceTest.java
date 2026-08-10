@@ -1,6 +1,7 @@
 package com.fleyx.jcloud.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.fleyx.jcloud.common.IntegrationTestBase;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.FileMapper;
 import com.fleyx.jcloud.mapper.RecycleRecordMapper;
@@ -14,23 +15,15 @@ import com.fleyx.jcloud.model.dto.FilePageQueryDto;
 import com.fleyx.jcloud.model.dto.FilePreCheckRestoreDto;
 import com.fleyx.jcloud.model.dto.OperationItemDto;
 import com.fleyx.jcloud.model.dto.RestoreItemDto;
-import com.fleyx.jcloud.model.dto.StorageSpaceSaveDto;
-import com.fleyx.jcloud.model.dto.UserSaveDto;
 import com.fleyx.jcloud.model.po.RecycleRecord;
 import com.fleyx.jcloud.model.vo.ConflictItemVo;
 import com.fleyx.jcloud.model.vo.FileNodeVo;
 import com.fleyx.jcloud.model.vo.OperationResultVo;
-import com.fleyx.jcloud.model.vo.StorageSpaceVo;
 import com.fleyx.jcloud.model.vo.UserVo;
 import com.fleyx.jcloud.common.constant.FileNodeConstants;
-import com.fleyx.jcloud.common.context.CurrentUser;
-import com.fleyx.jcloud.common.context.UserContext;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.mock.web.MockMultipartFile;
-import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -48,22 +41,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * 回收站服务测试。
  */
-@SpringBootTest
-@ActiveProfiles("test")
 @Transactional
-class FileRecycleServiceTest {
+class FileRecycleServiceTest extends IntegrationTestBase {
 
     @Autowired
     private FileRecycleService fileRecycleService;
 
     @Autowired
     private FileService fileService;
-
-    @Autowired
-    private UserService userService;
-
-    @Autowired
-    private StorageSpaceService storageSpaceService;
 
     @Autowired
     private FileMapper fileMapper;
@@ -73,9 +58,6 @@ class FileRecycleServiceTest {
 
     @Autowired
     private FileOperationService fileOperationService;
-
-    @TempDir
-    Path tempDir;
 
     @Test
     void shouldMoveSingleFileToTrash() throws Exception {
@@ -539,13 +521,6 @@ class FileRecycleServiceTest {
         return new MockMultipartFile("file", name, "text/plain", content.getBytes());
     }
 
-    private Path resolvePhysicalPath(UserWithSpace userWithSpace, String relativePath) {
-        return userWithSpace.spacePath()
-                .resolve("files")
-                .resolve(userWithSpace.user().getUsername())
-                .resolve(relativePath);
-    }
-
     private Path resolveTrashPath(UserWithSpace userWithSpace, String recordId, String relativePath) {
         String idStr = recordId;
         return userWithSpace.spacePath()
@@ -557,40 +532,6 @@ class FileRecycleServiceTest {
 
     private UserWithSpace refreshUser(UserWithSpace original) {
         UserVo user = userService.getById(original.user().getId());
-        return new UserWithSpace(user, original.spacePath());
-    }
-
-    private UserWithSpace prepareUserWithStorageSpace() {
-        return prepareUserWithStorageSpace(10737418240L);
-    }
-
-    private UserWithSpace prepareUserWithStorageSpace(long quota) {
-        Path spacePath = tempDir.resolve("space-" + System.nanoTime());
-        StorageSpaceSaveDto spaceDto = new StorageSpaceSaveDto();
-        spaceDto.setName("用户空间");
-        spaceDto.setPath(spacePath.toString());
-        StorageSpaceVo space = storageSpaceService.save(spaceDto);
-
-        UserSaveDto userDto = new UserSaveDto();
-        userDto.setUsername("user_" + Long.toUnsignedString(System.nanoTime(), 36));
-        userDto.setPassword("123456");
-        userDto.setStorageSpaceId(space.getId());
-        userDto.setQuota(toQuotaValue(quota));
-        userDto.setQuotaUnit(toQuotaUnit(quota));
-        UserVo user = userService.saveUser(userDto);
-        UserContext.set(new CurrentUser(user.getId(), user.getUsername()));
-
-        return new UserWithSpace(user, spacePath);
-    }
-
-    private static long toQuotaValue(long quotaBytes) {
-        return quotaBytes == 10737418240L ? 10L : quotaBytes;
-    }
-
-    private static String toQuotaUnit(long quotaBytes) {
-        return quotaBytes == 10737418240L ? "GB" : "B";
-    }
-
-    private record UserWithSpace(UserVo user, Path spacePath) {
+        return new UserWithSpace(user, original.space(), original.spacePath());
     }
 }

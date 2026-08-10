@@ -1,32 +1,24 @@
 package com.fleyx.jcloud.service;
 
 import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.fleyx.jcloud.common.IntegrationTestBase;
 import com.fleyx.jcloud.common.constant.FileNodeConstants;
-import com.fleyx.jcloud.common.context.CurrentUser;
-import com.fleyx.jcloud.common.context.UserContext;
 import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.model.dto.ShareCreateDto;
 import com.fleyx.jcloud.model.dto.SharePageQueryDto;
 import com.fleyx.jcloud.model.dto.ShareUpdateDto;
-import com.fleyx.jcloud.model.dto.StorageSpaceSaveDto;
-import com.fleyx.jcloud.model.dto.UserSaveDto;
 import com.fleyx.jcloud.model.vo.FileNodeVo;
 import com.fleyx.jcloud.model.vo.PublicShareVo;
 import com.fleyx.jcloud.model.vo.ShareDetailVo;
 import com.fleyx.jcloud.model.vo.ShareVo;
-import com.fleyx.jcloud.model.vo.StorageSpaceVo;
 import com.fleyx.jcloud.model.vo.UserVo;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.mock.web.MockMultipartFile;
-import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -39,10 +31,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * 分享服务测试。
  */
-@SpringBootTest
-@ActiveProfiles("test")
 @Transactional
-class ShareServiceTest {
+class ShareServiceTest extends IntegrationTestBase {
 
     @Autowired
     private ShareService shareService;
@@ -55,15 +45,6 @@ class ShareServiceTest {
 
     @Autowired
     private FileOperationService fileOperationService;
-
-    @Autowired
-    private UserService userService;
-
-    @Autowired
-    private StorageSpaceService storageSpaceService;
-
-    @TempDir
-    Path tempDir;
 
     @Test
     void shouldCreateShareWithMultipleFiles() {
@@ -216,27 +197,5 @@ class ShareServiceTest {
     private FileNodeVo uploadFile(String userId, String name, String content) {
         MultipartFile file = new MockMultipartFile("file", name, "text/plain", content.getBytes());
         return fileService.upload(file, userId, FileNodeConstants.ROOT_ID, null);
-    }
-
-    private UserWithSpace prepareUserWithStorageSpace() {
-        Path spacePath = tempDir.resolve("space-" + System.nanoTime());
-        StorageSpaceSaveDto spaceDto = new StorageSpaceSaveDto();
-        spaceDto.setName("用户空间");
-        spaceDto.setPath(spacePath.toString());
-        StorageSpaceVo space = storageSpaceService.save(spaceDto);
-
-        UserSaveDto userDto = new UserSaveDto();
-        userDto.setUsername("user_" + Long.toUnsignedString(System.nanoTime(), 36));
-        userDto.setPassword("123456");
-        userDto.setStorageSpaceId(space.getId());
-        userDto.setQuota(10L);
-        userDto.setQuotaUnit("GB");
-        UserVo user = userService.saveUser(userDto);
-        UserContext.set(new CurrentUser(user.getId(), user.getUsername()));
-
-        return new UserWithSpace(user, spacePath);
-    }
-
-    private record UserWithSpace(UserVo user, Path spacePath) {
     }
 }

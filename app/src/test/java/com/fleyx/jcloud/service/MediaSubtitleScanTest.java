@@ -2,8 +2,6 @@ package com.fleyx.jcloud.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fleyx.jcloud.common.constant.FileNodeConstants;
-import com.fleyx.jcloud.common.context.CurrentUser;
-import com.fleyx.jcloud.common.context.UserContext;
 import com.fleyx.jcloud.mapper.FileMapper;
 import com.fleyx.jcloud.mapper.MediaDirectoryMapper;
 import com.fleyx.jcloud.mapper.MediaDirectorySourceMapper;
@@ -13,9 +11,6 @@ import com.fleyx.jcloud.mapper.MediaMovieFileMapper;
 import com.fleyx.jcloud.mapper.MediaMovieMapper;
 import com.fleyx.jcloud.mapper.MediaOtherMapper;
 import com.fleyx.jcloud.mapper.MediaSubtitleMapper;
-import com.fleyx.jcloud.model.dto.FileCreateFolderDto;
-import com.fleyx.jcloud.model.dto.StorageSpaceSaveDto;
-import com.fleyx.jcloud.model.dto.UserSaveDto;
 import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.po.MediaDirectory;
 import com.fleyx.jcloud.model.po.MediaDirectorySource;
@@ -23,19 +18,14 @@ import com.fleyx.jcloud.model.po.MediaEpisode;
 import com.fleyx.jcloud.model.po.MediaMovie;
 import com.fleyx.jcloud.model.po.MediaSubtitle;
 import com.fleyx.jcloud.model.vo.FileNodeVo;
-import com.fleyx.jcloud.model.vo.StorageSpaceVo;
 import com.fleyx.jcloud.model.vo.UserVo;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.mock.web.MockMultipartFile;
-import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -43,6 +33,7 @@ import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -50,22 +41,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * 同目录前缀匹配关联、重扫重建（后加/删除字幕）、文件清理联动删除；
  * 覆盖其他库（other 行）、电影库（电影文件明细行）、电视库（集文件明细行）。
  */
-@SpringBootTest
-@ActiveProfiles("test")
 @Transactional
-class MediaSubtitleScanTest {
-
-    @Autowired
-    private FileService fileService;
-
-    @Autowired
-    private UserService userService;
-
-    @Autowired
-    private StorageSpaceService storageSpaceService;
-
-    @Autowired
-    private FileOperationService fileOperationService;
+class MediaSubtitleScanTest extends MediaScanTestBase {
 
     @Autowired
     private MediaScanService mediaScanService;
@@ -103,9 +80,6 @@ class MediaSubtitleScanTest {
     @MockitoBean
     private MediaScrapeService mediaScrapeService;
 
-    @TempDir
-    Path tempDir;
-
     /**
      * 其他库：同目录前缀匹配关联到 other 行（file_id = other 行 ID），
      * Movie.chs.srt、Movie.eng.default.srt 关联到 Movie.mkv，Movie2.srt 不误配，
@@ -113,7 +87,7 @@ class MediaSubtitleScanTest {
      */
     @Test
     void shouldLinkAndRebuildExternalSubtitles() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo folder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "其他");
         fileService.upload(buildFile("Movie.mkv"), user.getId(), folder.getId(), null);
         FileNodeVo chs = fileService.upload(buildFile("Movie.chs.srt"), user.getId(), folder.getId(), null);
@@ -157,7 +131,7 @@ class MediaSubtitleScanTest {
      */
     @Test
     void shouldLinkSubtitlesToMovieFileRows() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo dune = createFolder(user.getId(), movieFolder.getId(), "沙丘");
         fileService.upload(buildFile("沙丘.1080p.mkv"), user.getId(), dune.getId(), null);
@@ -189,7 +163,7 @@ class MediaSubtitleScanTest {
      */
     @Test
     void shouldLinkSubtitlesToEpisodeFileRows() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo tvRoot = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电视");
         FileNodeVo series = createFolder(user.getId(), tvRoot.getId(), "剧甲");
         FileNodeVo season = createFolder(user.getId(), series.getId(), "Season 1");
@@ -223,17 +197,20 @@ class MediaSubtitleScanTest {
      */
     @Test
     void shouldDeleteSubtitlesWhenItemFileRemoved() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo folder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "其他");
         FileNodeVo video = fileService.upload(buildFile("Movie.mkv"), user.getId(), folder.getId(), null);
         fileService.upload(buildFile("Movie.srt"), user.getId(), folder.getId(), null);
         MediaDirectory directory = createDirectory(user.getId(), folder.getId(), "other");
         mediaScanService.scan(directory.getId());
-        assertEquals(1, subtitlesOf(directory.getId()).size());
+        List<MediaSubtitle> before = subtitlesOf(directory.getId());
+        assertEquals(1, before.size());
+        String subtitleId = before.get(0).getId();
 
         fileMapper.deleteById(video.getId());
         mediaScanService.scan(directory.getId());
-        assertEquals(0, subtitlesOf(directory.getId()).size());
+        // 直接断言字幕行本身已删除（不依赖 other 行反查，避免“other 行没了即断言空”的假通过）
+        assertNull(mediaSubtitleMapper.selectById(subtitleId));
     }
 
     /**
@@ -241,16 +218,19 @@ class MediaSubtitleScanTest {
      */
     @Test
     void shouldDeleteSubtitlesWhenDirectoryDeleted() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo folder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "其他");
         fileService.upload(buildFile("Movie.mkv"), user.getId(), folder.getId(), null);
         fileService.upload(buildFile("Movie.srt"), user.getId(), folder.getId(), null);
         MediaDirectory directory = createDirectory(user.getId(), folder.getId(), "other");
         mediaScanService.scan(directory.getId());
-        assertEquals(1, subtitlesOf(directory.getId()).size());
+        List<MediaSubtitle> before = subtitlesOf(directory.getId());
+        assertEquals(1, before.size());
+        String subtitleId = before.get(0).getId();
 
         mediaDirectoryService.delete(directory.getId(), user.getId());
-        assertEquals(0, subtitlesOf(directory.getId()).size());
+        // 直接断言字幕行本身已删除（不依赖 other 行反查，媒体库删除时 other 行一并清理）
+        assertNull(mediaSubtitleMapper.selectById(subtitleId));
     }
 
     private List<MediaSubtitle> subtitlesOf(String directoryId) {
@@ -281,28 +261,4 @@ class MediaSubtitleScanTest {
         return new MockMultipartFile("file", name, "video/mp4", "video".getBytes());
     }
 
-    private FileNodeVo createFolder(String userId, String parentId, String name) {
-        FileCreateFolderDto dto = new FileCreateFolderDto();
-        dto.setParentId(parentId);
-        dto.setName(name);
-        return fileOperationService.createFolder(dto, userId);
-    }
-
-    private UserVo prepareUserWithStorageSpace() {
-        Path spacePath = tempDir.resolve("space-" + System.nanoTime());
-        StorageSpaceSaveDto spaceDto = new StorageSpaceSaveDto();
-        spaceDto.setName("用户空间");
-        spaceDto.setPath(spacePath.toString());
-        StorageSpaceVo space = storageSpaceService.save(spaceDto);
-
-        UserSaveDto userDto = new UserSaveDto();
-        userDto.setUsername("user_" + Long.toUnsignedString(System.nanoTime(), 36));
-        userDto.setPassword("123456");
-        userDto.setStorageSpaceId(space.getId());
-        userDto.setQuota(10L);
-        userDto.setQuotaUnit("GB");
-        UserVo user = userService.saveUser(userDto);
-        UserContext.set(new CurrentUser(user.getId(), user.getUsername()));
-        return user;
-    }
 }

@@ -261,8 +261,13 @@ public class RemoteMountServiceImpl implements RemoteMountService {
             mount.setNextSyncTime(null);
             return;
         }
-        CronExpression expression = syncTaskSupport.tryParseCron(mount.getCronExpr());
-        mount.setNextSyncTime(expression == null ? null : expression.next(LocalDateTime.now()));
+        // 启用且配置了 cron：严格解析，非法或无未来执行时间直接拒绝入库
+        CronExpression expression = syncTaskSupport.parseCron(mount.getCronExpr());
+        LocalDateTime nextSyncTime = expression.next(LocalDateTime.now());
+        if (nextSyncTime == null) {
+            throw new BusinessException(ResultCode.PARAM_ERROR, "cron 表达式在未来没有可执行的时间");
+        }
+        mount.setNextSyncTime(nextSyncTime);
     }
 
     private FileNode createMountNode(RemoteMount mount, String userId) {

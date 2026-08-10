@@ -2,8 +2,6 @@ package com.fleyx.jcloud.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fleyx.jcloud.common.constant.FileNodeConstants;
-import com.fleyx.jcloud.common.context.CurrentUser;
-import com.fleyx.jcloud.common.context.UserContext;
 import com.fleyx.jcloud.common.enums.MediaMatchStatus;
 import com.fleyx.jcloud.common.enums.MediaRefreshMode;
 import com.fleyx.jcloud.common.enums.MediaScrapeStatus;
@@ -18,11 +16,8 @@ import com.fleyx.jcloud.mapper.MediaMovieFileMapper;
 import com.fleyx.jcloud.mapper.MediaMovieMapper;
 import com.fleyx.jcloud.mapper.MediaSeasonMapper;
 import com.fleyx.jcloud.mapper.MediaSeriesMapper;
-import com.fleyx.jcloud.model.dto.FileCreateFolderDto;
 import com.fleyx.jcloud.model.dto.FileDeleteDto;
 import com.fleyx.jcloud.model.dto.MediaMatchUpdateDto;
-import com.fleyx.jcloud.model.dto.StorageSpaceSaveDto;
-import com.fleyx.jcloud.model.dto.UserSaveDto;
 import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.po.MediaDirectory;
 import com.fleyx.jcloud.model.po.MediaDirectorySource;
@@ -34,22 +29,17 @@ import com.fleyx.jcloud.model.po.MediaMovieFile;
 import com.fleyx.jcloud.model.po.MediaSeason;
 import com.fleyx.jcloud.model.po.MediaSeries;
 import com.fleyx.jcloud.model.vo.FileNodeVo;
-import com.fleyx.jcloud.model.vo.StorageSpaceVo;
 import com.fleyx.jcloud.model.vo.UserVo;
 import com.fleyx.jcloud.service.support.MediaMovieCascadeSupport;
 import com.fleyx.jcloud.service.support.MediaTvCascadeSupport;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.mock.web.MockMultipartFile;
-import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Path;
 import java.io.InputStream;
 import java.util.HashMap;
 import java.util.List;
@@ -80,25 +70,11 @@ import static org.mockito.Mockito.when;
  * 级联删除无孤儿（owner 指针反查）；集级手动修正接口移除、电影/剧集级修正置 manual 后
  * 自动削刮不再覆盖。
  */
-@SpringBootTest
-@ActiveProfiles("test")
 @Transactional
-class MediaScrapeServiceTest {
-
-    @Autowired
-    private FileService fileService;
+class MediaScrapeServiceTest extends MediaScanTestBase {
 
     @Autowired
     private FileRecycleService fileRecycleService;
-
-    @Autowired
-    private UserService userService;
-
-    @Autowired
-    private StorageSpaceService storageSpaceService;
-
-    @Autowired
-    private FileOperationService fileOperationService;
 
     @Autowired
     private MediaScrapeService mediaScrapeService;
@@ -145,9 +121,6 @@ class MediaScrapeServiceTest {
     @MockitoBean
     private TmdbService tmdbService;
 
-    @TempDir
-    Path tempDir;
-
     // ---------- 验收 1：处理范围 ----------
 
     /**
@@ -156,7 +129,7 @@ class MediaScrapeServiceTest {
      */
     @Test
     void shouldScrapeOnlyUnmatchedOrIncompleteMovies() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo aFolder = createFolder(user.getId(), movieFolder.getId(), "Iron Man 2008");
         FileNodeVo aVideo = fileService.upload(buildFile("Iron.Man.2008.1080p.mkv"), user.getId(), aFolder.getId(), null);
@@ -199,7 +172,7 @@ class MediaScrapeServiceTest {
      */
     @Test
     void shouldSkipManualMovieWhenScrapingWithForce() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo videoFile = fileService.upload(buildFile("Iron.Man.2008.1080p.mkv"), user.getId(), movieFolder.getId(), null);
         MediaDirectory directory = createDirectory(user.getId(), movieFolder.getId(), "movie");
@@ -223,7 +196,7 @@ class MediaScrapeServiceTest {
      */
     @Test
     void shouldMarkMovieCompleteWhenAllFiveItemsPresent() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo videoFile = fileService.upload(buildFile("Iron.Man.2008.1080p.mkv"), user.getId(), movieFolder.getId(), null);
         MediaDirectory directory = createDirectory(user.getId(), movieFolder.getId(), "movie");
@@ -250,7 +223,7 @@ class MediaScrapeServiceTest {
      */
     @Test
     void shouldMarkMovieIncompleteWhenFieldMissing() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo videoFile = fileService.upload(buildFile("Iron.Man.2008.1080p.mkv"), user.getId(), movieFolder.getId(), null);
         MediaDirectory directory = createDirectory(user.getId(), movieFolder.getId(), "movie");
@@ -273,7 +246,7 @@ class MediaScrapeServiceTest {
      */
     @Test
     void shouldMarkSeriesCompleteWhenAllSeasonsEpisodesComplete() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo tvFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电视");
         FileNodeVo seriesFolder = createFolder(user.getId(), tvFolder.getId(), "亮剑");
         FileNodeVo seasonFolder = createFolder(user.getId(), seriesFolder.getId(), "Season 1");
@@ -309,7 +282,7 @@ class MediaScrapeServiceTest {
      */
     @Test
     void shouldMarkSeriesIncompleteWhenAnyEpisodeIncomplete() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo tvFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电视");
         FileNodeVo seriesFolder = createFolder(user.getId(), tvFolder.getId(), "亮剑");
         FileNodeVo seasonFolder = createFolder(user.getId(), seriesFolder.getId(), "Season 1");
@@ -345,7 +318,7 @@ class MediaScrapeServiceTest {
      */
     @Test
     void shouldScrapeMovieFromLocalNfoWithoutTmdb() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo parentFolder = createFolder(user.getId(), movieFolder.getId(), "Iron Man 2008");
         FileNodeVo videoFile = fileService.upload(buildFile("Iron.Man.2008.1080p.mkv"), user.getId(), parentFolder.getId(), null);
@@ -404,7 +377,7 @@ class MediaScrapeServiceTest {
      */
     @Test
     void shouldScrapeMovieFromMovieNfoOnly() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo parentFolder = createFolder(user.getId(), movieFolder.getId(), "Iron Man 2008");
         FileNodeVo videoFile = fileService.upload(buildFile("Iron.Man.2008.1080p.mkv"), user.getId(), parentFolder.getId(), null);
@@ -443,7 +416,7 @@ class MediaScrapeServiceTest {
      */
     @Test
     void shouldPreferMovieNfoOverVideoNamedNfo() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo parentFolder = createFolder(user.getId(), movieFolder.getId(), "Iron Man 2008");
         FileNodeVo videoFile = fileService.upload(buildFile("Iron.Man.2008.1080p.mkv"), user.getId(), parentFolder.getId(), null);
@@ -486,7 +459,7 @@ class MediaScrapeServiceTest {
      */
     @Test
     void shouldScrapeSeriesFromLocalNfoWithoutTmdb() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo tvFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电视");
         FileNodeVo seriesFolder = createFolder(user.getId(), tvFolder.getId(), "亮剑");
         FileNodeVo seasonFolder = createFolder(user.getId(), seriesFolder.getId(), "Season 1");
@@ -568,7 +541,7 @@ class MediaScrapeServiceTest {
      */
     @Test
     void shouldScrapeMovieFromLocalImagesWithoutNfo() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo parentFolder = createFolder(user.getId(), movieFolder.getId(), "Iron Man 2008");
         FileNodeVo videoFile = fileService.upload(buildFile("Iron.Man.2008.1080p.mkv"), user.getId(), parentFolder.getId(), null);
@@ -606,7 +579,7 @@ class MediaScrapeServiceTest {
      */
     @Test
     void shouldScrapeMovieFromFolderArtworkNames() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo parentFolder = createFolder(user.getId(), movieFolder.getId(), "Iron Man 2008");
         FileNodeVo videoFile = fileService.upload(buildFile("Iron.Man.2008.1080p.mkv"), user.getId(), parentFolder.getId(), null);
@@ -633,7 +606,7 @@ class MediaScrapeServiceTest {
      */
     @Test
     void shouldScrapeSeriesFromFolderArtworkNames() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo tvFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电视");
         FileNodeVo seriesFolder = createFolder(user.getId(), tvFolder.getId(), "亮剑");
         FileNodeVo seasonFolder = createFolder(user.getId(), seriesFolder.getId(), "Season 1");
@@ -661,7 +634,7 @@ class MediaScrapeServiceTest {
      */
     @Test
     void shouldPreferFolderJpgWhenMultiplePosterNamesExist() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo parentFolder = createFolder(user.getId(), movieFolder.getId(), "Iron Man 2008");
         FileNodeVo videoFile = fileService.upload(buildFile("Iron.Man.2008.1080p.mkv"), user.getId(), parentFolder.getId(), null);
@@ -688,7 +661,7 @@ class MediaScrapeServiceTest {
      */
     @Test
     void shouldRecognizeMoviePosterAliases() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo coverFolder = createFolder(user.getId(), movieFolder.getId(), "Cover 2008");
         FileNodeVo coverVideo = fileService.upload(buildFile("Cover.2008.mkv"), user.getId(), coverFolder.getId(), null);
@@ -724,7 +697,7 @@ class MediaScrapeServiceTest {
      */
     @Test
     void shouldRecognizeBackdropAliases() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo bgFolder = createFolder(user.getId(), movieFolder.getId(), "Bg 2008");
         FileNodeVo bgVideo = fileService.upload(buildFile("Bg.2008.mkv"), user.getId(), bgFolder.getId(), null);
@@ -754,7 +727,7 @@ class MediaScrapeServiceTest {
      */
     @Test
     void shouldRecognizeSeriesShowJpgAlias() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo tvFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电视");
         FileNodeVo seriesFolder = createFolder(user.getId(), tvFolder.getId(), "亮剑");
         FileNodeVo seasonFolder = createFolder(user.getId(), seriesFolder.getId(), "Season 1");
@@ -782,7 +755,7 @@ class MediaScrapeServiceTest {
      */
     @Test
     void shouldCascadeDeleteMovieMetadata() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         MediaDirectory directory = createDirectory(user.getId(), movieFolder.getId(), "movie");
         MediaMovie movie = seedMovie(directory, user.getId(), movieFolder.getId(), "Iron Man", 2008, null);
@@ -807,7 +780,7 @@ class MediaScrapeServiceTest {
      */
     @Test
     void shouldCascadeDeleteSeriesMetadata() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo tvFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电视");
         FileNodeVo seriesFolder = createFolder(user.getId(), tvFolder.getId(), "亮剑");
         FileNodeVo seasonFolder = createFolder(user.getId(), seriesFolder.getId(), "Season 1");
@@ -835,7 +808,7 @@ class MediaScrapeServiceTest {
      */
     @Test
     void shouldRejectEpisodeManualCorrection() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo tvFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电视");
         FileNodeVo seriesFolder = createFolder(user.getId(), tvFolder.getId(), "亮剑");
         FileNodeVo seasonFolder = createFolder(user.getId(), seriesFolder.getId(), "Season 1");
@@ -857,7 +830,7 @@ class MediaScrapeServiceTest {
      */
     @Test
     void shouldPreserveManualMovieMatchOnForceScrape() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo videoFile = fileService.upload(buildFile("Iron.Man.2008.1080p.mkv"), user.getId(), movieFolder.getId(), null);
         MediaDirectory directory = createDirectory(user.getId(), movieFolder.getId(), "movie");
@@ -889,7 +862,7 @@ class MediaScrapeServiceTest {
      */
     @Test
     void shouldPreserveManualSeriesMatchOnForceScrape() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo tvFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电视");
         FileNodeVo seriesFolder = createFolder(user.getId(), tvFolder.getId(), "亮剑");
         FileNodeVo seasonFolder = createFolder(user.getId(), seriesFolder.getId(), "Season 1");
@@ -933,7 +906,7 @@ class MediaScrapeServiceTest {
      */
     @Test
     void shouldRefillMoviePosterAfterDeletion() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo videoFile = fileService.upload(buildFile("Iron.Man.2008.1080p.mkv"), user.getId(), movieFolder.getId(), null);
         MediaDirectory directory = createDirectory(user.getId(), movieFolder.getId(), "movie");
@@ -981,7 +954,7 @@ class MediaScrapeServiceTest {
      */
     @Test
     void shouldRefillSeriesArtifactsAfterDeletion() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo tvFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电视");
         FileNodeVo seriesFolder = createFolder(user.getId(), tvFolder.getId(), "亮剑");
         FileNodeVo seasonFolder = createFolder(user.getId(), seriesFolder.getId(), "Season 1");
@@ -1037,7 +1010,7 @@ class MediaScrapeServiceTest {
      */
     @Test
     void shouldRefillManualMovieArtifactsWithoutChangingMatch() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo videoFile = fileService.upload(buildFile("Iron.Man.2008.1080p.mkv"), user.getId(), movieFolder.getId(), null);
         MediaDirectory directory = createDirectory(user.getId(), movieFolder.getId(), "movie");
@@ -1086,7 +1059,7 @@ class MediaScrapeServiceTest {
      */
     @Test
     void shouldNotRedownloadExistingArtwork() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo videoFile = fileService.upload(buildFile("Iron.Man.2008.1080p.mkv"), user.getId(), movieFolder.getId(), null);
         MediaDirectory directory = createDirectory(user.getId(), movieFolder.getId(), "movie");
@@ -1113,7 +1086,7 @@ class MediaScrapeServiceTest {
      */
     @Test
     void shouldEnrichLocalNfoMissingFieldsFromTmdbAndRewrite() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo parentFolder = createFolder(user.getId(), movieFolder.getId(), "Iron Man 2008");
         FileNodeVo videoFile = fileService.upload(buildFile("Iron.Man.2008.1080p.mkv"), user.getId(), parentFolder.getId(), null);
@@ -1156,7 +1129,7 @@ class MediaScrapeServiceTest {
      */
     @Test
     void shouldEnrichLocalImageOnlyMovie() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo parentFolder = createFolder(user.getId(), movieFolder.getId(), "Iron Man 2008");
         FileNodeVo videoFile = fileService.upload(buildFile("Iron.Man.2008.1080p.mkv"), user.getId(), parentFolder.getId(), null);
@@ -1190,7 +1163,7 @@ class MediaScrapeServiceTest {
      */
     @Test
     void shouldRebuildDeletedMovieNfo() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo videoFile = fileService.upload(buildFile("Iron.Man.2008.1080p.mkv"), user.getId(), movieFolder.getId(), null);
         MediaDirectory directory = createDirectory(user.getId(), movieFolder.getId(), "movie");
@@ -1222,7 +1195,7 @@ class MediaScrapeServiceTest {
      */
     @Test
     void shouldRebuildDeletedSeriesNfoAndEpisodeNfo() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo tvFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电视");
         FileNodeVo seriesFolder = createFolder(user.getId(), tvFolder.getId(), "亮剑");
         FileNodeVo seasonFolder = createFolder(user.getId(), seriesFolder.getId(), "Season 1");
@@ -1271,7 +1244,7 @@ class MediaScrapeServiceTest {
      */
     @Test
     void shouldFallbackToMovieFolderNameWhenFileNameNotMatched() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo parentFolder = createFolder(user.getId(), movieFolder.getId(), "Iron Man 2008");
         FileNodeVo videoFile = fileService.upload(buildFile("randomfile.mkv"), user.getId(), parentFolder.getId(), null);
@@ -1297,7 +1270,7 @@ class MediaScrapeServiceTest {
      */
     @Test
     void shouldPersistArtworkAfterTmdbScrape() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo videoFile = fileService.upload(buildFile("Iron.Man.2008.1080p.mkv"), user.getId(), movieFolder.getId(), null);
         MediaDirectory directory = createDirectory(user.getId(), movieFolder.getId(), "movie");
@@ -1330,7 +1303,7 @@ class MediaScrapeServiceTest {
      */
     @Test
     void shouldKeepMetadataWhenPersistFails() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo videoFile = fileService.upload(buildFile("Iron.Man.2008.1080p.mkv"), user.getId(), movieFolder.getId(), null);
         MediaDirectory directory = createDirectory(user.getId(), movieFolder.getId(), "movie");
@@ -1358,7 +1331,7 @@ class MediaScrapeServiceTest {
      */
     @Test
     void shouldMarkSeriesUnmatchedWhenScrapeFailed() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo tvFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电视");
         FileNodeVo seriesFolder = createFolder(user.getId(), tvFolder.getId(), "不存在的剧xyz");
         FileNodeVo episodeFile = fileService.upload(buildFile("xyz.S01E01.mkv"), user.getId(), seriesFolder.getId(), null);
@@ -1383,7 +1356,7 @@ class MediaScrapeServiceTest {
      */
     @Test
     void shouldScrapeSeriesWithReleaseYear() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo tvFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电视");
         FileNodeVo seriesFolder = createFolder(user.getId(), tvFolder.getId(), "亮剑 (2005)");
         FileNodeVo episodeFile = fileService.upload(buildFile("亮剑.S01E01.mkv"), user.getId(), seriesFolder.getId(), null);
@@ -1572,7 +1545,7 @@ class MediaScrapeServiceTest {
      */
     @Test
     void shouldScrapeMultiVersionMovieWithoutDuplicateKeyError() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo parentFolder = createFolder(user.getId(), movieFolder.getId(), "Iron Man 2008");
         FileNodeVo v1 = fileService.upload(buildFile("Iron.Man.2008.1080p.mkv"), user.getId(), parentFolder.getId(), null);
@@ -1600,7 +1573,7 @@ class MediaScrapeServiceTest {
      */
     @Test
     void shouldScrapeMultiVersionEpisodeWithoutDuplicateKeyError() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo tvFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电视");
         FileNodeVo seriesFolder = createFolder(user.getId(), tvFolder.getId(), "亮剑");
         FileNodeVo seasonFolder = createFolder(user.getId(), seriesFolder.getId(), "Season 1");
@@ -1626,31 +1599,6 @@ class MediaScrapeServiceTest {
                 mediaDirectoryMapper.selectById(directory.getId()).getLastScrapeStatus());
     }
 
-    private FileNodeVo createFolder(String userId, String parentId, String name) {
-        FileCreateFolderDto dto = new FileCreateFolderDto();
-        dto.setParentId(parentId);
-        dto.setName(name);
-        return fileOperationService.createFolder(dto, userId);
-    }
-
-    private UserVo prepareUserWithStorageSpace() {
-        Path spacePath = tempDir.resolve("space-" + System.nanoTime());
-        StorageSpaceSaveDto spaceDto = new StorageSpaceSaveDto();
-        spaceDto.setName("用户空间");
-        spaceDto.setPath(spacePath.toString());
-        StorageSpaceVo space = storageSpaceService.save(spaceDto);
-
-        UserSaveDto userDto = new UserSaveDto();
-        userDto.setUsername("user_" + Long.toUnsignedString(System.nanoTime(), 36));
-        userDto.setPassword("123456");
-        userDto.setStorageSpaceId(space.getId());
-        userDto.setQuota(10L);
-        userDto.setQuotaUnit("GB");
-        UserVo user = userService.saveUser(userDto);
-        UserContext.set(new CurrentUser(user.getId(), user.getUsername()));
-        return user;
-    }
-
     // ---------- 工单 06：单条刷新两模式（missing / force） ----------
 
     /**
@@ -1659,7 +1607,7 @@ class MediaScrapeServiceTest {
      */
     @Test
     void shouldRefreshMissingMovieRecreateDeletedPoster() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo videoFile = fileService.upload(buildFile("Iron.Man.2008.1080p.mkv"), user.getId(), movieFolder.getId(), null);
         MediaDirectory directory = createDirectory(user.getId(), movieFolder.getId(), "movie");
@@ -1700,7 +1648,7 @@ class MediaScrapeServiceTest {
      */
     @Test
     void shouldRefreshForceMovieOverrideFieldsAndArtwork() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo videoFile = fileService.upload(buildFile("Iron.Man.2008.1080p.mkv"), user.getId(), movieFolder.getId(), null);
         MediaDirectory directory = createDirectory(user.getId(), movieFolder.getId(), "movie");
@@ -1748,7 +1696,7 @@ class MediaScrapeServiceTest {
      */
     @Test
     void shouldForceRefreshManualMovieRebuildArtifactsOnly() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo videoFile = fileService.upload(buildFile("Iron.Man.2008.1080p.mkv"), user.getId(), movieFolder.getId(), null);
         MediaDirectory directory = createDirectory(user.getId(), movieFolder.getId(), "movie");
@@ -1789,7 +1737,7 @@ class MediaScrapeServiceTest {
      */
     @Test
     void shouldRefreshMissingManualMovieArtifactsOnly() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo videoFile = fileService.upload(buildFile("Iron.Man.2008.1080p.mkv"), user.getId(), movieFolder.getId(), null);
         MediaDirectory directory = createDirectory(user.getId(), movieFolder.getId(), "movie");
@@ -1833,7 +1781,7 @@ class MediaScrapeServiceTest {
      */
     @Test
     void shouldForceScrapeMatchedMovieReloadDetail() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo videoFile = fileService.upload(buildFile("Iron.Man.2008.1080p.mkv"), user.getId(), movieFolder.getId(), null);
         MediaDirectory directory = createDirectory(user.getId(), movieFolder.getId(), "movie");
@@ -1871,7 +1819,7 @@ class MediaScrapeServiceTest {
      */
     @Test
     void shouldRefreshForceSeriesReloadDetailAndArtifacts() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo tvFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电视");
         FileNodeVo seriesFolder = createFolder(user.getId(), tvFolder.getId(), "亮剑");
         FileNodeVo seasonFolder = createFolder(user.getId(), seriesFolder.getId(), "Season 1");
@@ -1918,7 +1866,7 @@ class MediaScrapeServiceTest {
      */
     @Test
     void shouldRejectRefreshOfEpisodeMetadata() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo tvFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电视");
         FileNodeVo seriesFolder = createFolder(user.getId(), tvFolder.getId(), "亮剑");
         FileNodeVo seasonFolder = createFolder(user.getId(), seriesFolder.getId(), "Season 1");
@@ -1949,7 +1897,7 @@ class MediaScrapeServiceTest {
      */
     @Test
     void shouldRefillBackdropOfCompleteMatchedMovie() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo videoFile = fileService.upload(buildFile("Iron.Man.2008.1080p.mkv"), user.getId(), movieFolder.getId(), null);
         MediaDirectory directory = createDirectory(user.getId(), movieFolder.getId(), "movie");
@@ -1992,7 +1940,7 @@ class MediaScrapeServiceTest {
      */
     @Test
     void shouldRefillBackdropOfCompleteMatchedSeries() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo tvFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电视");
         FileNodeVo seriesFolder = createFolder(user.getId(), tvFolder.getId(), "亮剑");
         FileNodeVo seasonFolder = createFolder(user.getId(), seriesFolder.getId(), "Season 1");
@@ -2039,7 +1987,7 @@ class MediaScrapeServiceTest {
      */
     @Test
     void shouldRebuildDeletedMovieNfoForManualRow() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo videoFile = fileService.upload(buildFile("Iron.Man.2008.1080p.mkv"), user.getId(), movieFolder.getId(), null);
         MediaDirectory directory = createDirectory(user.getId(), movieFolder.getId(), "movie");
@@ -2080,7 +2028,7 @@ class MediaScrapeServiceTest {
      */
     @Test
     void shouldRebuildDeletedTvshowNfoForManualSeries() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo tvFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电视");
         FileNodeVo seriesFolder = createFolder(user.getId(), tvFolder.getId(), "亮剑");
         FileNodeVo seasonFolder = createFolder(user.getId(), seriesFolder.getId(), "Season 1");
@@ -2129,7 +2077,7 @@ class MediaScrapeServiceTest {
      */
     @Test
     void shouldForceScrapeUnmatchedMovieWithLocalNfoOverwriteByTmdb() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo parentFolder = createFolder(user.getId(), movieFolder.getId(), "Iron Man 2008");
         FileNodeVo videoFile = fileService.upload(buildFile("Iron.Man.2008.1080p.mkv"), user.getId(), parentFolder.getId(), null);
@@ -2171,7 +2119,7 @@ class MediaScrapeServiceTest {
      */
     @Test
     void shouldKeepMovieMatchWhenForcePullFails() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo videoFile = fileService.upload(buildFile("Iron.Man.2008.1080p.mkv"), user.getId(), movieFolder.getId(), null);
         MediaDirectory directory = createDirectory(user.getId(), movieFolder.getId(), "movie");
@@ -2204,7 +2152,7 @@ class MediaScrapeServiceTest {
      */
     @Test
     void shouldKeepSeriesMatchWhenForcePullFails() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo tvFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电视");
         FileNodeVo seriesFolder = createFolder(user.getId(), tvFolder.getId(), "亮剑");
         FileNodeVo seasonFolder = createFolder(user.getId(), seriesFolder.getId(), "Season 1");
@@ -2246,7 +2194,7 @@ class MediaScrapeServiceTest {
      */
     @Test
     void shouldRefillBackdropDeletedToTrash() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo videoFile = fileService.upload(buildFile("Iron.Man.2008.1080p.mkv"), user.getId(), movieFolder.getId(), null);
         MediaDirectory directory = createDirectory(user.getId(), movieFolder.getId(), "movie");
@@ -2285,7 +2233,7 @@ class MediaScrapeServiceTest {
      */
     @Test
     void shouldRebuildOnlyMissingNfoInLibrary() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo aFolder = createFolder(user.getId(), movieFolder.getId(), "Iron Man 2008");
         FileNodeVo aVideo = fileService.upload(buildFile("Iron.Man.2008.1080p.mkv"), user.getId(), aFolder.getId(), null);
@@ -2333,7 +2281,7 @@ class MediaScrapeServiceTest {
      */
     @Test
     void shouldHydrateRawJsonAndRefillBackdropOnMissingRefreshOfLocalNfoMovie() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo parentFolder = createFolder(user.getId(), movieFolder.getId(), "Iron Man 2008");
         FileNodeVo videoFile = fileService.upload(buildFile("Iron.Man.2008.1080p.mkv"), user.getId(), parentFolder.getId(), null);
@@ -2396,7 +2344,7 @@ class MediaScrapeServiceTest {
      */
     @Test
     void shouldHydrateRawJsonAndRefillBackdropOfLocalNfoMovieOnLibraryScrape() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo parentFolder = createFolder(user.getId(), movieFolder.getId(), "Iron Man 2008");
         FileNodeVo videoFile = fileService.upload(buildFile("Iron.Man.2008.1080p.mkv"), user.getId(), parentFolder.getId(), null);
@@ -2450,7 +2398,7 @@ class MediaScrapeServiceTest {
      */
     @Test
     void shouldSkipHydrationSilentlyWhenTmdbFetchFails() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo parentFolder = createFolder(user.getId(), movieFolder.getId(), "Iron Man 2008");
         FileNodeVo videoFile = fileService.upload(buildFile("Iron.Man.2008.1080p.mkv"), user.getId(), parentFolder.getId(), null);
@@ -2496,7 +2444,7 @@ class MediaScrapeServiceTest {
      */
     @Test
     void shouldHydrateRawJsonBeforeForceRefreshOfManualMovie() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo videoFile = fileService.upload(buildFile("Iron.Man.2008.1080p.mkv"), user.getId(), movieFolder.getId(), null);
         MediaDirectory directory = createDirectory(user.getId(), movieFolder.getId(), "movie");
@@ -2537,7 +2485,7 @@ class MediaScrapeServiceTest {
      */
     @Test
     void shouldHydrateRawJsonAndRefillBackdropOfLocalNfoSeries() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo tvFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电视");
         FileNodeVo seriesFolder = createFolder(user.getId(), tvFolder.getId(), "亮剑");
         FileNodeVo seasonFolder = createFolder(user.getId(), seriesFolder.getId(), "Season 1");

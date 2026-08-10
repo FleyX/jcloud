@@ -85,7 +85,7 @@ class WebDavPropFindParser {
         return entries;
     }
 
-    private String toRemotePath(String href) {
+    String toRemotePath(String href) {
         String path = normalizeRemotePath(decodePath(href));
         return normalizeRemotePath(stripServerBasePath(path));
     }

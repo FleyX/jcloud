@@ -3,8 +3,6 @@ package com.fleyx.jcloud.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.fleyx.jcloud.common.constant.FileNodeConstants;
-import com.fleyx.jcloud.common.context.CurrentUser;
-import com.fleyx.jcloud.common.context.UserContext;
 import com.fleyx.jcloud.common.enums.MediaMatchStatus;
 import com.fleyx.jcloud.common.enums.MediaScanStatus;
 import com.fleyx.jcloud.mapper.FileMapper;
@@ -15,11 +13,8 @@ import com.fleyx.jcloud.mapper.MediaMovieFileMapper;
 import com.fleyx.jcloud.mapper.MediaMovieMapper;
 import com.fleyx.jcloud.mapper.UserMapper;
 import com.fleyx.jcloud.model.bo.MediaProbeResult;
-import com.fleyx.jcloud.model.dto.FileCreateFolderDto;
 import com.fleyx.jcloud.model.dto.FileRenameDto;
 import com.fleyx.jcloud.model.dto.MediaPageQueryDto;
-import com.fleyx.jcloud.model.dto.StorageSpaceSaveDto;
-import com.fleyx.jcloud.model.dto.UserSaveDto;
 import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.po.MediaDirectory;
 import com.fleyx.jcloud.model.po.MediaDirectorySource;
@@ -30,21 +25,15 @@ import com.fleyx.jcloud.model.vo.FileNodeVo;
 import com.fleyx.jcloud.model.vo.MediaItemDetailVo;
 import com.fleyx.jcloud.model.vo.MediaItemVo;
 import com.fleyx.jcloud.model.vo.MediaMovieVersionVo;
-import com.fleyx.jcloud.model.vo.StorageSpaceVo;
 import com.fleyx.jcloud.model.vo.UserVo;
 import com.fleyx.jcloud.service.support.MediaProbeSupport;
 import com.fleyx.jcloud.service.support.MediaTaskSupport;
 import com.fleyx.jcloud.util.FilePathUtil;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.mock.web.MockMultipartFile;
-import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.multipart.MultipartFile;
 
 import java.nio.file.Path;
 import java.time.LocalDateTime;
@@ -69,25 +58,11 @@ import static org.mockito.Mockito.verify;
  * 电影文件夹内子目录视频不入库、多版本聚合）、文件夹/文件节点锚定 upsert、按电影即时 reconcile、
  * 批次扫描时间三道闸清理、级联删除（连带 t_media_metadata_v2）、海报墙唯一性与详情版本列表。
  */
-@SpringBootTest
-@ActiveProfiles("test")
 @Transactional
-class MediaMovieScanServiceTest {
+class MediaMovieScanServiceTest extends MediaScanTestBase {
 
     private static final MediaProbeResult PROBE = new MediaProbeResult(
             3_600_000L, "matroska", "h264", "aac", 1920, 1080, null, List.of(), List.of());
-
-    @Autowired
-    private FileService fileService;
-
-    @Autowired
-    private UserService userService;
-
-    @Autowired
-    private StorageSpaceService storageSpaceService;
-
-    @Autowired
-    private FileOperationService fileOperationService;
 
     @Autowired
     private MediaScanService mediaScanService;
@@ -125,9 +100,6 @@ class MediaMovieScanServiceTest {
     @MockitoBean
     private MediaProbeSupport mediaProbeSupport;
 
-    @TempDir
-    Path tempDir;
-
     @BeforeEach
     void stubProbe() {
         lenient().when(mediaProbeSupport.probe(any(Path.class))).thenReturn(PROBE);
@@ -141,7 +113,7 @@ class MediaMovieScanServiceTest {
      */
     @Test
     void shouldScanMovieLibraryIntoNewTablesWithAnchors() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         // 多级中间目录组织
         FileNodeVo actionFolder = createFolder(user.getId(), movieFolder.getId(), "动作");
@@ -210,7 +182,7 @@ class MediaMovieScanServiceTest {
      */
     @Test
     void shouldResetNonManualMatchWhenMovieFolderRenamed() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo dune = createFolder(user.getId(), movieFolder.getId(), "沙丘");
         upload(user.getId(), dune.getId(), "沙丘.2021.mkv");
@@ -242,7 +214,7 @@ class MediaMovieScanServiceTest {
      */
     @Test
     void shouldKeepManualMatchWhenMovieFolderRenamed() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo dune = createFolder(user.getId(), movieFolder.getId(), "沙丘");
         upload(user.getId(), dune.getId(), "沙丘.2021.mkv");
@@ -269,7 +241,7 @@ class MediaMovieScanServiceTest {
      */
     @Test
     void shouldPreserveMovieAndProgressWhenFolderMovedAcrossSources() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo sourceA = createFolder(user.getId(), movieFolder.getId(), "库A");
         FileNodeVo dune = createFolder(user.getId(), sourceA.getId(), "沙丘");
@@ -307,7 +279,7 @@ class MediaMovieScanServiceTest {
      */
     @Test
     void shouldDeleteMovieFileImmediatelyWhenVideoRemoved() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo dune = createFolder(user.getId(), movieFolder.getId(), "沙丘");
         upload(user.getId(), dune.getId(), "沙丘.1080p.mkv");
@@ -331,7 +303,7 @@ class MediaMovieScanServiceTest {
      */
     @Test
     void shouldMaintainMovieAddedTimeAcrossRescanAndVersionBoundaries() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieRoot = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo movieFolder = createFolder(user.getId(), movieRoot.getId(), "沙丘");
         FileNodeVo first = upload(user.getId(), movieFolder.getId(), "电影.1080p.mkv");
@@ -383,7 +355,7 @@ class MediaMovieScanServiceTest {
      */
     @Test
     void shouldCascadeDeleteWhenMovieFolderRemoved() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo dune = createFolder(user.getId(), movieFolder.getId(), "沙丘");
         upload(user.getId(), dune.getId(), "沙丘.2021.mkv");
@@ -419,7 +391,7 @@ class MediaMovieScanServiceTest {
      */
     @Test
     void shouldNotCleanupWhenSourceUnreachableOrPartial() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo sourceA = createFolder(user.getId(), movieFolder.getId(), "库A");
         FileNodeVo dune = createFolder(user.getId(), sourceA.getId(), "沙丘");
@@ -461,7 +433,7 @@ class MediaMovieScanServiceTest {
      */
     @Test
     void shouldServePosterWallAndDetailFromNewTables() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo dune = createFolder(user.getId(), movieFolder.getId(), "沙丘 (2021)");
         FileNodeVo v1 = upload(user.getId(), dune.getId(), "沙丘.2021.1080p.mkv");
@@ -515,7 +487,7 @@ class MediaMovieScanServiceTest {
      */
     @Test
     void shouldReanchorMovieFileWhenMovedAcrossMovies() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo dune = createFolder(user.getId(), movieFolder.getId(), "沙丘");
         FileNodeVo v1 = upload(user.getId(), dune.getId(), "沙丘.1080p.mkv");
@@ -548,7 +520,7 @@ class MediaMovieScanServiceTest {
      */
     @Test
     void shouldIsolateCleanupWithinDirectory() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder1 = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影一");
         FileNodeVo dune1 = createFolder(user.getId(), movieFolder1.getId(), "沙丘");
         upload(user.getId(), dune1.getId(), "沙丘.2021.mkv");
@@ -582,7 +554,7 @@ class MediaMovieScanServiceTest {
      */
     @Test
     void shouldMarkMovieIncompleteWhenPosterNodeDeletedAfterScan() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo dune = createFolder(user.getId(), movieFolder.getId(), "沙丘");
         upload(user.getId(), dune.getId(), "沙丘.2021.mkv");
@@ -611,7 +583,7 @@ class MediaMovieScanServiceTest {
      */
     @Test
     void shouldKeepMovieCompleteWhenArtworkIntactAfterScan() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo dune = createFolder(user.getId(), movieFolder.getId(), "沙丘");
         upload(user.getId(), dune.getId(), "沙丘.2021.mkv");
@@ -642,7 +614,7 @@ class MediaMovieScanServiceTest {
      */
     @Test
     void shouldUpdateFileHashAndReprobeWhenFileContentChanged() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo dune = createFolder(user.getId(), movieFolder.getId(), "沙丘");
         FileNodeVo video = upload(user.getId(), dune.getId(), "沙丘.2021.mkv");
@@ -688,7 +660,7 @@ class MediaMovieScanServiceTest {
      */
     @Test
     void shouldSkipBatchCleanupWhenScanTimeIsNotStale() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo dune = createFolder(user.getId(), movieFolder.getId(), "沙丘");
         upload(user.getId(), dune.getId(), "沙丘.2021.mkv");
@@ -713,7 +685,7 @@ class MediaMovieScanServiceTest {
      */
     @Test
     void shouldNotCleanupWhenScanFailed() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo dune = createFolder(user.getId(), movieFolder.getId(), "沙丘");
         upload(user.getId(), dune.getId(), "沙丘.2021.mkv");
@@ -740,7 +712,7 @@ class MediaMovieScanServiceTest {
      */
     @Test
     void shouldNotCleanupWhenScanCancelled() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo dune = createFolder(user.getId(), movieFolder.getId(), "沙丘");
         FileNodeVo duneFile = upload(user.getId(), dune.getId(), "沙丘.2021.mkv");
@@ -888,33 +860,4 @@ class MediaMovieScanServiceTest {
         mediaDirectorySourceMapper.insert(source);
     }
 
-    private FileNodeVo upload(String userId, String parentId, String name) {
-        MultipartFile file = new MockMultipartFile("file", name, "video/x-matroska", "video".getBytes());
-        return fileService.upload(file, userId, parentId, null);
-    }
-
-    private FileNodeVo createFolder(String userId, String parentId, String name) {
-        FileCreateFolderDto dto = new FileCreateFolderDto();
-        dto.setParentId(parentId);
-        dto.setName(name);
-        return fileOperationService.createFolder(dto, userId);
-    }
-
-    private UserVo prepareUserWithStorageSpace() {
-        Path spacePath = tempDir.resolve("space-" + System.nanoTime());
-        StorageSpaceSaveDto spaceDto = new StorageSpaceSaveDto();
-        spaceDto.setName("用户空间");
-        spaceDto.setPath(spacePath.toString());
-        StorageSpaceVo space = storageSpaceService.save(spaceDto);
-
-        UserSaveDto userDto = new UserSaveDto();
-        userDto.setUsername("user_" + Long.toUnsignedString(System.nanoTime(), 36));
-        userDto.setPassword("123456");
-        userDto.setStorageSpaceId(space.getId());
-        userDto.setQuota(10L);
-        userDto.setQuotaUnit("GB");
-        UserVo user = userService.saveUser(userDto);
-        UserContext.set(new CurrentUser(user.getId(), user.getUsername()));
-        return user;
-    }
 }

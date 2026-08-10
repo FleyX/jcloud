@@ -1,5 +1,6 @@
 package com.fleyx.jcloud.service;
 
+import com.fleyx.jcloud.common.IntegrationTestBase;
 import com.fleyx.jcloud.common.enums.ConflictStrategy;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.FileMapper;
@@ -9,22 +10,14 @@ import com.fleyx.jcloud.model.dto.FileExecuteOperationDto;
 import com.fleyx.jcloud.model.dto.FilePreCheckOperationDto;
 import com.fleyx.jcloud.model.dto.FileRenameDto;
 import com.fleyx.jcloud.model.dto.OperationItemDto;
-import com.fleyx.jcloud.model.dto.StorageSpaceSaveDto;
-import com.fleyx.jcloud.model.dto.UserSaveDto;
 import com.fleyx.jcloud.model.vo.ConflictItemVo;
 import com.fleyx.jcloud.model.vo.FileNodeVo;
 import com.fleyx.jcloud.model.vo.OperationResultVo;
-import com.fleyx.jcloud.model.vo.StorageSpaceVo;
 import com.fleyx.jcloud.model.vo.UserVo;
 import com.fleyx.jcloud.common.constant.FileNodeConstants;
-import com.fleyx.jcloud.common.context.CurrentUser;
-import com.fleyx.jcloud.common.context.UserContext;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.mock.web.MockMultipartFile;
-import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -41,10 +34,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * 文件组织操作服务测试。
  */
-@SpringBootTest
-@ActiveProfiles("test")
 @Transactional
-class FileOperationServiceTest {
+class FileOperationServiceTest extends IntegrationTestBase {
 
     @Autowired
     private FileOperationService fileOperationService;
@@ -53,16 +44,7 @@ class FileOperationServiceTest {
     private FileService fileService;
 
     @Autowired
-    private UserService userService;
-
-    @Autowired
-    private StorageSpaceService storageSpaceService;
-
-    @Autowired
     private FileMapper fileMapper;
-
-    @TempDir
-    Path tempDir;
 
     @Test
     void shouldRenameFile() throws Exception {
@@ -146,10 +128,12 @@ class FileOperationServiceTest {
 
     @Test
     void shouldNotAffectSiblingFolderWhenRenamingFolder() throws Exception {
-        UserVo user = prepareUserWithStorageSpace().user();
+        UserWithSpace userWithSpace = prepareUserWithStorageSpace();
+        UserVo user = userWithSpace.user();
         FileNodeVo docs = fileOperationService.createFolder(buildCreateFolderDto(FileNodeConstants.ROOT_ID, "docs"), user.getId());
         FileNodeVo docs2 = fileOperationService.createFolder(buildCreateFolderDto(FileNodeConstants.ROOT_ID, "docs2"), user.getId());
         FileNodeVo report = fileService.upload(buildFile("report.txt", "R"), user.getId(), docs2.getId(), null);
+        FileNode before = fileMapper.selectById(report.getId());
 
         FileRenameDto dto = new FileRenameDto();
         dto.setId(docs.getId());
@@ -158,6 +142,9 @@ class FileOperationServiceTest {
 
         FileNode unaffected = fileMapper.selectById(report.getId());
         assertEquals("report.txt", unaffected.getName());
+        // 兄弟文件夹下的文件不受重命名影响：DB path 字段与物理文件均保持原样
+        assertEquals(before.getPath(), unaffected.getPath());
+        assertTrue(Files.exists(resolvePhysicalPath(userWithSpace, "docs2/report.txt")));
     }
 
     @Test
@@ -346,46 +333,5 @@ class FileOperationServiceTest {
 
     private MultipartFile buildFile(String name, String content) {
         return new MockMultipartFile("file", name, "text/plain", content.getBytes());
-    }
-
-    private Path resolvePhysicalPath(UserWithSpace userWithSpace, String relativePath) {
-        return userWithSpace.spacePath()
-                .resolve("files")
-                .resolve(userWithSpace.user().getUsername())
-                .resolve(relativePath);
-    }
-
-    private UserWithSpace prepareUserWithStorageSpace() {
-        return prepareUserWithStorageSpace(10737418240L);
-    }
-
-    private UserWithSpace prepareUserWithStorageSpace(long quota) {
-        Path spacePath = tempDir.resolve("space-" + System.nanoTime());
-        StorageSpaceSaveDto spaceDto = new StorageSpaceSaveDto();
-        spaceDto.setName("用户空间");
-        spaceDto.setPath(spacePath.toString());
-        StorageSpaceVo space = storageSpaceService.save(spaceDto);
-
-        UserSaveDto userDto = new UserSaveDto();
-        userDto.setUsername("user_" + Long.toUnsignedString(System.nanoTime(), 36));
-        userDto.setPassword("123456");
-        userDto.setStorageSpaceId(space.getId());
-        userDto.setQuota(toQuotaValue(quota));
-        userDto.setQuotaUnit(toQuotaUnit(quota));
-        UserVo user = userService.saveUser(userDto);
-        UserContext.set(new CurrentUser(user.getId(), user.getUsername()));
-
-        return new UserWithSpace(user, spacePath);
-    }
-
-    private static long toQuotaValue(long quotaBytes) {
-        return quotaBytes == 10737418240L ? 10L : quotaBytes;
-    }
-
-    private static String toQuotaUnit(long quotaBytes) {
-        return quotaBytes == 10737418240L ? "GB" : "B";
-    }
-
-    private record UserWithSpace(UserVo user, Path spacePath) {
     }
 }

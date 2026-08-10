@@ -107,6 +107,9 @@ public class RemoteMountSyncServiceImpl implements RemoteMountSyncService {
         RemoteMount mount = remoteMountSupport.requireOwnedMount(remoteMountId, userId);
         CronExpression expression = syncTaskSupport.parseCron(dto.getCronExpr());
         LocalDateTime nextSyncTime = dto.getEnabled() == 1 ? expression.next(LocalDateTime.now()) : null;
+        if (dto.getEnabled() == 1 && nextSyncTime == null) {
+            throw new BusinessException(ResultCode.PARAM_ERROR, "cron 表达式在未来没有可执行的时间");
+        }
 
         LambdaUpdateWrapper<RemoteMount> wrapper = new LambdaUpdateWrapper<>();
         wrapper.eq(RemoteMount::getId, remoteMountId);

@@ -194,6 +194,96 @@ class TranscodeCommandBuilderTest {
     }
 
     @Test
+    void shouldBuildTranscodeMainPathWithExactTokenSequence() {
+        // 视频转码主路径：完整 token 序列断言，锁定 -c:v/-vf/-preset/-crf/-b:v/-maxrate/-bufsize 的先后顺序，
+        // 参数颠倒或重复会导致整体失配（子串断言无法捕获）
+        List<String> command = builder.buildCommand(request("hevc", "ac3", 2000L, 720, false),
+                "libx264", "/dev/dri/renderD128", 0, Path.of("/out/session12"));
+
+        assertEquals(List.of(
+                "ffmpeg", "-hide_banner", "-loglevel", "warning",
+                "-i", "/data/movie.mkv",
+                "-map", "0:v:0", "-map", "0:a:0?",
+                "-c:v", "libx264",
+                "-vf", "scale=-2:min(720\\,ih)",
+                "-preset", "veryfast", "-crf", "23",
+                "-b:v", "2000k", "-maxrate", "2000k", "-bufsize", "4000k",
+                "-c:a", "aac", "-b:a", "128k", "-ac", "2",
+                "-f", "hls", "-hls_time", "4", "-hls_list_size", "0",
+                "-hls_segment_type", "fmp4", "-hls_flags", "independent_segments",
+                "-hls_segment_filename", "/out/session12/seg_%05d.m4s", "/out/session12/index.m3u8"), command);
+    }
+
+    @Test
+    void shouldPlaceSeekBeforeInputWhenTranscodingWithSeek() {
+        // 转码 + seek：-ss 必须在 -i 之前且不带 -noaccurate_seek，-threads 位于码率参数之后；
+        // 精确 seek 裁剪解码流，故音频（即使 aac 可 copy）也必须重编码对齐 seek 点
+        TranscodeCommandBuilder.TranscodeRequest request = new TranscodeCommandBuilder.TranscodeRequest(
+                1_717_501, null, Path.of("/data/movie.mp4"), null, "hevc", "aac", 1000L, 480, false);
+        List<String> command = builder.buildCommand(request, "libx264",
+                "/dev/dri/renderD128", 4, Path.of("/out/session13"));
+
+        assertEquals(List.of(
+                "ffmpeg", "-hide_banner", "-loglevel", "warning",
+                "-ss", "1717.501",
+                "-i", "/data/movie.mp4",
+                "-map", "0:v:0", "-map", "0:a:0?",
+                "-c:v", "libx264",
+                "-vf", "scale=-2:min(480\\,ih)",
+                "-preset", "veryfast", "-crf", "23",
+                "-b:v", "1000k", "-maxrate", "1000k", "-bufsize", "2000k",
+                "-threads", "4",
+                "-c:a", "aac", "-b:a", "128k", "-ac", "2",
+                "-f", "hls", "-hls_time", "4", "-hls_list_size", "0",
+                "-hls_segment_type", "fmp4", "-hls_flags", "independent_segments",
+                "-hls_segment_filename", "/out/session13/seg_%05d.m4s", "/out/session13/index.m3u8"), command);
+    }
+
+    @Test
+    void shouldBuildRemuxWithSeekAndExactlyOneVideoCopyToken() {
+        // 转封装 + seek + 可 copy 音频：-c:v copy 全序列中只能出现一次且紧随 -map 之后；
+        // 同时锁定 -ss 90.500 之后紧跟 -noaccurate_seek、再后才是 -i 的顺序
+        TranscodeCommandBuilder.TranscodeRequest request = new TranscodeCommandBuilder.TranscodeRequest(
+                90_500, null, Path.of("/data/movie.mkv"), null, "h264", "aac", null, null, false);
+        List<String> command = builder.buildCommand(request, TranscodeCommandBuilder.ENCODER_COPY,
+                "/dev/dri/renderD128", 0, Path.of("/out/session14"));
+
+        assertEquals(List.of(
+                "ffmpeg", "-hide_banner", "-loglevel", "warning",
+                "-ss", "90.500", "-noaccurate_seek",
+                "-i", "/data/movie.mkv",
+                "-map", "0:v:0", "-map", "0:a:0?",
+                "-c:v", "copy",
+                "-c:a", "copy",
+                "-f", "hls", "-hls_time", "4", "-hls_list_size", "0",
+                "-hls_segment_type", "fmp4", "-hls_flags", "independent_segments",
+                "-hls_segment_filename", "/out/session14/seg_%05d.m4s", "/out/session14/index.m3u8"), command);
+    }
+
+    @Test
+    void shouldPlaceVaapiDeviceBeforeSeekAndInput() {
+        // vaapi 硬解 + seek：-vaapi_device 必须在 -ss 之前（先挂设备再定位），-ss 在 -i 之前
+        TranscodeCommandBuilder.TranscodeRequest request = new TranscodeCommandBuilder.TranscodeRequest(
+                90_500, null, Path.of("/data/movie.mkv"), null, "mpeg2video", "ac3", 8000L, 1080, false);
+        List<String> command = builder.buildCommand(request, "h264_vaapi",
+                "/dev/dri/renderD129", 0, Path.of("/out/session15"));
+
+        assertEquals(List.of(
+                "ffmpeg", "-hide_banner", "-loglevel", "warning",
+                "-vaapi_device", "/dev/dri/renderD129",
+                "-ss", "90.500",
+                "-i", "/data/movie.mkv",
+                "-map", "0:v:0", "-map", "0:a:0?",
+                "-c:v", "h264_vaapi",
+                "-vf", "scale=-2:min(1080\\,ih),format=nv12,hwupload",
+                "-b:v", "8000k", "-maxrate", "8000k", "-bufsize", "16000k",
+                "-c:a", "aac", "-b:a", "128k", "-ac", "2",
+                "-f", "hls", "-hls_time", "4", "-hls_list_size", "0",
+                "-hls_segment_type", "fmp4", "-hls_flags", "independent_segments",
+                "-hls_segment_filename", "/out/session15/seg_%05d.m4s", "/out/session15/index.m3u8"), command);
+    }
+
+    @Test
     void testValidateParams() {
         TranscodeCommandBuilder.validateParams(null, null);
         TranscodeCommandBuilder.validateParams(2000L, 720);

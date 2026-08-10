@@ -1,5 +1,6 @@
 package com.fleyx.jcloud.job;
 
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.fleyx.jcloud.common.event.UserSyncSubmittedEvent;
 import com.fleyx.jcloud.mapper.UserSyncConfigMapper;
 import com.fleyx.jcloud.mapper.UserSyncTaskMapper;
@@ -56,15 +57,24 @@ public class UserSyncScheduler {
 
     private void triggerScheduledSync(UserSyncConfig config, LocalDateTime now) {
         String userId = config.getUserId();
+        LocalDateTime nextSyncTime = calcNextSyncTime(config, now);
+        if (nextSyncTime == null) {
+            // 解析失败或无未来执行时间：显式置空 next_sync_time，避免残留过期值导致每分钟重复创建任务
+            log.warn("cron 解析失败或无未来执行时间，跳过本次定时同步并清除下次同步时间，userId={}, cronExpr={}",
+                    userId, config.getCronExpr());
+            clearNextSyncTime(userId);
+            return;
+        }
+
         if (hasRunningTask(userId)) {
             log.info("用户存在进行中的同步任务，跳过本次定时同步，userId={}", userId);
-            updateNextSyncTime(config, now);
+            advanceNextSyncTime(userId, nextSyncTime);
             return;
         }
 
         UserSyncTask task = userSyncService.createScheduledTask(userId);
         eventPublisher.publishEvent(new UserSyncSubmittedEvent(this, task.getId()));
-        updateNextSyncTime(config, now);
+        advanceNextSyncTime(userId, nextSyncTime);
         log.info("已触发用户定时同步，userId={}, taskId={}", userId, task.getId());
     }
 
@@ -73,12 +83,31 @@ public class UserSyncScheduler {
                 UserSyncTask::getStatus, SyncTaskSupport.ACTIVE_STATUSES);
     }
 
-    private void updateNextSyncTime(UserSyncConfig config, LocalDateTime now) {
+    /**
+     * 解析 cron 并计算下次同步时间；解析失败或无未来执行时间返回 {@code null}。
+     */
+    private LocalDateTime calcNextSyncTime(UserSyncConfig config, LocalDateTime now) {
         CronExpression expression = syncTaskSupport.tryParseCron(config.getCronExpr());
-        if (expression == null) {
-            return;
-        }
-        config.setNextSyncTime(expression.next(now));
-        userSyncConfigMapper.updateById(config);
+        return expression == null ? null : expression.next(now);
+    }
+
+    /**
+     * 推进下次同步时间（用 LambdaUpdateWrapper 显式更新，规避 NOT_NULL 更新策略）。
+     */
+    private void advanceNextSyncTime(String userId, LocalDateTime nextSyncTime) {
+        LambdaUpdateWrapper<UserSyncConfig> wrapper = new LambdaUpdateWrapper<>();
+        wrapper.eq(UserSyncConfig::getUserId, userId);
+        wrapper.set(UserSyncConfig::getNextSyncTime, nextSyncTime);
+        userSyncConfigMapper.update(wrapper);
+    }
+
+    /**
+     * 显式把 next_sync_time 置空，避免残留过期值导致每分钟重复创建任务。
+     */
+    private void clearNextSyncTime(String userId) {
+        LambdaUpdateWrapper<UserSyncConfig> wrapper = new LambdaUpdateWrapper<>();
+        wrapper.eq(UserSyncConfig::getUserId, userId);
+        wrapper.set(UserSyncConfig::getNextSyncTime, null);
+        userSyncConfigMapper.update(wrapper);
     }
 }

@@ -6,12 +6,12 @@ import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
-import java.lang.reflect.Method;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 /**
  * WebDAV 协议适配器测试。
@@ -19,56 +19,56 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 class WebDavProtocolAdapterTest {
 
     @Test
-    void shouldConvertAbsoluteHrefToRemotePath() throws Exception {
+    void shouldConvertAbsoluteHrefToRemotePath() {
         WebDavPropFindParser parser = new WebDavPropFindParser("/remote.php/webdav");
 
-        assertEquals("/test", invokeToRemotePath(parser, "/remote.php/webdav/test/"));
-        assertEquals("/test/test1", invokeToRemotePath(parser, "/remote.php/webdav/test/test1/"));
-        assertEquals("/test/test1/test2", invokeToRemotePath(parser, "/remote.php/webdav/test/test1/test2/"));
+        assertEquals("/test", parser.toRemotePath("/remote.php/webdav/test/"));
+        assertEquals("/test/test1", parser.toRemotePath("/remote.php/webdav/test/test1/"));
+        assertEquals("/test/test1/test2", parser.toRemotePath("/remote.php/webdav/test/test1/test2/"));
     }
 
     @Test
-    void shouldConvertRelativeHrefToRemotePath() throws Exception {
+    void shouldConvertRelativeHrefToRemotePath() {
         WebDavPropFindParser parser = new WebDavPropFindParser("/remote.php/webdav");
 
-        assertEquals("/test", invokeToRemotePath(parser, "test/"));
-        assertEquals("/test/test1", invokeToRemotePath(parser, "test/test1/"));
+        assertEquals("/test", parser.toRemotePath("test/"));
+        assertEquals("/test/test1", parser.toRemotePath("test/test1/"));
     }
 
     @Test
-    void shouldBuildFullUrl() throws Exception {
+    void shouldBuildFullUrl() {
         WebDavConfig config = buildConfig("https://example.com/remote.php/webdav");
         WebDavProtocolAdapter adapter = new WebDavProtocolAdapter(config);
 
         assertEquals("https://example.com/remote.php/webdav/test",
-                invokeBuildFullUrl(adapter, "/test"));
+                adapter.buildFullUrl("/test"));
         assertEquals("https://example.com/remote.php/webdav/",
-                invokeBuildFullUrl(adapter, "/"));
+                adapter.buildFullUrl("/"));
     }
 
     @Test
-    void shouldBuildFullUrlForRootWebDav() throws Exception {
+    void shouldBuildFullUrlForRootWebDav() {
         WebDavConfig config = buildConfig("https://example.com/");
         WebDavProtocolAdapter adapter = new WebDavProtocolAdapter(config);
 
-        assertEquals("https://example.com/test", invokeBuildFullUrl(adapter, "/test"));
-        assertEquals("https://example.com/", invokeBuildFullUrl(adapter, "/"));
+        assertEquals("https://example.com/test", adapter.buildFullUrl("/test"));
+        assertEquals("https://example.com/", adapter.buildFullUrl("/"));
     }
 
     @Test
-    void shouldTreatConfiguredSubFolderAsRemoteRoot() throws Exception {
+    void shouldTreatConfiguredSubFolderAsRemoteRoot() {
         WebDavConfig config = buildConfig("https://example.com/remote.php/webdav/test");
         WebDavProtocolAdapter adapter = new WebDavProtocolAdapter(config);
         WebDavPropFindParser parser = new WebDavPropFindParser("/remote.php/webdav/test");
 
-        assertEquals("/", invokeToRemotePath(parser, "/remote.php/webdav/test/"));
-        assertEquals("/test1", invokeToRemotePath(parser, "/remote.php/webdav/test/test1/"));
-        assertEquals("/test1/test2", invokeToRemotePath(parser, "/remote.php/webdav/test/test1/test2/"));
+        assertEquals("/", parser.toRemotePath("/remote.php/webdav/test/"));
+        assertEquals("/test1", parser.toRemotePath("/remote.php/webdav/test/test1/"));
+        assertEquals("/test1/test2", parser.toRemotePath("/remote.php/webdav/test/test1/test2/"));
 
         assertEquals("https://example.com/remote.php/webdav/test/",
-                invokeBuildFullUrl(adapter, "/"));
+                adapter.buildFullUrl("/"));
         assertEquals("https://example.com/remote.php/webdav/test/test1",
-                invokeBuildFullUrl(adapter, "/test1"));
+                adapter.buildFullUrl("/test1"));
     }
 
     @Test
@@ -128,6 +128,7 @@ class WebDavProtocolAdapterTest {
 
             adapter.upload("/test.txt", is, -1, "text/plain");
 
+            assertNull(capturedContentLength.get());
             assertEquals(content, new String(capturedBody.get(), StandardCharsets.UTF_8));
         } finally {
             server.stop(0);
@@ -142,15 +143,4 @@ class WebDavProtocolAdapterTest {
         return config;
     }
 
-    private String invokeToRemotePath(WebDavPropFindParser parser, String href) throws Exception {
-        Method method = WebDavPropFindParser.class.getDeclaredMethod("toRemotePath", String.class);
-        method.setAccessible(true);
-        return (String) method.invoke(parser, href);
-    }
-
-    private String invokeBuildFullUrl(WebDavProtocolAdapter adapter, String remotePath) throws Exception {
-        Method method = WebDavProtocolAdapter.class.getDeclaredMethod("buildFullUrl", String.class);
-        method.setAccessible(true);
-        return (String) method.invoke(adapter, remotePath);
-    }
 }

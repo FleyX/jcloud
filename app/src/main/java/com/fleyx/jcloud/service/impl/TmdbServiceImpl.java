@@ -160,12 +160,19 @@ public class TmdbServiceImpl implements TmdbService {
         return metadata;
     }
 
-    /** 将 TMDB 详情/季/集响应映射到游离元数据（不含图片）；movie 为电影字段（title/release_date），否则为剧/季/集。 */
+    /**
+     * 将 TMDB 详情/季/集响应映射到游离元数据（不含图片）；movie 为电影字段（title/release_date），否则为剧/季/集。
+     * <p>
+     * 日期字段存在差异：电影详情为 release_date；剧集详情顶层为 first_air_date，
+     * 季/集节点为 air_date，故非电影场景先读 first_air_date、为空时兜底 air_date。
+     */
     private void applyDetailV2(MediaMetadata metadata, JsonNode node, boolean movie) {
         metadata.setTitle(text(node, movie ? "title" : "name"));
         metadata.setOriginalTitle(text(node, movie ? "original_title" : "original_name"));
         metadata.setOverview(text(node, "overview"));
-        metadata.setReleaseDate(text(node, movie ? "release_date" : "air_date"));
+        metadata.setReleaseDate(movie
+                ? text(node, "release_date")
+                : firstText(node, "first_air_date", "air_date"));
         metadata.setVoteAverage(node.path("vote_average").isNumber() ? node.path("vote_average").asDouble() : null);
         List<String> genres = new ArrayList<>();
         for (JsonNode genre : node.path("genres")) {
@@ -238,5 +245,16 @@ public class TmdbServiceImpl implements TmdbService {
     private String text(JsonNode node, String field) {
         JsonNode value = node.path(field);
         return value.isTextual() && !value.asText().isBlank() ? value.asText() : null;
+    }
+
+    /** 返回第一个 hasText 的字段值（语义与 text() 一致，空白视为无值），均无则返回 null。 */
+    private String firstText(JsonNode node, String... fields) {
+        for (String field : fields) {
+            String value = text(node, field);
+            if (value != null) {
+                return value;
+            }
+        }
+        return null;
     }
 }

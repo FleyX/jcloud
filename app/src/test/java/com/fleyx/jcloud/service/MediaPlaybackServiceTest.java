@@ -3,8 +3,6 @@ package com.fleyx.jcloud.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.fleyx.jcloud.common.constant.FileNodeConstants;
-import com.fleyx.jcloud.common.context.CurrentUser;
-import com.fleyx.jcloud.common.context.UserContext;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.FileMapper;
 import com.fleyx.jcloud.mapper.MediaDirectoryMapper;
@@ -17,9 +15,6 @@ import com.fleyx.jcloud.mapper.MediaOtherMapper;
 import com.fleyx.jcloud.mapper.MediaSubtitleMapper;
 import com.fleyx.jcloud.mapper.MediaSeriesMapper;
 import com.fleyx.jcloud.model.bo.MediaProbeResult;
-import com.fleyx.jcloud.model.dto.FileCreateFolderDto;
-import com.fleyx.jcloud.model.dto.StorageSpaceSaveDto;
-import com.fleyx.jcloud.model.dto.UserSaveDto;
 import com.fleyx.jcloud.model.po.MediaDirectory;
 import com.fleyx.jcloud.model.po.MediaDirectorySource;
 import com.fleyx.jcloud.model.po.MediaEpisode;
@@ -36,11 +31,8 @@ import com.fleyx.jcloud.model.vo.StorageSpaceVo;
 import com.fleyx.jcloud.model.vo.UserVo;
 import com.fleyx.jcloud.service.support.MediaSubtitleSupport;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.mock.web.MockMultipartFile;
-import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -50,6 +42,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -58,16 +51,15 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
  * 媒体播放服务测试（issue #19 起播放链路切新模型）：
  * 播放信息基于文件明细行事实、进度记录到标题级新行（电影/集/其他）、多版本共享进度且
  * 续播按 last_play_file_id 定位版本、外部字幕按明细行关联、统一字幕列表与实际码率估算、vtt 转换与缓存。
  */
-@SpringBootTest
-@ActiveProfiles("test")
 @Transactional
-class MediaPlaybackServiceTest {
+class MediaPlaybackServiceTest extends MediaScanTestBase {
 
     private static final String SRT_CONTENT = """
             1
@@ -78,18 +70,6 @@ class MediaPlaybackServiceTest {
             00:00:05,000 --> 00:00:06,000
             第二行
             """;
-
-    @Autowired
-    private FileService fileService;
-
-    @Autowired
-    private UserService userService;
-
-    @Autowired
-    private StorageSpaceService storageSpaceService;
-
-    @Autowired
-    private FileOperationService fileOperationService;
 
     @Autowired
     private MediaScanService mediaScanService;
@@ -139,16 +119,13 @@ class MediaPlaybackServiceTest {
     @MockitoBean
     private MediaScrapeService mediaScrapeService;
 
-    @TempDir
-    Path tempDir;
-
     /**
      * 播放信息装配统一字幕列表：外部字幕默认优先、其余按标签排序；
      * ffprobe 码率缺失时按明细行文件大小与时长估算实际码率；进度取电影标题级行。
      */
     @Test
     void shouldAssembleUnifiedSubtitleListAndEstimateBitRate() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo dune = createFolder(user.getId(), movieFolder.getId(), "沙丘");
         fileService.upload(buildFile("沙丘.mkv", "video".getBytes()), user.getId(), dune.getId(), null);
@@ -193,7 +170,7 @@ class MediaPlaybackServiceTest {
      */
     @Test
     void shouldRecordProgressToTitleRowsAndResumeByLastPlayFileId() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         // 电影：两版本 + 各版本独立字幕（1080p 简体 / 4K English）
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo dune = createFolder(user.getId(), movieFolder.getId(), "沙丘");
@@ -244,7 +221,7 @@ class MediaPlaybackServiceTest {
      */
     @Test
     void shouldRecordProgressToEpisodeAndOtherRows() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         // 电视剧
         FileNodeVo tvRoot = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电视");
         FileNodeVo series = createFolder(user.getId(), tvRoot.getId(), "剧甲");
@@ -252,7 +229,12 @@ class MediaPlaybackServiceTest {
         fileService.upload(buildFile("剧甲.S01E01.mkv", "video".getBytes()), user.getId(), season.getId(), null);
         MediaDirectory tvDir = createDirectory(user.getId(), tvRoot.getId(), "tv");
         mediaScanService.scan(tvDir.getId());
-        MediaEpisode episode = mediaEpisodeMapper.selectList(null).getFirst();
+        MediaEpisode episode = mediaEpisodeMapper.selectList(new LambdaQueryWrapper<MediaEpisode>()
+                .eq(MediaEpisode::getSeriesId,
+                        mediaSeriesMapper.selectList(null).stream()
+                                .filter(s -> tvDir.getId().equals(s.getDirectoryId()))
+                                .findFirst().orElseThrow().getId()))
+                .getFirst();
 
         mediaItemService.updateProgress(episode.getId(), progressDto(3000L), user.getId());
         MediaEpisode after = mediaEpisodeMapper.selectById(episode.getId());
@@ -280,7 +262,9 @@ class MediaPlaybackServiceTest {
      */
     @Test
     void shouldConvertExternalSrtToVttAndReuseCache() throws Exception {
-        UserVo user = prepareUserWithStorageSpace();
+        // srt→vtt 真实调用 ffmpeg，环境缺失时跳过而非失败
+        assumeTrue(isFfmpegAvailable());
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo dune = createFolder(user.getId(), movieFolder.getId(), "沙丘");
         fileService.upload(buildFile("沙丘.mkv", "video".getBytes()), user.getId(), dune.getId(), null);
@@ -313,7 +297,9 @@ class MediaPlaybackServiceTest {
      */
     @Test
     void shouldConvertGbkEncodedSrtToVtt() throws Exception {
-        UserVo user = prepareUserWithStorageSpace();
+        // srt→vtt 真实调用 ffmpeg，环境缺失时跳过而非失败
+        assumeTrue(isFfmpegAvailable());
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo dune = createFolder(user.getId(), movieFolder.getId(), "沙丘");
         fileService.upload(buildFile("沙丘.mkv", "video".getBytes()), user.getId(), dune.getId(), null);
@@ -341,7 +327,7 @@ class MediaPlaybackServiceTest {
      */
     @Test
     void shouldAssembleUnifiedSubtitleListWithEmbeddedAndExternalTracks() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo dune = createFolder(user.getId(), movieFolder.getId(), "沙丘");
         fileService.upload(buildFile("沙丘.mkv", "video".getBytes()), user.getId(), dune.getId(), null);
@@ -396,7 +382,7 @@ class MediaPlaybackServiceTest {
      */
     @Test
     void shouldReturnLocalVttDirectly() throws Exception {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo dune = createFolder(user.getId(), movieFolder.getId(), "沙丘");
         fileService.upload(buildFile("沙丘.mkv", "video".getBytes()), user.getId(), dune.getId(), null);
@@ -420,7 +406,7 @@ class MediaPlaybackServiceTest {
      */
     @Test
     void shouldRejectSubtitleNotBelongingToFileRow() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo movieA = createFolder(user.getId(), movieFolder.getId(), "沙丘A");
         fileService.upload(buildFile("沙丘A.mkv", "video".getBytes()), user.getId(), movieA.getId(), null);
@@ -448,7 +434,7 @@ class MediaPlaybackServiceTest {
      */
     @Test
     void shouldPlaySpecifiedVersionWhenVersionIdProvided() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo dune = createFolder(user.getId(), movieFolder.getId(), "沙丘");
         fileService.upload(buildFile("沙丘.1080p.mkv", "video".getBytes()), user.getId(), dune.getId(), null);
@@ -486,7 +472,7 @@ class MediaPlaybackServiceTest {
      */
     @Test
     void shouldRejectVersionNotBelongingToMovieAndIgnoreForEpisode() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo movieA = createFolder(user.getId(), movieFolder.getId(), "沙丘A");
         fileService.upload(buildFile("沙丘A.mkv", "video".getBytes()), user.getId(), movieA.getId(), null);
@@ -535,7 +521,7 @@ class MediaPlaybackServiceTest {
      */
     @Test
     void shouldRecordProgressWithVersionIdAndResumeOnThatVersion() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo dune = createFolder(user.getId(), movieFolder.getId(), "沙丘");
         fileService.upload(buildFile("沙丘.1080p.mkv", "video".getBytes()), user.getId(), dune.getId(), null);
@@ -575,7 +561,9 @@ class MediaPlaybackServiceTest {
      */
     @Test
     void shouldApplyOffsetToExternalSubtitleAndKeepCanonicalUntouched() throws Exception {
-        UserVo user = prepareUserWithStorageSpace();
+        // 规范 VTT 经 srt 转换生成，真实调用 ffmpeg，环境缺失时跳过而非失败
+        assumeTrue(isFfmpegAvailable());
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo dune = createFolder(user.getId(), movieFolder.getId(), "沙丘");
         fileService.upload(buildFile("沙丘.mkv", "video".getBytes()), user.getId(), dune.getId(), null);
@@ -613,7 +601,7 @@ class MediaPlaybackServiceTest {
      */
     @Test
     void shouldRejectNegativeOffset() {
-        UserVo user = prepareUserWithStorageSpace();
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo dune = createFolder(user.getId(), movieFolder.getId(), "沙丘");
         fileService.upload(buildFile("沙丘.mkv", "video".getBytes()), user.getId(), dune.getId(), null);
@@ -635,7 +623,9 @@ class MediaPlaybackServiceTest {
      */
     @Test
     void shouldGenerateNewCacheWhenContentVersionChanges() throws Exception {
-        UserVo user = prepareUserWithStorageSpace();
+        // srt→vtt 真实调用 ffmpeg，环境缺失时跳过而非失败
+        assumeTrue(isFfmpegAvailable());
+        UserVo user = prepareUserWithStorageSpace().user();
         FileNodeVo movieFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电影");
         FileNodeVo dune = createFolder(user.getId(), movieFolder.getId(), "沙丘");
         fileService.upload(buildFile("沙丘.mkv", "video".getBytes()), user.getId(), dune.getId(), null);
@@ -671,7 +661,9 @@ class MediaPlaybackServiceTest {
      */
     @Test
     void shouldReadExternalSubtitleForEpisodeAndOtherRows() throws Exception {
-        UserVo user = prepareUserWithStorageSpace();
+        // srt→vtt 真实调用 ffmpeg，环境缺失时跳过而非失败
+        assumeTrue(isFfmpegAvailable());
+        UserVo user = prepareUserWithStorageSpace().user();
         // 电视剧：字幕挂在集文件明细行
         FileNodeVo tvRoot = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电视");
         FileNodeVo series = createFolder(user.getId(), tvRoot.getId(), "剧甲");
@@ -681,7 +673,12 @@ class MediaPlaybackServiceTest {
                 user.getId(), season.getId(), null);
         MediaDirectory tvDir = createDirectory(user.getId(), tvRoot.getId(), "tv");
         mediaScanService.scan(tvDir.getId());
-        MediaEpisode episode = mediaEpisodeMapper.selectList(null).getFirst();
+        MediaEpisode episode = mediaEpisodeMapper.selectList(new LambdaQueryWrapper<MediaEpisode>()
+                .eq(MediaEpisode::getSeriesId,
+                        mediaSeriesMapper.selectList(null).stream()
+                                .filter(s -> tvDir.getId().equals(s.getDirectoryId()))
+                                .findFirst().orElseThrow().getId()))
+                .getFirst();
         MediaEpisodeFile episodeFile = mediaEpisodeFileMapper.selectList(
                 new LambdaQueryWrapper<MediaEpisodeFile>().eq(MediaEpisodeFile::getEpisodeId, episode.getId())).getFirst();
         MediaSubtitle episodeSubtitle = querySubtitle(episodeFile.getId());
@@ -733,6 +730,22 @@ class MediaPlaybackServiceTest {
         return dto;
     }
 
+    /**
+     * 检测运行环境是否可用 ffmpeg（srt/ass/ssa → vtt 转换依赖它），不可用时相关用例跳过。
+     */
+    private boolean isFfmpegAvailable() {
+        try {
+            Process process = new ProcessBuilder("ffmpeg", "-version").redirectErrorStream(true).start();
+            if (!process.waitFor(5, TimeUnit.SECONDS)) {
+                process.destroyForcibly();
+                return false;
+            }
+            return process.exitValue() == 0;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     private String fileNodeIdByName(String fileName) {
         return fileMapper.selectOne(new LambdaQueryWrapper<FileNode>()
                 .eq(FileNode::getName, fileName)).getId();
@@ -781,33 +794,12 @@ class MediaPlaybackServiceTest {
         return directory;
     }
 
-    private FileNodeVo createFolder(String userId, String parentId, String name) {
-        FileCreateFolderDto dto = new FileCreateFolderDto();
-        dto.setParentId(parentId);
-        dto.setName(name);
-        return fileOperationService.createFolder(dto, userId);
-    }
-
     private MultipartFile buildFile(String name, byte[] content) {
         return new MockMultipartFile("file", name, "application/octet-stream", content);
     }
 
-    private UserVo prepareUserWithStorageSpace() {
-        Path spacePath = tempDir.resolve("space-" + System.nanoTime());
-        StorageSpaceSaveDto spaceDto = new StorageSpaceSaveDto();
-        spaceDto.setName("用户空间");
-        spaceDto.setPath(spacePath.toString());
-        StorageSpaceVo space = storageSpaceService.save(spaceDto);
+    @Override
+    protected void afterSpaceCreated(StorageSpaceVo space) {
         systemConfigService.setValue("system.storage.space.id", String.valueOf(space.getId()));
-
-        UserSaveDto userDto = new UserSaveDto();
-        userDto.setUsername("user_" + Long.toUnsignedString(System.nanoTime(), 36));
-        userDto.setPassword("123456");
-        userDto.setStorageSpaceId(space.getId());
-        userDto.setQuota(10L);
-        userDto.setQuotaUnit("GB");
-        UserVo user = userService.saveUser(userDto);
-        UserContext.set(new CurrentUser(user.getId(), user.getUsername()));
-        return user;
     }
 }

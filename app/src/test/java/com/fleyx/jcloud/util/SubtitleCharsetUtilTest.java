@@ -1,5 +1,7 @@
 package com.fleyx.jcloud.util;
 
+import com.fleyx.jcloud.common.enums.ResultCode;
+import com.fleyx.jcloud.common.exception.SystemException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -11,6 +13,8 @@ import java.nio.file.Path;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -52,5 +56,16 @@ class SubtitleCharsetUtilTest {
         } finally {
             Files.deleteIfExists(result);
         }
+    }
+
+    @Test
+    void testEnsureUtf8ThrowsSystemExceptionWhenInputMissing() {
+        Path missing = tempDir.resolve("not-exists.srt");
+
+        SystemException ex = assertThrows(SystemException.class, () -> SubtitleCharsetUtil.ensureUtf8(missing));
+
+        assertEquals(ResultCode.SYSTEM_ERROR, ex.getResultCode());
+        assertEquals("字幕编码转换失败", ex.getMessage());
+        assertNotNull(ex.getCause());
     }
 }

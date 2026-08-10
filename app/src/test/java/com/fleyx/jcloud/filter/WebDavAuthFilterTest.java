@@ -119,6 +119,77 @@ class WebDavAuthFilterTest {
         assertEquals(401, response.getStatus());
     }
 
+    @Test
+    void shouldRejectWrongPassword() throws Exception {
+        UserVo user = createUser("webdavWrongPasswordUser", true);
+        WebDavAuthFilter filter = new WebDavAuthFilter(userMapper);
+        MockHttpServletRequest request = new MockHttpServletRequest("PROPFIND", "/dav/" + user.getUsername() + "/");
+        request.addHeader("Authorization", basicAuth(user.getUsername(), "wrong-password"));
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        filter.doFilterInternal(request, response, (req, res) -> {});
+        assertEquals(401, response.getStatus());
+        assertTrue(response.getHeader("WWW-Authenticate").contains("Basic"));
+    }
+
+    @Test
+    void shouldRejectDisabledStatusUser() throws Exception {
+        UserVo user = createUser("webdavDisabledStatusUser", true);
+        User update = new User();
+        update.setId(user.getId());
+        update.setStatus(UserStatus.DISABLED.getCode());
+        userMapper.updateById(update);
+
+        WebDavAuthFilter filter = new WebDavAuthFilter(userMapper);
+        MockHttpServletRequest request = new MockHttpServletRequest("PROPFIND", "/dav/" + user.getUsername() + "/");
+        request.addHeader("Authorization", basicAuth(user.getUsername(), "123456"));
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        filter.doFilterInternal(request, response, (req, res) -> {});
+        assertEquals(401, response.getStatus());
+    }
+
+    @Test
+    void shouldRejectNonDavUri() throws Exception {
+        WebDavAuthFilter filter = new WebDavAuthFilter(userMapper);
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/other/path");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        boolean[] chained = {false};
+        FilterChain chain = (req, res) -> chained[0] = true;
+        filter.doFilterInternal(request, response, chain);
+        assertEquals(401, response.getStatus());
+        assertTrue(!chained[0]);
+    }
+
+    @Test
+    void shouldRejectBasicHeaderWithoutColon() throws Exception {
+        WebDavAuthFilter filter = new WebDavAuthFilter(userMapper);
+        MockHttpServletRequest request = new MockHttpServletRequest("PROPFIND", "/dav/admin/");
+        String encoded = Base64.getEncoder().encodeToString("usernamepassword".getBytes());
+        request.addHeader("Authorization", "Basic " + encoded);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        filter.doFilterInternal(request, response, (req, res) -> {});
+        assertEquals(401, response.getStatus());
+    }
+
+    @Test
+    void shouldRejectMalformedBase64BasicHeader() throws Exception {
+        WebDavAuthFilter filter = new WebDavAuthFilter(userMapper);
+        MockHttpServletRequest request = new MockHttpServletRequest("PROPFIND", "/dav/admin/");
+        request.addHeader("Authorization", "Basic !!!not-base64!!!");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        filter.doFilterInternal(request, response, (req, res) -> {});
+        assertEquals(401, response.getStatus());
+    }
+
+    @Test
+    void shouldRejectUnknownUser() throws Exception {
+        WebDavAuthFilter filter = new WebDavAuthFilter(userMapper);
+        MockHttpServletRequest request = new MockHttpServletRequest("PROPFIND", "/dav/webdavGhostUser/");
+        request.addHeader("Authorization", basicAuth("webdavGhostUser", "123456"));
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        filter.doFilterInternal(request, response, (req, res) -> {});
+        assertEquals(401, response.getStatus());
+    }
+
     private String basicAuth(String username, String password) {
         return "Basic " + Base64.getEncoder().encodeToString((username + ":" + password).getBytes());
     }

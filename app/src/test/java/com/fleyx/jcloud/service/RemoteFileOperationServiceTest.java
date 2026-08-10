@@ -15,6 +15,7 @@ import com.fleyx.jcloud.model.vo.UserVo;
 import com.fleyx.jcloud.service.impl.RemoteProtocolAdapterFactory;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -69,6 +70,9 @@ class RemoteFileOperationServiceTest {
 
     @MockitoBean
     private RemoteProtocolAdapterFactory adapterFactory;
+
+    @TempDir
+    Path tempDir;
 
     private RemoteProtocolAdapter adapter;
 
@@ -132,7 +136,7 @@ class RemoteFileOperationServiceTest {
 
         remoteFileOperationService.move(node, docsNode, "a.txt", user.getId());
 
-        verify(adapter, Mockito.atLeastOnce()).move(anyString(), contains("docs"));
+        verify(adapter).move(anyString(), contains("docs"));
         FileNode moved = fileMapper.selectById(node.getId());
         assertEquals(docs.getId(), moved.getParentId());
     }
@@ -201,7 +205,7 @@ class RemoteFileOperationServiceTest {
 
     private UserVo prepareUser() {
         try {
-            Path spacePath = Files.createTempDirectory("remote-op-space-");
+            Path spacePath = Files.createTempDirectory(tempDir, "remote-op-space-");
             StorageSpaceSaveDto spaceDto = new StorageSpaceSaveDto();
             spaceDto.setName("remote-op-space-" + System.nanoTime());
             spaceDto.setPath(spacePath.toString());

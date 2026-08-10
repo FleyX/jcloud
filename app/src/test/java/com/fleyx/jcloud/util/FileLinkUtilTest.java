@@ -42,5 +42,7 @@ class FileLinkUtilTest {
 
         assertTrue(Files.exists(target));
         assertEquals("hello", Files.readString(target));
+        // 硬链接语义：源与目标指向同一文件（而非内容相同但物理独立的副本）
+        assertTrue(Files.isSameFile(source, target));
     }
 }

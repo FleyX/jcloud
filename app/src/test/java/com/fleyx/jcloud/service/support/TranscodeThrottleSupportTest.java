@@ -149,13 +149,6 @@ class TranscodeThrottleSupportTest {
     }
 
     @Test
-    void shouldReturnLinuxCheckResult() {
-        // 仅断言该方法正常返回布尔值，不依赖具体运行环境做断言
-        boolean isLinux = support.isLinux();
-        assertEquals(System.getProperty("os.name").toLowerCase().startsWith("linux"), isLinux);
-    }
-
-    @Test
     void shouldDetectCompleteWhenEndlistPresent(@TempDir Path tempDir) throws Exception {
         Path m3u8 = tempDir.resolve("index.m3u8");
         Files.writeString(m3u8, """

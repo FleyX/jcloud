@@ -52,9 +52,9 @@ class UsernameUtilTest {
 
     @Test
     void shouldRejectReservedNames() {
-        assertFalse(UsernameUtil.isValid("files"));
-        assertFalse(UsernameUtil.isValid("trash"));
-        assertFalse(UsernameUtil.isValid("tmp"));
+        // 保留名单中仅 "system" 同时满足长度与字符集校验，能真正命中 RESERVED_NAMES 分支
+        // （files/trash/tmp 等长度不足 6 会先被正则拒绝，"admin" 为内置管理员特例放行）
+        assertFalse(UsernameUtil.isValid("system"));
     }
 
     @Test

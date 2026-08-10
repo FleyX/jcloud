@@ -327,6 +327,11 @@ public class WebDavServiceImpl implements WebDavService {
 
     private void doLock(String userId, String userCode, String path, HttpServletResponse response) throws IOException {
         String token = webDavLockService.lock(userId, userCode + "/" + path);
+        if (token == null) {
+            // 资源已被锁定：不支持携带 lock token 的 refresh lock，重复 LOCK 一律按 RFC 4918 返回 423 Locked
+            sendError(response, 423, "Locked");
+            return;
+        }
         String xml = webDavLockService.buildLockDiscovery("/dav/" + userCode + "/" + path, token);
         response.setStatus(HttpServletResponse.SC_OK);
         response.setContentType("text/xml; charset=UTF-8");

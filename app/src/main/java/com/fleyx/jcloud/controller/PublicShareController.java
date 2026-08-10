@@ -12,6 +12,7 @@ import com.fleyx.jcloud.model.dto.ShareAccessDto;
 import com.fleyx.jcloud.model.vo.FileNodeVo;
 import com.fleyx.jcloud.model.vo.PublicShareVo;
 import com.fleyx.jcloud.service.PublicShareService;
+import com.fleyx.jcloud.util.ContentDispositionUtil;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.InputStreamResource;
@@ -83,7 +84,7 @@ public class PublicShareController {
                 : MediaType.APPLICATION_OCTET_STREAM_VALUE;
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION,
-                        "attachment; filename=\"" + result.getFileName() + "\"")
+                        ContentDispositionUtil.attachment(result.getFileName()))
                 .contentType(MediaType.parseMediaType(contentType))
                 .contentLength(result.getSize())
                 .body(new InputStreamResource(result.getInputStream()));
@@ -112,7 +113,7 @@ public class PublicShareController {
         }
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION,
-                        "inline; filename=\"" + result.getFileName() + "\"")
+                        ContentDispositionUtil.inline(result.getFileName()))
                 .contentType(MediaType.parseMediaType(result.getContentType()))
                 .contentLength(result.getSize())
                 .body(new InputStreamResource(result.getInputStream()));
@@ -148,7 +149,7 @@ public class PublicShareController {
         FileDownloadResult result = publicShareService.downloadBatchResult(code, taskId, token);
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION,
-                        "attachment; filename=\"" + result.getFileName() + "\"")
+                        ContentDispositionUtil.attachment(result.getFileName()))
                 .contentType(MediaType.parseMediaType(result.getContentType()))
                 .contentLength(result.getSize())
                 .body(new InputStreamResource(result.getInputStream()));

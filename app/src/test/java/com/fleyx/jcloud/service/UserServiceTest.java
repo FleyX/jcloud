@@ -1,8 +1,10 @@
 package com.fleyx.jcloud.service;
 
+import cn.hutool.crypto.digest.BCrypt;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.fleyx.jcloud.common.exception.BusinessException;
+import com.fleyx.jcloud.mapper.RoleMapper;
 import com.fleyx.jcloud.mapper.UserMapper;
 import com.fleyx.jcloud.mapper.UserRoleMapper;
 import com.fleyx.jcloud.model.dto.BatchUserStatusDto;
@@ -13,8 +15,8 @@ import com.fleyx.jcloud.model.dto.UserStatusDto;
 import com.fleyx.jcloud.model.dto.UserStorageDto;
 import com.fleyx.jcloud.model.dto.UserUpdateDto;
 import com.fleyx.jcloud.model.dto.UserUpdateRolesDto;
+import com.fleyx.jcloud.model.po.Role;
 import com.fleyx.jcloud.model.po.User;
-import com.fleyx.jcloud.model.po.UserRole;
 import com.fleyx.jcloud.model.vo.StorageSpaceVo;
 import com.fleyx.jcloud.model.vo.UserVo;
 import org.junit.jupiter.api.BeforeEach;
@@ -29,6 +31,7 @@ import java.nio.file.Path;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -54,6 +57,9 @@ class UserServiceTest {
     private UserRoleMapper userRoleMapper;
 
     @Autowired
+    private RoleMapper roleMapper;
+
+    @Autowired
     private StorageSpaceService storageSpaceService;
 
     private StorageSpaceVo defaultSpace;
@@ -76,17 +82,6 @@ class UserServiceTest {
         spaceDto.setName("默认测试空间");
         spaceDto.setPath(tempDir.resolve("user-space").toString());
         defaultSpace = storageSpaceService.save(spaceDto);
-
-        // 清理非管理员测试用户及其角色关联，确保每个测试方法独立运行。
-        LambdaQueryWrapper<User> wrapper = new LambdaQueryWrapper<>();
-        wrapper.ne(User::getUsername, "admin");
-        List<User> users = userMapper.selectList(wrapper);
-        for (User user : users) {
-            LambdaQueryWrapper<UserRole> roleWrapper = new LambdaQueryWrapper<>();
-            roleWrapper.eq(UserRole::getUserId, user.getId());
-            userRoleMapper.delete(roleWrapper);
-            userMapper.deleteById(user.getId());
-        }
     }
 
     @Test
@@ -240,6 +235,9 @@ class UserServiceTest {
 
         UserVo updated = userService.updateUser(updateDto);
         assertNotNull(updated.getId());
+
+        User refreshed = userMapper.selectById(saved.getId());
+        assertTrue(BCrypt.checkpw("newpassword", refreshed.getPassword()));
     }
 
     @Test
@@ -310,44 +308,58 @@ class UserServiceTest {
         UserSaveDto saveDto = buildDto("roleAssignUser");
         UserVo saved = userService.saveUser(saveDto);
 
+        Role commonUserRole = roleMapper.selectOne(new LambdaQueryWrapper<Role>().eq(Role::getCode, "common_user"));
+        assertNotNull(commonUserRole);
+
         UserUpdateRolesDto dto = new UserUpdateRolesDto();
         dto.setUserId(saved.getId());
-        dto.setRoleIds(List.of("0000000000003"));
+        dto.setRoleIds(List.of(commonUserRole.getId()));
 
         userService.updateRoles(dto);
 
         List<String> roleIds = userRoleMapper.selectRoleIdsByUserId(saved.getId());
         assertEquals(1, roleIds.size());
-        assertEquals("0000000000003", roleIds.get(0));
+        assertEquals(commonUserRole.getId(), roleIds.get(0));
     }
 
     @Test
     void batchDeleteShouldSkipAdmin() {
+        User admin = userMapper.selectOne(new LambdaQueryWrapper<User>().eq(User::getUsername, "admin"));
+        assertNotNull(admin);
+
         UserSaveDto dto1 = buildDto("batchDeleteA");
         UserSaveDto dto2 = buildDto("batchDeleteB");
         UserVo saved1 = userService.saveUser(dto1);
         UserVo saved2 = userService.saveUser(dto2);
 
-        List<String> deleted = userService.batchDelete(List.of(saved1.getId(), saved2.getId()));
+        List<String> deleted = userService.batchDelete(List.of(saved1.getId(), saved2.getId(), admin.getId()));
         assertEquals(2, deleted.size());
+        assertFalse(deleted.contains(admin.getId()));
         assertThrows(BusinessException.class, () -> userService.getById(saved1.getId()));
+        assertNotNull(userMapper.selectById(admin.getId()));
     }
 
     @Test
     void batchUpdateStatusShouldSkipAdmin() {
+        User admin = userMapper.selectOne(new LambdaQueryWrapper<User>().eq(User::getUsername, "admin"));
+        assertNotNull(admin);
+        int adminOriginalStatus = admin.getStatus();
+
         UserSaveDto dto1 = buildDto("batchStatusA");
         UserSaveDto dto2 = buildDto("batchStatusB");
         UserVo saved1 = userService.saveUser(dto1);
         UserVo saved2 = userService.saveUser(dto2);
 
         BatchUserStatusDto dto = new BatchUserStatusDto();
-        dto.setUserIds(List.of(saved1.getId(), saved2.getId()));
+        dto.setUserIds(List.of(saved1.getId(), saved2.getId(), admin.getId()));
         dto.setStatus(0);
 
         List<String> updated = userService.batchUpdateStatus(dto);
         assertEquals(2, updated.size());
+        assertFalse(updated.contains(admin.getId()));
         assertEquals(0, userService.getById(saved1.getId()).getStatus());
         assertEquals(0, userService.getById(saved2.getId()).getStatus());
+        assertEquals(adminOriginalStatus, userMapper.selectById(admin.getId()).getStatus());
     }
 
     @Test

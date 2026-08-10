@@ -31,6 +31,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -158,11 +159,15 @@ class MediaItemServiceImplTest {
         MediaMetadata bound = new MediaMetadata();
         bound.setId("metadata-1");
         bound.setTitle("TMDB 电影名");
+        // 模拟真实绑定副作用（bindMovieRow 回写实体 matchStatus/metadataId），
+        // 验证 VO 装配读取的是绑定后的实体状态，而非测试预注入状态
         when(mediaMovieScrapeSupport.applyMovieMatchWithPersist(any(), any(), any(), eq(false)))
-                .thenReturn(bound);
-        // 模拟真实绑定副作用（bindMovieRow 回写实体字段），VO 装配原样透传
-        movie.setMatchStatus(MediaMatchStatus.MANUAL.getCode());
-        movie.setMetadataId(bound.getId());
+                .thenAnswer(invocation -> {
+                    MediaMovie matched = invocation.getArgument(0);
+                    matched.setMatchStatus(invocation.getArgument(2));
+                    matched.setMetadataId(bound.getId());
+                    return bound;
+                });
 
         var vo = mediaItemService.updateMatch("movie-1", dto, "user-1");
 
@@ -176,7 +181,8 @@ class MediaItemServiceImplTest {
     }
 
     /**
-     * 手动修正：剧集行 ID 命中时走剧集级修正，返回剧集行视图。
+     * 手动修正：剧集行 ID 命中时走剧集级修正（applySeriesMatchWithDerivation），
+     * VO 装配 title 取绑定元数据、matchStatus/metadataId 取绑定后实体状态。
      */
     @Test
     void shouldMatchSeriesRowById() {
@@ -194,10 +200,24 @@ class MediaItemServiceImplTest {
         detached.setTitle("测试剧");
         when(tmdbService.fetchDetailV2(eq("user-1"), eq(100L), eq("tv"))).thenReturn(detached);
 
+        // 模拟真实绑定副作用（bindSeriesRow 回写实体 matchStatus/metadataId），
+        // 验证 VO 装配读取的是绑定后的实体状态，而非测试预注入状态
+        doAnswer(invocation -> {
+            MediaSeries matched = invocation.getArgument(0);
+            matched.setMatchStatus(invocation.getArgument(2));
+            matched.setMetadataId("metadata-1");
+            return null;
+        }).when(mediaTvScrapeSupport).applySeriesMatchWithDerivation(any(), any(), any(), eq(false));
+
         var vo = mediaItemService.updateMatch("series-1", dto, "user-1");
 
+        verify(mediaTvScrapeSupport).applySeriesMatchWithDerivation(
+                series, detached, MediaMatchStatus.MANUAL.getCode(), false);
         assertEquals("series-1", vo.getId());
         assertEquals("series", vo.getItemType());
+        assertEquals("metadata-1", vo.getMetadataId());
+        assertEquals(MediaMatchStatus.MANUAL.getCode(), vo.getMatchStatus());
+        assertEquals("测试剧", vo.getTitle());
     }
 
     /**
