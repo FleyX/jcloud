@@ -41,7 +41,7 @@ public class FileTreeChangedEvent extends ApplicationEvent {
     private final String name;
 
     /**
-     * 文件大小（字节）；文件夹为 0。
+     * 文件大小（字节）；文件夹为其持久化汇总值（新创建时为 0）。
      */
     private final Long size;
 
@@ -74,7 +74,7 @@ public class FileTreeChangedEvent extends ApplicationEvent {
      * @param nodeId      节点 ID
      * @param nodeType    节点类型
      * @param name        节点名称
-     * @param size        文件大小，文件夹为 0
+     * @param size        文件大小，文件夹为其持久化汇总值（新创建时为 0）
      * @param oldParentId 变更前父节点 ID，可空
      * @param newParentId 变更后父节点 ID，可空
      * @param oldPath     变更前物化路径，可空
