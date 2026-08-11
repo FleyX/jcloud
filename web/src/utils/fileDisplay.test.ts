@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { inferFileType, formatSize, formatDate, fileIconMap } from './fileDisplay'
+import { inferFileType, formatSize, formatDate, fileIconMap, parentPathName } from './fileDisplay'
 import type { FileTypeSource } from './fileDisplay'
 
 describe('fileDisplay', () => {
@@ -70,6 +70,27 @@ describe('fileDisplay', () => {
 
     it('returns raw string when no time part', () => {
       expect(formatDate('2026-07-10')).toBe('2026-07-10')
+    })
+  })
+
+  describe('parentPathName', () => {
+    it('returns parent dir for nested path', () => {
+      expect(parentPathName('/test/test2/a.png')).toBe('/test/test2')
+      expect(parentPathName('/a/b/c/')).toBe('/a/b')
+    })
+
+    it('returns root slash when path is a root-level item', () => {
+      expect(parentPathName('/test')).toBe('/')
+      expect(parentPathName('/')).toBe('/')
+    })
+
+    it('returns root slash for path without slash', () => {
+      expect(parentPathName('a.txt')).toBe('/')
+    })
+
+    it('returns dash for empty or undefined', () => {
+      expect(parentPathName('')).toBe('-')
+      expect(parentPathName(undefined)).toBe('-')
     })
   })
 

@@ -68,6 +68,20 @@ export function formatDate(time?: string): string {
 }
 
 /**
+ * 从完整原路径中推导父路径（去掉最后一段）
+ * - 空值/undefined 返回 '-'
+ * - 无法推导（根目录自身、无斜杠路径）返回 '/'
+ * 示例：/test/test2/a.png -> /test/test2；/test -> /；a.txt -> /
+ */
+export function parentPathName(path?: string): string {
+  if (!path) return '-'
+  const trimmed = path.replace(/\/+$/, '')
+  const lastSlash = trimmed.lastIndexOf('/')
+  if (lastSlash <= 0) return '/'
+  return trimmed.slice(0, lastSlash)
+}
+
+/**
  * 根据文件展示类型返回对应的背景/文字色样式
  */
 export function getTypeStyle(type: FileDisplayType): string {

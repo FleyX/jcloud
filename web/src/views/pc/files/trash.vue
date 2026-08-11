@@ -16,6 +16,7 @@ import {
   Trash2,
 } from '@lucide/vue'
 import { cn } from '@/utils/cn'
+import { parentPathName } from '@/utils/fileDisplay'
 import {
   fetchTrashPage,
   permanentDeleteTrash,
@@ -84,6 +85,7 @@ const displayRecords = computed(() =>
     iconType: inferType(record),
     displaySize: formatSize(record.totalSize),
     displayDate: formatDate(record.createTime),
+    displayParentPath: parentPathName(record.originalPathName),
     selected: selectedIds.value.has(record.id),
   })),
 )
@@ -230,7 +232,7 @@ function showResult(action: string, results: OperationResultVo[]) {
     <div class="overflow-hidden rounded-3xl border border-surface-200 bg-white shadow-soft">
       <!-- 表头 -->
       <div
-        class="grid grid-cols-[48px_1fr_140px_160px_80px] items-center border-b border-surface-200 bg-surface-50/80 px-5 py-3 text-xs font-semibold uppercase tracking-wider text-surface-500"
+        class="grid grid-cols-[48px_1fr_140px_160px] items-center border-b border-surface-200 bg-surface-50/80 px-5 py-3 text-xs font-semibold uppercase tracking-wider text-surface-500"
       >
         <div>
           <button
@@ -249,7 +251,6 @@ function showResult(action: string, results: OperationResultVo[]) {
         <span>文件名</span>
         <span>大小</span>
         <span>删除时间</span>
-        <span class="text-right">原位置</span>
       </div>
 
       <!-- 加载中 -->
@@ -269,7 +270,7 @@ function showResult(action: string, results: OperationResultVo[]) {
           v-for="record in displayRecords"
           :key="record.id"
           :class="cn(
-            'group grid cursor-pointer grid-cols-[48px_1fr_140px_160px_80px] items-center px-5 py-3.5 text-sm transition-all duration-200 ease-out-expo hover:bg-surface-50',
+            'group grid cursor-pointer grid-cols-[48px_1fr_140px_160px] items-center px-5 py-3.5 text-sm transition-all duration-200 ease-out-expo hover:bg-surface-50',
             record.selected && 'bg-primary-50/40 hover:bg-primary-50/60'
           )"
         >
@@ -306,16 +307,22 @@ function showResult(action: string, results: OperationResultVo[]) {
                 class="h-5 w-5"
               />
             </div>
-            <span class="line-clamp-1 font-medium text-surface-800">
-              {{ record.name }}
-            </span>
+            <div class="min-w-0">
+              <span class="line-clamp-1 font-medium text-surface-800">
+                {{ record.name }}
+              </span>
+              <p
+                class="truncate text-xs text-surface-400"
+                :title="record.displayParentPath"
+              >
+                {{ record.displayParentPath }}
+              </p>
+            </div>
           </div>
 
           <span class="text-surface-500">{{ record.displaySize }}</span>
 
           <span class="text-surface-500">{{ record.displayDate }}</span>
-
-          <span class="text-right text-surface-500">{{ record.originalPathName }}</span>
         </div>
 
         <p

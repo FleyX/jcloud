@@ -14,7 +14,7 @@ import {
   preCheckRestore,
   restoreFiles,
 } from '@/api/file'
-import { fileIconMap, formatSize, formatDate, getTypeStyle, inferFileType } from '@/utils/fileDisplay'
+import { fileIconMap, formatSize, formatDate, getTypeStyle, inferFileType, parentPathName } from '@/utils/fileDisplay'
 import FileConflictModal from '@/components/files/FileConflictModal.vue'
 import { useConfirmStore } from '@/store/confirm'
 import { useNotificationStore } from '@/store/notification'
@@ -38,6 +38,7 @@ const displayRecords = computed(() =>
     type: inferFileType({ type: record.type, name: record.name }),
     displaySize: formatSize(record.totalSize),
     displayDate: formatDate(record.createTime),
+    displayParentPath: parentPathName(record.originalPathName),
     selected: selectedIds.value.has(record.id),
   })),
 )
@@ -207,6 +208,12 @@ function showResult(action: string, results: OperationResultVo[]) {
           <div class="min-w-0 flex-1">
             <p class="truncate text-sm font-medium text-surface-900">
               {{ record.name }}
+            </p>
+            <p
+              class="mt-0.5 truncate text-xs text-surface-400"
+              :title="record.displayParentPath"
+            >
+              {{ record.displayParentPath }}
             </p>
             <p class="mt-0.5 text-xs text-surface-500">
               {{ record.displaySize }} · {{ record.displayDate }}
