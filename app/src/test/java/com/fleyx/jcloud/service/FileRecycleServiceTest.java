@@ -498,6 +498,97 @@ class FileRecycleServiceTest extends IntegrationTestBase {
         assertEquals("a(3).txt", results.get(0).getNewName());
     }
 
+    @Test
+    void shouldRestoreNestedFileToOriginalLocation() throws Exception {
+        UserWithSpace userWithSpace = prepareUserWithStorageSpace();
+        UserVo user = userWithSpace.user();
+        FileNodeVo level1 = createFolder(user.getId(), "level1", FileNodeConstants.ROOT_ID);
+        FileNodeVo level2 = createFolder(user.getId(), "level2", level1.getId());
+        FileNodeVo file = fileService.upload(buildFile("a.txt", "Nested"), user.getId(), level2.getId(), null);
+
+        FileDeleteDto deleteDto = new FileDeleteDto();
+        deleteDto.setIds(List.of(file.getId()));
+        List<OperationResultVo> deleteResults = fileRecycleService.deleteToTrash(deleteDto, user.getId());
+        String recordId = deleteResults.get(0).getNodeId();
+
+        // 删除侧按纯文件名落盘：trashRoot/{recordId}/a.txt
+        Path trashPath = resolveTrashPath(userWithSpace, recordId, "a.txt");
+        assertTrue(Files.exists(trashPath));
+
+        FileExecuteRestoreDto restoreDto = new FileExecuteRestoreDto();
+        RestoreItemDto item = new RestoreItemDto();
+        item.setId(recordId);
+        item.setStrategy(ConflictStrategy.OVERWRITE.getCode());
+        restoreDto.setItems(List.of(item));
+
+        List<OperationResultVo> results = fileRecycleService.restore(restoreDto, user.getId());
+
+        assertEquals(1, results.size());
+        assertEquals("success", results.get(0).getStatus());
+
+        // 回收站记录被物理删除
+        assertNull(recycleRecordMapper.selectById(recordId));
+
+        // 新 FileNode 恢复到 level2 下
+        FilePageQueryDto query = new FilePageQueryDto();
+        query.setParentId(level2.getId());
+        query.setPageNum(1L);
+        query.setPageSize(10L);
+        List<FileNodeVo> children = fileService.list(query, user.getId()).getRecords();
+        assertEquals(1, children.size());
+        assertEquals("a.txt", children.get(0).getName());
+        assertEquals("file", children.get(0).getType());
+
+        // 物理文件移回 files
+        assertFalse(Files.exists(trashPath));
+        assertTrue(Files.exists(resolvePhysicalPath(userWithSpace, "level1/level2/a.txt")));
+    }
+
+    @Test
+    void shouldMarkMissingTrashFileAsFailedButRestoreOthers() throws Exception {
+        UserWithSpace userWithSpace = prepareUserWithStorageSpace();
+        UserVo user = userWithSpace.user();
+        FileNodeVo missingFile = fileService.upload(buildFile("missing.txt", "Missing"), user.getId(),
+                FileNodeConstants.ROOT_ID, null);
+        FileNodeVo keepFile = fileService.upload(buildFile("keep.txt", "Keep"), user.getId(),
+                FileNodeConstants.ROOT_ID, null);
+
+        FileDeleteDto deleteDto = new FileDeleteDto();
+        deleteDto.setIds(List.of(missingFile.getId(), keepFile.getId()));
+        List<OperationResultVo> deleteResults = fileRecycleService.deleteToTrash(deleteDto, user.getId());
+        String missingRecordId = deleteResults.get(0).getNodeId();
+        String keepRecordId = deleteResults.get(1).getNodeId();
+
+        // 物理删除回收站中 missing.txt 的源文件，模拟用户手动清理回收站目录
+        Path missingTrashPath = resolveTrashPath(userWithSpace, missingRecordId, "missing.txt");
+        assertTrue(Files.exists(missingTrashPath));
+        Files.delete(missingTrashPath);
+
+        FileExecuteRestoreDto restoreDto = new FileExecuteRestoreDto();
+        RestoreItemDto missingItem = new RestoreItemDto();
+        missingItem.setId(missingRecordId);
+        missingItem.setStrategy(ConflictStrategy.OVERWRITE.getCode());
+        RestoreItemDto keepItem = new RestoreItemDto();
+        keepItem.setId(keepRecordId);
+        keepItem.setStrategy(ConflictStrategy.OVERWRITE.getCode());
+        restoreDto.setItems(List.of(missingItem, keepItem));
+
+        List<OperationResultVo> results = fileRecycleService.restore(restoreDto, user.getId());
+
+        assertEquals(2, results.size());
+        OperationResultVo missingResult = results.get(0);
+        assertEquals("failed", missingResult.getStatus());
+        assertNotNull(missingResult.getMessage());
+        assertTrue(missingResult.getMessage().contains("缺失"));
+        assertEquals("missing.txt", missingResult.getSourceName());
+        // 缺失项记录保留，正常项成功且记录删除
+        assertNotNull(recycleRecordMapper.selectById(missingRecordId));
+        assertNull(recycleRecordMapper.selectById(keepRecordId));
+        OperationResultVo keepResult = results.get(1);
+        assertEquals("success", keepResult.getStatus());
+        assertTrue(Files.exists(resolvePhysicalPath(userWithSpace, "keep.txt")));
+    }
+
     private FileNodeVo createFolder(String userId, String name, String parentId) {
         FileCreateFolderDto dto = new FileCreateFolderDto();
         dto.setParentId(parentId);

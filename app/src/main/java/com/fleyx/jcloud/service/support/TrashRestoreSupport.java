@@ -106,7 +106,7 @@ public class TrashRestoreSupport {
         String userId = record.getUserId();
         User user = userSpaceSupport.requireUser(userId);
         Path trashRoot = FilePathUtil.resolveTrashRoot(space, username, record.getId());
-        Path source = trashRoot.resolve(FilePathUtil.stripLeadingSlash(record.getOriginalPathName()));
+        Path source = trashRoot.resolve(record.getName());
         String resolvedName = resolveRestoreName(targetParentId, record.getName(), userId, strategy);
         if (resolvedName == null) {
             OperationResultVo vo = new OperationResultVo();
@@ -115,6 +115,9 @@ public class TrashRestoreSupport {
             vo.setStatus(FileNodeConstants.STATUS_SKIPPED);
             vo.setMessage("目标位置已存在同名文件");
             return vo;
+        }
+        if (!Files.exists(source)) {
+            return failedResult(record.getId(), record.getName(), "回收站中的源文件已缺失");
         }
 
         String filePathName = FilePathUtil.buildPathName(targetParentPathName, resolvedName);

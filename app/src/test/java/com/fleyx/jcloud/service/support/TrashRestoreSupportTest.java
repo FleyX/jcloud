@@ -142,9 +142,8 @@ class TrashRestoreSupportTest {
             }).toList();
         });
 
-        // 回收站中的物理文件：space/trash/tom/r1/docs/sub/a.txt
-        Path trashFile = Path.of(space.getPath(), "trash", user.getUsername(), record.getId(),
-                "docs", "sub", "a.txt");
+        // 回收站中的物理文件：删除侧对顶层单文件按纯文件名落盘 → space/trash/tom/r1/a.txt
+        Path trashFile = Path.of(space.getPath(), "trash", user.getUsername(), record.getId(), "a.txt");
         Files.createDirectories(trashFile.getParent());
         Files.writeString(trashFile, "hello");
 
