@@ -62,4 +62,9 @@ public class MediaProperties {
      * 转码节流：暂停后领先量回落到小于等于该值时继续进程（秒）。
      */
     private int transcodeThrottleResumeSeconds = 300;
+
+    /**
+     * 影视库文件变更防抖窗口（秒）：距最后一条匹配成功的文件变更事件无新事件时才触发库级扫描。
+     */
+    private int fileChangeDebounceSeconds = 30;
 }
