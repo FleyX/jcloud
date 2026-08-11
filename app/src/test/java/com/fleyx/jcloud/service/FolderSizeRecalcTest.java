@@ -15,6 +15,7 @@ import com.fleyx.jcloud.model.dto.FileCreateFolderDto;
 import com.fleyx.jcloud.model.dto.FileDeleteDto;
 import com.fleyx.jcloud.model.dto.FileExecuteOperationDto;
 import com.fleyx.jcloud.model.dto.FileExecuteRestoreDto;
+import com.fleyx.jcloud.model.dto.FilePageQueryDto;
 import com.fleyx.jcloud.model.dto.OperationItemDto;
 import com.fleyx.jcloud.model.dto.RestoreItemDto;
 import com.fleyx.jcloud.model.po.FileNode;
@@ -234,6 +235,26 @@ class FolderSizeRecalcTest extends IntegrationTestBase {
         eventPublisher.publishEvent(new SyncCompletedEvent(this, user.getId(), SyncCompletedEvent.TYPE_USER));
 
         pollFolderSize(folder.getId(), 5L);
+    }
+
+    /**
+     * h. 文件列表接口对文件夹返回持久化 size（票据 04）。
+     */
+    @Test
+    void shouldReturnFolderSizeFromListApi() throws Exception {
+        UserVo user = prepareUser();
+        FileNodeVo folder = createFolder(user.getId(), "folder", FileNodeConstants.ROOT_ID);
+        uploadFile(user.getId(), folder.getId(), "a.txt", "hello");
+        pollFolderSize(folder.getId(), 5L);
+
+        FilePageQueryDto query = new FilePageQueryDto();
+        query.setParentId(FileNodeConstants.ROOT_ID);
+        FileNodeVo folderVo = fileService.list(query, user.getId()).getRecords().stream()
+                .filter(node -> FileNodeConstants.TYPE_FOLDER.equals(node.getType()) && "folder".equals(node.getName()))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("列表接口未返回文件夹节点"));
+
+        assertEquals("5", folderVo.getSize());
     }
 
     // ---------- 工具方法 ----------

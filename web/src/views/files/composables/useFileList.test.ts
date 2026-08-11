@@ -80,6 +80,15 @@ describe('useFileList', () => {
     expect(display.selected).toBe(false)
   })
 
+  it('formats folder displaySize from persisted size', async () => {
+    const folder = buildFileNode({ name: 'docs', type: 'folder', size: '2048' })
+    const list = await createList([folder])
+
+    const display = list.displayFiles.value[0]
+    expect(display.type).toBe('folder')
+    expect(display.displaySize).toBe('2.00 KB')
+  })
+
   it('toggles selection', async () => {
     const a = buildFileNode({ id: 'a' })
     const b = buildFileNode({ id: 'b' })
