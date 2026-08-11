@@ -2,7 +2,9 @@ package com.fleyx.jcloud.service.support;
 
 import com.fleyx.jcloud.common.constant.FileNodeConstants;
 import com.fleyx.jcloud.common.enums.ConflictStrategy;
+import com.fleyx.jcloud.common.enums.FileChangeOperation;
 import com.fleyx.jcloud.common.enums.ResultCode;
+import com.fleyx.jcloud.common.event.FileTreeChangedEvent;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.FileMapper;
 import com.fleyx.jcloud.mapper.UserMapper;
@@ -43,6 +45,7 @@ public class FileMoveCopySupport {
     private final FileConflictResolver conflictResolver;
     private final FileNodeSupport fileNodeSupport;
     private final FilePathSupport filePathSupport;
+    private final FileChangeEventSupport fileChangeEventSupport;
 
     /**
      * 批量移动，整个列表在一个事务内执行。
@@ -69,10 +72,16 @@ public class FileMoveCopySupport {
             if (FileNodeConstants.SOURCE_REMOTE.equals(source.getSourceType())) {
                 results.add(doRemoteMove(item, source, targetParent, userId, globalStrategy));
             } else {
+                // 执行器内部会复用同事务缓存中的节点对象并原地修改，旧父链须在调用前捕获
+                String oldParentId = source.getParentId();
+                String oldPath = source.getPath();
                 fillDefaultStrategy(item, globalStrategy);
                 FileOperationExecutor.OperationOutcome outcome = executor.moveItem(
                         item, userId, targetParentId, targetParentPathName);
-                results.add(toResultVo(outcome));
+                OperationResultVo result = toResultVo(outcome);
+                results.add(result);
+                publishMoveOrCopy(FileChangeOperation.MOVE, source, targetParent, targetParentId, userId,
+                        result, oldParentId, oldPath);
             }
         }
         return results;
@@ -104,10 +113,15 @@ public class FileMoveCopySupport {
             if (FileNodeConstants.SOURCE_REMOTE.equals(source.getSourceType())) {
                 results.add(doRemoteCopy(item, source, targetParent, userId, globalStrategy));
             } else {
+                String oldParentId = source.getParentId();
+                String oldPath = source.getPath();
                 fillDefaultStrategy(item, globalStrategy);
                 FileOperationExecutor.OperationOutcome outcome = executor.copyItem(
                         item, userId, targetParentId, targetParentPathName, user);
-                results.add(toResultVo(outcome));
+                OperationResultVo result = toResultVo(outcome);
+                results.add(result);
+                publishMoveOrCopy(FileChangeOperation.COPY, source, targetParent, targetParentId, userId,
+                        result, oldParentId, oldPath);
             }
         }
         return results;
@@ -132,6 +146,10 @@ public class FileMoveCopySupport {
             remoteFileOperationService.delete(resolution.existingToReplace(), userId);
         }
         FileNodeVo moved = remoteFileOperationService.move(source, targetParent, resolution.finalName(), userId);
+        fileChangeEventSupport.publishAfterCommit(new FileTreeChangedEvent(this, FileChangeOperation.MOVE,
+                userId, moved.getId(), source.getType(), moved.getName(), source.getSize(),
+                source.getParentId(), targetParent.getId(), source.getPath(),
+                FilePathUtil.fullIdPath(targetParent)));
         OperationResultVo vo = new OperationResultVo();
         vo.setSourceId(source.getId());
         vo.setSourceName(source.getName());
@@ -172,6 +190,25 @@ public class FileMoveCopySupport {
         vo.setNewName(outcome.newName());
         vo.setNodeId(outcome.nodeId());
         return vo;
+    }
+
+    /**
+     * 移动/复制成功后发布文件树变更事件，跳过项不发布。
+     * <p>
+     * 旧侧（oldParentId/oldPath）取自源节点，新侧（newParentId/newPath）取自目标父节点；
+     * 新节点名称以操作结果为准（冲突自动改名时不同）。
+     */
+    private void publishMoveOrCopy(FileChangeOperation operation, FileNode source, FileNode targetParent,
+                                   String targetParentId, String userId, OperationResultVo result,
+                                   String oldParentId, String oldPath) {
+        if (!FileNodeConstants.STATUS_SUCCESS.equals(result.getStatus())) {
+            return;
+        }
+        String newPath = targetParent == null ? FileNodeConstants.ROOT_ID : FilePathUtil.fullIdPath(targetParent);
+        fileChangeEventSupport.publishAfterCommit(new FileTreeChangedEvent(this, operation,
+                userId, result.getNodeId(), source.getType(),
+                result.getNewName() != null ? result.getNewName() : result.getSourceName(),
+                source.getSize(), oldParentId, targetParentId, oldPath, newPath));
     }
 
     /**

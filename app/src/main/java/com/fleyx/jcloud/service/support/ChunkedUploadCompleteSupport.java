@@ -3,7 +3,9 @@ package com.fleyx.jcloud.service.support;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fleyx.jcloud.common.constant.FileNodeConstants;
 import com.fleyx.jcloud.common.constant.StorageConstant;
+import com.fleyx.jcloud.common.enums.FileChangeOperation;
 import com.fleyx.jcloud.common.enums.ResultCode;
+import com.fleyx.jcloud.common.event.FileTreeChangedEvent;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.FileChunkMapper;
 import com.fleyx.jcloud.mapper.FileMapper;
@@ -61,6 +63,7 @@ public class ChunkedUploadCompleteSupport {
     private final ChunkedUploadChunkSupport chunkedUploadChunkSupport;
     private final FileNodeSupport fileNodeSupport;
     private final FilePathSupport filePathSupport;
+    private final FileChangeEventSupport fileChangeEventSupport;
 
     /**
      * 完成分片上传，合并分片并创建文件节点。
@@ -125,6 +128,10 @@ public class ChunkedUploadCompleteSupport {
         fileNodeSupport.setNodePath(node, context.parentId());
         fileMapper.insert(node);
 
+        fileChangeEventSupport.publishAfterCommit(new FileTreeChangedEvent(this, FileChangeOperation.CREATE,
+                userId, node.getId(), node.getType(), node.getName(), node.getSize(),
+                null, context.parentId(), null, node.getPath()));
+
         user.setUsedSpace(usedSpace + context.size());
         userMapper.updateById(user);
 
@@ -182,6 +189,10 @@ public class ChunkedUploadCompleteSupport {
             node.setMimeType(mimeType);
             node.setStatus(1);
             fileMapper.insert(node);
+
+            fileChangeEventSupport.publishAfterCommit(new FileTreeChangedEvent(this, FileChangeOperation.CREATE,
+                    userId, node.getId(), node.getType(), node.getName(), node.getSize(),
+                    null, context.parentId(), null, node.getPath()));
 
             cleanupUpload(context.tempDir(), uploadId, userId);
             return fileConvert.poToVo(node);

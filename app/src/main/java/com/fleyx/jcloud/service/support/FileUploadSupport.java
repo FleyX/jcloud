@@ -1,7 +1,9 @@
 package com.fleyx.jcloud.service.support;
 
 import com.fleyx.jcloud.common.constant.FileNodeConstants;
+import com.fleyx.jcloud.common.enums.FileChangeOperation;
 import com.fleyx.jcloud.common.enums.ResultCode;
+import com.fleyx.jcloud.common.event.FileTreeChangedEvent;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.FileMapper;
 import com.fleyx.jcloud.mapper.UserMapper;
@@ -49,6 +51,7 @@ public class FileUploadSupport {
     private final FileNodeSupport fileNodeSupport;
     private final FilePathSupport filePathSupport;
     private final UserSpaceSupport userSpaceSupport;
+    private final FileChangeEventSupport fileChangeEventSupport;
 
     /**
      * 执行普通上传。
@@ -74,7 +77,11 @@ public class FileUploadSupport {
         }
 
         if (parentNode != null && FileNodeConstants.SOURCE_REMOTE.equals(parentNode.getSourceType())) {
-            return remoteFileService.upload(file, parentNode, userId, resolution.finalName());
+            FileNodeVo remoteNode = remoteFileService.upload(file, parentNode, userId, resolution.finalName());
+            fileChangeEventSupport.publishAfterCommit(new FileTreeChangedEvent(this, FileChangeOperation.CREATE,
+                    userId, remoteNode.getId(), TYPE_FILE, remoteNode.getName(), file.getSize(),
+                    null, parentNode.getId(), null, FilePathUtil.buildChildPath(parentNode)));
+            return remoteNode;
         }
 
         String parentPathName = filePathSupport.resolveNamePath(parentNode, userId);
@@ -113,6 +120,10 @@ public class FileUploadSupport {
                 space.getId(), file.getContentType());
         fileNodeSupport.setNodePath(node, resolvedParentId);
         fileMapper.insert(node);
+
+        fileChangeEventSupport.publishAfterCommit(new FileTreeChangedEvent(this, FileChangeOperation.CREATE,
+                userId, node.getId(), node.getType(), node.getName(), node.getSize(),
+                null, resolvedParentId, null, node.getPath()));
 
         user.setUsedSpace(usedSpace + fileSize);
         userMapper.updateById(user);
@@ -208,6 +219,10 @@ public class FileUploadSupport {
                 candidate.getHash(), space.getId(), candidate.getMimeType());
         fileNodeSupport.setNodePath(node, finalParentId);
         fileMapper.insert(node);
+
+        fileChangeEventSupport.publishAfterCommit(new FileTreeChangedEvent(this, FileChangeOperation.CREATE,
+                userId, node.getId(), node.getType(), node.getName(), node.getSize(),
+                null, finalParentId, null, node.getPath()));
 
         user.setUsedSpace(usedSpace + fileSize);
         userMapper.updateById(user);

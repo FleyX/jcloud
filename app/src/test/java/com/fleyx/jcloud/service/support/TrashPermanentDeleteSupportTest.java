@@ -41,6 +41,9 @@ class TrashPermanentDeleteSupportTest {
     @Mock
     private UserSpaceSupport userSpaceSupport;
 
+    @Mock
+    private FileChangeEventSupport fileChangeEventSupport;
+
     @InjectMocks
     private TrashPermanentDeleteSupport trashPermanentDeleteSupport;
 

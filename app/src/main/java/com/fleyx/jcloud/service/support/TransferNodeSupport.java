@@ -2,7 +2,9 @@ package com.fleyx.jcloud.service.support;
 
 import com.fleyx.jcloud.common.constant.FileNodeConstants;
 import com.fleyx.jcloud.common.enums.ConflictStrategy;
+import com.fleyx.jcloud.common.enums.FileChangeOperation;
 import com.fleyx.jcloud.common.enums.ResultCode;
+import com.fleyx.jcloud.common.event.FileTreeChangedEvent;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.common.exception.SystemException;
 import com.fleyx.jcloud.mapper.FileMapper;
@@ -59,6 +61,7 @@ public class TransferNodeSupport {
     private final RemoteFileOperationService remoteFileOperationService;
     private final WebDavFileOperationHelper webDavFileOperationHelper;
     private final TrashDeleteSupport trashDeleteSupport;
+    private final FileChangeEventSupport fileChangeEventSupport;
 
     /**
      * 传输一个顶层节点（含覆盖目标的替换删除）。
@@ -222,6 +225,10 @@ public class TransferNodeSupport {
         node.setMimeType(source.getMimeType());
         node.setStatus(1);
         fileMapper.insert(node);
+
+        fileChangeEventSupport.publishAfterCommit(new FileTreeChangedEvent(this, FileChangeOperation.CREATE,
+                userId, node.getId(), node.getType(), node.getName(), node.getSize(),
+                null, targetParent.getId(), null, node.getPath()));
     }
 
     /**
@@ -249,6 +256,11 @@ public class TransferNodeSupport {
         node.setPath(targetParent == null ? FileNodeConstants.ROOT_ID : FilePathUtil.buildChildPath(targetParent));
         node.setLastModified(source.getLastModified());
         fileMapper.insert(node);
+
+        fileChangeEventSupport.publishAfterCommit(new FileTreeChangedEvent(this, FileChangeOperation.CREATE,
+                userId, node.getId(), node.getType(), node.getName(), node.getSize(),
+                null, targetParent == null ? FileNodeConstants.ROOT_ID : targetParent.getId(),
+                null, node.getPath()));
 
         userSpaceSupport.updateUsedSpace(user, space, actualSize);
     }
@@ -299,12 +311,18 @@ public class TransferNodeSupport {
             folder.setPath(FilePathUtil.buildChildPath(targetParent));
             folder.setStatus(1);
             fileMapper.insert(folder);
+            fileChangeEventSupport.publishAfterCommit(new FileTreeChangedEvent(this, FileChangeOperation.CREATE,
+                    userId, folder.getId(), folder.getType(), folder.getName(), folder.getSize(),
+                    null, parentId, null, folder.getPath()));
             return folder;
         }
         FileNode folder = fileNodeSupport.buildFolderNode(userId, parentId, finalName);
         folder.setPath(targetParent == null ? FileNodeConstants.ROOT_ID : FilePathUtil.buildChildPath(targetParent));
         folder.setLastModified(System.currentTimeMillis());
         fileMapper.insert(folder);
+        fileChangeEventSupport.publishAfterCommit(new FileTreeChangedEvent(this, FileChangeOperation.CREATE,
+                userId, folder.getId(), folder.getType(), folder.getName(), folder.getSize(),
+                null, parentId, null, folder.getPath()));
         return folder;
     }
 
@@ -326,6 +344,10 @@ public class TransferNodeSupport {
         try {
             if (FileNodeConstants.SOURCE_REMOTE.equals(source.getSourceType())) {
                 remoteFileOperationService.delete(source, userId);
+                // 本地源经回收站删除时由 TrashDeleteSupport 埋点发布 DELETE，此处仅远程源发布，避免重复
+                fileChangeEventSupport.publishAfterCommit(new FileTreeChangedEvent(this,
+                        FileChangeOperation.DELETE, userId, source.getId(), source.getType(),
+                        source.getName(), source.getSize(), source.getParentId(), null, source.getPath(), null));
             } else {
                 trashDeleteSupport.doDeleteToTrash(List.of(source.getId()), userId);
             }

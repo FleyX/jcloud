@@ -9,6 +9,7 @@ import com.fleyx.jcloud.mapper.UserMapper;
 import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.po.StorageSpace;
 import com.fleyx.jcloud.model.po.User;
+import com.fleyx.jcloud.service.support.FileChangeEventSupport;
 import com.fleyx.jcloud.service.support.FileNodeSupport;
 import com.fleyx.jcloud.service.support.FilePathSupport;
 import com.fleyx.jcloud.service.support.UserSpaceSupport;
@@ -30,6 +31,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -56,6 +58,8 @@ class WebDavFileOperationHelperTest {
     @Mock
     private UserSpaceSupport userSpaceSupport;
 
+    private FileChangeEventSupport fileChangeEventSupport;
+
     @TempDir
     Path tempDir;
 
@@ -65,8 +69,9 @@ class WebDavFileOperationHelperTest {
     void setUp() {
         FileNodeSupport fileNodeSupport = new FileNodeSupport(fileMapper, userMapper);
         FilePathSupport filePathSupport = new FilePathSupport(fileMapper);
+        fileChangeEventSupport = mock(FileChangeEventSupport.class);
         helper = new WebDavFileOperationHelper(fileMapper, userMapper, storageSpaceMapper,
-                userSpaceSupport, fileNodeSupport, filePathSupport);
+                userSpaceSupport, fileNodeSupport, filePathSupport, fileChangeEventSupport);
     }
 
     private User buildUser(long usedSpace, long quota) {

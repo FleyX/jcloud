@@ -1,7 +1,9 @@
 package com.fleyx.jcloud.service.support;
 
 import com.fleyx.jcloud.common.constant.FileNodeConstants;
+import com.fleyx.jcloud.common.enums.FileChangeOperation;
 import com.fleyx.jcloud.common.enums.ResultCode;
+import com.fleyx.jcloud.common.event.FileTreeChangedEvent;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.FileMapper;
 import com.fleyx.jcloud.mapper.RecycleRecordMapper;
@@ -39,6 +41,7 @@ public class TrashDeleteSupport {
     private final FileNodeSupport fileNodeSupport;
     private final FilePathSupport filePathSupport;
     private final UserSpaceSupport userSpaceSupport;
+    private final FileChangeEventSupport fileChangeEventSupport;
 
     /**
      * 批量删除节点到回收站，整个列表在一个事务内执行。
@@ -58,8 +61,11 @@ public class TrashDeleteSupport {
 
     private OperationResultVo deleteOneToTrash(String id, String userId) {
         FileNode node = fileNodeSupport.getOwnedNode(id, userId);
+        String oldParentId = node.getParentId();
+        String oldPath = node.getPath();
         if (FileNodeConstants.SOURCE_REMOTE.equals(node.getSourceType())) {
             remoteFileOperationService.delete(node, userId);
+            publishDelete(node, userId, oldParentId, oldPath);
             return successResult(node.getId(), node.getName());
         }
         User user = userSpaceSupport.requireUser(userId);
@@ -82,9 +88,17 @@ public class TrashDeleteSupport {
         List<String> nodeIds = subtree.stream().map(FileNode::getId).toList();
         fileMapper.physicalDeleteByIds(nodeIds);
 
+        publishDelete(node, userId, oldParentId, oldPath);
+
         OperationResultVo result = successResult(node.getId(), node.getName());
         result.setNodeId(record.getId());
         return result;
+    }
+
+    private void publishDelete(FileNode node, String userId, String oldParentId, String oldPath) {
+        fileChangeEventSupport.publishAfterCommit(new FileTreeChangedEvent(this, FileChangeOperation.DELETE,
+                userId, node.getId(), node.getType(), node.getName(), node.getSize(),
+                oldParentId, null, oldPath, null));
     }
 
     private List<FileNode> collectSubtree(FileNode node, String userId) {

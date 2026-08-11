@@ -1,7 +1,9 @@
 package com.fleyx.jcloud.service.support;
 
 import com.fleyx.jcloud.common.constant.FileNodeConstants;
+import com.fleyx.jcloud.common.enums.FileChangeOperation;
 import com.fleyx.jcloud.common.enums.ResultCode;
+import com.fleyx.jcloud.common.event.FileTreeChangedEvent;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.RecycleRecordMapper;
 import com.fleyx.jcloud.mapper.StorageSpaceMapper;
@@ -32,6 +34,7 @@ public class TrashPermanentDeleteSupport {
     private final RecycleRecordMapper recycleRecordMapper;
     private final StorageSpaceMapper storageSpaceMapper;
     private final UserSpaceSupport userSpaceSupport;
+    private final FileChangeEventSupport fileChangeEventSupport;
 
     /**
      * 批量彻底删除回收站记录，整个列表在一个事务内执行。
@@ -67,6 +70,10 @@ public class TrashPermanentDeleteSupport {
             long freed = record.getTotalSize() == null ? 0L : record.getTotalSize();
             userSpaceSupport.updateUsedSpace(user, space, -freed);
             recycleRecordMapper.physicalDeleteById(record.getId());
+            // 彻底删除只有回收站记录可用：nodeId 用记录 ID，parentId/path 为空
+            fileChangeEventSupport.publishAfterCommit(new FileTreeChangedEvent(this,
+                    FileChangeOperation.PERMANENT_DELETE, userId, record.getId(), record.getType(),
+                    record.getName(), record.getTotalSize(), null, null, null, null));
             return successResult(record.getId(), record.getName(), "已永久删除");
         } catch (IOException e) {
             return failedResult(record.getId(), record.getName(), "物理文件删除失败: " + e.getMessage());

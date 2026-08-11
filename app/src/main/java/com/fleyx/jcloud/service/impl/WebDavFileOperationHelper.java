@@ -1,7 +1,9 @@
 package com.fleyx.jcloud.service.impl;
 
 import com.fleyx.jcloud.common.constant.FileNodeConstants;
+import com.fleyx.jcloud.common.enums.FileChangeOperation;
 import com.fleyx.jcloud.common.enums.ResultCode;
+import com.fleyx.jcloud.common.event.FileTreeChangedEvent;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.common.exception.SystemException;
 import com.fleyx.jcloud.common.exception.WebDavException;
@@ -13,6 +15,7 @@ import com.fleyx.jcloud.model.po.StorageSpace;
 import com.fleyx.jcloud.model.po.User;
 import com.fleyx.jcloud.service.support.FileNodeSupport;
 import com.fleyx.jcloud.service.support.FilePathSupport;
+import com.fleyx.jcloud.service.support.FileChangeEventSupport;
 import com.fleyx.jcloud.service.support.UserSpaceSupport;
 import com.fleyx.jcloud.util.FileConflictHelper;
 import com.fleyx.jcloud.util.FileHashUtil;
@@ -44,6 +47,7 @@ public class WebDavFileOperationHelper {
     private final UserSpaceSupport userSpaceSupport;
     private final FileNodeSupport fileNodeSupport;
     private final FilePathSupport filePathSupport;
+    private final FileChangeEventSupport fileChangeEventSupport;
 
     /**
      * 上传或覆盖文件。
@@ -89,6 +93,10 @@ public class WebDavFileOperationHelper {
         fileMapper.insert(node);
         user.setUsedSpace(usedSpace + delta);
         userMapper.updateById(user);
+
+        fileChangeEventSupport.publishAfterCommit(new FileTreeChangedEvent(this, FileChangeOperation.CREATE,
+                userId, node.getId(), node.getType(), node.getName(), node.getSize(),
+                null, parent.getId(), null, node.getPath()));
     }
 
     /**
@@ -104,6 +112,10 @@ public class WebDavFileOperationHelper {
         FileNode parent = FileNodeConstants.ROOT_ID.equals(parentId) ? null : fileMapper.selectById(parentId);
         setNodePath(folder, parent);
         fileMapper.insert(folder);
+
+        fileChangeEventSupport.publishAfterCommit(new FileTreeChangedEvent(this, FileChangeOperation.CREATE,
+                userId, folder.getId(), folder.getType(), folder.getName(), folder.getSize(),
+                null, parentId, null, folder.getPath()));
     }
 
     /**
@@ -116,6 +128,10 @@ public class WebDavFileOperationHelper {
         User user = userSpaceSupport.requireUser(userId);
         deleteNodeRecursively(node, user);
         userMapper.updateById(user);
+
+        fileChangeEventSupport.publishAfterCommit(new FileTreeChangedEvent(this, FileChangeOperation.DELETE,
+                userId, node.getId(), node.getType(), node.getName(), node.getSize(),
+                node.getParentId(), null, node.getPath(), null));
     }
 
     /**
@@ -138,14 +154,22 @@ public class WebDavFileOperationHelper {
                 || Files.exists(FilePathUtil.resolvePhysicalPath(space, user.getUsername(), oldNamePath))) {
             movePhysical(space, user.getUsername(), oldNamePath, newNamePath);
         }
+        String oldParentId = source.getParentId();
+        String oldPath = source.getPath();
         source.setParentId(targetParent.getId());
         source.setName(targetName);
         setNodePath(source, targetParent);
         fileMapper.updateById(source);
+
+        fileChangeEventSupport.publishAfterCommit(new FileTreeChangedEvent(this, FileChangeOperation.MOVE,
+                userId, source.getId(), source.getType(), source.getName(), source.getSize(),
+                oldParentId, targetParent.getId(), oldPath, source.getPath()));
     }
 
     /**
      * 复制节点到目标父节点。
+     * <p>
+     * 顶层复制成功后发布一个 COPY 事件，子树由消费方按路径前缀处理，递归层不重复发布。
      *
      * @param userId       用户 ID
      * @param source       源节点
@@ -153,14 +177,24 @@ public class WebDavFileOperationHelper {
      * @param targetName   目标名称
      */
     public void copy(String userId, FileNode source, FileNode targetParent, String targetName) {
+        copyInternal(userId, source, targetParent, targetName, true);
+    }
+
+    private void copyInternal(String userId, FileNode source, FileNode targetParent, String targetName,
+                              boolean publish) {
         if (FileNodeConstants.TYPE_FOLDER.equals(source.getType())) {
             FileNode copied = fileNodeSupport.buildFolderNode(userId, targetParent.getId(), targetName);
             copied.setLastModified(System.currentTimeMillis());
             setNodePath(copied, targetParent);
             fileMapper.insert(copied);
+            if (publish) {
+                fileChangeEventSupport.publishAfterCommit(new FileTreeChangedEvent(this,
+                        FileChangeOperation.COPY, userId, copied.getId(), copied.getType(), copied.getName(),
+                        copied.getSize(), null, targetParent.getId(), null, copied.getPath()));
+            }
             List<FileNode> children = fileMapper.selectByParentId(userId, source.getId());
             for (FileNode child : children) {
-                copy(userId, child, copied, child.getName());
+                copyInternal(userId, child, copied, child.getName(), false);
             }
         } else {
             User user = userSpaceSupport.requireUser(userId);
@@ -188,6 +222,11 @@ public class WebDavFileOperationHelper {
             fileMapper.insert(copied);
             user.setUsedSpace(usedSpace + size);
             userMapper.updateById(user);
+            if (publish) {
+                fileChangeEventSupport.publishAfterCommit(new FileTreeChangedEvent(this,
+                        FileChangeOperation.COPY, userId, copied.getId(), copied.getType(), copied.getName(),
+                        copied.getSize(), null, targetParent.getId(), null, copied.getPath()));
+            }
         }
     }
 

@@ -2,7 +2,9 @@ package com.fleyx.jcloud.service.support;
 
 import com.fleyx.jcloud.common.constant.FileNodeConstants;
 import com.fleyx.jcloud.common.enums.ConflictStrategy;
+import com.fleyx.jcloud.common.enums.FileChangeOperation;
 import com.fleyx.jcloud.common.enums.ResultCode;
+import com.fleyx.jcloud.common.event.FileTreeChangedEvent;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.common.exception.SystemException;
 import com.fleyx.jcloud.mapper.FileMapper;
@@ -50,6 +52,7 @@ public class TrashRestoreSupport {
     private final FileConflictResolver conflictResolver;
     private final FileConflictOverwriteHandler overwriteHandler;
     private final TrashRestorePathSupport trashRestorePathSupport;
+    private final FileChangeEventSupport fileChangeEventSupport;
 
     /**
      * 批量恢复回收站记录，整个列表在一个事务内执行。
@@ -145,6 +148,10 @@ public class TrashRestoreSupport {
         fileNodeSupport.setNodePath(fileNode, targetParentId);
         fileMapper.insert(fileNode);
 
+        fileChangeEventSupport.publishAfterCommit(new FileTreeChangedEvent(this, FileChangeOperation.RESTORE,
+                userId, fileNode.getId(), fileNode.getType(), fileNode.getName(), fileNode.getSize(),
+                null, targetParentId, null, fileNode.getPath()));
+
         userSpaceSupport.updateUsedSpace(user, space, size);
         recycleRecordMapper.physicalDeleteById(record.getId());
 
@@ -177,6 +184,9 @@ public class TrashRestoreSupport {
             String topPathName = FilePathUtil.buildPathName(targetParentPathName, record.getName());
             restoreFolderTree(sourceTop, topPathName, existingFolder, space, username, strategy);
             recycleRecordMapper.physicalDeleteById(record.getId());
+            fileChangeEventSupport.publishAfterCommit(new FileTreeChangedEvent(this, FileChangeOperation.RESTORE,
+                    userId, existingFolder.getId(), existingFolder.getType(), existingFolder.getName(),
+                    existingFolder.getSize(), null, existingFolder.getParentId(), null, existingFolder.getPath()));
             OperationResultVo vo = new OperationResultVo();
             vo.setSourceId(record.getId());
             vo.setSourceName(record.getName());
@@ -214,6 +224,9 @@ public class TrashRestoreSupport {
         FileNode topFolder = fileNodeSupport.buildFolderNode(userId, targetParentId, resolvedFolderName);
         fileNodeSupport.setNodePath(topFolder, targetParentId);
         fileMapper.insert(topFolder);
+        fileChangeEventSupport.publishAfterCommit(new FileTreeChangedEvent(this, FileChangeOperation.RESTORE,
+                userId, topFolder.getId(), topFolder.getType(), topFolder.getName(), topFolder.getSize(),
+                null, targetParentId, null, topFolder.getPath()));
         restoreFolderTree(targetTop, topPathName, topFolder, space, username, strategy);
 
         recycleRecordMapper.physicalDeleteById(record.getId());

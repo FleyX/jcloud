@@ -1,7 +1,9 @@
 package com.fleyx.jcloud.service.support;
 
 import com.fleyx.jcloud.common.constant.FileNodeConstants;
+import com.fleyx.jcloud.common.enums.FileChangeOperation;
 import com.fleyx.jcloud.common.enums.ResultCode;
+import com.fleyx.jcloud.common.event.FileTreeChangedEvent;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.FileMapper;
 import com.fleyx.jcloud.mapper.StorageSpaceMapper;
@@ -42,6 +44,7 @@ public class FileNodeEditSupport {
     private final RemoteFileService remoteFileService;
     private final FileNodeSupport fileNodeSupport;
     private final FilePathSupport filePathSupport;
+    private final FileChangeEventSupport fileChangeEventSupport;
 
     /**
      * 执行重命名。
@@ -56,7 +59,13 @@ public class FileNodeEditSupport {
         String newName = normalizeName(dto.getNewName());
 
         if (FileNodeConstants.SOURCE_REMOTE.equals(node.getSourceType())) {
-            return remoteFileOperationService.rename(node, newName, userId);
+            String parentId = node.getParentId();
+            String oldPath = node.getPath();
+            FileNodeVo renamed = remoteFileOperationService.rename(node, newName, userId);
+            fileChangeEventSupport.publishAfterCommit(new FileTreeChangedEvent(this, FileChangeOperation.UPDATE,
+                    userId, node.getId(), node.getType(), node.getName(), node.getSize(),
+                    parentId, parentId, oldPath, node.getPath()));
+            return renamed;
         }
 
         validateNameConflict(userId, node.getParentId(), newName, node.getId());
@@ -72,8 +81,14 @@ public class FileNodeEditSupport {
         if (TYPE_FOLDER.equals(node.getType())) {
             renamePhysicalFolder(node, space, username, oldPathName, newPathName);
         }
+        String oldIdPath = node.getPath();
+        String parentId = node.getParentId();
         node.setName(newName);
         fileMapper.updateById(node);
+
+        fileChangeEventSupport.publishAfterCommit(new FileTreeChangedEvent(this, FileChangeOperation.UPDATE,
+                userId, node.getId(), node.getType(), node.getName(), node.getSize(),
+                parentId, parentId, oldIdPath, node.getPath()));
         return fileConvert.poToVo(node);
     }
 
@@ -91,7 +106,11 @@ public class FileNodeEditSupport {
 
         FileNode parentNode = resolveParentNode(parentId, userId);
         if (parentNode != null && FileNodeConstants.SOURCE_REMOTE.equals(parentNode.getSourceType())) {
-            return remoteFileService.createFolder(parentNode, name, userId);
+            FileNodeVo remoteFolder = remoteFileService.createFolder(parentNode, name, userId);
+            fileChangeEventSupport.publishAfterCommit(new FileTreeChangedEvent(this, FileChangeOperation.CREATE,
+                    userId, remoteFolder.getId(), TYPE_FOLDER, remoteFolder.getName(), 0L,
+                    null, parentNode.getId(), null, FilePathUtil.buildChildPath(parentNode)));
+            return remoteFolder;
         }
 
         validateNameConflict(userId, parentId, name, null);
@@ -99,6 +118,10 @@ public class FileNodeEditSupport {
         FileNode folder = fileNodeSupport.buildFolderNode(userId, parentId, name);
         fileNodeSupport.setNodePath(folder, parentId);
         fileMapper.insert(folder);
+
+        fileChangeEventSupport.publishAfterCommit(new FileTreeChangedEvent(this, FileChangeOperation.CREATE,
+                userId, folder.getId(), folder.getType(), folder.getName(), folder.getSize(),
+                null, parentId, null, folder.getPath()));
         return fileConvert.poToVo(folder);
     }
 

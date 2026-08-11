@@ -62,6 +62,9 @@ class TrashRestoreSupportTest {
     @Mock
     private UserSpaceSupport userSpaceSupport;
 
+    @Mock
+    private FileChangeEventSupport fileChangeEventSupport;
+
     @TempDir
     Path tempDir;
 
@@ -79,7 +82,7 @@ class TrashRestoreSupportTest {
                 new FileConflictOverwriteHandler(fileMapper, storageSpaceMapper, userMapper);
         trashRestoreSupport = new TrashRestoreSupport(fileMapper, recycleRecordMapper, storageSpaceMapper,
                 fileNodeSupport, filePathSupport, userSpaceSupport, conflictResolver, overwriteHandler,
-                trashRestorePathSupport);
+                trashRestorePathSupport, fileChangeEventSupport);
     }
 
     @Test
