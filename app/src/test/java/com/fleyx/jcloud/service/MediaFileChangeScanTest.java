@@ -272,7 +272,7 @@ class MediaFileChangeScanTest {
         createdSpaceIds.add(space.getId());
 
         UserSaveDto userDto = new UserSaveDto();
-        userDto.setUsername("media_change_user_" + System.nanoTime());
+        userDto.setUsername("mc_user_" + Long.toUnsignedString(System.nanoTime(), 36));
         userDto.setPassword("123456");
         userDto.setStorageSpaceId(space.getId());
         userDto.setQuota(1L);
