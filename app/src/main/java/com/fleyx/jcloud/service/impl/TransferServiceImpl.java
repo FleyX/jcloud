@@ -27,6 +27,7 @@ import com.fleyx.jcloud.service.support.UserSpaceSupport;
 import com.fleyx.jcloud.util.FileConflictHelper;
 import com.fleyx.jcloud.util.FileConflictResolver;
 import com.fleyx.jcloud.util.FileNodeUtil;
+import com.fleyx.jcloud.util.DiskSpaceUtil;
 import com.fleyx.jcloud.util.IdUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
@@ -240,6 +241,8 @@ public class TransferServiceImpl implements TransferService {
 
     /**
      * 远程 → 本地传输前校验用户配额与存储空间容量。
+     * <p>
+     * 用户配额仍按 DB 逻辑口径校验；存储空间容量改用实时磁盘真值（迁移/传输不再增量写空间列）。
      */
     private void validateQuota(String userId, long totalBytes) {
         if (totalBytes <= 0) {
@@ -252,8 +255,9 @@ public class TransferServiceImpl implements TransferService {
         if (quota > 0 && used + totalBytes > quota) {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "用户配额不足，无法完成传输");
         }
-        long spaceUsed = space.getUsedSpace() == null ? 0L : space.getUsedSpace();
-        long capacity = space.getCapacity() == null ? 0L : space.getCapacity();
+        long[] disk = DiskSpaceUtil.calculateSpace(space.getPath());
+        long capacity = disk[0];
+        long spaceUsed = disk[1];
         if (capacity > 0 && spaceUsed + totalBytes > capacity) {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "存储空间容量不足，无法完成传输");
         }

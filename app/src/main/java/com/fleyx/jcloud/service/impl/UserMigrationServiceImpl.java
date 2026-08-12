@@ -15,6 +15,7 @@ import com.fleyx.jcloud.model.po.User;
 import com.fleyx.jcloud.model.po.UserMigrationTask;
 import com.fleyx.jcloud.model.vo.UserMigrationTaskVo;
 import com.fleyx.jcloud.service.UserMigrationService;
+import com.fleyx.jcloud.util.DiskSpaceUtil;
 import com.fleyx.jcloud.util.IdUtil;
 import com.fleyx.jcloud.service.support.SyncTaskSupport;
 import com.fleyx.jcloud.service.support.UserSpaceSupport;
@@ -106,6 +107,9 @@ public class UserMigrationServiceImpl implements UserMigrationService {
     }
 
     private void validateTargetSpaceEnough(StorageSpace sourceSpace, StorageSpace targetSpace, Long newQuota) {
+        // 空间列口径已统一为磁盘真值：原地刷新内存实体（不落库），后续比较即为实时磁盘余量
+        DiskSpaceUtil.refreshSpace(sourceSpace);
+        DiskSpaceUtil.refreshSpace(targetSpace);
         long usedSpace = sourceSpace.getUsedSpace() == null ? 0L : sourceSpace.getUsedSpace();
         long targetCapacity = targetSpace.getCapacity() == null ? 0L : targetSpace.getCapacity();
         long targetUsed = targetSpace.getUsedSpace() == null ? 0L : targetSpace.getUsedSpace();

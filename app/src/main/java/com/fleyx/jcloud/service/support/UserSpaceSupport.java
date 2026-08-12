@@ -65,20 +65,4 @@ public class UserSpaceSupport {
         }
         return space;
     }
-
-    /**
-     * 按增量更新用户与存储空间的已用容量（结果不小于 0）。
-     *
-     * @param user  用户
-     * @param space 存储空间
-     * @param delta 容量增量（可为负）
-     */
-    public void updateUsedSpace(User user, StorageSpace space, long delta) {
-        long newUserUsed = Math.max(0L, user.getUsedSpace() + delta);
-        user.setUsedSpace(newUserUsed);
-        userMapper.updateById(user);
-        long newSpaceUsed = Math.max(0L, space.getUsedSpace() + delta);
-        space.setUsedSpace(newSpaceUsed);
-        storageSpaceMapper.updateById(space);
-    }
 }

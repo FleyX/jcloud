@@ -42,6 +42,9 @@ class TrashPermanentDeleteSupportTest {
     private UserSpaceSupport userSpaceSupport;
 
     @Mock
+    private UserUsedSpaceSupport userUsedSpaceSupport;
+
+    @Mock
     private FileChangeEventSupport fileChangeEventSupport;
 
     @InjectMocks
@@ -119,7 +122,7 @@ class TrashPermanentDeleteSupportTest {
 
         assertEquals(FileNodeConstants.STATUS_SUCCESS, results.get(0).getStatus());
         assertEquals("已永久删除", results.get(0).getMessage());
-        verify(userSpaceSupport).updateUsedSpace(user, space, -100L);
+        verify(userUsedSpaceSupport).addUsedSpace("u1", -100L);
         verify(recycleRecordMapper).physicalDeleteById("r1");
     }
 

@@ -67,6 +67,7 @@ public class MediaArtworkPersistSupport {
     private final FileNodeSupport fileNodeSupport;
     private final FilePathSupport filePathSupport;
     private final UserSpaceSupport userSpaceSupport;
+    private final UserUsedSpaceSupport userUsedSpaceSupport;
     private final RemoteFileService remoteFileService;
     private final UserReadWriteLock userReadWriteLock;
     private final MediaNfoSupport nfoSupport;
@@ -208,7 +209,7 @@ public class MediaArtworkPersistSupport {
             update.setMimeType(mimeType);
             update.setLastModified(System.currentTimeMillis());
             fileMapper.updateById(update);
-            userSpaceSupport.updateUsedSpace(user, space, delta);
+            userUsedSpaceSupport.addUsedSpace(userId, delta);
             existing.setSize((long) content.length);
             return existing;
         }
@@ -217,7 +218,7 @@ public class MediaArtworkPersistSupport {
         node.setLastModified(System.currentTimeMillis());
         fileNodeSupport.setNodePath(node, dir.getId());
         fileMapper.insert(node);
-        userSpaceSupport.updateUsedSpace(user, space, content.length);
+        userUsedSpaceSupport.addUsedSpace(userId, content.length);
         return node;
     }
 

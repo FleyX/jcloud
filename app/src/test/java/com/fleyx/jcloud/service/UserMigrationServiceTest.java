@@ -7,13 +7,13 @@ import com.fleyx.jcloud.mapper.UserMapper;
 import com.fleyx.jcloud.model.dto.StorageSpaceSaveDto;
 import com.fleyx.jcloud.model.dto.UserMigrationSubmitDto;
 import com.fleyx.jcloud.model.dto.UserSaveDto;
-import com.fleyx.jcloud.model.po.StorageSpace;
 import com.fleyx.jcloud.model.po.User;
 import com.fleyx.jcloud.model.vo.StorageSpaceVo;
 import com.fleyx.jcloud.model.vo.UserMigrationTaskVo;
 import com.fleyx.jcloud.model.vo.UserVo;
 import com.fleyx.jcloud.common.context.CurrentUser;
 import com.fleyx.jcloud.common.context.UserContext;
+import com.fleyx.jcloud.util.DiskSpaceUtil;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -111,20 +111,15 @@ class UserMigrationServiceTest {
     void shouldRejectMigrationWhenTargetSpaceInsufficient() throws Exception {
         UserWithSpaces prepared = prepareUserWithSpaces();
 
-        StorageSpaceSaveDto smallSpaceDto = buildSpaceDto("small-space", Files.createTempDirectory(tempDir, "small-space"));
-        StorageSpaceVo smallSpace = storageSpaceService.save(smallSpaceDto);
-
-        LambdaUpdateWrapper<StorageSpace> wrapper = new LambdaUpdateWrapper<>();
-        wrapper.set(StorageSpace::getCapacity, 1L);
-        wrapper.set(StorageSpace::getUsedSpace, 0L);
-        wrapper.set(StorageSpace::getFreeSpace, 1L);
-        wrapper.eq(StorageSpace::getId, smallSpace.getId());
-        storageSpaceMapper.update(wrapper);
+        // 空间列口径已统一为磁盘真值：校验时按实时磁盘余量比较，
+        // 新配额超过目标空间所在文件系统总容量时必然拒绝
+        long targetDiskTotal = DiskSpaceUtil.calculateSpace(
+                prepared.targetSpace().getPath())[0];
 
         UserMigrationSubmitDto dto = new UserMigrationSubmitDto();
         dto.setUserId(prepared.user().getId());
-        dto.setTargetSpaceId(smallSpace.getId());
-        dto.setNewQuota(10737418240L);
+        dto.setTargetSpaceId(prepared.targetSpace().getId());
+        dto.setNewQuota(targetDiskTotal + 1L);
 
         assertThrows(BusinessException.class, () -> userMigrationService.submitMigration(dto));
     }

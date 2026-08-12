@@ -55,6 +55,7 @@ public class TransferNodeSupport {
     private final FileNodeSupport fileNodeSupport;
     private final FilePathSupport filePathSupport;
     private final UserSpaceSupport userSpaceSupport;
+    private final UserUsedSpaceSupport userUsedSpaceSupport;
     private final RemoteMountSupport remoteMountSupport;
     private final RemoteProtocolAdapterFactory adapterFactory;
     private final RemoteMountLock remoteMountLock;
@@ -262,7 +263,7 @@ public class TransferNodeSupport {
                 null, targetParent == null ? FileNodeConstants.ROOT_ID : targetParent.getId(),
                 null, node.getPath()));
 
-        userSpaceSupport.updateUsedSpace(user, space, actualSize);
+        userUsedSpaceSupport.addUsedSpace(userId, actualSize);
     }
 
     /**

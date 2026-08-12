@@ -11,8 +11,10 @@ import com.fleyx.jcloud.model.po.TransferTask;
 import com.fleyx.jcloud.service.support.SyncTaskSupport;
 import com.fleyx.jcloud.service.support.TransferContext;
 import com.fleyx.jcloud.service.support.TransferNodeSupport;
+import com.fleyx.jcloud.util.UserReadWriteLock;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.redisson.api.RLock;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
@@ -35,6 +37,7 @@ public class TransferTaskExecutor {
     private final TransferNodeSupport transferNodeSupport;
     private final SyncTaskSupport syncTaskSupport;
     private final ObjectMapper objectMapper;
+    private final UserReadWriteLock userReadWriteLock;
 
     @Async
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
@@ -66,11 +69,15 @@ public class TransferTaskExecutor {
                 if (ctx.checkCancelled()) {
                     break;
                 }
+                RLock lock = userReadWriteLock.writeLock(task.getUserId());
+                lock.lock();
                 try {
                     transferNodeSupport.transferTopLevel(item, task, ctx);
                 } catch (Exception e) {
                     log.error("传输项执行失败，taskId={}，nodeId={}", taskId, item.getNodeId(), e);
                     ctx.recordFailure(item.getName(), "传输失败: " + e.getMessage());
+                } finally {
+                    lock.unlock();
                 }
             }
             finish(task, ctx);

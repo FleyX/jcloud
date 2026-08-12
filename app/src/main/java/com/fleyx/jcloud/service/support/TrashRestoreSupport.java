@@ -104,7 +104,6 @@ public class TrashRestoreSupport {
                                           String targetParentPathName, StorageSpace space,
                                           String username, ConflictStrategy strategy) {
         String userId = record.getUserId();
-        User user = userSpaceSupport.requireUser(userId);
         Path trashRoot = FilePathUtil.resolveTrashRoot(space, username, record.getId());
         Path source = trashRoot.resolve(record.getName());
         String resolvedName = resolveRestoreName(targetParentId, record.getName(), userId, strategy);
@@ -155,7 +154,6 @@ public class TrashRestoreSupport {
                 userId, fileNode.getId(), fileNode.getType(), fileNode.getName(), fileNode.getSize(),
                 null, targetParentId, null, fileNode.getPath()));
 
-        userSpaceSupport.updateUsedSpace(user, space, size);
         recycleRecordMapper.physicalDeleteById(record.getId());
 
         OperationResultVo vo = new OperationResultVo();

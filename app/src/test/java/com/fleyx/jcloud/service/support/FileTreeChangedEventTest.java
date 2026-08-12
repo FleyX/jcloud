@@ -560,6 +560,7 @@ class FileTreeChangedEventTest extends IntegrationTestBase {
         FileMapper fileMapper = mock(FileMapper.class);
         UserMapper userMapper = mock(UserMapper.class);
         UserSpaceSupport userSpaceSupport = mock(UserSpaceSupport.class);
+        UserUsedSpaceSupport userUsedSpaceSupport = mock(UserUsedSpaceSupport.class);
         RemoteMountSupport remoteMountSupport = mock(RemoteMountSupport.class);
         RemoteProtocolAdapterFactory adapterFactory = mock(RemoteProtocolAdapterFactory.class);
         RemoteMountLock remoteMountLock = mock(RemoteMountLock.class);
@@ -569,7 +570,7 @@ class FileTreeChangedEventTest extends IntegrationTestBase {
         FileNodeSupport fileNodeSupport = new FileNodeSupport(fileMapper, userMapper);
         FilePathSupport filePathSupport = new FilePathSupport(fileMapper);
         TransferNodeSupport support = new TransferNodeSupport(fileMapper, fileNodeSupport, filePathSupport,
-                userSpaceSupport, remoteMountSupport, adapterFactory, remoteMountLock,
+                userSpaceSupport, userUsedSpaceSupport, remoteMountSupport, adapterFactory, remoteMountLock,
                 remoteFileOperationService, mock(WebDavFileOperationHelper.class),
                 mock(TrashDeleteSupport.class), eventSupport);
         return new TransferMocks(support, eventSupport, fileMapper, userMapper, userSpaceSupport,

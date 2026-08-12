@@ -131,17 +131,6 @@ class UserMigrationTaskExecutorTest {
         StorageSpaceSaveDto targetDto = buildSpaceDto("target-" + testId, targetPath.toString());
         StorageSpaceVo targetSpace = storageSpaceService.save(targetDto);
 
-        Files.walk(targetPath)
-                .sorted(java.util.Comparator.reverseOrder())
-                .forEach(p -> {
-                    try {
-                        Files.delete(p);
-                    } catch (Exception e) {
-                        throw new RuntimeException(e);
-                    }
-                });
-        Files.createFile(targetPath);
-
         UserSaveDto userDto = new UserSaveDto();
         userDto.setUsername("rlb_" + Long.toUnsignedString(System.nanoTime(), 36));
         userDto.setPassword("123456");
@@ -158,7 +147,20 @@ class UserMigrationTaskExecutorTest {
         submitDto.setUserId(user.getId());
         submitDto.setTargetSpaceId(targetSpace.getId());
         submitDto.setNewQuota(1073741824L);
+        // 容量校验已改读磁盘真值，提交时目标路径必须是有效目录
         UserMigrationTaskVo task = userMigrationService.submitMigration(submitDto);
+
+        // 提交后再把目标路径替换为普通文件，强制执行阶段移动失败（验证回滚）
+        Files.walk(targetPath)
+                .sorted(java.util.Comparator.reverseOrder())
+                .forEach(p -> {
+                    try {
+                        Files.delete(p);
+                    } catch (Exception e) {
+                        throw new RuntimeException(e);
+                    }
+                });
+        Files.createFile(targetPath);
 
         executor.execute(task.getId());
 

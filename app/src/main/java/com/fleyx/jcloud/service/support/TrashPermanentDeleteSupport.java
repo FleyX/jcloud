@@ -34,6 +34,7 @@ public class TrashPermanentDeleteSupport {
     private final RecycleRecordMapper recycleRecordMapper;
     private final StorageSpaceMapper storageSpaceMapper;
     private final UserSpaceSupport userSpaceSupport;
+    private final UserUsedSpaceSupport userUsedSpaceSupport;
     private final FileChangeEventSupport fileChangeEventSupport;
 
     /**
@@ -68,7 +69,7 @@ public class TrashPermanentDeleteSupport {
                 deleteRecursively(trashBase);
             }
             long freed = record.getTotalSize() == null ? 0L : record.getTotalSize();
-            userSpaceSupport.updateUsedSpace(user, space, -freed);
+            userUsedSpaceSupport.addUsedSpace(userId, -freed);
             recycleRecordMapper.physicalDeleteById(record.getId());
             // 彻底删除只有回收站记录可用：nodeId 用记录 ID，parentId/path 为空
             fileChangeEventSupport.publishAfterCommit(new FileTreeChangedEvent(this,
