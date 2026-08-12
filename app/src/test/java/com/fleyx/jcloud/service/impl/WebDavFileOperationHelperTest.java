@@ -1,6 +1,8 @@
 package com.fleyx.jcloud.service.impl;
 
 import com.fleyx.jcloud.common.constant.FileNodeConstants;
+import com.fleyx.jcloud.common.enums.FileChangeOperation;
+import com.fleyx.jcloud.common.event.FileTreeChangedEvent;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.common.exception.WebDavException;
 import com.fleyx.jcloud.mapper.FileMapper;
@@ -22,19 +24,25 @@ import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.mock.web.MockHttpServletRequest;
 
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -194,5 +202,95 @@ class WebDavFileOperationHelperTest {
         WebDavException e = assertThrows(WebDavException.class,
                 () -> helper.upload(USER_ID, root, "big.bin", request, 20));
         assertEquals(507, e.getStatusCode());
+    }
+
+    @Test
+    void shouldUpdateExistingNodeInPlaceWhenOverwrite() throws Exception {
+        // 覆盖更新：复用原节点 id，物理文件写入新内容，元数据按新内容更新，
+        // 已用空间按差额一次性调整，发布 UPDATE 事件且不再新建/删除任何记录
+        User user = buildUser(50, 0);
+        when(userSpaceSupport.requireUser(USER_ID)).thenReturn(user);
+        when(userSpaceSupport.requireSpace(SPACE_ID)).thenReturn(buildSpace());
+        FileNode root = buildFolder(FileNodeConstants.ROOT_ID, FileNodeConstants.ROOT_ID, "");
+        FileNode existing = buildFile("f1", root, "a.txt", 40);
+        when(fileMapper.selectList(any())).thenReturn(List.of(existing));
+
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setContent("new-content".getBytes(StandardCharsets.UTF_8));
+        helper.upload(USER_ID, root, "a.txt", request, 11);
+
+        Path realFile = tempDir.resolve("files").resolve(USERNAME).resolve("a.txt");
+        assertTrue(Files.exists(realFile));
+        assertEquals("new-content", Files.readString(realFile, StandardCharsets.UTF_8));
+
+        ArgumentCaptor<FileNode> updatedCaptor = ArgumentCaptor.forClass(FileNode.class);
+        verify(fileMapper).updateById(updatedCaptor.capture());
+        FileNode updated = updatedCaptor.getValue();
+        assertEquals("f1", updated.getId());
+        assertEquals(11L, updated.getSize());
+        assertNotNull(updated.getHash());
+        assertNotNull(updated.getLastModified());
+        assertNotNull(updated.getMimeType());
+
+        verify(fileMapper, never()).insert(any(FileNode.class));
+        verify(userUsedSpaceSupport).addUsedSpace(USER_ID, -29L);
+        verifyNoMoreInteractions(userUsedSpaceSupport);
+
+        ArgumentCaptor<FileTreeChangedEvent> eventCaptor = ArgumentCaptor.forClass(FileTreeChangedEvent.class);
+        verify(fileChangeEventSupport).publishAfterCommit(eventCaptor.capture());
+        FileTreeChangedEvent event = eventCaptor.getValue();
+        assertEquals(FileChangeOperation.UPDATE, event.getOperation());
+        assertEquals("f1", event.getNodeId());
+    }
+
+    @Test
+    void shouldRejectPutOverFolderWith405() throws Exception {
+        // PUT 目标存在同名文件夹：任何磁盘写入与 DB 变更之前即返回 405
+        FileNode root = buildFolder(FileNodeConstants.ROOT_ID, FileNodeConstants.ROOT_ID, "");
+        FileNode folder = buildFolder("f1", FileNodeConstants.ROOT_ID, "a.txt");
+        when(fileMapper.selectList(any())).thenReturn(List.of(folder));
+
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setContent("new-content".getBytes(StandardCharsets.UTF_8));
+
+        WebDavException e = assertThrows(WebDavException.class,
+                () -> helper.upload(USER_ID, root, "a.txt", request, 11));
+        assertEquals(405, e.getStatusCode());
+        verify(fileMapper, never()).insert(any(FileNode.class));
+        verify(fileMapper, never()).updateById(any(FileNode.class));
+        verify(fileMapper, never()).physicalDeleteByIds(any());
+        verify(userUsedSpaceSupport, never()).addUsedSpace(anyString(), anyLong());
+        assertFalse(Files.exists(tempDir.resolve("files")));
+    }
+
+    @Test
+    void shouldCreateNodeWhenNoNameConflict() throws Exception {
+        // 无冲突上传回归：新建节点、写盘、计入已用空间、CREATE 事件
+        User user = buildUser(0, 0);
+        when(userSpaceSupport.requireUser(USER_ID)).thenReturn(user);
+        when(userSpaceSupport.requireSpace(SPACE_ID)).thenReturn(buildSpace());
+        FileNode root = buildFolder(FileNodeConstants.ROOT_ID, FileNodeConstants.ROOT_ID, "");
+        when(fileMapper.selectList(any())).thenReturn(List.of());
+
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setContent("new-content".getBytes(StandardCharsets.UTF_8));
+        helper.upload(USER_ID, root, "a.txt", request, 11);
+
+        Path realFile = tempDir.resolve("files").resolve(USERNAME).resolve("a.txt");
+        assertTrue(Files.exists(realFile));
+        assertEquals("new-content", Files.readString(realFile, StandardCharsets.UTF_8));
+
+        ArgumentCaptor<FileNode> insertedCaptor = ArgumentCaptor.forClass(FileNode.class);
+        verify(fileMapper).insert(insertedCaptor.capture());
+        FileNode inserted = insertedCaptor.getValue();
+        assertEquals("a.txt", inserted.getName());
+        assertEquals(11L, inserted.getSize());
+        assertEquals(FileNodeConstants.ROOT_ID, inserted.getPath());
+
+        verify(userUsedSpaceSupport).addUsedSpace(USER_ID, 11L);
+
+        ArgumentCaptor<FileTreeChangedEvent> eventCaptor = ArgumentCaptor.forClass(FileTreeChangedEvent.class);
+        verify(fileChangeEventSupport).publishAfterCommit(eventCaptor.capture());
+        assertEquals(FileChangeOperation.CREATE, eventCaptor.getValue().getOperation());
     }
 }

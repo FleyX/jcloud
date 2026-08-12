@@ -60,11 +60,14 @@ public class WebDavFileOperationHelper {
      */
     public void upload(String userId, FileNode parent, String name, HttpServletRequest request, long size) {
         FileNode existing = FileConflictHelper.findSameName(fileMapper, userId, parent.getId(), name);
+        if (existing != null && FileNodeConstants.TYPE_FOLDER.equals(existing.getType())) {
+            throw new WebDavException(405, "Cannot PUT over a collection");
+        }
         User user = userSpaceSupport.requireUser(userId);
         StorageSpace space = userSpaceSupport.requireSpace(user.getStorageSpaceId());
         long usedSpace = user.getUsedSpace() == null ? 0L : user.getUsedSpace();
         long quota = user.getQuota() == null ? 0L : user.getQuota();
-        long delta = size - (existing != null && FileNodeConstants.TYPE_FILE.equals(existing.getType()) ? existing.getSize() : 0);
+        long delta = size - (existing != null ? existing.getSize() : 0);
         if (quota > 0 && usedSpace + delta > quota) {
             throw new WebDavException(507, "Insufficient Storage");
         }
@@ -84,7 +87,16 @@ public class WebDavFileOperationHelper {
             throw new SystemException(ResultCode.SYSTEM_ERROR, "文件 hash 计算失败", e);
         }
         if (existing != null) {
-            deleteExistingForOverwrite(existing, user);
+            existing.setSize(size);
+            existing.setHash(hash);
+            existing.setLastModified(System.currentTimeMillis());
+            existing.setMimeType(probeContentType(name));
+            fileMapper.updateById(existing);
+            userUsedSpaceSupport.addUsedSpace(userId, delta);
+            fileChangeEventSupport.publishAfterCommit(new FileTreeChangedEvent(this, FileChangeOperation.UPDATE,
+                    userId, existing.getId(), existing.getType(), existing.getName(), existing.getSize(),
+                    existing.getParentId(), existing.getParentId(), existing.getPath(), existing.getPath()));
+            return;
         }
         FileNode node = fileNodeSupport.buildFileNode(userId, parent.getId(), name, size, hash, space.getId(),
                 probeContentType(name));
@@ -224,17 +236,6 @@ public class WebDavFileOperationHelper {
                         FileChangeOperation.COPY, userId, copied.getId(), copied.getType(), copied.getName(),
                         copied.getSize(), null, targetParent.getId(), null, copied.getPath()));
             }
-        }
-    }
-
-    private void deleteExistingForOverwrite(FileNode existing, User user) {
-        if (existing == null) {
-            return;
-        }
-        if (FileNodeConstants.TYPE_FOLDER.equals(existing.getType())) {
-            deleteNodeRecursively(existing, user);
-        } else {
-            deleteSingleFile(existing, user);
         }
     }
 
