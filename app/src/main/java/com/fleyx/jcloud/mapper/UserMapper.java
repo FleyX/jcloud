@@ -30,4 +30,21 @@ public interface UserMapper extends BaseMapper<User> {
      */
     @Select("SELECT COUNT(*) FROM t_user WHERE username = #{username}")
     long countByUsernameIncludingDeleted(@Param("username") String username);
+
+    /**
+     * 按增量原子累加用户已用空间（单语句 UPDATE，结果不小于 0）。
+     *
+     * @param userId 用户 ID
+     * @param delta  容量增量（可为负）
+     * @return 影响行数
+     */
+    int addUsedSpace(@Param("userId") String userId, @Param("delta") long delta);
+
+    /**
+     * 按逻辑口径全量重算用户已用空间并落库。
+     *
+     * @param userId 用户 ID
+     * @return 影响行数
+     */
+    int recalcUsedSpace(@Param("userId") String userId);
 }

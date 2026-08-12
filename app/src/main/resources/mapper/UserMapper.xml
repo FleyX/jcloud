@@ -9,4 +9,23 @@
           AND username LIKE CONCAT('%', #{username}, '%')
         ORDER BY create_time DESC
     </select>
+
+    <update id="addUsedSpace">
+        UPDATE t_user
+        SET used_space = GREATEST(0, COALESCE(used_space, 0) + #{delta}),
+            update_time = CURRENT_TIMESTAMP
+        WHERE id = #{userId} AND delete_at = 0
+    </update>
+
+    <update id="recalcUsedSpace">
+        UPDATE t_user
+        SET used_space = COALESCE((
+              SELECT SUM(size) FROM t_file_node
+              WHERE user_id = #{userId} AND type = 'file' AND source_type = 'local'), 0)
+            + COALESCE((
+              SELECT SUM(total_size) FROM t_recycle_bin
+              WHERE user_id = #{userId}), 0),
+            update_time = CURRENT_TIMESTAMP
+        WHERE id = #{userId} AND delete_at = 0
+    </update>
 </mapper>
