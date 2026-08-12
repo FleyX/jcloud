@@ -1,6 +1,7 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { cancelTransfer, createTransferCopy, createTransferMove, fetchRecentTransfers } from '@/api/transfer'
+import { useUserStore } from '@/store/user'
 import type { TransferCreateRequest, TransferTaskVo } from '@/types/transfer'
 
 const ACTIVE_STATUSES = ['PENDING', 'RUNNING', 'CANCELLING']
@@ -35,6 +36,7 @@ function saveHandledIds(ids: Set<string>): void {
  * 跨来源传输任务状态：负责任务创建、进度轮询与取消。
  */
 export const useTransferTaskStore = defineStore('transferTask', () => {
+  const userStore = useUserStore()
   const tasks = ref<TransferTaskVo[]>([])
   /** 有任务到达终态时自增，文件列表可监听该值刷新 */
   const finishedTick = ref(0)
@@ -56,6 +58,8 @@ export const useTransferTaskStore = defineStore('transferTask', () => {
       const previous = lastStatuses.get(task.id)
       if (previous && ACTIVE_STATUSES.includes(previous) && !isActive(task)) {
         finishedTick.value++
+        // 跨来源传输终态（成功/部分成功/失败/取消）均可能写入字节，防抖刷新用户容量信息
+        userStore.scheduleUserInfoRefresh()
       }
       lastStatuses.set(task.id, task.status)
     }

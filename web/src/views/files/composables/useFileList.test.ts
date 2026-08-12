@@ -10,11 +10,17 @@ const mockDownloadBatchFiles = vi.fn()
 const mockUploadBatch = vi.fn()
 const mockCreateShare = vi.fn()
 const mockUpdateShare = vi.fn()
+const mockGetCurrentUser = vi.fn()
 
 vi.mock('@/api/file', () => ({
   fetchFilePage: (...args: unknown[]) => mockFetchFilePage(...args),
   deleteToTrash: (...args: unknown[]) => mockDeleteToTrash(...args),
   downloadBatchFiles: (...args: unknown[]) => mockDownloadBatchFiles(...args),
+}))
+
+vi.mock('@/api/auth', () => ({
+  login: vi.fn(),
+  getCurrentUser: (...args: unknown[]) => mockGetCurrentUser(...args),
 }))
 
 vi.mock('@/api/share', () => ({
@@ -201,6 +207,28 @@ describe('useFileList', () => {
     await list.handleDelete(node)
 
     expect(mockDeleteToTrash).toHaveBeenCalledWith({ ids: ['a'] })
+  })
+
+  it('refreshes user info after delete (debounced)', async () => {
+    const node = buildFileNode({ id: 'a', name: 'x.txt' })
+    mockDeleteToTrash.mockResolvedValue([])
+    mockGetCurrentUser.mockResolvedValue({
+      token: 't',
+      userInfo: { id: '1', username: 'u', status: 1, isAdmin: false, roles: [] },
+      resources: [],
+      initialized: true,
+    })
+
+    const list = await createList([node])
+    vi.useFakeTimers()
+    try {
+      await list.handleDelete(node)
+      expect(mockGetCurrentUser).not.toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(800)
+      expect(mockGetCurrentUser).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('batch downloads selected files', async () => {

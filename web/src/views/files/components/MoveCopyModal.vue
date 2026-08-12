@@ -8,6 +8,7 @@ import { X, FolderInput, Copy, Search } from '@lucide/vue'
 import { cn } from '@/utils/cn'
 import { copyFiles, moveFiles, preCheckOperation } from '@/api/file'
 import { useTransferTaskStore } from '@/store/transferTask'
+import { useUserStore } from '@/store/user'
 import FileConflictModal from '@/components/files/FileConflictModal.vue'
 import FolderTree, { type TreeNode } from '@/components/files/FolderTree.vue'
 import type { ConflictItemVo, ConflictStrategy, FileNodeVo, OperationResultVo } from '@/types/file'
@@ -36,6 +37,7 @@ const step = ref<Step>('select')
 const loading = ref(false)
 const conflictOpen = ref(false)
 const transferTaskStore = useTransferTaskStore()
+const userStore = useUserStore()
 
 const isMove = computed(() => props.type === 'move')
 const title = computed(() => (isMove.value ? '移动' : '复制'))
@@ -121,9 +123,13 @@ async function executeMoveCopy() {
       emit('close')
       return
     }
-    results.value = props.type === 'move'
-      ? await moveFiles({ type: 'move', targetParentId: targetParentId.value, items })
-      : await copyFiles({ type: 'copy', targetParentId: targetParentId.value, items })
+    if (props.type === 'move') {
+      results.value = await moveFiles({ type: 'move', targetParentId: targetParentId.value, items })
+    } else {
+      results.value = await copyFiles({ type: 'copy', targetParentId: targetParentId.value, items })
+      // 复制改变已用空间（move 不触发），防抖刷新用户容量信息
+      userStore.scheduleUserInfoRefresh()
+    }
     step.value = 'result'
   } finally {
     loading.value = false

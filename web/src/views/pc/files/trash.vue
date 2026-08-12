@@ -26,11 +26,13 @@ import {
 import FileConflictModal from '@/components/files/FileConflictModal.vue'
 import { useConfirmStore } from '@/store/confirm'
 import { useNotificationStore } from '@/store/notification'
+import { useUserStore } from '@/store/user'
 import type { Component } from 'vue'
 import type { ConflictItemVo, ConflictStrategy, OperationResultVo, RecycleRecordVo } from '@/types/file'
 
 const confirmStore = useConfirmStore()
 const notificationStore = useNotificationStore()
+const userStore = useUserStore()
 
 const records = ref<RecycleRecordVo[]>([])
 const loading = ref(false)
@@ -147,6 +149,8 @@ async function executeRestore(targets: RecycleRecordVo[], strategies?: Record<st
       strategy: strategies?.[r.id] ?? 'keep',
     })),
   })
+  // 恢复占用已用空间，防抖刷新用户容量信息
+  userStore.scheduleUserInfoRefresh()
   showResult('恢复', results)
   await loadTrash()
 }
@@ -171,6 +175,8 @@ async function handlePermanentDelete() {
   })
   if (!confirmed) return
   const results = await permanentDeleteTrash({ ids: targets.map((r) => r.id) })
+  // 彻底删除释放已用空间，防抖刷新用户容量信息
+  userStore.scheduleUserInfoRefresh()
   showResult('删除', results)
   await loadTrash()
 }

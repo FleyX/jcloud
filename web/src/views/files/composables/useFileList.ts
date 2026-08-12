@@ -10,6 +10,7 @@ import { useConfirmStore } from '@/store/confirm'
 import { useNotificationStore } from '@/store/notification'
 import { useTransferStore } from '@/store/transfer'
 import { useTransferTaskStore } from '@/store/transferTask'
+import { useUserStore } from '@/store/user'
 import { formatSize, inferFileType } from '@/utils/fileDisplay'
 import type { FileDisplayType } from '@/utils/fileDisplay'
 import type {
@@ -56,6 +57,7 @@ export function useFileList(options: UseFileListOptions = {}) {
   const notificationStore = useNotificationStore()
   const confirmStore = useConfirmStore()
   const transferStore = useTransferStore()
+  const userStore = useUserStore()
   const { uploadBatch } = useBatchUpload()
 
   const files = ref<FileNodeVo[]>([])
@@ -239,6 +241,8 @@ export function useFileList(options: UseFileListOptions = {}) {
     })
     if (!confirmed) return
     await deleteToTrash({ ids: [file.id] })
+    // 删除占用已用空间，防抖刷新用户容量信息
+    userStore.scheduleUserInfoRefresh()
     notificationStore.success('已移动到回收站')
     await loadFiles()
   }
@@ -254,6 +258,8 @@ export function useFileList(options: UseFileListOptions = {}) {
     })
     if (!confirmed) return
     await deleteToTrash({ ids: targets.map((f) => f.id) })
+    // 删除占用已用空间，防抖刷新用户容量信息
+    userStore.scheduleUserInfoRefresh()
     notificationStore.success('已移动到回收站')
     await loadFiles()
   }

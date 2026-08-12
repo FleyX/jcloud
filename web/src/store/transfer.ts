@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
+import { useUserStore } from '@/store/user'
 
 /**
  * 上传任务状态
@@ -84,6 +85,8 @@ export interface DownloadTask {
  * 用于管理上传/下载任务，是网盘核心状态之一
  */
 export const useTransferStore = defineStore('transfer', () => {
+  const userStore = useUserStore()
+
   // ================= State =================
   const uploadQueue = ref<UploadTask[]>([])
   const downloadQueue = ref<DownloadTask[]>([])
@@ -210,6 +213,8 @@ export const useTransferStore = defineStore('transfer', () => {
     task.progress = 100
     task.speed = '0 KB/s'
     task.speedBps = 0
+    // 上传成功会占用/改变已用空间，防抖刷新用户容量信息
+    userStore.scheduleUserInfoRefresh()
   }
 
   /**

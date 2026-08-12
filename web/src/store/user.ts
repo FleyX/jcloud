@@ -5,6 +5,9 @@ import type { LoginVo, UserVo } from '@/types/auth'
 
 const TOKEN_KEY = 'jcloud_token'
 
+/** 写操作后防抖刷新用户信息的定时器句柄 */
+let refreshTimer: ReturnType<typeof setTimeout> | null = null
+
 /**
  * 全局用户状态 Store
  * 维护登录态、用户信息、资源编码列表
@@ -61,6 +64,18 @@ export const useUserStore = defineStore('user', () => {
   }
 
   /**
+   * 写操作后防抖刷新用户信息（合并连续操作的多次触发，刷新容量等字段）。
+   * 失败静默：请求异常已由全局拦截统一展示，不阻断业务操作。
+   */
+  function scheduleUserInfoRefresh(delayMs = 800) {
+    if (refreshTimer !== null) clearTimeout(refreshTimer)
+    refreshTimer = setTimeout(() => {
+      refreshTimer = null
+      fetchCurrentUser().catch(() => {})
+    }, delayMs)
+  }
+
+  /**
    * 登出
    */
   function logoutAction() {
@@ -103,6 +118,7 @@ export const useUserStore = defineStore('user', () => {
     isAdmin,
     loginAction,
     fetchCurrentUser,
+    scheduleUserInfoRefresh,
     logoutAction,
     hasResource,
     hasAnyResource,
