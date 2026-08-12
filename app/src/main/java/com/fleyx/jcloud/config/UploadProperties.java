@@ -29,6 +29,11 @@ public class UploadProperties {
     private long chunkSize = 64L * 1024 * 1024;
 
     /**
+     * 分片上传临时目录保留时长（小时），超期无活动的残留目录由定时清理任务删除，默认 24 小时。
+     */
+    private long tempRetentionHours = 24;
+
+    /**
      * 校验分片大小配置是否合法。
      */
     @PostConstruct
