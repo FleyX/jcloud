@@ -28,4 +28,12 @@
             update_time = CURRENT_TIMESTAMP
         WHERE id = #{userId} AND delete_at = 0
     </update>
+
+    <!-- 查询逻辑删除超过保留期的用户（删除用户级联清理任务使用，绕开 @TableLogic 自动过滤） -->
+    <select id="selectExpiredDeletedUsers" resultType="com.fleyx.jcloud.model.po.User">
+        SELECT *
+        FROM t_user
+        WHERE delete_at > 0
+          AND delete_at &lt; #{cutoff}
+    </select>
 </mapper>

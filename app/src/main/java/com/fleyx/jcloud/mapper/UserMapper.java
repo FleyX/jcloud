@@ -47,4 +47,15 @@ public interface UserMapper extends BaseMapper<User> {
      * @return 影响行数
      */
     int recalcUsedSpace(@Param("userId") String userId);
+
+    /**
+     * 查询逻辑删除超过保留期的用户（自定义 SQL 绕开 {@code @TableLogic} 自动过滤）。
+     * <p>
+     * 用于删除用户级联清理任务：delete_at 大于 0 表示已逻辑删除，
+     * 小于 cutoff（毫秒时间戳）表示已超过保留期。
+     *
+     * @param cutoff 保留期截止毫秒时间戳
+     * @return 过期逻辑删除用户列表
+     */
+    List<User> selectExpiredDeletedUsers(@Param("cutoff") long cutoff);
 }
