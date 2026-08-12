@@ -4,10 +4,10 @@ import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.FileMapper;
 import com.fleyx.jcloud.mapper.StorageSpaceMapper;
-import com.fleyx.jcloud.mapper.UserMapper;
 import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.po.StorageSpace;
 import com.fleyx.jcloud.model.po.User;
+import com.fleyx.jcloud.service.support.UserUsedSpaceSupport;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -25,7 +25,7 @@ public class FileConflictOverwriteHandler {
 
     private final FileMapper fileMapper;
     private final StorageSpaceMapper storageSpaceMapper;
-    private final UserMapper userMapper;
+    private final UserUsedSpaceSupport userUsedSpaceSupport;
 
     /**
      * 删除被覆盖的旧文件节点及物理数据，并扣减用户已用配额。
@@ -38,9 +38,7 @@ public class FileConflictOverwriteHandler {
         FilePathUtil.ResolveContext ctx = FilePathUtil.contextOf(space, user.getUsername());
         Path physicalPath = FilePathUtil.resolvePhysicalPath(existing, ctx);
         fileMapper.deleteById(existing);
-        long usedSpace = user.getUsedSpace() == null ? 0L : user.getUsedSpace();
-        user.setUsedSpace(Math.max(0L, usedSpace - existing.getSize()));
-        userMapper.updateById(user);
+        userUsedSpaceSupport.addUsedSpace(user.getId(), -(existing.getSize() == null ? 0L : existing.getSize()));
         try {
             Files.deleteIfExists(physicalPath);
         } catch (Exception e) {

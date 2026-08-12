@@ -13,6 +13,7 @@ import com.fleyx.jcloud.service.support.FileChangeEventSupport;
 import com.fleyx.jcloud.service.support.FileNodeSupport;
 import com.fleyx.jcloud.service.support.FilePathSupport;
 import com.fleyx.jcloud.service.support.UserSpaceSupport;
+import com.fleyx.jcloud.service.support.UserUsedSpaceSupport;
 import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -58,6 +59,9 @@ class WebDavFileOperationHelperTest {
     @Mock
     private UserSpaceSupport userSpaceSupport;
 
+    @Mock
+    private UserUsedSpaceSupport userUsedSpaceSupport;
+
     private FileChangeEventSupport fileChangeEventSupport;
 
     @TempDir
@@ -70,8 +74,8 @@ class WebDavFileOperationHelperTest {
         FileNodeSupport fileNodeSupport = new FileNodeSupport(fileMapper, userMapper);
         FilePathSupport filePathSupport = new FilePathSupport(fileMapper);
         fileChangeEventSupport = mock(FileChangeEventSupport.class);
-        helper = new WebDavFileOperationHelper(fileMapper, userMapper, storageSpaceMapper,
-                userSpaceSupport, fileNodeSupport, filePathSupport, fileChangeEventSupport);
+        helper = new WebDavFileOperationHelper(fileMapper, storageSpaceMapper,
+                userSpaceSupport, userUsedSpaceSupport, fileNodeSupport, filePathSupport, fileChangeEventSupport);
     }
 
     private User buildUser(long usedSpace, long quota) {
@@ -149,7 +153,7 @@ class WebDavFileOperationHelperTest {
 
     @Test
     void shouldPersistFreedSpaceWhenDeleteFile() throws Exception {
-        // D14 回归：删除后扣减的 usedSpace 必须持久化
+        // D14 回归：删除后扣减的 usedSpace 必须持久化（经集中记账原子扣减）
         User user = buildUser(100, 0);
         when(userSpaceSupport.requireUser(USER_ID)).thenReturn(user);
         when(storageSpaceMapper.selectById(SPACE_ID)).thenReturn(buildSpace());
@@ -163,8 +167,7 @@ class WebDavFileOperationHelperTest {
         helper.delete(USER_ID, file);
 
         assertFalse(Files.exists(realFile));
-        assertEquals(60L, user.getUsedSpace());
-        verify(userMapper).updateById(user);
+        verify(userUsedSpaceSupport).addUsedSpace(USER_ID, -40L);
         verify(fileMapper).physicalDeleteByIds(List.of("f1"));
     }
 

@@ -14,6 +14,7 @@ import com.fleyx.jcloud.model.po.StorageSpace;
 import com.fleyx.jcloud.model.po.User;
 import com.fleyx.jcloud.service.support.FileNodeSupport;
 import com.fleyx.jcloud.service.support.FilePathSupport;
+import com.fleyx.jcloud.service.support.UserUsedSpaceSupport;
 import com.fleyx.jcloud.util.FileConflictHelper;
 import com.fleyx.jcloud.util.FileConflictOverwriteHandler;
 import com.fleyx.jcloud.util.FileConflictResolver;
@@ -48,6 +49,7 @@ public class FileOperationExecutor {
     private final FileConflictOverwriteHandler overwriteHandler;
     private final FileNodeSupport fileNodeSupport;
     private final FilePathSupport filePathSupport;
+    private final UserUsedSpaceSupport userUsedSpaceSupport;
 
     /**
      * 执行单条移动。
@@ -298,14 +300,21 @@ public class FileOperationExecutor {
                 : source.getName();
     }
 
+    /**
+     * 复制一个文件后的已用空间记账与配额校验。
+     * <p>
+     * 配额校验从 DB 重读当前已用空间（实体快照在递归复制中不再随记账更新，
+     * 若沿用快照会导致文件夹递归复制时每个文件都按旧值校验、整体可超额）。
+     * 校验通过后通过集中记账原子累加，避免并发读-改-写丢失更新。
+     */
     private void updateUsedSpace(User user, long delta) {
-        long used = user.getUsedSpace() == null ? 0L : user.getUsedSpace();
-        long quota = user.getQuota() == null ? 0L : user.getQuota();
+        User latest = userMapper.selectById(user.getId());
+        long used = latest == null || latest.getUsedSpace() == null ? 0L : latest.getUsedSpace();
+        long quota = latest == null || latest.getQuota() == null ? 0L : latest.getQuota();
         if (quota > 0 && used + delta > quota) {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "用户配额不足");
         }
-        user.setUsedSpace(used + delta);
-        userMapper.updateById(user);
+        userUsedSpaceSupport.addUsedSpace(user.getId(), delta);
     }
 
     /**

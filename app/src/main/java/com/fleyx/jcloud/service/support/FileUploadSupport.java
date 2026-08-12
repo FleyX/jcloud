@@ -6,7 +6,6 @@ import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.event.FileTreeChangedEvent;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.FileMapper;
-import com.fleyx.jcloud.mapper.UserMapper;
 import com.fleyx.jcloud.model.convert.FileConvert;
 import com.fleyx.jcloud.model.dto.FileInstantUploadDto;
 import com.fleyx.jcloud.model.po.FileNode;
@@ -42,7 +41,6 @@ public class FileUploadSupport {
     private static final String TYPE_FILE = "file";
 
     private final FileMapper fileMapper;
-    private final UserMapper userMapper;
     private final FileConvert fileConvert;
     private final UploadConflictResolver conflictResolver;
     private final FolderPathService folderPathService;
@@ -51,6 +49,7 @@ public class FileUploadSupport {
     private final FileNodeSupport fileNodeSupport;
     private final FilePathSupport filePathSupport;
     private final UserSpaceSupport userSpaceSupport;
+    private final UserUsedSpaceSupport userUsedSpaceSupport;
     private final FileChangeEventSupport fileChangeEventSupport;
 
     /**
@@ -125,8 +124,7 @@ public class FileUploadSupport {
                 userId, node.getId(), node.getType(), node.getName(), node.getSize(),
                 null, resolvedParentId, null, node.getPath()));
 
-        user.setUsedSpace(usedSpace + fileSize);
-        userMapper.updateById(user);
+        userUsedSpaceSupport.addUsedSpace(userId, fileSize);
 
         FileNodeVo vo = fileConvert.poToVo(node);
         vo.setPhysicalPath(relativizePhysicalPath(space, username, physicalPath));
@@ -224,8 +222,7 @@ public class FileUploadSupport {
                 userId, node.getId(), node.getType(), node.getName(), node.getSize(),
                 null, finalParentId, null, node.getPath()));
 
-        user.setUsedSpace(usedSpace + fileSize);
-        userMapper.updateById(user);
+        userUsedSpaceSupport.addUsedSpace(userId, fileSize);
 
         FileNodeVo vo = fileConvert.poToVo(node);
         vo.setPhysicalPath(relativizePhysicalPath(space, username, targetPath));

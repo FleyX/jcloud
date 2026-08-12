@@ -63,6 +63,9 @@ class TrashRestoreSupportTest {
     private UserSpaceSupport userSpaceSupport;
 
     @Mock
+    private UserUsedSpaceSupport userUsedSpaceSupport;
+
+    @Mock
     private FileChangeEventSupport fileChangeEventSupport;
 
     @TempDir
@@ -79,7 +82,7 @@ class TrashRestoreSupportTest {
                 new TrashRestorePathSupport(fileMapper, fileNodeSupport, filePathSupport);
         // 使用真实覆盖处理器：覆盖场景下真实删除被覆盖文件的物理数据，从而验证覆盖的真实副作用
         FileConflictOverwriteHandler overwriteHandler =
-                new FileConflictOverwriteHandler(fileMapper, storageSpaceMapper, userMapper);
+                new FileConflictOverwriteHandler(fileMapper, storageSpaceMapper, userUsedSpaceSupport);
         trashRestoreSupport = new TrashRestoreSupport(fileMapper, recycleRecordMapper, storageSpaceMapper,
                 fileNodeSupport, filePathSupport, userSpaceSupport, conflictResolver, overwriteHandler,
                 trashRestorePathSupport, fileChangeEventSupport);

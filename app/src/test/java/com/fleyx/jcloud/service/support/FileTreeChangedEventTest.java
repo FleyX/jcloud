@@ -545,11 +545,13 @@ class FileTreeChangedEventTest extends IntegrationTestBase {
         UserMapper userMapper = mock(UserMapper.class);
         StorageSpaceMapper storageSpaceMapper = mock(StorageSpaceMapper.class);
         UserSpaceSupport userSpaceSupport = mock(UserSpaceSupport.class);
+        UserUsedSpaceSupport userUsedSpaceSupport = mock(UserUsedSpaceSupport.class);
         FileChangeEventSupport eventSupport = mock(FileChangeEventSupport.class);
         FileNodeSupport fileNodeSupport = new FileNodeSupport(fileMapper, userMapper);
         FilePathSupport filePathSupport = new FilePathSupport(fileMapper);
-        WebDavFileOperationHelper helper = new WebDavFileOperationHelper(fileMapper, userMapper,
-                storageSpaceMapper, userSpaceSupport, fileNodeSupport, filePathSupport, eventSupport);
+        WebDavFileOperationHelper helper = new WebDavFileOperationHelper(fileMapper,
+                storageSpaceMapper, userSpaceSupport, userUsedSpaceSupport, fileNodeSupport,
+                filePathSupport, eventSupport);
         return new WebDavMocks(helper, eventSupport, fileMapper, userMapper, userSpaceSupport,
                 storageSpaceMapper);
     }

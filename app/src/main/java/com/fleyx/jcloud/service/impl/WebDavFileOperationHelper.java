@@ -9,7 +9,6 @@ import com.fleyx.jcloud.common.exception.SystemException;
 import com.fleyx.jcloud.common.exception.WebDavException;
 import com.fleyx.jcloud.mapper.FileMapper;
 import com.fleyx.jcloud.mapper.StorageSpaceMapper;
-import com.fleyx.jcloud.mapper.UserMapper;
 import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.po.StorageSpace;
 import com.fleyx.jcloud.model.po.User;
@@ -17,6 +16,7 @@ import com.fleyx.jcloud.service.support.FileNodeSupport;
 import com.fleyx.jcloud.service.support.FilePathSupport;
 import com.fleyx.jcloud.service.support.FileChangeEventSupport;
 import com.fleyx.jcloud.service.support.UserSpaceSupport;
+import com.fleyx.jcloud.service.support.UserUsedSpaceSupport;
 import com.fleyx.jcloud.util.FileConflictHelper;
 import com.fleyx.jcloud.util.FileHashUtil;
 import com.fleyx.jcloud.util.FilePathUtil;
@@ -42,9 +42,9 @@ import java.util.List;
 public class WebDavFileOperationHelper {
 
     private final FileMapper fileMapper;
-    private final UserMapper userMapper;
     private final StorageSpaceMapper storageSpaceMapper;
     private final UserSpaceSupport userSpaceSupport;
+    private final UserUsedSpaceSupport userUsedSpaceSupport;
     private final FileNodeSupport fileNodeSupport;
     private final FilePathSupport filePathSupport;
     private final FileChangeEventSupport fileChangeEventSupport;
@@ -91,8 +91,7 @@ public class WebDavFileOperationHelper {
         node.setLastModified(System.currentTimeMillis());
         setNodePath(node, parent);
         fileMapper.insert(node);
-        user.setUsedSpace(usedSpace + delta);
-        userMapper.updateById(user);
+        userUsedSpaceSupport.addUsedSpace(userId, size);
 
         fileChangeEventSupport.publishAfterCommit(new FileTreeChangedEvent(this, FileChangeOperation.CREATE,
                 userId, node.getId(), node.getType(), node.getName(), node.getSize(),
@@ -127,7 +126,6 @@ public class WebDavFileOperationHelper {
     public void delete(String userId, FileNode node) {
         User user = userSpaceSupport.requireUser(userId);
         deleteNodeRecursively(node, user);
-        userMapper.updateById(user);
 
         fileChangeEventSupport.publishAfterCommit(new FileTreeChangedEvent(this, FileChangeOperation.DELETE,
                 userId, node.getId(), node.getType(), node.getName(), node.getSize(),
@@ -220,8 +218,7 @@ public class WebDavFileOperationHelper {
             copied.setLastModified(source.getLastModified());
             setNodePath(copied, targetParent);
             fileMapper.insert(copied);
-            user.setUsedSpace(usedSpace + size);
-            userMapper.updateById(user);
+            userUsedSpaceSupport.addUsedSpace(userId, size);
             if (publish) {
                 fileChangeEventSupport.publishAfterCommit(new FileTreeChangedEvent(this,
                         FileChangeOperation.COPY, userId, copied.getId(), copied.getType(), copied.getName(),
@@ -265,7 +262,7 @@ public class WebDavFileOperationHelper {
             log.warn("删除物理文件失败: {}", physicalPath, e);
         }
         long size = node.getSize() == null ? 0 : node.getSize();
-        user.setUsedSpace(Math.max(0, user.getUsedSpace() - size));
+        userUsedSpaceSupport.addUsedSpace(user.getId(), -size);
     }
 
     private void movePhysical(StorageSpace space, String username, String oldNamePath, String newNamePath) {

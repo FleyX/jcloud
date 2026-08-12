@@ -10,7 +10,6 @@ import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.FileChunkMapper;
 import com.fleyx.jcloud.mapper.FileMapper;
 import com.fleyx.jcloud.mapper.RemoteMountMapper;
-import com.fleyx.jcloud.mapper.UserMapper;
 import com.fleyx.jcloud.model.convert.FileConvert;
 import com.fleyx.jcloud.model.po.FileChunk;
 import com.fleyx.jcloud.model.po.FileNode;
@@ -52,7 +51,6 @@ public class ChunkedUploadCompleteSupport {
     private static final String TYPE_FOLDER = "folder";
 
     private final FileMapper fileMapper;
-    private final UserMapper userMapper;
     private final FileChunkMapper fileChunkMapper;
     private final FileConvert fileConvert;
     private final UploadConflictResolver conflictResolver;
@@ -64,6 +62,7 @@ public class ChunkedUploadCompleteSupport {
     private final FileNodeSupport fileNodeSupport;
     private final FilePathSupport filePathSupport;
     private final FileChangeEventSupport fileChangeEventSupport;
+    private final UserUsedSpaceSupport userUsedSpaceSupport;
 
     /**
      * 完成分片上传，合并分片并创建文件节点。
@@ -132,8 +131,7 @@ public class ChunkedUploadCompleteSupport {
                 userId, node.getId(), node.getType(), node.getName(), node.getSize(),
                 null, context.parentId(), null, node.getPath()));
 
-        user.setUsedSpace(usedSpace + context.size());
-        userMapper.updateById(user);
+        userUsedSpaceSupport.addUsedSpace(userId, context.size());
 
         cleanupUpload(context.tempDir(), uploadId, userId);
 
