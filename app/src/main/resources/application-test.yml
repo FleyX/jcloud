@@ -9,7 +9,7 @@ spring:
       maximum-pool-size: 10
   data:
     redis:
-      host: dev.lan
+      host: localhost
       database: 1
 
 logging:
