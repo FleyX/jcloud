@@ -73,6 +73,8 @@ public interface MediaPlaybackService {
      * @param startMs             起始位置（毫秒）
      * @param audioIndex          音轨序号，可为 null
      * @param subtitleIndex       内嵌位图字幕轨序号，可为 null（携带时强制视频转码，烧录进画面；文本轨与非法序号拒绝）
+     * @param externalSubtitleId  外挂位图字幕记录 ID，可为 null（携带时强制视频转码，烧录进画面；
+     *                            文本外挂、非本明细行归属、与 subtitleIndex 同传均拒绝）
      * @param targetBitrateKbps   目标视频码率上限 kbps，可为 null（存在时视频强制转码并限码率）
      * @param maxHeight           分辨率高度上限（2160/1080/720/480/360），可为 null
      * @param forceVideoTranscode 前端 MSE 不支持转封装编码时传 true，视频强制转码
@@ -81,7 +83,7 @@ public interface MediaPlaybackService {
      * @return 转码会话
      */
     TranscodeSession createTranscodeSession(String itemId, long startMs, Integer audioIndex, Integer subtitleIndex,
-                                            Long targetBitrateKbps, Integer maxHeight,
+                                            String externalSubtitleId, Long targetBitrateKbps, Integer maxHeight,
                                             boolean forceVideoTranscode, String userId, String versionId);
 
     /**

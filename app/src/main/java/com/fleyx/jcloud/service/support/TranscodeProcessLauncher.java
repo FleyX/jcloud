@@ -1,5 +1,7 @@
 package com.fleyx.jcloud.service.support;
 
+import com.fleyx.jcloud.common.enums.ResultCode;
+import com.fleyx.jcloud.common.exception.SystemException;
 import com.fleyx.jcloud.model.po.StorageSpace;
 import com.fleyx.jcloud.service.SystemStorageSpaceProvider;
 import lombok.extern.slf4j.Slf4j;
@@ -10,6 +12,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -40,10 +43,16 @@ public class TranscodeProcessLauncher {
 
     /**
      * 启动 ffmpeg 进程并排空 stderr；远程输入流在独立虚拟线程中管道喂给进程 stdin。
+     * 远程外挂位图字幕先物化到会话输出目录（destroy 时递归删除即自动清理），命令以物化文件为第二输入。
      */
     public Process startFfmpeg(Path outputDir, TranscodeCommandBuilder.TranscodeRequest request,
                                String encoder) throws IOException {
-        List<String> command = commandBuilder.buildCommand(request, encoder, configResolver.resolveDevice(),
+        TranscodeCommandBuilder.TranscodeRequest effective = request;
+        if (request.externalSubtitleStream() != null) {
+            effective = request.withExternalSubtitlePath(
+                    materializeExternalSubtitle(outputDir, request.externalSubtitleStream()));
+        }
+        List<String> command = commandBuilder.buildCommand(effective, encoder, configResolver.resolveDevice(),
                 configResolver.resolveThreads(), outputDir);
         ProcessBuilder builder = new ProcessBuilder(command);
         builder.redirectErrorStream(false);
@@ -64,6 +73,39 @@ public class TranscodeProcessLauncher {
             });
         }
         return process;
+    }
+
+    /**
+     * 远程外挂位图字幕物化到会话输出目录：文件名 {主名安全化}.{ext}，
+     * idx 成对时 .idx/.sub 用相同主名（VobSub demuxer 按同主名找 .sub）。下载失败清理会话目录并抛系统异常。
+     */
+    private Path materializeExternalSubtitle(Path outputDir,
+                                             TranscodeCommandBuilder.ExternalSubtitleStream stream) {
+        String stem = sanitizeFileStem(stream.mainName());
+        try {
+            Path main = outputDir.resolve(stem + "." + stream.extension());
+            try (InputStream in = stream.stream().get()) {
+                Files.copy(in, main, StandardCopyOption.REPLACE_EXISTING);
+            }
+            if (stream.subStream() != null) {
+                Path sub = outputDir.resolve(stem + ".sub");
+                try (InputStream in = stream.subStream().get()) {
+                    Files.copy(in, sub, StandardCopyOption.REPLACE_EXISTING);
+                }
+            }
+            return main;
+        } catch (Exception e) {
+            deleteQuietly(outputDir);
+            throw new SystemException(ResultCode.SYSTEM_ERROR, "外部字幕下载失败", e);
+        }
+    }
+
+    /**
+     * 物化文件名主名安全化：替换路径分隔符与控制字符等危险字符，空结果回退固定名。
+     */
+    private String sanitizeFileStem(String mainName) {
+        String safe = mainName == null ? "" : mainName.replaceAll("[\\\\/:*?\"<>|\\p{Cntrl}]", "_");
+        return safe.isBlank() ? "subtitle" : safe;
     }
 
     /**

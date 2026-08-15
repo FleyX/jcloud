@@ -17,9 +17,10 @@ import java.util.function.Supplier;
 /**
  * 转封装会话 ffmpeg 命令构建器。
  * <p>
- * 按流决策：视频编码在直放白名单（h264/hevc/vp9/av1）且未要求降码率、未强制转码、未携带烧录字幕轨时
+ * 按流决策：视频编码在直放白名单（h264/hevc/vp9/av1）且未要求降码率、未强制转码、未携带内嵌或外挂烧录字幕时
  * -c:v copy 转封装，否则按现有硬解探测路径转码（crf 23 原质量；降码率时叠加 -b:v/-maxrate/-bufsize 与不放大 scale）；
- * 携带位图字幕轨序号时强制视频转码并在 filter_complex 中 overlay 烧录（见 {@link #buildBurnFilterChain}）。
+ * 携带位图字幕（内嵌轨序号或外挂 .sup/.idx 第二输入）时强制视频转码并在 filter_complex 中 overlay 烧录
+ * （见 {@link #buildBurnFilterChain}）。
  * 所选音轨编码为 aac/mp3 且（转封装或从头播放）时 -c:a copy，否则统一转 AAC 128k。
  * seek 对齐规则：视频转码时精确 seek 仅裁剪解码流，音频 copy 会停留在关键帧导致音画错位，故转码 + seek 音频必须重编码；
  * 转封装 + seek 时视频停留在关键帧，附加 -noaccurate_seek 保证重编码音频同样从关键帧起步。
@@ -54,24 +55,52 @@ public class TranscodeCommandBuilder {
     /**
      * 转码会话请求参数（创建会话时的全部输入）。
      * <p>
-     * 携带内嵌位图字幕轨序号（{@code subtitleIndex}）时强制视频转码：视频流禁止 copy，
+     * 携带内嵌位图字幕轨序号（{@code subtitleIndex}）或外挂位图字幕（{@code externalSubtitlePath} /
+     * {@code externalSubtitleStream} 任一非空）时强制视频转码：视频流禁止 copy，
      * 转封装会话不可用，位图字幕以 overlay 滤镜烧录进画面（见 {@link #buildCommand}）。
      *
-     * @param startMs             起始播放位置（毫秒）
-     * @param audioIndex          音轨序号，null 表示默认音轨
-     * @param localPath           本地物理路径，远程文件为 null
-     * @param remoteStream        远程文件输入流提供者，本地文件为 null
-     * @param videoCodec          视频编码（probe 结果，缺失为 null）
-     * @param audioCodec          所选音轨编码（probe 结果，缺失为 null）
-     * @param targetBitrateKbps   目标视频码率上限 kbps，null 表示不降码率
-     * @param maxHeight           分辨率高度上限，null 表示不限制
-     * @param forceVideoTranscode 是否强制视频转码（前端 MSE 不支持转封装编码时）
-     * @param subtitleIndex       内嵌位图字幕轨序号，null 表示不烧录；携带时强制视频转码
+     * @param startMs               起始播放位置（毫秒）
+     * @param audioIndex            音轨序号，null 表示默认音轨
+     * @param localPath             本地物理路径，远程文件为 null
+     * @param remoteStream          远程文件输入流提供者，本地文件为 null
+     * @param videoCodec            视频编码（probe 结果，缺失为 null）
+     * @param audioCodec            所选音轨编码（probe 结果，缺失为 null）
+     * @param targetBitrateKbps     目标视频码率上限 kbps，null 表示不降码率
+     * @param maxHeight             分辨率高度上限，null 表示不限制
+     * @param forceVideoTranscode   是否强制视频转码（前端 MSE 不支持转封装编码时）
+     * @param subtitleIndex         内嵌位图字幕轨序号，null 表示不烧录；携带时强制视频转码
+     * @param externalSubtitlePath  外挂位图字幕本地物理路径（.sup/.idx），null 表示无本地外挂
+     * @param externalSubtitleStream 远程外挂位图字幕流（.sup/.idx，idx 含 .sub 流），null 表示无远程外挂
      */
     public record TranscodeRequest(long startMs, Integer audioIndex, Path localPath,
                                    Supplier<java.io.InputStream> remoteStream, String videoCodec, String audioCodec,
                                    Long targetBitrateKbps, Integer maxHeight, boolean forceVideoTranscode,
-                                   Integer subtitleIndex) {
+                                   Integer subtitleIndex, Path externalSubtitlePath,
+                                   ExternalSubtitleStream externalSubtitleStream) {
+
+        /**
+         * 拷贝请求并装入本地外挂字幕路径（远程流物化后由 {@link TranscodeProcessLauncher} 调用，清空流字段避免重复落地）。
+         */
+        public TranscodeRequest withExternalSubtitlePath(Path path) {
+            return new TranscodeRequest(startMs, audioIndex, localPath, remoteStream, videoCodec, audioCodec,
+                    targetBitrateKbps, maxHeight, forceVideoTranscode, subtitleIndex, path, null);
+        }
+    }
+
+    /**
+     * 远程外挂位图字幕输入流提供者（本地外挂不适用，直接走 {@link TranscodeRequest#externalSubtitlePath()}）。
+     * <p>
+     * 会话创建时由 service 装配：{@code subStream} 仅 VobSub（.idx 成对）时非空——.idx 文件不包含像素数据，
+     * 必须与同主名的 .sub 一起喂给 ffmpeg；.sup 单文件即完整字幕，{@code subStream} 为 null。
+     *
+     * @param mainName  字幕主文件名（去扩展名），物化时 .idx/.sub 用相同主名（VobSub demuxer 按同主名找 .sub）
+     * @param extension 字幕格式扩展名（sup / idx）
+     * @param stream    主字幕文件（.sup 或 .idx）输入流提供者
+     * @param subStream .sub 伴生流提供者，仅 idx 成对时非空
+     */
+    public record ExternalSubtitleStream(String mainName, String extension,
+                                         Supplier<java.io.InputStream> stream,
+                                         Supplier<java.io.InputStream> subStream) {
     }
 
     /**
@@ -87,12 +116,14 @@ public class TranscodeCommandBuilder {
     }
 
     /**
-     * 视频流是否可转封装（-c:v copy）：编码在白名单、未强制转码、未要求降码率、未携带烧录字幕轨。
-     * 位图字幕烧录必须逐帧叠加进画面，视频禁止 copy，故 {@code subtitleIndex} 非空时恒不可转封装。
+     * 视频流是否可转封装（-c:v copy）：编码在白名单、未强制转码、未要求降码率、未携带内嵌或外挂烧录字幕。
+     * 位图字幕烧录必须逐帧叠加进画面，视频禁止 copy，故内嵌序号或外挂字幕任一非空时恒不可转封装。
      */
     public boolean isVideoCopyEligible(String videoCodec, boolean forceVideoTranscode, Long targetBitrateKbps,
-                                       Integer subtitleIndex) {
+                                       Integer subtitleIndex, Path externalSubtitlePath,
+                                       ExternalSubtitleStream externalSubtitleStream) {
         return !forceVideoTranscode && targetBitrateKbps == null && subtitleIndex == null
+                && externalSubtitlePath == null && externalSubtitleStream == null
                 && videoCodec != null && VIDEO_COPY_CODECS.contains(videoCodec.toLowerCase());
     }
 
@@ -178,8 +209,9 @@ public class TranscodeCommandBuilder {
         if (!videoCopy && "h264_vaapi".equals(encoder)) {
             command.addAll(List.of("-vaapi_device", device));
         }
-        if (request.startMs() > 0) {
-            command.addAll(List.of("-ss", String.format(Locale.ROOT, "%.3f", request.startMs() / 1000.0)));
+        String seek = request.startMs() > 0 ? String.format(Locale.ROOT, "%.3f", request.startMs() / 1000.0) : null;
+        if (seek != null) {
+            command.addAll(List.of("-ss", seek));
             if (videoCopy) {
                 // 转封装视频停留在 seek 点前关键帧；关闭精确 seek，让需要重编码的音频同样从关键帧起步，
                 // 否则音频被裁到 seek 点而视频早数秒，音画错位
@@ -188,10 +220,19 @@ public class TranscodeCommandBuilder {
         }
         command.addAll(List.of("-i",
                 request.localPath() != null ? request.localPath().toAbsolutePath().toString() : "pipe:0"));
-        if (request.subtitleIndex() != null) {
+        boolean burnExternal = request.externalSubtitlePath() != null || request.externalSubtitleStream() != null;
+        if (burnExternal) {
+            // 外挂位图字幕作为第二输入：startMs>0 时两个输入前都加 -ss（字幕时间轴随视频一致裁剪，否则错位 startMs），
+            // startMs=0 时都不加；音频映射恒取主输入 0:a:*，字幕输入不 map 到输出
+            if (seek != null) {
+                command.addAll(List.of("-ss", seek));
+            }
+            command.addAll(List.of("-i", request.externalSubtitlePath().toAbsolutePath().toString()));
+        }
+        if (request.subtitleIndex() != null || burnExternal) {
             // 烧录路径：视频与字幕 overlay 全部在 filter_complex 内，输出标签 [v] 供 -map 引用；
             // -ss 在 -i 前对视频与字幕流一致裁剪，overlay 时间轴天然与画面对齐，无需额外偏移处理
-            command.addAll(List.of("-filter_complex", buildBurnFilterChain(request, encoder)));
+            command.addAll(List.of("-filter_complex", buildBurnFilterChain(request, encoder, burnExternal)));
             command.addAll(List.of("-map", "[v]"));
         } else {
             command.addAll(List.of("-map", "0:v:0"));
@@ -226,11 +267,12 @@ public class TranscodeCommandBuilder {
 
     /**
      * 视频转码参数：保持现有硬解路径与 crf 23 原质量，叠加码率上限与不放大 scale。
-     * 烧录路径（subtitleIndex 非空）的 overlay/scale/hwupload 滤镜已在 filter_complex 内，不再输出 -vf。
+     * 烧录路径（内嵌序号或外挂字幕任一非空）的 overlay/scale/hwupload 滤镜已在 filter_complex 内，不再输出 -vf。
      */
     private void appendVideoTranscodeArgs(List<String> command, TranscodeRequest request, String encoder, int threads) {
         command.addAll(List.of("-c:v", encoder));
-        boolean burnSubtitle = request.subtitleIndex() != null;
+        boolean burnSubtitle = request.subtitleIndex() != null || request.externalSubtitlePath() != null
+                || request.externalSubtitleStream() != null;
         String scale = !burnSubtitle && request.maxHeight() != null ? scaleFilter(request.maxHeight()) : null;
         switch (encoder) {
             case "h264_vaapi" -> {
@@ -268,15 +310,20 @@ public class TranscodeCommandBuilder {
     }
 
     /**
-     * 烧录滤镜链：主输入视频叠加内嵌位图字幕轨（从主输入取字幕流），先叠加后缩放（字幕随画面等比缩放），
+     * 烧录滤镜链：主输入视频叠加位图字幕轨，先叠加后缩放（字幕随画面等比缩放），
      * 硬解编码器续接软件帧转码后缀（vaapi 需 format/hwupload 上传），输出标签 [v] 供 -map [v] 引用。
+     * 叠加段二选一：内嵌轨从主输入取字幕流（{@code [0:v:0][0:s:N]overlay}），
+     * 外挂位图字幕为第二输入（{@code [0:v:0][1:s:0]overlay}）。
      *
-     * @param request 会话请求（subtitleIndex 非空）
-     * @param encoder 视频转码编码器
+     * @param request           会话请求（内嵌序号或外挂字幕任一非空）
+     * @param encoder           视频转码编码器
+     * @param externalSubtitle  是否外挂位图字幕（第二输入）
      * @return filter_complex 滤镜链字符串
      */
-    private String buildBurnFilterChain(TranscodeRequest request, String encoder) {
-        StringBuilder chain = new StringBuilder("[0:v:0][0:s:").append(request.subtitleIndex()).append("]overlay");
+    private String buildBurnFilterChain(TranscodeRequest request, String encoder, boolean externalSubtitle) {
+        StringBuilder chain = new StringBuilder("[0:v:0][")
+                .append(externalSubtitle ? "1:s:0" : "0:s:" + request.subtitleIndex())
+                .append("]overlay");
         if (request.maxHeight() != null) {
             chain.append(',').append(scaleFilter(request.maxHeight()));
         }

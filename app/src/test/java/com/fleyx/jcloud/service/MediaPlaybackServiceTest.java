@@ -517,7 +517,7 @@ class MediaPlaybackServiceTest extends MediaScanTestBase {
         // 转码路径同样在 ffmpeg 启动前完成版本校验
         assertThrows(BusinessException.class,
                 () -> mediaPlaybackService.createTranscodeSession(movieArow.getId(), 0L, null, null, null, null,
-                        false, user.getId(), "no-such-ver0"));
+                        null, false, user.getId(), "no-such-ver0"));
 
         // 剧集传 versionId 忽略不报错
         FileNodeVo tvRoot = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电视");

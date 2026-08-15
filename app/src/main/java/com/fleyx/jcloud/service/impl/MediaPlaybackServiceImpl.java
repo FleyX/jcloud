@@ -19,6 +19,7 @@ import com.fleyx.jcloud.model.vo.MediaPlaybackConfigVo;
 import com.fleyx.jcloud.model.vo.MediaPlaybackInfoVo;
 import com.fleyx.jcloud.service.MediaPlaybackService;
 import com.fleyx.jcloud.service.RemoteFileService;
+import com.fleyx.jcloud.service.support.MediaBurnInSubtitleSupport;
 import com.fleyx.jcloud.service.support.MediaPlaybackResolveSupport;
 import com.fleyx.jcloud.service.support.MediaPlaybackResolveSupport.Playable;
 import com.fleyx.jcloud.service.support.MediaProbeSupport;
@@ -66,6 +67,7 @@ public class MediaPlaybackServiceImpl implements MediaPlaybackService {
     private final MediaProbeSupport mediaProbeSupport;
     private final MediaSubtitleSupport mediaSubtitleSupport;
     private final MediaSubtitleMapper mediaSubtitleMapper;
+    private final MediaBurnInSubtitleSupport mediaBurnInSubtitleSupport;
     private final TranscodeSessionManager transcodeSessionManager;
     private final MediaProperties mediaProperties;
     private final com.fleyx.jcloud.service.SystemStorageSpaceProvider systemStorageSpaceProvider;
@@ -245,46 +247,34 @@ public class MediaPlaybackServiceImpl implements MediaPlaybackService {
 
     @Override
     public TranscodeSession createTranscodeSession(String id, long startMs,
-                                                   Integer audioIndex, Integer subtitleIndex, Long targetBitrateKbps,
-                                                   Integer maxHeight, boolean forceVideoTranscode,
+                                                   Integer audioIndex, Integer subtitleIndex, String externalSubtitleId,
+                                                   Long targetBitrateKbps, Integer maxHeight, boolean forceVideoTranscode,
                                                    String userId, String versionId) {
         TranscodeCommandBuilder.validateParams(targetBitrateKbps, maxHeight);
+        if (subtitleIndex != null && externalSubtitleId != null) {
+            throw new BusinessException(ResultCode.PARAM_ERROR, "内嵌与外部字幕只能二选一");
+        }
         Playable playable = mediaPlaybackResolveSupport.resolve(id, userId, versionId);
         FileNode node = requireFileNode(playable.fileNodeId(), userId);
         MediaProbeResult probe = probePlayableFile(node, playable, userId);
-        validateSubtitleIndex(probe, subtitleIndex);
+        var external = mediaBurnInSubtitleSupport.resolveExternalSubtitleBurn(
+                playable, externalSubtitleId, userId, subNode -> resolveLocalPath(subNode, userId));
+        mediaBurnInSubtitleSupport.validateSubtitleIndex(probe, subtitleIndex);
         String videoCodec = firstNonNull(probe.videoCodec(), playable.videoCodec());
         String audioCodec = resolveSelectedAudioCodec(probe, audioIndex, playable);
         TranscodeCommandBuilder.TranscodeRequest request;
         if (FileNodeConstants.SOURCE_REMOTE.equals(node.getSourceType())) {
             request = new TranscodeCommandBuilder.TranscodeRequest(startMs, audioIndex, null,
                     () -> remoteFileService.download(node, userId).getInputStream(),
-                    videoCodec, audioCodec, targetBitrateKbps, maxHeight, forceVideoTranscode, subtitleIndex);
+                    videoCodec, audioCodec, targetBitrateKbps, maxHeight, forceVideoTranscode, subtitleIndex,
+                    external.path(), external.stream());
         } else {
             request = new TranscodeCommandBuilder.TranscodeRequest(startMs, audioIndex,
                     resolveLocalPath(node, userId), null,
-                    videoCodec, audioCodec, targetBitrateKbps, maxHeight, forceVideoTranscode, subtitleIndex);
+                    videoCodec, audioCodec, targetBitrateKbps, maxHeight, forceVideoTranscode, subtitleIndex,
+                    external.path(), external.stream());
         }
         return transcodeSessionManager.createSession(userId, request);
-    }
-
-    /**
-     * 校验烧录字幕轨序号：必须存在且为非文本（位图）轨，文本轨走 WebVTT 链路不接受烧录。
-     * probe 失败回退为空轨列表，任何序号都命中「字幕轨不存在」。
-     */
-    private void validateSubtitleIndex(MediaProbeResult probe, Integer subtitleIndex) {
-        if (subtitleIndex == null) {
-            return;
-        }
-        for (MediaProbeResult.Track track : probe.subtitleTracks()) {
-            if (track.index() == subtitleIndex) {
-                if (MediaProbeSupport.isTextSubtitle(track.codec())) {
-                    throw new BusinessException(ResultCode.PARAM_ERROR, "文本字幕无需烧录");
-                }
-                return;
-            }
-        }
-        throw new BusinessException(ResultCode.PARAM_ERROR, "字幕轨不存在");
     }
 
     /**

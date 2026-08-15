@@ -119,13 +119,14 @@ public class MediaPlaybackController {
                                                   @RequestParam(defaultValue = "0") long startMs,
                                                   @RequestParam(required = false) Integer audioIndex,
                                                   @RequestParam(required = false) Integer subtitleIndex,
+                                                  @RequestParam(required = false) String externalSubtitleId,
                                                   @RequestParam(required = false) Long targetBitrateKbps,
                                                   @RequestParam(required = false) Integer maxHeight,
                                                   @RequestParam(defaultValue = "false") boolean forceVideoTranscode,
                                                   @RequestParam(required = false) String versionId) {
         TranscodeSession session = mediaPlaybackService.createTranscodeSession(
-                id, startMs, audioIndex, subtitleIndex, targetBitrateKbps, maxHeight, forceVideoTranscode,
-                UserContext.get().id(), versionId);
+                id, startMs, audioIndex, subtitleIndex, externalSubtitleId, targetBitrateKbps, maxHeight,
+                forceVideoTranscode, UserContext.get().id(), versionId);
         Map<String, String> result = new HashMap<>();
         result.put("sessionId", session.id());
         result.put("playlistUrl", "/jcloud/api/media/transcode/" + session.id() + "/index.m3u8");
