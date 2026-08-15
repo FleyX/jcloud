@@ -106,11 +106,11 @@ class MediaProbeSupportTest {
     }
 
     /**
-     * PGS/DVD 等位图字幕轨不暴露，文本字幕轨保留并保持原文件字幕流序号
-     * （过滤位图轨后序号仍指向 ffmpeg -map 0:s:{index} 的原流序号）。
+     * 位图字幕轨（PGS 夹在两条文本轨之间）全部暴露，序号按全部字幕流统一递增（0/1/2），
+     * 与 ffmpeg -map 0:s:{index} 的原流序号一致；isTextSubtitle 区分文本与位图编码。
      */
     @Test
-    void shouldFilterBitmapSubtitlesAndKeepTextTrackOriginalStreamIndex() throws Exception {
+    void shouldExposeBitmapSubtitlesWithOriginalStreamIndex() throws Exception {
         String json = """
                 {
                   "format": {"format_name": "matroska"},
@@ -120,22 +120,31 @@ class MediaProbeSupportTest {
                      "tags": {"language": "chi"}, "disposition": {"default": 1}},
                     {"codec_type": "subtitle", "codec_name": "hdmv_pgs_subtitle", "disposition": {"default": 0}},
                     {"codec_type": "subtitle", "codec_name": "ass",
-                     "tags": {"language": "eng"}, "disposition": {"default": 0}},
-                    {"codec_type": "subtitle", "codec_name": "dvd_subtitle", "disposition": {"default": 0}}
+                     "tags": {"language": "eng"}, "disposition": {"default": 0}}
                   ]
                 }
                 """;
         MediaProbeResult result = support.parse(json);
 
-        assertEquals(2, result.subtitleTracks().size());
+        assertEquals(3, result.subtitleTracks().size());
         MediaProbeResult.Track first = result.subtitleTracks().get(0);
         assertEquals("subrip", first.codec());
         assertEquals(0, first.index());
         assertTrue(first.defaulted());
         MediaProbeResult.Track second = result.subtitleTracks().get(1);
-        assertEquals("ass", second.codec());
-        // 原文件字幕流序号：subrip=0、pgs=1（被过滤）、ass=2、dvd=3（被过滤）
-        assertEquals(2, second.index());
+        assertEquals("hdmv_pgs_subtitle", second.codec());
+        // 原文件字幕流序号：subrip=0、pgs=1、ass=2，全部字幕流统一递增
+        assertEquals(1, second.index());
         assertFalse(second.defaulted());
+        MediaProbeResult.Track third = result.subtitleTracks().get(2);
+        assertEquals("ass", third.codec());
+        assertEquals(2, third.index());
+        assertFalse(third.defaulted());
+
+        // 文本/位图编码判定：PGS 为位图，subrip 为文本，null 视为非文本
+        assertFalse(MediaProbeSupport.isTextSubtitle("hdmv_pgs_subtitle"));
+        assertTrue(MediaProbeSupport.isTextSubtitle("subrip"));
+        assertTrue(MediaProbeSupport.isTextSubtitle("ass"));
+        assertFalse(MediaProbeSupport.isTextSubtitle(null));
     }
 }

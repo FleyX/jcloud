@@ -321,9 +321,9 @@ class MediaPlaybackServiceTest extends MediaScanTestBase {
 
     /**
      * 统一字幕列表组装（MediaSubtitleSupport.buildSubtitleList）：
-     * 内嵌文本轨在前（按流序号，language - title 拼装、两者缺失回退「字幕 N」），
-     * 外部字幕在后（默认优先、再按标签）。探测层已过滤位图轨（MediaProbeSupportTest 覆盖），
-     * 此处直接喂文本轨列表验证组装行为。
+     * 内嵌轨在前（按流序号，language - title 拼装、两者缺失回退「字幕 N」），
+     * 内嵌位图轨（PGS）项 bitmap=true、文本轨与外部项 bitmap=false，
+     * 外部字幕在后（默认优先、再按标签）。探测层不再过滤位图轨，此处直接喂混合轨列表验证组装行为。
      */
     @Test
     void shouldAssembleUnifiedSubtitleListWithEmbeddedAndExternalTracks() {
@@ -343,11 +343,12 @@ class MediaPlaybackServiceTest extends MediaScanTestBase {
         List<MediaProbeResult.Track> tracks = List.of(
                 new MediaProbeResult.Track(0, "subrip", "chi", "简体中文", false),
                 new MediaProbeResult.Track(1, "subrip", null, null, false),
-                new MediaProbeResult.Track(2, "ass", "eng", "English", true));
+                new MediaProbeResult.Track(2, "ass", "eng", "English", true),
+                new MediaProbeResult.Track(3, "hdmv_pgs_subtitle", "jpn", "PGS", false));
 
         List<MediaSubtitleItemVo> subtitles = mediaSubtitleSupport.buildSubtitleList(tracks, file.getId());
 
-        assertEquals(5, subtitles.size());
+        assertEquals(6, subtitles.size());
         // 内嵌轨在前、按流序号
         MediaSubtitleItemVo embedded0 = subtitles.get(0);
         assertEquals("embedded", embedded0.getType());
@@ -355,26 +356,39 @@ class MediaPlaybackServiceTest extends MediaScanTestBase {
         assertEquals("chi", embedded0.getLanguage());
         assertEquals("chi - 简体中文", embedded0.getLabel());
         assertEquals(Boolean.FALSE, embedded0.getDefaulted());
+        assertEquals(Boolean.FALSE, embedded0.getBitmap());
         // language/title 均缺失时回退「字幕 N」
         MediaSubtitleItemVo embedded1 = subtitles.get(1);
         assertEquals("embedded", embedded1.getType());
         assertEquals(1, embedded1.getIndex());
         assertEquals("字幕 2", embedded1.getLabel());
+        assertEquals(Boolean.FALSE, embedded1.getBitmap());
         MediaSubtitleItemVo embedded2 = subtitles.get(2);
         assertEquals("embedded", embedded2.getType());
         assertEquals(2, embedded2.getIndex());
         assertEquals("eng - English", embedded2.getLabel());
         assertEquals(Boolean.TRUE, embedded2.getDefaulted());
-        // 外部在后：默认优先、再按标签
-        MediaSubtitleItemVo externalDefault = subtitles.get(3);
+        assertEquals(Boolean.FALSE, embedded2.getBitmap());
+        // 内嵌位图轨：展示名/语言/default 拼装与文本轨一致，仅 bitmap 为 true
+        MediaSubtitleItemVo embedded3 = subtitles.get(3);
+        assertEquals("embedded", embedded3.getType());
+        assertEquals(3, embedded3.getIndex());
+        assertEquals("jpn", embedded3.getLanguage());
+        assertEquals("jpn - PGS", embedded3.getLabel());
+        assertEquals(Boolean.FALSE, embedded3.getDefaulted());
+        assertEquals(Boolean.TRUE, embedded3.getBitmap());
+        // 外部在后：默认优先、再按标签，bitmap 一律 false
+        MediaSubtitleItemVo externalDefault = subtitles.get(4);
         assertEquals("external", externalDefault.getType());
         assertEquals("English", externalDefault.getLabel());
         assertEquals(Boolean.TRUE, externalDefault.getDefaulted());
+        assertEquals(Boolean.FALSE, externalDefault.getBitmap());
         assertNotNull(externalDefault.getSubtitleId());
-        MediaSubtitleItemVo externalSecond = subtitles.get(4);
+        MediaSubtitleItemVo externalSecond = subtitles.get(5);
         assertEquals("external", externalSecond.getType());
         assertEquals("简体", externalSecond.getLabel());
         assertEquals(Boolean.FALSE, externalSecond.getDefaulted());
+        assertEquals(Boolean.FALSE, externalSecond.getBitmap());
     }
 
     /**

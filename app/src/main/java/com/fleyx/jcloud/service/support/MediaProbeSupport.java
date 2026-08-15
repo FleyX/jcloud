@@ -22,6 +22,8 @@ import java.util.concurrent.TimeUnit;
  * ffprobe 探测支撑组件。
  * <p>
  * 支持本地物理路径与远程文件输入流两种探测方式。
+ * <p>
+ * 全部字幕流（含 PGS、DVD/DVB 等位图轨）均进入探测结果，位图轨由播放链路按烧录处理。
  */
 @Slf4j
 @Component
@@ -30,7 +32,7 @@ public class MediaProbeSupport {
 
     /**
      * 可转换为 WebVTT 的文本字幕编码（与 ffmpeg webvtt 封装支持的文本字幕解码器对应）。
-     * PGS（hdmv_pgs_subtitle）、DVD/DVB 等位图字幕不可转文本，播放信息不暴露。
+     * PGS（hdmv_pgs_subtitle）、DVD/DVB 等位图字幕不可转文本，消费方经 {@link #isTextSubtitle} 区分。
      */
     private static final Set<String> TEXT_SUBTITLE_CODECS = Set.of(
             "subrip", "ass", "ssa", "mov_text", "text", "webvtt", "sami",
@@ -144,7 +146,7 @@ public class MediaProbeSupport {
         Integer height = null;
         List<MediaProbeResult.Track> audioTracks = new ArrayList<>();
         List<MediaProbeResult.Track> subtitleTracks = new ArrayList<>();
-        // 原文件字幕流计数：过滤位图轨后仍按原流序号标记，避免 ffmpeg -map 0:s:{index} 失配
+        // 原文件字幕流计数：对所有字幕流递增，序号与 ffmpeg -map 0:s:{index} 的原流序号一致
         int subtitleStreamIndex = 0;
         for (JsonNode stream : root.path("streams")) {
             String codecType = textOrNull(stream.path("codec_type"));
@@ -163,18 +165,26 @@ public class MediaProbeSupport {
                         textOrNull(stream.path("tags").path("title")),
                         isDefault(stream)));
             } else if ("subtitle".equals(codecType)) {
-                if (TEXT_SUBTITLE_CODECS.contains(codec)) {
-                    subtitleTracks.add(new MediaProbeResult.Track(
-                            subtitleStreamIndex, codec,
-                            textOrNull(stream.path("tags").path("language")),
-                            textOrNull(stream.path("tags").path("title")),
-                            isDefault(stream)));
-                }
+                subtitleTracks.add(new MediaProbeResult.Track(
+                        subtitleStreamIndex, codec,
+                        textOrNull(stream.path("tags").path("language")),
+                        textOrNull(stream.path("tags").path("title")),
+                        isDefault(stream)));
                 subtitleStreamIndex++;
             }
         }
         return new MediaProbeResult(durationMs, container, videoCodec, audioCodec, width, height, bitRate,
                 audioTracks, subtitleTracks);
+    }
+
+    /**
+     * 是否文本字幕编码（可转换为 WebVTT）。位图字幕（PGS、DVD/DVB 等）返回 false。
+     *
+     * @param codec ffprobe codec_name，null 视为非文本
+     * @return true 为文本字幕编码
+     */
+    public static boolean isTextSubtitle(String codec) {
+        return codec != null && TEXT_SUBTITLE_CODECS.contains(codec);
     }
 
     /**

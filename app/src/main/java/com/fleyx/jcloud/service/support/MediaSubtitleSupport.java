@@ -176,6 +176,7 @@ public class MediaSubtitleSupport {
             vo.setIndex(track.index());
             vo.setLanguage(track.language());
             vo.setDefaulted(track.defaulted());
+            vo.setBitmap(!MediaProbeSupport.isTextSubtitle(track.codec()));
             vo.setLabel(embeddedLabel(track));
             result.add(vo);
         }
@@ -188,6 +189,8 @@ public class MediaSubtitleSupport {
             vo.setType("external");
             vo.setSubtitleId(sub.getId());
             vo.setDefaulted(Boolean.TRUE.equals(sub.getIsDefault()));
+            // 外部位图字幕（.sup/.idx+.sub）识别属于后续工单，本期一律 false
+            vo.setBitmap(false);
             vo.setLabel(externalLabel(sub));
             result.add(vo);
         }

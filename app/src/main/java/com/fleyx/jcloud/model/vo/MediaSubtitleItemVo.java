@@ -39,4 +39,9 @@ public class MediaSubtitleItemVo {
      * 是否默认字幕：内嵌取 ffprobe default 标记，外部取文件名 .default 后缀。
      */
     private Boolean defaulted;
+
+    /**
+     * 是否位图字幕（内嵌 PGS/DVD/DVB 等，选中后走转码烧录）；文本轨与外部字幕为 false。
+     */
+    private Boolean bitmap;
 }
