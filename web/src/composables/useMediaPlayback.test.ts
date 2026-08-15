@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ref } from 'vue'
 import { useMediaPlayback } from './useMediaPlayback'
 import { resetPlaybackConfigCache } from './usePlaybackConfig'
-import type { MediaPlaybackConfigVo, MediaPlaybackInfoVo } from '@/types/media'
+import type { MediaPlaybackConfigVo, MediaPlaybackInfoVo, MediaSubtitleItem } from '@/types/media'
 
 const mocks = vi.hoisted(() => ({
   fetchPlaybackInfo: vi.fn(),
@@ -64,7 +64,7 @@ function buildPlaybackInfo(overrides: Partial<MediaPlaybackInfoVo> = {}): MediaP
     audioTracks: [{ index: 0, codec: 'aac', language: 'ja', title: null }],
     subtitleTracks: [],
     subtitles: [
-      { type: 'external', index: null, subtitleId: 'sub-1', label: '中文', language: 'zh', defaulted: true },
+      { type: 'external', index: null, subtitleId: 'sub-1', label: '中文', language: 'zh', defaulted: true, bitmap: false },
     ],
     effectiveBitRate: null,
     progressMs: 0,
@@ -218,6 +218,129 @@ describe('useMediaPlayback 字幕偏移与播放源代际', () => {
 
     expect(pb.activeSubtitle.value).not.toBeNull()
     expect(mocks.externalSubtitleUrl).toHaveBeenLastCalledWith('item-1', 'sub-1', 'ver-2', 60_000)
+    pb.stop()
+  })
+})
+
+describe('useMediaPlayback 位图字幕模式切换', () => {
+  const bitmapEmbedded: MediaSubtitleItem = {
+    type: 'embedded', index: 2, subtitleId: null, label: '图形字幕', language: null, defaulted: false, bitmap: true,
+  }
+  const bitmapExternal: MediaSubtitleItem = {
+    type: 'external', index: null, subtitleId: 'ext-bmp', label: '图形外字', language: null, defaulted: false, bitmap: true,
+  }
+  /** 冲刷 selectSubtitle 触发的 fire-and-forget reconcilePlayback 微任务链 */
+  const flushPromises = () => new Promise<void>((resolve) => setTimeout(resolve, 0))
+
+  it('直放中选中位图字幕：以当前进度创建烧录转码会话（subtitleIndex）', async () => {
+    mocks.fetchPlaybackInfo.mockResolvedValue(buildPlaybackInfo({
+      mode: 'direct',
+      subtitles: [bitmapEmbedded],
+    }))
+    mocks.createTranscodeSession.mockResolvedValue({ sessionId: 's1', playlistUrl: '/hls/p.m3u8' })
+    const { video, pb } = createPlayback()
+
+    await pb.start('item-1')
+    video.currentTime = 60
+    pb.selectSubtitle('embedded:2')
+
+    expect(mocks.createTranscodeSession).toHaveBeenCalledWith(
+      'item-1', 60_000,
+      expect.objectContaining({ subtitleIndex: 2 }),
+      undefined,
+    )
+    pb.stop()
+  })
+
+  it('选中外部位图字幕：createTranscodeSession 收到 externalSubtitleId', async () => {
+    mocks.fetchPlaybackInfo.mockResolvedValue(buildPlaybackInfo({
+      mode: 'direct',
+      subtitles: [bitmapExternal],
+    }))
+    mocks.createTranscodeSession.mockResolvedValue({ sessionId: 's1', playlistUrl: '/hls/p.m3u8' })
+    const { pb } = createPlayback()
+
+    await pb.start('item-1')
+    pb.selectSubtitle('external:ext-bmp')
+
+    expect(mocks.createTranscodeSession).toHaveBeenCalledWith(
+      'item-1', 0,
+      expect.objectContaining({ externalSubtitleId: 'ext-bmp' }),
+      undefined,
+    )
+    pb.stop()
+  })
+
+  it('位图字幕切回「无」：恢复直放并从当前位置继续', async () => {
+    mocks.fetchPlaybackInfo.mockResolvedValue(buildPlaybackInfo({
+      mode: 'direct',
+      subtitles: [bitmapEmbedded],
+    }))
+    mocks.createTranscodeSession.mockResolvedValue({ sessionId: 's1', playlistUrl: '/hls/p.m3u8' })
+    const { video, pb } = createPlayback()
+
+    await pb.start('item-1')
+    video.currentTime = 30
+    pb.selectSubtitle('embedded:2')
+    await flushPromises()
+    expect(pb.transcodeActive.value).toBe(true)
+    // 烧录会话从 30s 起点重新起播（流内时间归零），绝对位置 = base(30s) + 流内时间
+    video.currentTime = 15 // 从 30s 继续播放 15s → 绝对 45s
+
+    pb.selectSubtitle(null)
+    await flushPromises()
+
+    expect(pb.transcodeActive.value).toBe(false)
+    expect(pb.transcodeBaseMs.value).toBe(0)
+    expect(video.src).toBe('https://cdn.test/movie.mkv')
+    expect(video.currentTime).toBe(45)
+    expect(mocks.closeTranscodeSession).toHaveBeenCalled()
+    pb.stop()
+  })
+
+  it('位图字幕切回「无」：原 transcode 文件恢复 track 转码而非直放', async () => {
+    mocks.fetchPlaybackInfo.mockResolvedValue(buildPlaybackInfo({
+      mode: 'transcode',
+      subtitles: [bitmapEmbedded],
+    }))
+    mocks.createTranscodeSession.mockResolvedValue({ sessionId: 's1', playlistUrl: '/hls/p.m3u8' })
+    const { video, pb } = createPlayback()
+
+    await pb.start('item-1', 10_000)
+    pb.selectSubtitle('embedded:2')
+    await flushPromises()
+    expect(pb.transcodeActive.value).toBe(true)
+
+    video.currentTime = 20
+    pb.selectSubtitle(null)
+    await flushPromises()
+
+    expect(pb.transcodeActive.value).toBe(true)
+    expect(mocks.createTranscodeSession).toHaveBeenLastCalledWith(
+      'item-1', 30_000,
+      expect.anything(),
+      undefined,
+    )
+    pb.stop()
+  })
+
+  it('文本轨之间切换不重建播放源', async () => {
+    mocks.fetchPlaybackInfo.mockResolvedValue(buildPlaybackInfo({
+      mode: 'direct',
+      subtitles: [
+        { type: 'embedded', index: 0, subtitleId: null, label: '英文', language: 'en', defaulted: false, bitmap: false },
+        { type: 'embedded', index: 1, subtitleId: null, label: '日文', language: 'ja', defaulted: false, bitmap: false },
+      ],
+    }))
+    const { pb } = createPlayback()
+
+    await pb.start('item-1')
+    const epoch = pb.sourceEpoch.value
+    pb.selectSubtitle('embedded:1')
+
+    expect(mocks.createTranscodeSession).not.toHaveBeenCalled()
+    expect(pb.sourceEpoch.value).toBe(epoch)
+    expect(pb.activeSubtitle.value?.key).toBe('embedded:1')
     pb.stop()
   })
 })

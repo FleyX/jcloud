@@ -149,6 +149,10 @@ export interface TranscodeSessionOptions {
   maxHeight?: number
   /** 视频流不支持 MSE 转封装时强制视频转码 */
   forceVideoTranscode?: boolean
+  /** 内嵌位图字幕轨序号（携带时后端转码烧录该轨） */
+  subtitleIndex?: number
+  /** 外部位图字幕记录 ID（携带时后端转码烧录该轨） */
+  externalSubtitleId?: string
 }
 
 export function createTranscodeSession(

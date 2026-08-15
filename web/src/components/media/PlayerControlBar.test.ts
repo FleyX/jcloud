@@ -231,10 +231,10 @@ describe('PlayerControlBar 播放器控制交互', () => {
 })
 
 describe('PlayerControlBar 字幕菜单来源', () => {
-  /** 渲染 options 的 PlayerOptionMenu 桩，便于断言字幕菜单项来源 */
+  /** 渲染 options 的 PlayerOptionMenu 桩，便于断言字幕菜单项来源与徽标 */
   const MenuStub = defineComponent({
     props: { options: { type: Array, default: () => [] } },
-    template: '<div class="stub-menu"><span v-for="o in options" :key="o.key">{{ o.label }}</span></div>',
+    template: '<div class="stub-menu"><span v-for="o in options" :key="o.key">{{ o.label }}<i v-if="o.badge">{{ o.badge }}</i></span></div>',
   })
 
   function mountBarWithPlayback(playbackInfo: MediaPlaybackInfoVo): VueWrapper {
@@ -271,7 +271,8 @@ describe('PlayerControlBar 字幕菜单来源', () => {
         { index: 1, codec: 'subrip', language: 'zh', title: null },
       ],
       subtitles: [
-        { type: 'embedded', index: 1, subtitleId: null, label: '中文字幕', language: 'zh', defaulted: true },
+        { type: 'embedded', index: 1, subtitleId: null, label: '中文字幕', language: 'zh', defaulted: true, bitmap: false },
+        { type: 'embedded', index: 0, subtitleId: null, label: '图形字幕', language: null, defaulted: false, bitmap: true },
       ],
       effectiveBitRate: null,
       progressMs: 0,
@@ -282,5 +283,34 @@ describe('PlayerControlBar 字幕菜单来源', () => {
 
     expect(menuLabels).toContain('中文字幕')
     expect(menuLabels.some((label) => label.includes('PGS'))).toBe(false)
+  })
+
+  it('位图字幕项渲染「图形」徽标，文本项不渲染', () => {
+    const playbackInfo = {
+      mode: 'direct',
+      directUrl: null,
+      transcodeUrl: null,
+      durationMs: 7_200_000,
+      container: 'mkv',
+      videoCodec: 'h264',
+      audioCodec: 'aac',
+      width: 1920,
+      height: 1080,
+      audioTracks: [{ index: 0, codec: 'aac', language: 'ja', title: null }],
+      subtitleTracks: [],
+      subtitles: [
+        { type: 'external', index: null, subtitleId: 'srt-1', label: '中文字幕', language: 'zh', defaulted: false, bitmap: false },
+        { type: 'embedded', index: 0, subtitleId: null, label: '图形字幕', language: null, defaulted: false, bitmap: true },
+      ],
+      effectiveBitRate: null,
+      progressMs: 0,
+    } as unknown as MediaPlaybackInfoVo
+
+    const wrapper = mountBarWithPlayback(playbackInfo)
+    const menuLabels = wrapper.findAll('.stub-menu span').map((n) => n.text())
+
+    expect(menuLabels).toContain('中文字幕')
+    expect(menuLabels).toContain('图形字幕图形')
+    expect(menuLabels.filter((label) => label.includes('图形'))).toHaveLength(1)
   })
 })

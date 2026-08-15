@@ -235,6 +235,8 @@ export interface MediaSubtitleItem {
   language: string | null
   /** 是否默认字幕 */
   defaulted: boolean
+  /** 是否位图字幕（图形轨，需转码烧录，不可作为 WebVTT track） */
+  bitmap: boolean
 }
 
 export interface MediaPlaybackInfoVo {

@@ -93,6 +93,7 @@ function createSession(overrides: Partial<MediaPlaybackInfoVo> = {}) {
     errorMsg,
     sourceEpoch,
     destroyed,
+    getBurnInParams: () => null,
   })
   return { session, videoRef, playbackInfo, itemId, currentVersionId, audioIndex, errorMsg, sourceEpoch, destroyed }
 }

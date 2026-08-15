@@ -18,6 +18,8 @@ interface MenuOption {
   key: string
   label: string
   checked: boolean
+  /** 选项尾注徽标（如位图字幕的「图形」） */
+  badge?: string
 }
 
 interface Props {
@@ -59,6 +61,10 @@ const itemClass = 'flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 t
       >
         <Check :class="cn('h-4 w-4 shrink-0', option.checked ? 'opacity-100' : 'opacity-0')" />
         <span class="truncate">{{ option.label }}</span>
+        <span
+          v-if="option.badge"
+          class="ml-auto shrink-0 rounded bg-white/15 px-1.5 py-0.5 text-[10px] leading-none text-surface-300"
+        >{{ option.badge }}</span>
       </DropdownMenuItem>
     </DropdownMenuContent>
   </DropdownMenuRoot>

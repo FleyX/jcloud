@@ -13,9 +13,9 @@ vi.mock('@/api/media', () => mocks)
 
 function buildSubtitles(): MediaSubtitleItem[] {
   return [
-    { type: 'external', index: null, subtitleId: 'ext-zh', label: '中文', language: 'zh', defaulted: false },
-    { type: 'embedded', index: 0, subtitleId: null, label: '英文', language: 'en', defaulted: true },
-    { type: 'embedded', index: 1, subtitleId: null, label: '日文', language: 'ja', defaulted: false },
+    { type: 'external', index: null, subtitleId: 'ext-zh', label: '中文', language: 'zh', defaulted: false, bitmap: false },
+    { type: 'embedded', index: 0, subtitleId: null, label: '英文', language: 'en', defaulted: true, bitmap: false },
+    { type: 'embedded', index: 1, subtitleId: null, label: '日文', language: 'ja', defaulted: false, bitmap: false },
   ]
 }
 
@@ -143,7 +143,7 @@ describe('useSubtitleSelection activeSubtitle URL 构造', () => {
 
     // 既无内嵌 index 也无 subtitleId 的项无法构造 src
     subtitles.value = [
-      { type: 'external', index: null, subtitleId: null, label: '无源', language: null, defaulted: false },
+      { type: 'external', index: null, subtitleId: null, label: '无源', language: null, defaulted: false, bitmap: false },
     ]
     selection.selectSubtitle(subtitleItemKey(subtitles.value[0]))
     expect(selection.activeSubtitle.value).toBeNull()
@@ -177,9 +177,89 @@ describe('useSubtitleSelection selectSubtitle 记忆写入', () => {
   })
 
   it('subtitleItemKey：内嵌 embedded:{index}，外置 external:{subtitleId}', () => {
-    expect(subtitleItemKey({ type: 'embedded', index: 2, subtitleId: null, label: 'x', language: null, defaulted: false }))
+    expect(subtitleItemKey({ type: 'embedded', index: 2, subtitleId: null, label: 'x', language: null, defaulted: false, bitmap: false }))
       .toBe('embedded:2')
-    expect(subtitleItemKey({ type: 'external', index: null, subtitleId: 's9', label: 'x', language: null, defaulted: false }))
+    expect(subtitleItemKey({ type: 'external', index: null, subtitleId: 's9', label: 'x', language: null, defaulted: false, bitmap: false }))
       .toBe('external:s9')
+  })
+})
+
+describe('useSubtitleSelection 位图字幕', () => {
+  const bitmapEmbedded: MediaSubtitleItem = {
+    type: 'embedded', index: 2, subtitleId: null, label: '图形字幕', language: 'zh', defaulted: true, bitmap: true,
+  }
+  const bitmapExternal: MediaSubtitleItem = {
+    type: 'external', index: null, subtitleId: 'ext-bmp', label: '图形外字', language: 'de', defaulted: false, bitmap: true,
+  }
+
+  it('applyDefaultSubtitle 跳过位图项：defaulted 位图轨即使带标记也不自动选中', () => {
+    const { selection } = createSelection()
+    const list = [bitmapEmbedded, ...buildSubtitles()]
+
+    selection.applyDefaultSubtitle(list)
+
+    // 跳过 defaulted 位图轨，选中文本 defaulted 英文轨
+    expect(selection.subtitleKey.value).toBe('embedded:0')
+
+    // 仅剩位图项时（defaulted 且偏好均命中位图）回退为「无」
+    localStorage.setItem('jcloud.player.subtitlePref', 'zh')
+    selection.applyDefaultSubtitle([bitmapEmbedded])
+    expect(selection.subtitleKey.value).toBeNull()
+  })
+
+  it('applyDefaultSubtitle 偏好匹配跳过位图项：偏好命中位图项时回退为「无」', () => {
+    const { selection } = createSelection()
+    const list = [bitmapExternal, ...buildSubtitles().map((s) => ({ ...s, defaulted: false }))]
+
+    // 偏好 zh 命中文本中文轨（而非同样为 zh 的位图轨）
+    localStorage.setItem('jcloud.player.subtitlePref', 'zh')
+    selection.applyDefaultSubtitle(list)
+    expect(selection.subtitleKey.value).toBe('external:ext-zh')
+
+    // 偏好 de 仅命中位图轨 → 不选中，回退为「无」
+    localStorage.setItem('jcloud.player.subtitlePref', 'de')
+    selection.applyDefaultSubtitle(list)
+    expect(selection.subtitleKey.value).toBeNull()
+  })
+
+  it('selectSubtitle 位图项不写入语言偏好', () => {
+    const { selection, subtitles } = createSelection()
+    subtitles.value = [bitmapEmbedded, ...buildSubtitles()]
+
+    selection.selectSubtitle(subtitleItemKey(bitmapEmbedded))
+    expect(selection.subtitleKey.value).toBe('embedded:2')
+    expect(localStorage.getItem('jcloud.player.subtitlePref')).toBeNull()
+
+    // 切回文本轨正常记忆
+    selection.selectSubtitle('embedded:0')
+    expect(localStorage.getItem('jcloud.player.subtitlePref')).toBe('en')
+  })
+
+  it('activeSubtitle 对位图项返回 null（不渲染 track，不请求字幕 URL）', () => {
+    const { selection, subtitles, itemId } = createSelection()
+    itemId.value = 'item-1'
+    subtitles.value = [bitmapEmbedded]
+
+    selection.selectSubtitle('embedded:2')
+    expect(selection.subtitleKey.value).toBe('embedded:2')
+    expect(selection.activeSubtitle.value).toBeNull()
+    expect(mocks.subtitleUrl).not.toHaveBeenCalled()
+  })
+
+  it('burnInSubtitle：内嵌位图返回 subtitleIndex，外部位图返回 externalSubtitleId，文本/「无」为 null', () => {
+    const { selection, subtitles } = createSelection()
+    subtitles.value = [bitmapEmbedded, bitmapExternal, ...buildSubtitles()]
+
+    selection.selectSubtitle('embedded:2')
+    expect(selection.burnInSubtitle.value).toEqual({ subtitleIndex: 2 })
+
+    selection.selectSubtitle('external:ext-bmp')
+    expect(selection.burnInSubtitle.value).toEqual({ externalSubtitleId: 'ext-bmp' })
+
+    // 文本项与「无」均不产生烧录参数
+    selection.selectSubtitle('embedded:0')
+    expect(selection.burnInSubtitle.value).toBeNull()
+    selection.selectSubtitle(null)
+    expect(selection.burnInSubtitle.value).toBeNull()
   })
 })

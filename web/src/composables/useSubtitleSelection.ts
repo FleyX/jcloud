@@ -28,6 +28,16 @@ export function subtitleItemKey(item: MediaSubtitleItem): string {
   return item.type === 'embedded' ? `embedded:${item.index}` : `external:${item.subtitleId}`
 }
 
+/**
+ * 位图字幕烧录参数（携带时后端强制视频转码并烧录该轨，二选一）
+ */
+export interface BurnInParams {
+  /** 内嵌位图字幕轨序号 */
+  subtitleIndex?: number
+  /** 外部位图字幕记录 ID */
+  externalSubtitleId?: string
+}
+
 export interface SubtitleSelectionDeps {
   /** 字幕列表来源（响应式，如 playbackInfo 派生 computed） */
   subtitles: Ref<MediaSubtitleItem[]>
@@ -52,6 +62,8 @@ export function useSubtitleSelection(deps: SubtitleSelectionDeps) {
     if (!key || !id) return null
     const item = subtitles.value.find((s) => subtitleItemKey(s) === key)
     if (!item) return null
+    // 位图字幕不可作为 WebVTT track：不渲染 <track>，也不请求字幕 URL
+    if (item.bitmap) return null
     const versionId = currentVersionId.value ?? undefined
     // 转码播放的字幕时间轴相对当前转码会话起点偏移，直放使用原片时间轴（offset 0）。
     // transcodeBaseMs 可能含小数（由 currentTime*1000 换算），后端 offsetMs 为整型，必须取整
@@ -64,12 +76,26 @@ export function useSubtitleSelection(deps: SubtitleSelectionDeps) {
     return src ? { key, label: item.label, src } : null
   })
 
+  /**
+   * 当前选中字幕的烧录参数：位图项返回参数对象（embedded → subtitleIndex，external → externalSubtitleId），
+   * 文本项/「无」返回 null。携带时后端强制视频转码烧录。
+   */
+  const burnInSubtitle = computed<BurnInParams | null>(() => {
+    const key = subtitleKey.value
+    if (!key) return null
+    const item = subtitles.value.find((s) => subtitleItemKey(s) === key)
+    if (!item || !item.bitmap) return null
+    if (item.type === 'embedded' && item.index !== null) return { subtitleIndex: item.index }
+    if (item.type === 'external' && item.subtitleId) return { externalSubtitleId: item.subtitleId }
+    return null
+  })
+
   function selectSubtitle(key: string | null) {
     subtitleKey.value = key
     if (key) {
       const item = subtitles.value.find((s) => subtitleItemKey(s) === key)
-      // 记忆语言偏好，新片按 language 或 label 匹配
-      if (item) localStorage.setItem(SUBTITLE_LANG_STORAGE_KEY, item.language || item.label)
+      // 记忆语言偏好，新片按 language 或 label 匹配；位图字幕不参与偏好匹配，不记忆
+      if (item && !item.bitmap) localStorage.setItem(SUBTITLE_LANG_STORAGE_KEY, item.language || item.label)
     }
   }
 
@@ -79,16 +105,17 @@ export function useSubtitleSelection(deps: SubtitleSelectionDeps) {
     if (track) track.mode = 'showing'
   }
 
-  /** 默认字幕：defaulted 标记 > localStorage 语言偏好 > 无 */
+  /** 默认字幕：defaulted 标记 > localStorage 语言偏好 > 无（位图项不参与自动选中，仅可手动选择） */
   function applyDefaultSubtitle(list: MediaSubtitleItem[]) {
-    const defaulted = list.find((s) => s.defaulted)
+    const textList = list.filter((s) => !s.bitmap)
+    const defaulted = textList.find((s) => s.defaulted)
     if (defaulted) {
       subtitleKey.value = subtitleItemKey(defaulted)
       return
     }
     const preferred = localStorage.getItem(SUBTITLE_LANG_STORAGE_KEY)
     if (preferred) {
-      const match = list.find((s) => s.language === preferred || s.label === preferred)
+      const match = textList.find((s) => s.language === preferred || s.label === preferred)
       if (match) {
         subtitleKey.value = subtitleItemKey(match)
         return
@@ -100,6 +127,7 @@ export function useSubtitleSelection(deps: SubtitleSelectionDeps) {
   return {
     subtitleKey,
     activeSubtitle,
+    burnInSubtitle,
     selectSubtitle,
     handleTrackLoad,
     applyDefaultSubtitle,

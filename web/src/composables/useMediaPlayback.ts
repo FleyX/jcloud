@@ -39,6 +39,8 @@ export function useMediaPlayback(videoRef: Ref<HTMLVideoElement | null>) {
     errorMsg,
     sourceEpoch,
     destroyed,
+    // 位图烧录参数延迟求值：subtitle 在本函数稍后创建，闭包运行时才读取，无循环依赖
+    getBurnInParams: () => subtitle.burnInSubtitle.value,
   })
 
   const subtitles = computed(() => playbackInfo.value?.subtitles ?? [])
@@ -84,9 +86,10 @@ export function useMediaPlayback(videoRef: Ref<HTMLVideoElement | null>) {
     const info = playbackInfo.value
     if (!info) return
     const currentMs = currentAbsoluteMs()
-    // 直放模式下选了非默认音轨时，必须转码（后端视频转封装）才能生效
+    // 直放模式下选了非默认音轨时，必须转码（后端视频转封装）才能生效；位图字幕必须烧录转码
     const forceTranscode = transcode.resolveBitrateParams(info) !== null
       || (info.mode === 'direct' && audioIndex.value !== null)
+      || subtitle.burnInSubtitle.value !== null
     if (info.mode === 'transcode' || forceTranscode) {
       await transcode.setupTranscode(currentMs)
     } else if (transcode.transcodeActive.value) {
@@ -154,8 +157,19 @@ export function useMediaPlayback(videoRef: Ref<HTMLVideoElement | null>) {
     })
   }
 
+  /**
+   * 切换字幕：仅当位图状态发生变化（进入/退出/换另一位图项）时重建播放源——
+   * 文本轨/「无」之间切换由 <track> 元素承担，无需重建。
+   * 烧录转码失败经 reconcile 的 catch 写入 errorMsg（播放页已有错误展示）。
+   */
   function selectSubtitle(key: string | null) {
+    const prevBurnIn = subtitle.burnInSubtitle.value
     subtitle.selectSubtitle(key)
+    if (prevBurnIn !== subtitle.burnInSubtitle.value) {
+      reconcilePlayback().catch((e) => {
+        errorMsg.value = e instanceof Error ? e.message : '字幕切换失败'
+      })
+    }
   }
 
   function selectBitrateTier(key: string) {

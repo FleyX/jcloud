@@ -140,6 +140,8 @@ interface MenuOption {
   key: string
   label: string
   checked: boolean
+  /** 选项尾注徽标（如位图字幕的「图形」） */
+  badge?: string
 }
 
 const hasSubtitles = computed(() => (props.playbackInfo?.subtitles.length ?? 0) > 0)
@@ -157,6 +159,8 @@ const subtitleOptions = computed<MenuOption[]>(() => [
     key: subtitleItemKey(item),
     label: item.label,
     checked: subtitleItemKey(item) === props.subtitleKey,
+    // 位图字幕与文本项视觉区分：标注「图形」
+    badge: item.bitmap ? '图形' : undefined,
   })),
 ])
 

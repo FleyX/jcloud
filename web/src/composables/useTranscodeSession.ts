@@ -8,6 +8,7 @@
 import { ref, type Ref } from 'vue'
 import Hls from 'hls.js'
 import type { MediaPlaybackInfoVo } from '@/types/media'
+import type { BurnInParams } from './useSubtitleSelection'
 import {
   closeTranscodeSession,
   createTranscodeSession,
@@ -53,10 +54,12 @@ export interface TranscodeSessionDeps {
   sourceEpoch: Ref<number>
   /** 播放生命周期标记：stop 后置真，异步建会话返回后不再挂载 */
   destroyed: Ref<boolean>
+  /** 位图字幕烧录参数 getter（延迟求值，避免与 useSubtitleSelection 构造顺序循环依赖） */
+  getBurnInParams: () => BurnInParams | null
 }
 
 export function useTranscodeSession(deps: TranscodeSessionDeps) {
-  const { videoRef, playbackInfo, itemId, currentVersionId, audioIndex, errorMsg, sourceEpoch, destroyed } = deps
+  const { videoRef, playbackInfo, itemId, currentVersionId, audioIndex, errorMsg, sourceEpoch, destroyed, getBurnInParams } = deps
 
   /** 码率档位 key（localStorage 记忆，默认原画） */
   const bitrateTierKey = ref(localStorage.getItem(BITRATE_TIER_STORAGE_KEY) || 'original')
@@ -121,6 +124,8 @@ export function useTranscodeSession(deps: TranscodeSessionDeps) {
       maxHeight: bitrate?.maxHeight,
       // 传了 targetBitrateKbps 必然视频转码，只有转封装会话才需要 MSE 检测
       forceVideoTranscode: bitrate ? undefined : needsForceVideoTranscode(info.videoCodec) || undefined,
+      // 位图字幕烧录参数：携带时后端自然强制视频转码烧录
+      ...(getBurnInParams() ?? {}),
     }
   }
 
