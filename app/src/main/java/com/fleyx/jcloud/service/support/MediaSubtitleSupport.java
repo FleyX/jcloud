@@ -31,8 +31,10 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -117,9 +119,18 @@ public class MediaSubtitleSupport {
      */
     private Map<String, MediaSubtitle> buildDesiredAssociations(List<FileRef> fileRefs, List<FileNode> nodes) {
         Map<String, List<FileNode>> subtitlesByParent = new HashMap<>();
+        // 各目录下存在的 .sub 文件主名：位图 .idx 必须与同目录同主名的 .sub 成对，缺一不关联
+        Map<String, Set<String>> subMainsByParent = new HashMap<>();
         for (FileNode node : nodes) {
-            if ("file".equals(node.getType()) && MediaSubtitleNameParser.isSubtitleFile(node.getName())) {
+            if (!"file".equals(node.getType())) {
+                continue;
+            }
+            if (MediaSubtitleNameParser.isSubtitleFile(node.getName())
+                    || MediaSubtitleNameParser.isBitmapSubtitleFile(node.getName())) {
                 subtitlesByParent.computeIfAbsent(node.getParentId(), k -> new ArrayList<>()).add(node);
+            } else if ("sub".equals(MediaSubtitleNameParser.extensionOf(node.getName()))) {
+                subMainsByParent.computeIfAbsent(node.getParentId(), k -> new HashSet<>())
+                        .add(MediaSubtitleNameParser.mainNameOf(node.getName()));
             }
         }
         Map<String, FileNode> nodeById = new HashMap<>();
@@ -134,6 +145,12 @@ public class MediaSubtitleSupport {
             }
             String videoMainName = MediaSubtitleNameParser.mainNameOf(video.getName());
             for (FileNode sub : subtitlesByParent.getOrDefault(video.getParentId(), List.of())) {
+                if ("idx".equals(MediaSubtitleNameParser.extensionOf(sub.getName()))
+                        && !subMainsByParent.getOrDefault(video.getParentId(), Set.of())
+                                .contains(MediaSubtitleNameParser.mainNameOf(sub.getName()))) {
+                    // .idx 缺同目录同主名的 .sub 时跳过（.sub 永远不产生关联，亦回避 MicroDVD 同名嗅探）
+                    continue;
+                }
                 MediaSubtitleNameParser.SubtitleNameMatch match =
                         MediaSubtitleNameParser.parse(videoMainName, sub.getName());
                 if (match == null) {
@@ -189,8 +206,7 @@ public class MediaSubtitleSupport {
             vo.setType("external");
             vo.setSubtitleId(sub.getId());
             vo.setDefaulted(Boolean.TRUE.equals(sub.getIsDefault()));
-            // 外部位图字幕（.sup/.idx+.sub）识别属于后续工单，本期一律 false
-            vo.setBitmap(false);
+            vo.setBitmap(MediaSubtitleNameParser.isBitmapFormat(sub.getFormat()));
             vo.setLabel(externalLabel(sub));
             result.add(vo);
         }

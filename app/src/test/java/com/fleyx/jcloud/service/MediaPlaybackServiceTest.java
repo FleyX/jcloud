@@ -322,8 +322,9 @@ class MediaPlaybackServiceTest extends MediaScanTestBase {
     /**
      * 统一字幕列表组装（MediaSubtitleSupport.buildSubtitleList）：
      * 内嵌轨在前（按流序号，language - title 拼装、两者缺失回退「字幕 N」），
-     * 内嵌位图轨（PGS）项 bitmap=true、文本轨与外部项 bitmap=false，
-     * 外部字幕在后（默认优先、再按标签）。探测层不再过滤位图轨，此处直接喂混合轨列表验证组装行为。
+     * 内嵌位图轨（PGS）项 bitmap=true、内嵌文本轨 bitmap=false，
+     * 外部字幕在后（默认优先、再按标签）：文本外挂 bitmap=false，位图外挂（.sup）bitmap=true。
+     * 探测层不再过滤位图轨，此处直接喂混合轨列表验证组装行为。
      */
     @Test
     void shouldAssembleUnifiedSubtitleListWithEmbeddedAndExternalTracks() {
@@ -335,6 +336,7 @@ class MediaPlaybackServiceTest extends MediaScanTestBase {
                 user.getId(), dune.getId(), null);
         fileService.upload(buildFile("沙丘.eng.default.srt", SRT_CONTENT.getBytes(StandardCharsets.UTF_8)),
                 user.getId(), dune.getId(), null);
+        fileService.upload(buildFile("沙丘.cht.sup", "sup".getBytes()), user.getId(), dune.getId(), null);
         MediaDirectory directory = createDirectory(user.getId(), movieFolder.getId(), "movie");
         mediaScanService.scan(directory.getId());
 
@@ -348,7 +350,7 @@ class MediaPlaybackServiceTest extends MediaScanTestBase {
 
         List<MediaSubtitleItemVo> subtitles = mediaSubtitleSupport.buildSubtitleList(tracks, file.getId());
 
-        assertEquals(6, subtitles.size());
+        assertEquals(7, subtitles.size());
         // 内嵌轨在前、按流序号
         MediaSubtitleItemVo embedded0 = subtitles.get(0);
         assertEquals("embedded", embedded0.getType());
@@ -377,7 +379,7 @@ class MediaPlaybackServiceTest extends MediaScanTestBase {
         assertEquals("jpn - PGS", embedded3.getLabel());
         assertEquals(Boolean.FALSE, embedded3.getDefaulted());
         assertEquals(Boolean.TRUE, embedded3.getBitmap());
-        // 外部在后：默认优先、再按标签，bitmap 一律 false
+        // 外部在后：默认优先、再按标签；文本外挂 bitmap=false，位图外挂（.sup）bitmap=true
         MediaSubtitleItemVo externalDefault = subtitles.get(4);
         assertEquals("external", externalDefault.getType());
         assertEquals("English", externalDefault.getLabel());
@@ -389,6 +391,12 @@ class MediaPlaybackServiceTest extends MediaScanTestBase {
         assertEquals("简体", externalSecond.getLabel());
         assertEquals(Boolean.FALSE, externalSecond.getDefaulted());
         assertEquals(Boolean.FALSE, externalSecond.getBitmap());
+        MediaSubtitleItemVo externalBitmap = subtitles.get(6);
+        assertEquals("external", externalBitmap.getType());
+        assertEquals("繁體", externalBitmap.getLabel());
+        assertEquals(Boolean.FALSE, externalBitmap.getDefaulted());
+        assertEquals(Boolean.TRUE, externalBitmap.getBitmap());
+        assertNotNull(externalBitmap.getSubtitleId());
     }
 
     /**

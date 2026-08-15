@@ -94,4 +94,45 @@ class MediaSubtitleNameParserTest {
         assertNull(MediaSubtitleNameParser.parse("", "Movie.srt"));
         assertNull(MediaSubtitleNameParser.parse("Movie", null));
     }
+
+    @Test
+    void testIsBitmapSubtitleFile() {
+        assertTrue(MediaSubtitleNameParser.isBitmapSubtitleFile("Movie.sup"));
+        assertTrue(MediaSubtitleNameParser.isBitmapSubtitleFile("Movie.SUP"));
+        assertTrue(MediaSubtitleNameParser.isBitmapSubtitleFile("Movie.idx"));
+        // .sub 与文本 MicroDVD 格式同名冲突，不识别为位图字幕文件
+        assertFalse(MediaSubtitleNameParser.isBitmapSubtitleFile("Movie.sub"));
+        assertFalse(MediaSubtitleNameParser.isBitmapSubtitleFile("Movie.srt"));
+        assertFalse(MediaSubtitleNameParser.isBitmapSubtitleFile("noext"));
+        assertFalse(MediaSubtitleNameParser.isBitmapSubtitleFile(null));
+    }
+
+    @Test
+    void testIsBitmapFormat() {
+        assertTrue(MediaSubtitleNameParser.isBitmapFormat("sup"));
+        assertTrue(MediaSubtitleNameParser.isBitmapFormat("idx"));
+        assertFalse(MediaSubtitleNameParser.isBitmapFormat("srt"));
+        assertFalse(MediaSubtitleNameParser.isBitmapFormat("sub"));
+        assertFalse(MediaSubtitleNameParser.isBitmapFormat(null));
+    }
+
+    @Test
+    void testParseBitmapSubtitleFiles() {
+        // 位图单文件 .sup：语言段解析与文本外挂一致
+        MediaSubtitleNameParser.SubtitleNameMatch sup =
+                MediaSubtitleNameParser.parse("Movie", "Movie.zh.sup");
+        assertEquals("sup", sup.format());
+        assertEquals("简体", sup.label());
+        assertFalse(sup.defaulted());
+        // .idx：语言段与 .default 约定同样生效
+        MediaSubtitleNameParser.SubtitleNameMatch idx =
+                MediaSubtitleNameParser.parse("Movie", "Movie.zh.default.idx");
+        assertEquals("idx", idx.format());
+        assertEquals("简体", idx.label());
+        assertTrue(idx.defaulted());
+        // .sub 统一不识别（不产生关联），避免 MicroDVD 文本格式同名嗅探
+        assertNull(MediaSubtitleNameParser.parse("Movie", "Movie.zh.sub"));
+        // 前缀匹配规则对位图同样生效
+        assertNull(MediaSubtitleNameParser.parse("Movie", "Movie2.sup"));
+    }
 }

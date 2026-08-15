@@ -233,6 +233,50 @@ class MediaSubtitleScanTest extends MediaScanTestBase {
         assertNull(mediaSubtitleMapper.selectById(subtitleId));
     }
 
+    /**
+     * 位图外挂：.sup 单文件直接关联；.idx+.sub 必须同目录同主名成对才关联（记录指向 .idx 节点、format=idx），
+     * 单独 .idx、单独 .sub、成对但分属不同目录、成对但与视频主名不匹配均不产生关联。
+     */
+    @Test
+    void shouldLinkBitmapSubtitlesWithIdxSubPairing() {
+        UserVo user = prepareUserWithStorageSpace().user();
+        FileNodeVo folder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "其他");
+        fileService.upload(buildFile("Movie.mkv"), user.getId(), folder.getId(), null);
+        FileNodeVo sup = fileService.upload(buildFile("Movie.zh.sup"), user.getId(), folder.getId(), null);
+        FileNodeVo idx = fileService.upload(buildFile("Movie.zh.default.idx"), user.getId(), folder.getId(), null);
+        fileService.upload(buildFile("Movie.zh.default.sub"), user.getId(), folder.getId(), null);
+        // 单独 .idx 缺同目录 .sub：不关联
+        fileService.upload(buildFile("Alone.idx"), user.getId(), folder.getId(), null);
+        // 单独 .sub：永远不产生关联（不识别，亦回避 MicroDVD 文本格式同名嗅探）
+        fileService.upload(buildFile("Orphan.sub"), user.getId(), folder.getId(), null);
+        // .idx 与同主名 .sub 分属不同目录：不关联
+        FileNodeVo subFolder = createFolder(user.getId(), folder.getId(), "子目录");
+        fileService.upload(buildFile("Split.idx"), user.getId(), folder.getId(), null);
+        fileService.upload(buildFile("Split.sub"), user.getId(), subFolder.getId(), null);
+        // 成对但与视频主名不匹配：不关联
+        fileService.upload(buildFile("Other.idx"), user.getId(), folder.getId(), null);
+        fileService.upload(buildFile("Other.sub"), user.getId(), folder.getId(), null);
+
+        MediaDirectory directory = createDirectory(user.getId(), folder.getId(), "other");
+        mediaScanService.scan(directory.getId());
+
+        List<MediaSubtitle> subtitles = subtitlesOf(directory.getId());
+        assertEquals(2, subtitles.size());
+        Map<String, MediaSubtitle> byFormat = subtitles.stream()
+                .collect(Collectors.toMap(MediaSubtitle::getFormat, Function.identity()));
+        MediaSubtitle supRecord = byFormat.get("sup");
+        assertEquals("sup", supRecord.getFormat());
+        assertEquals("简体", supRecord.getLabel());
+        assertFalse(supRecord.getIsDefault());
+        assertEquals(sup.getId(), supRecord.getFileNodeId());
+        MediaSubtitle idxRecord = byFormat.get("idx");
+        assertEquals("idx", idxRecord.getFormat());
+        assertEquals("简体", idxRecord.getLabel());
+        assertTrue(idxRecord.getIsDefault());
+        // 成对关联记录指向 .idx 节点（同目录 .sub 由 ffmpeg 自动读取）
+        assertEquals(idx.getId(), idxRecord.getFileNodeId());
+    }
+
     private List<MediaSubtitle> subtitlesOf(String directoryId) {
         List<String> fileRowIds = mediaOtherMapper.selectList(new LambdaQueryWrapper<com.fleyx.jcloud.model.po.MediaOther>()
                         .eq(com.fleyx.jcloud.model.po.MediaOther::getDirectoryId, directoryId))

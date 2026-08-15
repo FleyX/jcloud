@@ -29,7 +29,7 @@ public class MediaSubtitle extends BaseEntity {
     private String fileNodeId;
 
     /**
-     * 字幕格式：srt / ass / ssa / vtt。
+     * 字幕格式：srt / ass / ssa / vtt / sup / idx（位图成对关联以 .idx 为记录节点，format 存 idx）。
      */
     private String format;
 
