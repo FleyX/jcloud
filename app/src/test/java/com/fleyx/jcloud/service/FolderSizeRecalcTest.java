@@ -25,11 +25,12 @@ import com.fleyx.jcloud.model.vo.UserVo;
 import com.fleyx.jcloud.service.support.FolderSizeRecalcSupport;
 import com.fleyx.jcloud.util.FilePathUtil;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.mock.web.MockMultipartFile;
-import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -42,10 +43,9 @@ import static org.junit.jupiter.api.Assertions.fail;
  * <p>
  * 监听器为异步执行且独立读库，本类不使用事务回滚（异步线程看不到未提交数据），
  * 测试数据按唯一用户隔离并在用例结束后物理清理。
- * 防抖窗口通过 {@code @TestPropertySource} 缩短为 1 秒，断言为异步生效的 DB 值，
- * 使用轮询工具方法（100ms 间隔、5s 超时）。
+ * 防抖窗口经反射缩短为 200ms（不用 @TestPropertySource，避免产生独立 Spring 上下文），
+ * 断言为异步生效的 DB 值，使用轮询工具方法（100ms 间隔、5s 超时）。
  */
-@TestPropertySource(properties = "jcloud.file.folder-size-debounce-seconds=1")
 class FolderSizeRecalcTest extends IntegrationTestBase {
 
     @Autowired
@@ -77,6 +77,15 @@ class FolderSizeRecalcTest extends IntegrationTestBase {
 
     private final List<String> createdUserIds = new ArrayList<>();
     private final List<String> createdSpaceIds = new ArrayList<>();
+
+    /**
+     * 反射缩短防抖窗口为 200ms：避免 @TestPropertySource 产生独立 Spring 上下文，
+     * 同时把每个用例的防抖等待从秒级压到亚秒级。
+     */
+    @BeforeEach
+    void shrinkDebounceWindow() {
+        ReflectionTestUtils.setField(folderSizeRecalcSupport, "debounceWindowMs", 200L);
+    }
 
     @AfterEach
     void cleanup() {

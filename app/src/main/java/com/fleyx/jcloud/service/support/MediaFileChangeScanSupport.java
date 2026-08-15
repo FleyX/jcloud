@@ -38,9 +38,9 @@ import java.util.concurrent.TimeUnit;
 public class MediaFileChangeScanSupport {
 
     /**
-     * 防抖窗口（毫秒）。
+     * 防抖窗口（毫秒）。volatile：单测通过反射缩短窗口，保证调度线程立即可见。
      */
-    private final long debounceWindowMs;
+    private volatile long debounceWindowMs;
 
     private final MediaDirectoryMapper mediaDirectoryMapper;
     private final MediaDirectorySourceSupport sourceSupport;

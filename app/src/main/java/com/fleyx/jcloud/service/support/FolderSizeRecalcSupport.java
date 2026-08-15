@@ -48,8 +48,9 @@ public class FolderSizeRecalcSupport {
 
     /**
      * 防抖窗口（毫秒），由 {@link FileProperties#getFolderSizeDebounceSeconds()} 初始化。
+     * volatile：单测通过反射缩短窗口，保证调度线程立即可见。
      */
-    private long debounceWindowMs;
+    private volatile long debounceWindowMs;
 
     /**
      * 防抖队列与调度状态（由 {@link #lock} 保护）：文件夹 ID → 用户 ID。

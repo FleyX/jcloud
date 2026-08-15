@@ -19,16 +19,18 @@ import com.fleyx.jcloud.model.po.MediaDirectorySource;
 import com.fleyx.jcloud.model.vo.FileNodeVo;
 import com.fleyx.jcloud.model.vo.StorageSpaceVo;
 import com.fleyx.jcloud.model.vo.UserVo;
+import com.fleyx.jcloud.service.support.MediaFileChangeScanSupport;
 import com.fleyx.jcloud.util.FilePathUtil;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.test.context.ActiveProfiles;
-import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -46,11 +48,11 @@ import static org.mockito.Mockito.verify;
  * <p>
  * 监听器为异步执行且独立读库，本测试类不使用事务回滚（异步线程看不到未提交数据），
  * 测试数据按唯一用户名/媒体库隔离并在用例结束后物理清理。
- * 防抖窗口通过 {@code @TestPropertySource} 缩短为 1 秒，断言使用 Mockito timeout/after 验证器。
+ * 防抖窗口经反射缩短为 200ms（不用 @TestPropertySource，避免产生独立 Spring 上下文），
+ * 断言使用 Mockito timeout/after 验证器。
  */
 @SpringBootTest
 @ActiveProfiles("test")
-@TestPropertySource(properties = "jcloud.media.file-change-debounce-seconds=1")
 class MediaFileChangeScanTest {
 
     @Autowired
@@ -80,11 +82,23 @@ class MediaFileChangeScanTest {
     @Autowired
     private ApplicationEventPublisher eventPublisher;
 
+    @Autowired
+    private MediaFileChangeScanSupport mediaFileChangeScanSupport;
+
     @MockitoBean
     private MediaScanService mediaScanService;
 
     @TempDir
     Path tempDir;
+
+    /**
+     * 反射缩短防抖窗口为 200ms：避免 @TestPropertySource 产生独立 Spring 上下文，
+     * 同时把每个用例的防抖等待从秒级压到亚秒级。
+     */
+    @BeforeEach
+    void shrinkDebounceWindow() {
+        ReflectionTestUtils.setField(mediaFileChangeScanSupport, "debounceWindowMs", 200L);
+    }
 
     /**
      * 本测试类不使用事务回滚（异步线程看不到未提交数据），创建的测试数据按 ID 登记，
@@ -121,7 +135,7 @@ class MediaFileChangeScanTest {
         publishEvent(user.getId(), "child-outside", FileChangeOperation.CREATE, null,
                 FileNodeConstants.ROOT_ID + FileNodeConstants.PATH_SEPARATOR + "unrelatedFolder");
 
-        verify(mediaScanService, after(1500).never()).submitScan(anyString(), eq(user.getId()));
+        verify(mediaScanService, after(500).never()).submitScan(anyString(), eq(user.getId()));
     }
 
     /**
