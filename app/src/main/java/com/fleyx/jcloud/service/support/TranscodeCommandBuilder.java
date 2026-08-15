@@ -17,8 +17,9 @@ import java.util.function.Supplier;
 /**
  * 转封装会话 ffmpeg 命令构建器。
  * <p>
- * 按流决策：视频编码在直放白名单（h264/hevc/vp9/av1）且未要求降码率、未强制转码时 -c:v copy 转封装，
- * 否则按现有硬解探测路径转码（crf 23 原质量；降码率时叠加 -b:v/-maxrate/-bufsize 与不放大 scale）；
+ * 按流决策：视频编码在直放白名单（h264/hevc/vp9/av1）且未要求降码率、未强制转码、未携带烧录字幕轨时
+ * -c:v copy 转封装，否则按现有硬解探测路径转码（crf 23 原质量；降码率时叠加 -b:v/-maxrate/-bufsize 与不放大 scale）；
+ * 携带位图字幕轨序号时强制视频转码并在 filter_complex 中 overlay 烧录（见 {@link #buildBurnFilterChain}）。
  * 所选音轨编码为 aac/mp3 且（转封装或从头播放）时 -c:a copy，否则统一转 AAC 128k。
  * seek 对齐规则：视频转码时精确 seek 仅裁剪解码流，音频 copy 会停留在关键帧导致音画错位，故转码 + seek 音频必须重编码；
  * 转封装 + seek 时视频停留在关键帧，附加 -noaccurate_seek 保证重编码音频同样从关键帧起步。
@@ -52,6 +53,9 @@ public class TranscodeCommandBuilder {
 
     /**
      * 转码会话请求参数（创建会话时的全部输入）。
+     * <p>
+     * 携带内嵌位图字幕轨序号（{@code subtitleIndex}）时强制视频转码：视频流禁止 copy，
+     * 转封装会话不可用，位图字幕以 overlay 滤镜烧录进画面（见 {@link #buildCommand}）。
      *
      * @param startMs             起始播放位置（毫秒）
      * @param audioIndex          音轨序号，null 表示默认音轨
@@ -62,10 +66,12 @@ public class TranscodeCommandBuilder {
      * @param targetBitrateKbps   目标视频码率上限 kbps，null 表示不降码率
      * @param maxHeight           分辨率高度上限，null 表示不限制
      * @param forceVideoTranscode 是否强制视频转码（前端 MSE 不支持转封装编码时）
+     * @param subtitleIndex       内嵌位图字幕轨序号，null 表示不烧录；携带时强制视频转码
      */
     public record TranscodeRequest(long startMs, Integer audioIndex, Path localPath,
                                    Supplier<java.io.InputStream> remoteStream, String videoCodec, String audioCodec,
-                                   Long targetBitrateKbps, Integer maxHeight, boolean forceVideoTranscode) {
+                                   Long targetBitrateKbps, Integer maxHeight, boolean forceVideoTranscode,
+                                   Integer subtitleIndex) {
     }
 
     /**
@@ -81,10 +87,12 @@ public class TranscodeCommandBuilder {
     }
 
     /**
-     * 视频流是否可转封装（-c:v copy）：编码在白名单、未强制转码、未要求降码率。
+     * 视频流是否可转封装（-c:v copy）：编码在白名单、未强制转码、未要求降码率、未携带烧录字幕轨。
+     * 位图字幕烧录必须逐帧叠加进画面，视频禁止 copy，故 {@code subtitleIndex} 非空时恒不可转封装。
      */
-    public boolean isVideoCopyEligible(String videoCodec, boolean forceVideoTranscode, Long targetBitrateKbps) {
-        return !forceVideoTranscode && targetBitrateKbps == null
+    public boolean isVideoCopyEligible(String videoCodec, boolean forceVideoTranscode, Long targetBitrateKbps,
+                                       Integer subtitleIndex) {
+        return !forceVideoTranscode && targetBitrateKbps == null && subtitleIndex == null
                 && videoCodec != null && VIDEO_COPY_CODECS.contains(videoCodec.toLowerCase());
     }
 
@@ -180,7 +188,14 @@ public class TranscodeCommandBuilder {
         }
         command.addAll(List.of("-i",
                 request.localPath() != null ? request.localPath().toAbsolutePath().toString() : "pipe:0"));
-        command.addAll(List.of("-map", "0:v:0"));
+        if (request.subtitleIndex() != null) {
+            // 烧录路径：视频与字幕 overlay 全部在 filter_complex 内，输出标签 [v] 供 -map 引用；
+            // -ss 在 -i 前对视频与字幕流一致裁剪，overlay 时间轴天然与画面对齐，无需额外偏移处理
+            command.addAll(List.of("-filter_complex", buildBurnFilterChain(request, encoder)));
+            command.addAll(List.of("-map", "[v]"));
+        } else {
+            command.addAll(List.of("-map", "0:v:0"));
+        }
         if (request.audioIndex() != null) {
             command.addAll(List.of("-map", "0:a:" + request.audioIndex()));
         } else {
@@ -211,16 +226,25 @@ public class TranscodeCommandBuilder {
 
     /**
      * 视频转码参数：保持现有硬解路径与 crf 23 原质量，叠加码率上限与不放大 scale。
+     * 烧录路径（subtitleIndex 非空）的 overlay/scale/hwupload 滤镜已在 filter_complex 内，不再输出 -vf。
      */
     private void appendVideoTranscodeArgs(List<String> command, TranscodeRequest request, String encoder, int threads) {
         command.addAll(List.of("-c:v", encoder));
-        String scale = request.maxHeight() != null ? scaleFilter(request.maxHeight()) : null;
+        boolean burnSubtitle = request.subtitleIndex() != null;
+        String scale = !burnSubtitle && request.maxHeight() != null ? scaleFilter(request.maxHeight()) : null;
         switch (encoder) {
-            case "h264_vaapi" ->
-                    command.addAll(List.of("-vf", scale != null ? scale + ",format=nv12,hwupload" : "format=nv12,hwupload"));
-            case "h264_qsv" ->
-                    command.addAll(List.of("-vf", scale != null ? scale + ",format=nv12" : "format=nv12",
-                            "-preset", "veryfast", "-global_quality", "23"));
+            case "h264_vaapi" -> {
+                if (!burnSubtitle) {
+                    command.addAll(List.of("-vf",
+                            scale != null ? scale + ",format=nv12,hwupload" : "format=nv12,hwupload"));
+                }
+            }
+            case "h264_qsv" -> {
+                if (!burnSubtitle) {
+                    command.addAll(List.of("-vf", scale != null ? scale + ",format=nv12" : "format=nv12"));
+                }
+                command.addAll(List.of("-preset", "veryfast", "-global_quality", "23"));
+            }
             case "h264_nvenc" -> {
                 if (scale != null) {
                     command.addAll(List.of("-vf", scale));
@@ -241,6 +265,29 @@ public class TranscodeCommandBuilder {
         if (threads > 0) {
             command.addAll(List.of("-threads", String.valueOf(threads)));
         }
+    }
+
+    /**
+     * 烧录滤镜链：主输入视频叠加内嵌位图字幕轨（从主输入取字幕流），先叠加后缩放（字幕随画面等比缩放），
+     * 硬解编码器续接软件帧转码后缀（vaapi 需 format/hwupload 上传），输出标签 [v] 供 -map [v] 引用。
+     *
+     * @param request 会话请求（subtitleIndex 非空）
+     * @param encoder 视频转码编码器
+     * @return filter_complex 滤镜链字符串
+     */
+    private String buildBurnFilterChain(TranscodeRequest request, String encoder) {
+        StringBuilder chain = new StringBuilder("[0:v:0][0:s:").append(request.subtitleIndex()).append("]overlay");
+        if (request.maxHeight() != null) {
+            chain.append(',').append(scaleFilter(request.maxHeight()));
+        }
+        switch (encoder) {
+            case "h264_vaapi" -> chain.append(",format=nv12,hwupload");
+            case "h264_qsv" -> chain.append(",format=nv12");
+            default -> {
+                // nvenc 与软解无后缀，滤镜即止
+            }
+        }
+        return chain.append("[v]").toString();
     }
 
     /**

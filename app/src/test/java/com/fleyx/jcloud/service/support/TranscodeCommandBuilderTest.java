@@ -22,25 +22,34 @@ class TranscodeCommandBuilderTest {
     private TranscodeCommandBuilder.TranscodeRequest request(String videoCodec, String audioCodec,
                                                              Long targetBitrateKbps, Integer maxHeight,
                                                              boolean forceVideoTranscode) {
+        return request(videoCodec, audioCodec, targetBitrateKbps, maxHeight, forceVideoTranscode, null);
+    }
+
+    private TranscodeCommandBuilder.TranscodeRequest request(String videoCodec, String audioCodec,
+                                                             Long targetBitrateKbps, Integer maxHeight,
+                                                             boolean forceVideoTranscode, Integer subtitleIndex) {
         return new TranscodeCommandBuilder.TranscodeRequest(0, null, Path.of("/data/movie.mkv"), null,
-                videoCodec, audioCodec, targetBitrateKbps, maxHeight, forceVideoTranscode);
+                videoCodec, audioCodec, targetBitrateKbps, maxHeight, forceVideoTranscode, subtitleIndex);
     }
 
     @Test
     void testVideoCopyEligibility() {
         // 白名单编码可转封装
-        assertTrue(builder.isVideoCopyEligible("h264", false, null));
-        assertTrue(builder.isVideoCopyEligible("hevc", false, null));
-        assertTrue(builder.isVideoCopyEligible("vp9", false, null));
-        assertTrue(builder.isVideoCopyEligible("av1", false, null));
-        assertTrue(builder.isVideoCopyEligible("H264", false, null));
+        assertTrue(builder.isVideoCopyEligible("h264", false, null, null));
+        assertTrue(builder.isVideoCopyEligible("hevc", false, null, null));
+        assertTrue(builder.isVideoCopyEligible("vp9", false, null, null));
+        assertTrue(builder.isVideoCopyEligible("av1", false, null, null));
+        assertTrue(builder.isVideoCopyEligible("H264", false, null, null));
         // vp8 进 fMP4 兼容性差，排除在 copy 名单外
-        assertFalse(builder.isVideoCopyEligible("vp8", false, null));
-        assertFalse(builder.isVideoCopyEligible("mpeg2video", false, null));
-        assertFalse(builder.isVideoCopyEligible(null, false, null));
+        assertFalse(builder.isVideoCopyEligible("vp8", false, null, null));
+        assertFalse(builder.isVideoCopyEligible("mpeg2video", false, null, null));
+        assertFalse(builder.isVideoCopyEligible(null, false, null, null));
         // 强制转码或要求降码率时不可转封装
-        assertFalse(builder.isVideoCopyEligible("h264", true, null));
-        assertFalse(builder.isVideoCopyEligible("h264", false, 2000L));
+        assertFalse(builder.isVideoCopyEligible("h264", true, null, null));
+        assertFalse(builder.isVideoCopyEligible("h264", false, 2000L, null));
+        // 携带烧录字幕轨序号时强制视频转码，即使 h264 白名单编码
+        assertFalse(builder.isVideoCopyEligible("h264", false, null, 2));
+        assertFalse(builder.isVideoCopyEligible("hevc", false, 2000L, 0));
     }
 
     @Test
@@ -127,7 +136,7 @@ class TranscodeCommandBuilderTest {
     @Test
     void shouldBuildSeekAudioIndexAndRemoteInput() {
         TranscodeCommandBuilder.TranscodeRequest request = new TranscodeCommandBuilder.TranscodeRequest(
-                90_500, 1, null, () -> null, "h264", "aac", null, null, false);
+                90_500, 1, null, () -> null, "h264", "aac", null, null, false, null);
         List<String> command = builder.buildCommand(request, TranscodeCommandBuilder.ENCODER_COPY,
                 "/dev/dri/renderD128", 0, Path.of("/out/session6"));
         String joined = String.join(" ", command);
@@ -142,7 +151,7 @@ class TranscodeCommandBuilderTest {
         // 视频转码 + seek：精确 seek 只裁剪解码流，音频 copy 会停留在 seek 点前关键帧导致音画错位数秒，
         // 必须重编码音频随视频一起裁剪到 seek 点
         TranscodeCommandBuilder.TranscodeRequest request = new TranscodeCommandBuilder.TranscodeRequest(
-                1_717_501, null, Path.of("/data/movie.mp4"), null, "hevc", "aac", 1000L, 480, false);
+                1_717_501, null, Path.of("/data/movie.mp4"), null, "hevc", "aac", 1000L, 480, false, null);
         List<String> command = builder.buildCommand(request, "libx264",
                 "/dev/dri/renderD128", 0, Path.of("/out/session7"));
         String joined = String.join(" ", command);
@@ -156,7 +165,7 @@ class TranscodeCommandBuilderTest {
     void shouldDisableAccurateSeekWhenVideoCopyWithSeek() {
         // 视频转封装 + seek：视频停留在关键帧，关闭精确 seek 让（可能重编码的）音频同样从关键帧起步，保持对齐
         TranscodeCommandBuilder.TranscodeRequest request = new TranscodeCommandBuilder.TranscodeRequest(
-                1_717_501, null, Path.of("/data/movie.mkv"), null, "h264", "ac3", null, null, false);
+                1_717_501, null, Path.of("/data/movie.mkv"), null, "h264", "ac3", null, null, false, null);
         List<String> command = builder.buildCommand(request, TranscodeCommandBuilder.ENCODER_COPY,
                 "/dev/dri/renderD128", 0, Path.of("/out/session8"));
         String joined = String.join(" ", command);
@@ -170,7 +179,7 @@ class TranscodeCommandBuilderTest {
     void shouldKeepAudioCopyWhenVideoCopyWithSeek() {
         // 视频转封装 + seek + 可 copy 音频：两条流均不参与精确裁剪，保持 copy 即对齐
         TranscodeCommandBuilder.TranscodeRequest request = new TranscodeCommandBuilder.TranscodeRequest(
-                90_500, null, Path.of("/data/movie.mp4"), null, "h264", "aac", null, null, false);
+                90_500, null, Path.of("/data/movie.mp4"), null, "h264", "aac", null, null, false, null);
         List<String> command = builder.buildCommand(request, TranscodeCommandBuilder.ENCODER_COPY,
                 "/dev/dri/renderD128", 0, Path.of("/out/session9"));
         String joined = String.join(" ", command);
@@ -219,7 +228,7 @@ class TranscodeCommandBuilderTest {
         // 转码 + seek：-ss 必须在 -i 之前且不带 -noaccurate_seek，-threads 位于码率参数之后；
         // 精确 seek 裁剪解码流，故音频（即使 aac 可 copy）也必须重编码对齐 seek 点
         TranscodeCommandBuilder.TranscodeRequest request = new TranscodeCommandBuilder.TranscodeRequest(
-                1_717_501, null, Path.of("/data/movie.mp4"), null, "hevc", "aac", 1000L, 480, false);
+                1_717_501, null, Path.of("/data/movie.mp4"), null, "hevc", "aac", 1000L, 480, false, null);
         List<String> command = builder.buildCommand(request, "libx264",
                 "/dev/dri/renderD128", 4, Path.of("/out/session13"));
 
@@ -244,7 +253,7 @@ class TranscodeCommandBuilderTest {
         // 转封装 + seek + 可 copy 音频：-c:v copy 全序列中只能出现一次且紧随 -map 之后；
         // 同时锁定 -ss 90.500 之后紧跟 -noaccurate_seek、再后才是 -i 的顺序
         TranscodeCommandBuilder.TranscodeRequest request = new TranscodeCommandBuilder.TranscodeRequest(
-                90_500, null, Path.of("/data/movie.mkv"), null, "h264", "aac", null, null, false);
+                90_500, null, Path.of("/data/movie.mkv"), null, "h264", "aac", null, null, false, null);
         List<String> command = builder.buildCommand(request, TranscodeCommandBuilder.ENCODER_COPY,
                 "/dev/dri/renderD128", 0, Path.of("/out/session14"));
 
@@ -264,7 +273,7 @@ class TranscodeCommandBuilderTest {
     void shouldPlaceVaapiDeviceBeforeSeekAndInput() {
         // vaapi 硬解 + seek：-vaapi_device 必须在 -ss 之前（先挂设备再定位），-ss 在 -i 之前
         TranscodeCommandBuilder.TranscodeRequest request = new TranscodeCommandBuilder.TranscodeRequest(
-                90_500, null, Path.of("/data/movie.mkv"), null, "mpeg2video", "ac3", 8000L, 1080, false);
+                90_500, null, Path.of("/data/movie.mkv"), null, "mpeg2video", "ac3", 8000L, 1080, false, null);
         List<String> command = builder.buildCommand(request, "h264_vaapi",
                 "/dev/dri/renderD129", 0, Path.of("/out/session15"));
 
@@ -281,6 +290,98 @@ class TranscodeCommandBuilderTest {
                 "-f", "hls", "-hls_time", "4", "-hls_list_size", "0",
                 "-hls_segment_type", "fmp4", "-hls_flags", "independent_segments",
                 "-hls_segment_filename", "/out/session15/seg_%05d.m4s", "/out/session15/index.m3u8"), command);
+    }
+
+    @Test
+    void shouldBurnSubtitleWithSoftEncode() {
+        // 软解烧录：filter_complex 含 overlay，-map [v]，无 -vf、无 -map 0:v:0
+        List<String> command = builder.buildCommand(request("h264", "aac", null, null, false, 2),
+                "libx264", "/dev/dri/renderD128", 0, Path.of("/out/burn1"));
+        String joined = String.join(" ", command);
+
+        assertTrue(joined.contains("-filter_complex [0:v:0][0:s:2]overlay[v]"));
+        assertTrue(joined.contains("-map [v]"));
+        assertFalse(joined.contains("-vf"));
+        assertFalse(joined.contains("-map 0:v:0"));
+        assertTrue(joined.contains("-c:v libx264"));
+        assertTrue(joined.contains("-preset veryfast -crf 23"));
+        assertTrue(joined.contains("-c:a copy"));
+    }
+
+    @Test
+    void shouldBurnSubtitleWithScaleAfterOverlay() {
+        // 叠加 maxHeight：先叠加字幕再缩放（字幕随画面等比缩放），滤镜全部在 filter_complex，无 -vf
+        List<String> command = builder.buildCommand(request("hevc", "ac3", 2000L, 720, false, 2),
+                "libx264", "/dev/dri/renderD128", 0, Path.of("/out/burn2"));
+        String joined = String.join(" ", command);
+
+        assertTrue(joined.contains("-filter_complex [0:v:0][0:s:2]overlay,scale=-2:min(720\\,ih)[v]"));
+        assertFalse(joined.contains("-vf"));
+        assertTrue(joined.contains("-b:v 2000k -maxrate 2000k -bufsize 4000k"));
+        assertTrue(joined.contains("-c:a aac -b:a 128k -ac 2"));
+    }
+
+    @Test
+    void shouldBurnSubtitleWithVaapiHwuploadSuffix() {
+        // vaapi 硬解：软件帧叠加后 format=nv12,hwupload 上传，与 scale 共存于同一滤镜链
+        List<String> command = builder.buildCommand(request("mpeg2video", "mp3", 8000L, 1080, false, 1),
+                "h264_vaapi", "/dev/dri/renderD129", 0, Path.of("/out/burn3"));
+        String joined = String.join(" ", command);
+
+        assertTrue(joined.contains("-vaapi_device /dev/dri/renderD129"));
+        assertTrue(joined.contains(
+                "-filter_complex [0:v:0][0:s:1]overlay,scale=-2:min(1080\\,ih),format=nv12,hwupload[v]"));
+        assertFalse(joined.contains("-vf"));
+        assertTrue(joined.contains("-c:a copy"));
+    }
+
+    @Test
+    void shouldBurnSubtitleWithQsvSuffix() {
+        // qsv 硬解：软件帧叠加后 format=nv12
+        List<String> command = builder.buildCommand(request("mpeg2video", "ac3", null, null, false, 1),
+                "h264_qsv", "/dev/dri/renderD128", 0, Path.of("/out/burn4"));
+        String joined = String.join(" ", command);
+
+        assertTrue(joined.contains("-filter_complex [0:v:0][0:s:1]overlay,format=nv12[v]"));
+        assertTrue(joined.contains("-preset veryfast -global_quality 23"));
+        assertFalse(joined.contains("-vf"));
+    }
+
+    @Test
+    void shouldBurnSubtitleWithNvencWithoutSuffix() {
+        // nvenc 硬解：无滤镜后缀，其余转码参数保持原样
+        List<String> command = builder.buildCommand(request("mpeg2video", "ac3", null, null, false, 1),
+                "h264_nvenc", "/dev/dri/renderD128", 0, Path.of("/out/burn5"));
+        String joined = String.join(" ", command);
+
+        assertTrue(joined.contains("-filter_complex [0:v:0][0:s:1]overlay[v]"));
+        assertTrue(joined.contains("-preset p4 -cq 23"));
+        assertFalse(joined.contains("-vf"));
+    }
+
+    @Test
+    void shouldBuildBurnCommandWithSeekAndRemoteInputExactSequence() {
+        // 烧录 + seek：-ss 在 -i 前对视频与字幕流一致裁剪，overlay 时间轴天然对齐；
+        // 远程文件 pipe:0 输入同样可用；音频（即使 aac 可 copy）重编码对齐 seek 点
+        TranscodeCommandBuilder.TranscodeRequest request = new TranscodeCommandBuilder.TranscodeRequest(
+                90_500, null, null, () -> null, "h264", "aac", 2000L, 720, false, 2);
+        List<String> command = builder.buildCommand(request, "libx264",
+                "/dev/dri/renderD128", 4, Path.of("/out/burn6"));
+
+        assertEquals(List.of(
+                "ffmpeg", "-hide_banner", "-loglevel", "warning",
+                "-ss", "90.500",
+                "-i", "pipe:0",
+                "-filter_complex", "[0:v:0][0:s:2]overlay,scale=-2:min(720\\,ih)[v]",
+                "-map", "[v]", "-map", "0:a:0?",
+                "-c:v", "libx264",
+                "-preset", "veryfast", "-crf", "23",
+                "-b:v", "2000k", "-maxrate", "2000k", "-bufsize", "4000k",
+                "-threads", "4",
+                "-c:a", "aac", "-b:a", "128k", "-ac", "2",
+                "-f", "hls", "-hls_time", "4", "-hls_list_size", "0",
+                "-hls_segment_type", "fmp4", "-hls_flags", "independent_segments",
+                "-hls_segment_filename", "/out/burn6/seg_%05d.m4s", "/out/burn6/index.m3u8"), command);
     }
 
     @Test

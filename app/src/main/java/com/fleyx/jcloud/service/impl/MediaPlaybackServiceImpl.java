@@ -245,26 +245,46 @@ public class MediaPlaybackServiceImpl implements MediaPlaybackService {
 
     @Override
     public TranscodeSession createTranscodeSession(String id, long startMs,
-                                                   Integer audioIndex, Long targetBitrateKbps,
+                                                   Integer audioIndex, Integer subtitleIndex, Long targetBitrateKbps,
                                                    Integer maxHeight, boolean forceVideoTranscode,
                                                    String userId, String versionId) {
         TranscodeCommandBuilder.validateParams(targetBitrateKbps, maxHeight);
         Playable playable = mediaPlaybackResolveSupport.resolve(id, userId, versionId);
         FileNode node = requireFileNode(playable.fileNodeId(), userId);
         MediaProbeResult probe = probePlayableFile(node, playable, userId);
+        validateSubtitleIndex(probe, subtitleIndex);
         String videoCodec = firstNonNull(probe.videoCodec(), playable.videoCodec());
         String audioCodec = resolveSelectedAudioCodec(probe, audioIndex, playable);
         TranscodeCommandBuilder.TranscodeRequest request;
         if (FileNodeConstants.SOURCE_REMOTE.equals(node.getSourceType())) {
             request = new TranscodeCommandBuilder.TranscodeRequest(startMs, audioIndex, null,
                     () -> remoteFileService.download(node, userId).getInputStream(),
-                    videoCodec, audioCodec, targetBitrateKbps, maxHeight, forceVideoTranscode);
+                    videoCodec, audioCodec, targetBitrateKbps, maxHeight, forceVideoTranscode, subtitleIndex);
         } else {
             request = new TranscodeCommandBuilder.TranscodeRequest(startMs, audioIndex,
                     resolveLocalPath(node, userId), null,
-                    videoCodec, audioCodec, targetBitrateKbps, maxHeight, forceVideoTranscode);
+                    videoCodec, audioCodec, targetBitrateKbps, maxHeight, forceVideoTranscode, subtitleIndex);
         }
         return transcodeSessionManager.createSession(userId, request);
+    }
+
+    /**
+     * 校验烧录字幕轨序号：必须存在且为非文本（位图）轨，文本轨走 WebVTT 链路不接受烧录。
+     * probe 失败回退为空轨列表，任何序号都命中「字幕轨不存在」。
+     */
+    private void validateSubtitleIndex(MediaProbeResult probe, Integer subtitleIndex) {
+        if (subtitleIndex == null) {
+            return;
+        }
+        for (MediaProbeResult.Track track : probe.subtitleTracks()) {
+            if (track.index() == subtitleIndex) {
+                if (MediaProbeSupport.isTextSubtitle(track.codec())) {
+                    throw new BusinessException(ResultCode.PARAM_ERROR, "文本字幕无需烧录");
+                }
+                return;
+            }
+        }
+        throw new BusinessException(ResultCode.PARAM_ERROR, "字幕轨不存在");
     }
 
     /**

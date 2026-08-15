@@ -68,7 +68,7 @@ public class TranscodeSessionManager {
         try {
             Files.createDirectories(outputDir);
             boolean videoCopy = commandBuilder.isVideoCopyEligible(request.videoCodec(),
-                    request.forceVideoTranscode(), request.targetBitrateKbps());
+                    request.forceVideoTranscode(), request.targetBitrateKbps(), request.subtitleIndex());
             String hwaccel = configResolver.resolveHwaccel();
             boolean autoMode = !videoCopy && (hwaccel == null || hwaccel.isBlank() || "auto".equalsIgnoreCase(hwaccel));
             String encoder = videoCopy ? TranscodeCommandBuilder.ENCODER_COPY : commandBuilder.selectEncoder(hwaccel);

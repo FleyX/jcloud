@@ -118,12 +118,13 @@ public class MediaPlaybackController {
     public R<Map<String, String>> createTranscode(@PathVariable String id,
                                                   @RequestParam(defaultValue = "0") long startMs,
                                                   @RequestParam(required = false) Integer audioIndex,
+                                                  @RequestParam(required = false) Integer subtitleIndex,
                                                   @RequestParam(required = false) Long targetBitrateKbps,
                                                   @RequestParam(required = false) Integer maxHeight,
                                                   @RequestParam(defaultValue = "false") boolean forceVideoTranscode,
                                                   @RequestParam(required = false) String versionId) {
         TranscodeSession session = mediaPlaybackService.createTranscodeSession(
-                id, startMs, audioIndex, targetBitrateKbps, maxHeight, forceVideoTranscode,
+                id, startMs, audioIndex, subtitleIndex, targetBitrateKbps, maxHeight, forceVideoTranscode,
                 UserContext.get().id(), versionId);
         Map<String, String> result = new HashMap<>();
         result.put("sessionId", session.id());

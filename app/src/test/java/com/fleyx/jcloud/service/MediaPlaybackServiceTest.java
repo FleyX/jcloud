@@ -508,7 +508,7 @@ class MediaPlaybackServiceTest extends MediaScanTestBase {
                 () -> mediaPlaybackService.stream(movieArow.getId(), user.getId(), null, fileB.getId()));
         // 转码路径同样在 ffmpeg 启动前完成版本校验
         assertThrows(BusinessException.class,
-                () -> mediaPlaybackService.createTranscodeSession(movieArow.getId(), 0L, null, null, null,
+                () -> mediaPlaybackService.createTranscodeSession(movieArow.getId(), 0L, null, null, null, null,
                         false, user.getId(), "no-such-ver0"));
 
         // 剧集传 versionId 忽略不报错
