@@ -1,10 +1,21 @@
 spring:
   datasource:
-    url: jdbc:postgresql://dev.lan:5432/jcloud_test
+    # 测试库用本地 PG（dev.lan 远程库 RTT ~6ms 会均匀放大每条 SQL 的耗时，拖慢整个套件）
+    url: jdbc:postgresql://localhost:5432/jcloud_test
+    username: postgres
+    password: postgres
+    hikari:
+      # 测试 JVM 内多个 Spring 上下文各持一个连接池，限制单池大小避免打满 max_connections
+      maximum-pool-size: 10
   data:
     redis:
       host: dev.lan
       database: 1
+
+logging:
+  level:
+    # 测试不输出 mapper SQL 调试日志（全量约 6.9 万行，拖慢控制台 I/O）
+    com.fleyx.jcloud.mapper: info
 
 jcloud:
   preview:
