@@ -276,7 +276,7 @@ export interface TmdbConfigDto {
   proxy: string
 }
 
-export type TranscodeHwaccel = 'auto' | 'vaapi' | 'qsv' | 'nvenc' | 'none'
+export type TranscodeHwaccel = 'vaapi' | 'qsv' | 'nvenc' | 'none'
 
 export interface TranscodeConfigDto {
   hwaccel: TranscodeHwaccel
