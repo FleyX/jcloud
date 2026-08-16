@@ -21,7 +21,7 @@ import java.util.concurrent.TimeUnit;
 /**
  * HLS 实时转码会话管理器：每个会话一个 ffmpeg 进程，空闲/未完成时回收，支持 Jellyfin 式节流。
  * <p>
- * 会话生命周期（创建/心跳/空闲回收/清理）在本类，转码调度（节流、软解回退）与
+ * 会话生命周期（创建/心跳/空闲回收/清理）在本类，转码调度（节流）与早期失败监控（失败标记）、
  * 配置解析、播放列表 token 重写分别在 {@link TranscodeProcessLauncher}、
  * {@link TranscodeConfigResolver}、{@link TranscodePlaylistSupport}。
  */
@@ -71,12 +71,11 @@ public class TranscodeSessionManager {
                     request.forceVideoTranscode(), request.targetBitrateKbps(), request.subtitleIndex(),
                     request.externalSubtitlePath(), request.externalSubtitleStream());
             String hwaccel = configResolver.resolveHwaccel();
-            boolean autoMode = !videoCopy && (hwaccel == null || hwaccel.isBlank() || "auto".equalsIgnoreCase(hwaccel));
             String encoder = videoCopy ? TranscodeCommandBuilder.ENCODER_COPY : commandBuilder.selectEncoder(hwaccel);
             Process process = processLauncher.startFfmpeg(outputDir, request, encoder);
             TranscodeSession session = new TranscodeSession(sessionId, userId, outputDir, process, encoder, Instant.now());
             sessions.put(sessionId, session);
-            processLauncher.watchEarlyFailure(session, autoMode, request, sessions);
+            processLauncher.watchEarlyFailure(session, sessions);
             started = true;
             return session;
         } catch (IOException e) {

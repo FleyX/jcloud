@@ -13,15 +13,14 @@ import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
-import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
 /**
  * ffmpeg 转码进程生命周期支撑：启动进程（含 stderr 排空与远程流管道）、
- * 会话目录定位与清理、早期失败监控（软解回退）。
+ * 会话目录定位与清理、早期失败监控（失败标记）。
  * <p>
- * 软解回退需要替换转码会话注册表中的会话，通过调用方传入的注册表 Map 解耦，
+ * 早期失败监控通过调用方传入的注册表 Map 判断会话是否已被回收，
  * 本类不反向持有 TranscodeSessionManager。
  */
 @Slf4j
@@ -54,6 +53,7 @@ public class TranscodeProcessLauncher {
         }
         List<String> command = commandBuilder.buildCommand(effective, encoder, configResolver.resolveDevice(),
                 configResolver.resolveThreads(), outputDir);
+        log.info("启动转码进程: encoder={}, outputDir={}, command={}", encoder, outputDir, String.join(" ", command));
         ProcessBuilder builder = new ProcessBuilder(command);
         builder.redirectErrorStream(false);
         Process process = builder.start();
@@ -135,17 +135,13 @@ public class TranscodeProcessLauncher {
     }
 
     /**
-     * 监控 ffmpeg 早期失败：auto 模式自动回退软解；显式指定的硬解方式失败则标记失败并提示用户修改配置。
-     * 软解与转封装会话无硬解回退诉求，直接跳过监控。
+     * 监控 ffmpeg 早期失败：启动失败时标记会话失败并提示用户修改配置，不自动回退软解。
+     * 软解与转封装会话无硬解失败诉求，直接跳过监控。
      *
      * @param session  被监控会话
-     * @param autoMode 是否 auto 硬解模式（允许回退软解）
-     * @param request  会话请求（回退时复用）
-     * @param sessions 会话注册表（用于判断会话是否已被回收、回退时替换会话）
+     * @param sessions 会话注册表（用于判断会话是否已被回收）
      */
-    public void watchEarlyFailure(TranscodeSession session, boolean autoMode,
-                                  TranscodeCommandBuilder.TranscodeRequest request,
-                                  Map<String, TranscodeSession> sessions) {
+    public void watchEarlyFailure(TranscodeSession session, Map<String, TranscodeSession> sessions) {
         Thread.startVirtualThread(() -> {
             try {
                 Thread.sleep(3000);
@@ -165,20 +161,9 @@ public class TranscodeProcessLauncher {
                     || TranscodeCommandBuilder.ENCODER_COPY.equals(session.encoder())) {
                 return;
             }
-            if (!autoMode) {
-                log.warn("显式指定的硬解方式启动失败: session={}, encoder={}", session.id(), session.encoder());
-                session.failed(true);
-                process.destroy();
-                return;
-            }
-            log.warn("硬件加速转码启动失败，回退软解: session={}", session.id());
-            try {
-                Process fallback = startFfmpeg(session.outputDir(), request, "libx264");
-                sessions.put(session.id(), new TranscodeSession(session.id(), session.userId(),
-                        session.outputDir(), fallback, "libx264", Instant.now()));
-            } catch (IOException e) {
-                log.error("软解回退启动失败: session={}", session.id(), e);
-            }
+            log.warn("显式指定的硬解方式启动失败: session={}, encoder={}", session.id(), session.encoder());
+            session.failed(true);
+            process.destroy();
         });
     }
 }
