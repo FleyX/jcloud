@@ -56,7 +56,7 @@ public class AdminMediaController {
     @GetMapping("/transcode-config")
     public R<TranscodeConfigDto> getTranscodeConfig() {
         TranscodeConfigDto dto = new TranscodeConfigDto();
-        dto.setHwaccel(systemConfigService.getValue(TranscodeConfigResolver.CONFIG_KEY_HWACCEL, "auto"));
+        dto.setHwaccel(transcodeConfigResolver.resolveHwaccel());
         dto.setDevice(systemConfigService.getValue(TranscodeConfigResolver.CONFIG_KEY_DEVICE, ""));
         dto.setThreads(transcodeConfigResolver.resolveThreads());
         return R.ok(dto);
@@ -67,8 +67,11 @@ public class AdminMediaController {
      */
     @PutMapping("/transcode-config")
     public R<Void> updateTranscodeConfig(@RequestBody TranscodeConfigDto dto) {
-        String hwaccel = dto.getHwaccel() == null ? "auto" : dto.getHwaccel().trim().toLowerCase();
-        if (!Set.of("auto", "vaapi", "qsv", "nvenc", "none").contains(hwaccel)) {
+        if (dto.getHwaccel() == null || dto.getHwaccel().trim().isEmpty()) {
+            throw new BusinessException(ResultCode.PARAM_ERROR, "硬解方式不能为空");
+        }
+        String hwaccel = dto.getHwaccel().trim().toLowerCase();
+        if (!Set.of("vaapi", "qsv", "nvenc", "none").contains(hwaccel)) {
             throw new BusinessException(ResultCode.PARAM_ERROR, "非法的硬解方式: " + hwaccel);
         }
         int threads = dto.getThreads() == null ? 0 : Math.max(0, dto.getThreads());

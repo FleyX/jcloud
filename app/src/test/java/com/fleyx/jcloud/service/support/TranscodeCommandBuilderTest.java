@@ -472,10 +472,15 @@ class TranscodeCommandBuilderTest {
         // 显式 none / 未配置 → 软解
         assertEquals("libx264", builder.selectEncoder("none"));
         assertEquals("libx264", builder.selectEncoder(""));
+        assertEquals("libx264", builder.selectEncoder(null));
+        // auto（yml 兜底或探测完成前）与未知值 → 安全回退软解
+        assertEquals("libx264", builder.selectEncoder("auto"));
+        assertEquals("libx264", builder.selectEncoder("AUTO"));
+        assertEquals("libx264", builder.selectEncoder("unknown"));
         // 显式指定硬解方式直接映射
         assertEquals("h264_vaapi", builder.selectEncoder("vaapi"));
+        assertEquals("h264_vaapi", builder.selectEncoder("VAAPI"));
         assertEquals("h264_qsv", builder.selectEncoder("qsv"));
         assertEquals("h264_nvenc", builder.selectEncoder("nvenc"));
-        assertEquals("libx264", builder.selectEncoder("unknown"));
     }
 }

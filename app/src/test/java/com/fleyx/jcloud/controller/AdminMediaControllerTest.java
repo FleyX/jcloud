@@ -9,11 +9,14 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
+import java.util.List;
+
 import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -84,21 +87,22 @@ class AdminMediaControllerTest {
     }
 
     /**
-     * GET /admin/media/transcode-config：硬解方式/设备读系统配置表，线程数经 Resolver 解析，返回 R.ok 包装的转码配置。
+     * GET /admin/media/transcode-config：硬解方式经 Resolver 解析（无记录时反映 yml 兜底，探测落库后即落库值），
+     * 设备读系统配置表，线程数经 Resolver 解析，返回 R.ok 包装的转码配置。
      */
     @Test
-    void shouldReturnTranscodeConfigWithResolvedThreads() throws Exception {
-        when(systemConfigService.getValue(TranscodeConfigResolver.CONFIG_KEY_HWACCEL, "auto")).thenReturn("vaapi");
+    void shouldReturnTranscodeConfigWithResolvedValues() throws Exception {
+        when(transcodeConfigResolver.resolveHwaccel()).thenReturn("qsv");
         when(systemConfigService.getValue(TranscodeConfigResolver.CONFIG_KEY_DEVICE, "")).thenReturn("/dev/dri/renderD128");
         when(transcodeConfigResolver.resolveThreads()).thenReturn(4);
 
         mockMvc.perform(get("/jcloud/api/admin/media/transcode-config"))
                 .andExpectAll(status().isOk(), jsonPath("$.code").value(200),
-                        jsonPath("$.data.hwaccel").value("vaapi"),
+                        jsonPath("$.data.hwaccel").value("qsv"),
                         jsonPath("$.data.device").value("/dev/dri/renderD128"),
                         jsonPath("$.data.threads").value(4));
 
-        verify(systemConfigService).getValue(eq(TranscodeConfigResolver.CONFIG_KEY_HWACCEL), eq("auto"));
+        verify(transcodeConfigResolver).resolveHwaccel();
         verify(systemConfigService).getValue(eq(TranscodeConfigResolver.CONFIG_KEY_DEVICE), eq(""));
         verify(transcodeConfigResolver).resolveThreads();
     }
@@ -119,34 +123,59 @@ class AdminMediaControllerTest {
     }
 
     /**
-     * PUT /admin/media/transcode-config 请求体为空对象：hwaccel 缺省 auto、device 缺省空串、threads 缺省 0 落库。
+     * PUT /admin/media/transcode-config 请求体为空对象：hwaccel 缺失视为参数错误（BusinessException），
+     * 经 GlobalExceptionHandler 包装为 R（body code=400），配置不落库。
      */
     @Test
-    void shouldUpdateTranscodeConfigWithEmptyDtoDefaults() throws Exception {
+    void shouldRejectEmptyDtoWithoutHwaccel() throws Exception {
         mockMvc.perform(put("/jcloud/api/admin/media/transcode-config")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{}"))
-                .andExpectAll(status().isOk(), jsonPath("$.code").value(200), jsonPath("$.data").value(nullValue()));
-
-        verify(systemConfigService).setValue(eq(TranscodeConfigResolver.CONFIG_KEY_HWACCEL), eq("auto"));
-        verify(systemConfigService).setValue(eq(TranscodeConfigResolver.CONFIG_KEY_DEVICE), eq(""));
-        verify(systemConfigService).setValue(eq(TranscodeConfigResolver.CONFIG_KEY_THREADS), eq("0"));
-    }
-
-    /**
-     * PUT /admin/media/transcode-config 传入非法硬解方式：控制器抛 BusinessException(PARAM_ERROR)，
-     * 经 GlobalExceptionHandler 包装为 R（body code=400，HTTP 状态仍 200），配置不落库。
-     */
-    @Test
-    void shouldRejectInvalidHwaccelWithParamError() throws Exception {
-        mockMvc.perform(put("/jcloud/api/admin/media/transcode-config")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"hwaccel\":\"cuda\"}"))
                 .andExpectAll(status().isOk(), jsonPath("$.code").value(400),
-                        jsonPath("$.msg").value("非法的硬解方式: cuda"),
+                        jsonPath("$.msg").value("硬解方式不能为空"),
                         jsonPath("$.data").value(nullValue()));
 
         verify(systemConfigService, never()).setValue(any(), any());
+    }
+
+    /**
+     * PUT /admin/media/transcode-config 传入非法硬解方式（auto 已被移除，乱码值同样被拒）：
+     * 控制器抛 BusinessException(PARAM_ERROR)，经 GlobalExceptionHandler 包装为 R（body code=400，HTTP 状态仍 200），
+     * 配置不落库。
+     */
+    @Test
+    void shouldRejectInvalidHwaccelWithParamError() throws Exception {
+        for (String value : List.of("auto", "cuda", "amf", "硬解")) {
+            mockMvc.perform(put("/jcloud/api/admin/media/transcode-config")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"hwaccel\":\"" + value + "\"}"))
+                    .andExpectAll(status().isOk(), jsonPath("$.code").value(400),
+                            jsonPath("$.msg").value("非法的硬解方式: " + value),
+                            jsonPath("$.data").value(nullValue()));
+        }
+        verify(systemConfigService, never()).setValue(any(), any());
+    }
+
+    /**
+     * PUT /admin/media/transcode-config：vaapi/qsv/nvenc/none 四档均正常保存（device 去空白、线程数透传）。
+     */
+    @Test
+    void shouldSaveAllFourValidHwaccelValues() throws Exception {
+        for (String value : List.of("vaapi", "qsv", "nvenc", "none")) {
+            mockMvc.perform(put("/jcloud/api/admin/media/transcode-config")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"hwaccel\":\"" + value
+                                    + "\",\"device\":\" /dev/dri/renderD128 \",\"threads\":2}"))
+                    .andExpectAll(status().isOk(), jsonPath("$.code").value(200), jsonPath("$.data").value(nullValue()));
+        }
+
+        verify(systemConfigService).setValue(eq(TranscodeConfigResolver.CONFIG_KEY_HWACCEL), eq("vaapi"));
+        verify(systemConfigService).setValue(eq(TranscodeConfigResolver.CONFIG_KEY_HWACCEL), eq("qsv"));
+        verify(systemConfigService).setValue(eq(TranscodeConfigResolver.CONFIG_KEY_HWACCEL), eq("nvenc"));
+        verify(systemConfigService).setValue(eq(TranscodeConfigResolver.CONFIG_KEY_HWACCEL), eq("none"));
+        verify(systemConfigService, times(4)).setValue(eq(TranscodeConfigResolver.CONFIG_KEY_DEVICE),
+                eq("/dev/dri/renderD128"));
+        verify(systemConfigService, times(4)).setValue(eq(TranscodeConfigResolver.CONFIG_KEY_THREADS), eq("2"));
     }
 
     /**

@@ -11,7 +11,7 @@ import org.springframework.stereotype.Component;
 public class TranscodeConfigResolver {
 
     /**
-     * 系统配置键：硬件加速方式（auto / vaapi / qsv / nvenc / none）。
+     * 系统配置键：硬件加速方式（vaapi / qsv / nvenc / none；auto 仅作为启动探测完成前的 yml 兜底，不落库）。
      */
     public static final String CONFIG_KEY_HWACCEL = "media.transcode.hwaccel";
 

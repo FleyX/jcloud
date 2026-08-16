@@ -4,7 +4,6 @@ import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.config.MediaProperties;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.nio.file.Path;
@@ -25,7 +24,6 @@ import java.util.function.Supplier;
  * seek 对齐规则：视频转码时精确 seek 仅裁剪解码流，音频 copy 会停留在关键帧导致音画错位，故转码 + seek 音频必须重编码；
  * 转封装 + seek 时视频停留在关键帧，附加 -noaccurate_seek 保证重编码音频同样从关键帧起步。
  */
-@Slf4j
 @Component
 @RequiredArgsConstructor
 public class TranscodeCommandBuilder {
@@ -135,59 +133,20 @@ public class TranscodeCommandBuilder {
     }
 
     /**
-     * 选择视频编码器：none 或未配置用软解；显式指定直接用对应硬解编码器；auto 按可用性探测，无可用回退软解。
+     * 选择视频编码器：none / 未配置 / auto / 未知值 → 软解 libx264（auto 仅可能来自 yml 兜底
+     * 或探测完成前的极短窗口，安全走软解）；显式指定 vaapi/qsv/nvenc 直接映射对应硬解编码器。
      */
     public String selectEncoder(String configured) {
-        if (configured == null || configured.isBlank() || "none".equalsIgnoreCase(configured)) {
+        if (configured == null || configured.isBlank() || "none".equalsIgnoreCase(configured)
+                || "auto".equalsIgnoreCase(configured)) {
             return "libx264";
         }
-        if (!"auto".equalsIgnoreCase(configured)) {
-            return switch (configured.toLowerCase()) {
-                case "vaapi" -> "h264_vaapi";
-                case "qsv" -> "h264_qsv";
-                case "nvenc" -> "h264_nvenc";
-                default -> "libx264";
-            };
-        }
-        // auto：按可用性探测
-        for (String candidate : List.of("h264_vaapi", "h264_qsv", "h264_nvenc")) {
-            if (encoderAvailable(candidate)) {
-                return candidate;
-            }
-        }
-        return "libx264";
-    }
-
-    private volatile List<String> availableEncoders;
-
-    private boolean encoderAvailable(String encoder) {
-        if (availableEncoders == null) {
-            synchronized (this) {
-                if (availableEncoders == null) {
-                    availableEncoders = detectEncoders();
-                }
-            }
-        }
-        return availableEncoders.contains(encoder);
-    }
-
-    private List<String> detectEncoders() {
-        try {
-            Process process = new ProcessBuilder(mediaProperties.getFfmpegPath(), "-hide_banner", "-encoders").start();
-            String output = new String(process.getInputStream().readAllBytes());
-            process.waitFor(10, java.util.concurrent.TimeUnit.SECONDS);
-            List<String> result = new ArrayList<>();
-            for (String encoder : List.of("h264_vaapi", "h264_qsv", "h264_nvenc")) {
-                if (output.contains(encoder)) {
-                    result.add(encoder);
-                }
-            }
-            log.info("可用硬件编码器: {}", result);
-            return result;
-        } catch (Exception e) {
-            log.warn("ffmpeg 编码器探测失败: {}", e.getMessage());
-            return List.of();
-        }
+        return switch (configured.toLowerCase()) {
+            case "vaapi" -> "h264_vaapi";
+            case "qsv" -> "h264_qsv";
+            case "nvenc" -> "h264_nvenc";
+            default -> "libx264";
+        };
     }
 
     /**
