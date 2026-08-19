@@ -75,6 +75,16 @@ export interface TokenPairVo {
 }
 
 /**
+ * 设备会话视图对象（登录设备列表项）
+ */
+export interface DeviceSessionVo {
+  deviceId: string
+  deviceName: string
+  lastActiveTime?: number
+  current?: boolean
+}
+
+/**
  * 通用后端响应包装
  */
 export interface ApiResponse<T> {

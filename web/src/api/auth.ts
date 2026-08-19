@@ -1,5 +1,5 @@
-import { BASE_URL, get, post } from './request'
-import type { LoginVo, UserVo } from '@/types/auth'
+import { BASE_URL, del, get, post } from './request'
+import type { DeviceSessionVo, LoginVo, UserVo } from '@/types/auth'
 
 export interface LoginParams {
   username: string
@@ -49,4 +49,18 @@ export async function logout(refreshToken: string): Promise<void> {
  */
 export function logoutAll(): Promise<void> {
   return post<void>('/auth/logout-all')
+}
+
+/**
+ * 获取当前用户登录设备会话列表；传 deviceId 用于标记当前设备（走统一请求封装，401 自动静默刷新）。
+ */
+export function listDevices(deviceId: string): Promise<DeviceSessionVo[]> {
+  return get<DeviceSessionVo[]>('/auth/devices', { deviceId })
+}
+
+/**
+ * 踢出指定设备会话（走统一请求封装，401 自动静默刷新）。
+ */
+export function revokeDevice(deviceId: string): Promise<void> {
+  return del<void>(`/auth/devices/${deviceId}`)
 }
