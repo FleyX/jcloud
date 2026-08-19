@@ -1,9 +1,11 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { getCurrentUser, login } from '@/api/auth'
-import type { LoginVo, UserVo } from '@/types/auth'
+import type { LoginVo, TokenPairVo, UserVo } from '@/types/auth'
 
 const TOKEN_KEY = 'jcloud_token'
+const REFRESH_TOKEN_KEY = 'jcloud_refresh_token'
+const DEVICE_ID_KEY = 'jcloud_device_id'
 
 /** 写操作后防抖刷新用户信息的定时器句柄 */
 let refreshTimer: ReturnType<typeof setTimeout> | null = null
@@ -14,6 +16,13 @@ let refreshTimer: ReturnType<typeof setTimeout> | null = null
  */
 export const useUserStore = defineStore('user', () => {
   const token = ref<string>(localStorage.getItem(TOKEN_KEY) ?? '')
+  const refreshToken = ref<string>(localStorage.getItem(REFRESH_TOKEN_KEY) ?? '')
+  /** 设备标识：首次生成随机串后持久化复用，此后永不重生成 */
+  const deviceId = ref<string>(localStorage.getItem(DEVICE_ID_KEY) ?? '')
+  if (!deviceId.value) {
+    deviceId.value = crypto.randomUUID()
+    localStorage.setItem(DEVICE_ID_KEY, deviceId.value)
+  }
   const userInfo = ref<UserVo | null>(null)
   const resources = ref<string[]>([])
   const dynamicRoutesAdded = ref(false)
@@ -31,8 +40,21 @@ export const useUserStore = defineStore('user', () => {
     }
   }
 
+  function setRefreshToken(value: string) {
+    refreshToken.value = value
+    if (value) {
+      localStorage.setItem(REFRESH_TOKEN_KEY, value)
+    } else {
+      localStorage.removeItem(REFRESH_TOKEN_KEY)
+    }
+  }
+
   function setLoginData(data: LoginVo) {
     setToken(data.token)
+    setRefreshToken(data.refreshToken)
+    // 设备标识以后端回显为准更新（正常等于我们上报的值）
+    deviceId.value = data.deviceId
+    localStorage.setItem(DEVICE_ID_KEY, data.deviceId)
     userInfo.value = data.userInfo
     resources.value = data.resources ?? []
     initialized.value = data.initialized ?? true
@@ -43,9 +65,17 @@ export const useUserStore = defineStore('user', () => {
    * 用户登录
    */
   async function loginAction(username: string, password: string): Promise<LoginVo> {
-    const data = await login({ username, password })
+    const data = await login({ username, password, deviceId: deviceId.value })
     setLoginData(data)
     return data
+  }
+
+  /**
+   * 刷新成功后应用新的访问令牌与刷新令牌（含 localStorage 持久化）
+   */
+  function applyTokenPair(pair: TokenPairVo) {
+    setToken(pair.token)
+    setRefreshToken(pair.refreshToken)
   }
 
   function markDynamicRoutesAdded() {
@@ -76,10 +106,12 @@ export const useUserStore = defineStore('user', () => {
   }
 
   /**
-   * 登出
+   * 登出：清除登录态（访问/刷新令牌与用户信息）。
+   * 设备标识代表设备而非会话，登出后保留，后续登录复用同一标识。
    */
   function logoutAction() {
     setToken('')
+    setRefreshToken('')
     userInfo.value = null
     resources.value = []
     initialized.value = true
@@ -110,6 +142,8 @@ export const useUserStore = defineStore('user', () => {
 
   return {
     token,
+    refreshToken,
+    deviceId,
     userInfo,
     resources,
     dynamicRoutesAdded,
@@ -117,6 +151,7 @@ export const useUserStore = defineStore('user', () => {
     isLoggedIn,
     isAdmin,
     loginAction,
+    applyTokenPair,
     fetchCurrentUser,
     scheduleUserInfoRefresh,
     logoutAction,

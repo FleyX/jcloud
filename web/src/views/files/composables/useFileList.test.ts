@@ -214,6 +214,8 @@ describe('useFileList', () => {
     mockDeleteToTrash.mockResolvedValue([])
     mockGetCurrentUser.mockResolvedValue({
       token: 't',
+      refreshToken: 'r',
+      deviceId: 'd',
       userInfo: { id: '1', username: 'u', status: 1, isAdmin: false, roles: [] },
       resources: [],
       initialized: true,

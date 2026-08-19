@@ -59,9 +59,19 @@ export interface UserWebDavToggleDto {
  */
 export interface LoginVo {
   token: string
+  refreshToken: string
+  deviceId: string
   userInfo: UserVo
   resources: string[]
   initialized: boolean
+}
+
+/**
+ * 刷新令牌成功后的新令牌对
+ */
+export interface TokenPairVo {
+  token: string
+  refreshToken: string
 }
 
 /**

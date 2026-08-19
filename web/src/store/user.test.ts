@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { useUserStore } from './user'
-import { getCurrentUser } from '@/api/auth'
+import { getCurrentUser, login } from '@/api/auth'
 import type { LoginVo } from '@/types/auth'
 
 vi.mock('@/api/auth', () => ({
@@ -12,6 +12,8 @@ vi.mock('@/api/auth', () => ({
 function buildLoginVo(): LoginVo {
   return {
     token: 'token',
+    refreshToken: 'refresh-token',
+    deviceId: 'device-1',
     userInfo: {
       id: '1',
       username: 'admin',
@@ -63,5 +65,77 @@ describe('user store scheduleUserInfoRefresh', () => {
 
     expect(getCurrentUserMock).toHaveBeenCalledTimes(1)
     expect(store.userInfo).toEqual(buildLoginVo().userInfo)
+  })
+})
+
+describe('user store 双令牌持久化', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    localStorage.clear()
+    vi.clearAllMocks()
+  })
+
+  it('登录成功后持久化访问令牌、刷新令牌与设备标识，登录携带 deviceId', async () => {
+    const store = useUserStore()
+    const loginMock = vi.mocked(login)
+    loginMock.mockResolvedValue(buildLoginVo())
+
+    await store.loginAction('admin', 'admin')
+
+    expect(loginMock).toHaveBeenCalledWith({
+      username: 'admin',
+      password: 'admin',
+      deviceId: expect.any(String),
+    })
+    expect(localStorage.getItem('jcloud_token')).toBe('token')
+    expect(localStorage.getItem('jcloud_refresh_token')).toBe('refresh-token')
+    expect(localStorage.getItem('jcloud_device_id')).toBe('device-1')
+    expect(store.refreshToken).toBe('refresh-token')
+    // 设备标识以后端回显为准更新
+    expect(store.deviceId).toBe('device-1')
+  })
+
+  it('deviceId 首次生成后持久化，二次初始化复用同一标识', () => {
+    const store1 = useUserStore()
+    const generated = store1.deviceId
+    expect(generated).toMatch(/^[0-9a-f-]{36}$/i)
+    expect(localStorage.getItem('jcloud_device_id')).toBe(generated)
+
+    // 销毁 Store 重新初始化：读取已持久化的标识，不再重新生成
+    setActivePinia(createPinia())
+    const store2 = useUserStore()
+    expect(store2.deviceId).toBe(generated)
+
+    // 存量标识同样被复用
+    setActivePinia(createPinia())
+    localStorage.setItem('jcloud_device_id', 'existing-device')
+    const store3 = useUserStore()
+    expect(store3.deviceId).toBe('existing-device')
+  })
+
+  it('logoutAction 清除登录态但保留设备标识', async () => {
+    const store = useUserStore()
+    vi.mocked(login).mockResolvedValue(buildLoginVo())
+    await store.loginAction('admin', 'admin')
+
+    store.logoutAction()
+
+    expect(localStorage.getItem('jcloud_token')).toBeNull()
+    expect(localStorage.getItem('jcloud_refresh_token')).toBeNull()
+    // 设备标识代表设备而非会话，登出后保留
+    expect(localStorage.getItem('jcloud_device_id')).toBe('device-1')
+    expect(store.token).toBe('')
+    expect(store.refreshToken).toBe('')
+    expect(store.deviceId).toBe('device-1')
+  })
+
+  it('applyTokenPair 更新访问令牌与刷新令牌并持久化', () => {
+    const store = useUserStore()
+    store.applyTokenPair({ token: 'new-token', refreshToken: 'new-refresh' })
+
+    expect(store.token).toBe('new-token')
+    expect(store.refreshToken).toBe('new-refresh')
+    expect(localStorage.getItem('jcloud_token')).toBe('new-token')
+    expect(localStorage.getItem('jcloud_refresh_token')).toBe('new-refresh')
   })
 })

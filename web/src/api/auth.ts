@@ -4,6 +4,7 @@ import type { LoginVo, UserVo } from '@/types/auth'
 export interface LoginParams {
   username: string
   password: string
+  deviceId: string
 }
 
 export interface RegisterParams {
