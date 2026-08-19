@@ -10,8 +10,11 @@ server:
 jcloud:
   jwt:
     secret: ${JCLOUD_JWT_SECRET:change-me-in-production-jcloud-secret-key-2026}
-    expire-hours: 24
+    expire-hours: 2
     issuer: jcloud
+  auth:
+    refresh-expire-days: 30
+    rotation-grace-seconds: 30
   upload:
     chunk-size: 67108864
   download:

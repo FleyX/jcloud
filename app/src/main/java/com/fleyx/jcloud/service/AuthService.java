@@ -1,8 +1,10 @@
 package com.fleyx.jcloud.service;
 
+import com.fleyx.jcloud.model.dto.TokenRefreshDto;
 import com.fleyx.jcloud.model.dto.UserLoginDto;
 import com.fleyx.jcloud.model.dto.UserRegisterDto;
 import com.fleyx.jcloud.model.vo.LoginVo;
+import com.fleyx.jcloud.model.vo.TokenPairVo;
 import com.fleyx.jcloud.model.vo.UserVo;
 
 /**
@@ -21,10 +23,26 @@ public interface AuthService {
     /**
      * 用户登录。
      *
-     * @param dto 登录信息
+     * @param dto       登录信息
+     * @param userAgent User-Agent
      * @return 登录结果（含 Token、用户信息、权限编码）
      */
-    LoginVo login(UserLoginDto dto);
+    LoginVo login(UserLoginDto dto, String userAgent);
+
+    /**
+     * 兼容旧调用（测试等），User-Agent 为空。
+     */
+    default LoginVo login(UserLoginDto dto) {
+        return login(dto, null);
+    }
+
+    /**
+     * 刷新令牌。
+     *
+     * @param dto 刷新入参
+     * @return 新令牌对
+     */
+    TokenPairVo refresh(TokenRefreshDto dto);
 
     /**
      * 获取当前登录用户完整信息。

@@ -104,6 +104,13 @@
             <version>${hutool.version}</version>
         </dependency>
 
+        <!-- Hutool Http（UserAgentUtil 解析设备名） -->
+        <dependency>
+            <groupId>cn.hutool</groupId>
+            <artifactId>hutool-http</artifactId>
+            <version>${hutool.version}</version>
+        </dependency>
+
         <!-- Jackson -->
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>

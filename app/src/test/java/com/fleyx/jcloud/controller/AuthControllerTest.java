@@ -97,7 +97,7 @@ class AuthControllerTest {
         vo.setUserInfo(userInfo);
         vo.setResources(List.of("user:list", "user:view"));
         vo.setInitialized(true);
-        when(authService.login(eq(expected))).thenReturn(vo);
+        when(authService.login(eq(expected), org.mockito.ArgumentMatchers.isNull())).thenReturn(vo);
 
         mockMvc.perform(post("/jcloud/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -109,7 +109,7 @@ class AuthControllerTest {
                 .andExpect(jsonPath("$.data.resources.length()").value(2))
                 .andExpect(jsonPath("$.data.initialized").value(true));
 
-        verify(authService).login(eq(expected));
+        verify(authService).login(eq(expected), org.mockito.ArgumentMatchers.isNull());
     }
 
     /**
@@ -150,7 +150,7 @@ class AuthControllerTest {
         UserLoginDto dto = new UserLoginDto();
         dto.setUsername("admin");
         dto.setPassword("wrong");
-        when(authService.login(eq(dto)))
+        when(authService.login(eq(dto), org.mockito.ArgumentMatchers.isNull()))
                 .thenThrow(new BusinessException(ResultCode.UNAUTHORIZED, "用户名或密码错误"));
 
         mockMvc.perform(post("/jcloud/api/auth/login")
@@ -160,6 +160,6 @@ class AuthControllerTest {
                 .andExpect(jsonPath("$.code").value(401))
                 .andExpect(jsonPath("$.msg").value("用户名或密码错误"));
 
-        verify(authService).login(eq(dto));
+        verify(authService).login(eq(dto), org.mockito.ArgumentMatchers.isNull());
     }
 }

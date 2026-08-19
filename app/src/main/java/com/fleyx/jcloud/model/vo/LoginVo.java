@@ -21,6 +21,16 @@ public class LoginVo implements Serializable {
     private String token;
 
     /**
+     * 刷新令牌。
+     */
+    private String refreshToken;
+
+    /**
+     * 设备标识。
+     */
+    private String deviceId;
+
+    /**
      * 当前用户信息。
      */
     private UserVo userInfo;
