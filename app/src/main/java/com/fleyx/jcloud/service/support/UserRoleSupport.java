@@ -36,6 +36,7 @@ public class UserRoleSupport {
     private final UserPermissionCache userPermissionCache;
     private final UserSpaceSupport userSpaceSupport;
     private final UserMapper userMapper;
+    private final AuthSessionSupport authSessionSupport;
 
     /**
      * 全量更新用户角色。
@@ -53,9 +54,12 @@ public class UserRoleSupport {
 
     /**
      * 更新用户状态（启用/禁用）。
+     * <p>
+     * 安全事件接入：目标状态为禁用时吊销该用户全部设备会话；启用不吊销。
      *
      * @param dto 用户 ID 与目标状态
      */
+    @Transactional(rollbackFor = Exception.class)
     public void updateStatus(UserStatusDto dto) {
         User user = userSpaceSupport.requireUser(dto.getUserId());
         rejectIfBuiltInAdmin(user, "不能禁用/启用内置管理员账号");
@@ -64,6 +68,9 @@ public class UserRoleSupport {
         update.setId(user.getId());
         update.setStatus(dto.getStatus());
         userMapper.updateById(update);
+        if (UserStatus.DISABLED.getCode() == dto.getStatus()) {
+            authSessionSupport.revokeAllSessions(user.getId());
+        }
     }
 
     /**

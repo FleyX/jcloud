@@ -41,6 +41,7 @@ public class UserAdminSupport {
     private final UserSpaceSupport userSpaceSupport;
     private final UserRoleSupport userRoleSupport;
     private final UserVoEnrichSupport userVoEnrichSupport;
+    private final AuthSessionSupport authSessionSupport;
 
     /**
      * 创建用户。
@@ -91,6 +92,14 @@ public class UserAdminSupport {
             userPermissionCache.evict(user.getId());
         }
 
+        // 安全事件接入：重置密码或禁用用户后吊销其全部设备会话
+        boolean resetPassword = StrUtil.isNotBlank(dto.getPassword());
+        boolean disableUser = !isBuiltInAdmin && dto.getStatus() != null
+                && UserStatus.DISABLED.getCode() == dto.getStatus();
+        if (resetPassword || disableUser) {
+            authSessionSupport.revokeAllSessions(user.getId());
+        }
+
         User updated = userMapper.selectById(user.getId());
         return userVoEnrichSupport.enrichUserVo(updated);
     }
@@ -115,6 +124,8 @@ public class UserAdminSupport {
             return List.of();
         }
         deletableIds.forEach(userMapper::deleteById);
+        // 安全事件接入：删除用户后吊销其全部设备会话
+        deletableIds.forEach(authSessionSupport::revokeAllSessions);
         return deletableIds;
     }
 
@@ -143,6 +154,10 @@ public class UserAdminSupport {
             update.setId(userId);
             update.setStatus(dto.getStatus());
             userMapper.updateById(update);
+        }
+        // 安全事件接入：批量禁用用户后吊销其全部设备会话
+        if (UserStatus.DISABLED.getCode() == dto.getStatus()) {
+            updatableIds.forEach(authSessionSupport::revokeAllSessions);
         }
         return updatableIds;
     }

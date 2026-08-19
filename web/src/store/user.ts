@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
-import { getCurrentUser, login } from '@/api/auth'
+import { getCurrentUser, login, logout } from '@/api/auth'
 import type { LoginVo, TokenPairVo, UserVo } from '@/types/auth'
 
 const TOKEN_KEY = 'jcloud_token'
@@ -106,10 +106,16 @@ export const useUserStore = defineStore('user', () => {
   }
 
   /**
-   * 登出：清除登录态（访问/刷新令牌与用户信息）。
+   * 登出：先 best-effort 吊销当前设备会话（fire-and-forget，失败不影响本地清理），
+   * 再清除登录态（访问/刷新令牌与用户信息）。
    * 设备标识代表设备而非会话，登出后保留，后续登录复用同一标识。
+   * 保持同步签名：调用方（Header.vue 等）无需感知异步吊销。
    */
   function logoutAction() {
+    const currentRefreshToken = refreshToken.value
+    if (currentRefreshToken) {
+      logout(currentRefreshToken).catch(() => {})
+    }
     setToken('')
     setRefreshToken('')
     userInfo.value = null

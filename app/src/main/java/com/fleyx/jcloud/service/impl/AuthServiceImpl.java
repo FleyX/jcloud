@@ -116,6 +116,16 @@ public class AuthServiceImpl implements AuthService {
         return new TokenPairVo(result.getAccessToken(), result.getRefreshToken());
     }
 
+    @Override
+    public void logout(String refreshToken) {
+        authSessionSupport.revokeByRefreshToken(refreshToken);
+    }
+
+    @Override
+    public void logoutAll(String userId) {
+        authSessionSupport.revokeAllSessions(userId);
+    }
+
     private LoginVo buildBaseLoginVo(User user) {
         List<String> roleIds = userRoleMapper.selectRoleIdsByUserId(user.getId());
         List<String> resources = user.isSuperAdmin()

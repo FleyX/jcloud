@@ -20,6 +20,7 @@ import com.fleyx.jcloud.model.po.User;
 import com.fleyx.jcloud.model.vo.UserProfileVo;
 import com.fleyx.jcloud.model.vo.UserVo;
 import com.fleyx.jcloud.service.UserService;
+import com.fleyx.jcloud.service.support.AuthSessionSupport;
 import com.fleyx.jcloud.service.support.UserAdminSupport;
 import com.fleyx.jcloud.service.support.UserProfileSupport;
 import com.fleyx.jcloud.service.support.UserRoleSupport;
@@ -28,6 +29,7 @@ import com.fleyx.jcloud.service.support.UserVoEnrichSupport;
 import com.fleyx.jcloud.util.UsernameUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
@@ -47,6 +49,7 @@ public class UserServiceImpl implements UserService {
     private final UserRoleSupport userRoleSupport;
     private final UserProfileSupport userProfileSupport;
     private final UserVoEnrichSupport userVoEnrichSupport;
+    private final AuthSessionSupport authSessionSupport;
 
     @Override
     public UserVo saveUser(UserSaveDto dto) {
@@ -69,10 +72,16 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public boolean removeById(String id) {
         User user = userSpaceSupport.requireUser(id);
         userRoleSupport.rejectIfSuperAdmin(user, "不能删除超级管理员账号");
-        return userMapper.deleteById(id) > 0;
+        boolean removed = userMapper.deleteById(id) > 0;
+        // 安全事件接入：删除成功后吊销该用户全部设备会话
+        if (removed) {
+            authSessionSupport.revokeAllSessions(id);
+        }
+        return removed;
     }
 
     @Override

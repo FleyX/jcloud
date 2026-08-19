@@ -45,6 +45,20 @@ public interface AuthService {
     TokenPairVo refresh(TokenRefreshDto dto);
 
     /**
+     * 登出当前设备会话（吊销 refreshToken 对应的会话，幂等）。
+     *
+     * @param refreshToken 当前设备刷新令牌
+     */
+    void logout(String refreshToken);
+
+    /**
+     * 登出指定用户全部设备会话。
+     *
+     * @param userId 用户 ID
+     */
+    void logoutAll(String userId);
+
+    /**
      * 获取当前登录用户完整信息。
      *
      * @param userId 用户 ID

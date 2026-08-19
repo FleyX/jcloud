@@ -25,6 +25,7 @@ public class UserProfileSupport {
     private final UserMapper userMapper;
     private final UserConvert userConvert;
     private final UserSpaceSupport userSpaceSupport;
+    private final AuthSessionSupport authSessionSupport;
 
     /**
      * 查询用户资料。
@@ -61,10 +62,13 @@ public class UserProfileSupport {
 
     /**
      * 修改密码。
+     * <p>
+     * 改密成功后吊销该用户全部设备会话，各设备下次刷新时被引导重新登录（安全事件接入）。
      *
      * @param userId 用户 ID
      * @param dto    当前密码与新密码
      */
+    @Transactional(rollbackFor = Exception.class)
     public void changePassword(String userId, ChangePasswordDto dto) {
         if (!dto.getNewPassword().equals(dto.getConfirmPassword())) {
             throw new BusinessException(ResultCode.PARAM_ERROR, "两次输入的新密码不一致");
@@ -77,6 +81,7 @@ public class UserProfileSupport {
         update.setId(user.getId());
         update.setPassword(BCrypt.hashpw(dto.getNewPassword(), BCrypt.gensalt()));
         userMapper.updateById(update);
+        authSessionSupport.revokeAllSessions(user.getId());
     }
 
     /**

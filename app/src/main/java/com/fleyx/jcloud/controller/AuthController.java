@@ -56,6 +56,25 @@ public class AuthController {
     }
 
     /**
+     * 登出当前设备会话（吊销刷新令牌对应的会话）。
+     * 登记为 public：访问令牌已过期时仍须能登出（此时客户端只持有刷新令牌）。
+     */
+    @PostMapping("/logout")
+    public R<Void> logout(@Valid @RequestBody TokenRefreshDto dto) {
+        authService.logout(dto.getRefreshToken());
+        return R.ok();
+    }
+
+    /**
+     * 登出当前用户全部设备会话。
+     */
+    @PostMapping("/logout-all")
+    public R<Void> logoutAll() {
+        authService.logoutAll(UserContext.get().id());
+        return R.ok();
+    }
+
+    /**
      * 获取当前登录用户信息。
      */
     @GetMapping("/me")

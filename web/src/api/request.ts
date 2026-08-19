@@ -3,7 +3,7 @@ import { useUserStore } from '@/store/user'
 import router from '@/router'
 import type { ApiResponse, TokenPairVo } from '@/types/auth'
 
-const BASE_URL = '/jcloud/api'
+export const BASE_URL = '/jcloud/api'
 
 /**
  * 模块级单飞：进行中的刷新令牌请求。并发请求同时遇 401 时只发起一次刷新，其余请求等待同一 Promise。

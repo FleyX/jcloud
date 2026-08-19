@@ -130,6 +130,32 @@ class AuthControllerTest {
     }
 
     /**
+     * POST /auth/logout：刷新令牌 DTO 透传，返回 R.ok。
+     */
+    @Test
+    void shouldLogout() throws Exception {
+        mockMvc.perform(post("/jcloud/api/auth/logout")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"refreshToken\":\"refresh-token\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200));
+
+        verify(authService).logout("refresh-token");
+    }
+
+    /**
+     * POST /auth/logout-all：以 UserContext 中的当前用户吊销全部设备会话，返回 R.ok。
+     */
+    @Test
+    void shouldLogoutAll() throws Exception {
+        mockMvc.perform(post("/jcloud/api/auth/logout-all"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200));
+
+        verify(authService).logoutAll("user-1");
+    }
+
+    /**
      * POST /auth/login 缺密码：@Valid 校验失败，GlobalExceptionHandler 包装为 code=400。
      */
     @Test

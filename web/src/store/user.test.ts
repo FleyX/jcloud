@@ -1,12 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { useUserStore } from './user'
-import { getCurrentUser, login } from '@/api/auth'
+import { getCurrentUser, login, logout } from '@/api/auth'
 import type { LoginVo } from '@/types/auth'
 
 vi.mock('@/api/auth', () => ({
   login: vi.fn(),
   getCurrentUser: vi.fn(),
+  logout: vi.fn().mockResolvedValue(undefined),
 }))
 
 function buildLoginVo(): LoginVo {
@@ -127,6 +128,25 @@ describe('user store 双令牌持久化', () => {
     expect(store.token).toBe('')
     expect(store.refreshToken).toBe('')
     expect(store.deviceId).toBe('device-1')
+  })
+
+  it('logoutAction 调用 logout API 携带当前刷新令牌，API 失败不影响本地清理', async () => {
+    const store = useUserStore()
+    vi.mocked(login).mockResolvedValue(buildLoginVo())
+    await store.loginAction('admin', 'admin')
+
+    const logoutMock = vi.mocked(logout)
+    logoutMock.mockRejectedValueOnce(new Error('network error'))
+
+    store.logoutAction()
+
+    // 登出前先携带当前刷新令牌调用吊销接口
+    expect(logoutMock).toHaveBeenCalledWith('refresh-token')
+    // 吊销失败（best-effort）不影响本地清理
+    expect(localStorage.getItem('jcloud_token')).toBeNull()
+    expect(localStorage.getItem('jcloud_refresh_token')).toBeNull()
+    expect(store.token).toBe('')
+    expect(store.refreshToken).toBe('')
   })
 
   it('applyTokenPair 更新访问令牌与刷新令牌并持久化', () => {

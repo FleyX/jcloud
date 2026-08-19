@@ -184,6 +184,60 @@ public class AuthSessionSupport {
     }
 
     /**
+     * 按刷新令牌吊销对应设备会话。
+     * <p>
+     * 幂等设计：令牌已吊销/过期/伪造（token 索引未命中）时静默 no-op，登出不报错。
+     *
+     * @param refreshToken 刷新令牌原文
+     */
+    public void revokeByRefreshToken(String refreshToken) {
+        if (StrUtil.isBlank(refreshToken)) {
+            return;
+        }
+        try {
+            String hash = DigestUtil.sha256Hex(refreshToken);
+            String sessionKey = bucket(buildTokenKey(hash)).get();
+            if (sessionKey != null) {
+                revokeSession(sessionKey);
+            }
+            log.debug("按刷新令牌吊销会话 hash={}", hash);
+        } catch (SystemException e) {
+            throw e;
+        } catch (Exception e) {
+            // 吊销是安全语义，Redis 异常不静默吞掉，包装为 SystemException 带上原异常
+            throw new SystemException(ResultCode.SYSTEM_ERROR, "吊销会话失败", e);
+        }
+    }
+
+    /**
+     * 吊销指定用户全部设备会话。
+     * <p>
+     * 通过 scan 模式枚举该用户全部会话 key 实现；个人网盘规模下会话数量有限，开销可接受。
+     *
+     * @param userId 用户 ID
+     * @return 吊销的会话数量
+     */
+    public int revokeAllSessions(String userId) {
+        if (StrUtil.isBlank(userId)) {
+            return 0;
+        }
+        try {
+            Iterable<String> keys = redissonClient.getKeys().getKeysByPattern(SESSION_PREFIX + userId + ":*");
+            int count = 0;
+            for (String sessionKey : keys) {
+                revokeSession(sessionKey);
+                count++;
+            }
+            log.info("全量吊销用户会话 userId={}, count={}", userId, count);
+            return count;
+        } catch (SystemException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new SystemException(ResultCode.SYSTEM_ERROR, "吊销用户全部会话失败", e);
+        }
+    }
+
+    /**
      * 吊销设备会话，删除会话记录与当前令牌索引。
      *
      * @param sessionKey 会话 key
