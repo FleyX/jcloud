@@ -7,6 +7,7 @@ import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.common.exception.GlobalExceptionHandler;
 import com.fleyx.jcloud.model.dto.UserLoginDto;
 import com.fleyx.jcloud.model.dto.UserRegisterDto;
+import com.fleyx.jcloud.model.vo.DeviceSessionVo;
 import com.fleyx.jcloud.model.vo.LoginVo;
 import com.fleyx.jcloud.model.vo.UserVo;
 import com.fleyx.jcloud.service.AuthService;
@@ -24,6 +25,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -153,6 +155,40 @@ class AuthControllerTest {
                 .andExpect(jsonPath("$.code").value(200));
 
         verify(authService).logoutAll("user-1");
+    }
+
+    /**
+     * GET /auth/devices：透传 UserContext 用户 ID 与 deviceId 参数，返回 R.ok 包装的设备列表。
+     */
+    @Test
+    void shouldListDevices() throws Exception {
+        DeviceSessionVo vo = new DeviceSessionVo();
+        vo.setDeviceId("dev-1");
+        vo.setDeviceName("Chrome · Windows");
+        vo.setLastActiveTime(123456789L);
+        vo.setCurrent(true);
+        when(authService.listDevices("user-1", "dev-1")).thenReturn(List.of(vo));
+
+        mockMvc.perform(get("/jcloud/api/auth/devices").param("deviceId", "dev-1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data[0].deviceId").value("dev-1"))
+                .andExpect(jsonPath("$.data[0].deviceName").value("Chrome · Windows"))
+                .andExpect(jsonPath("$.data[0].current").value(true));
+
+        verify(authService).listDevices(eq("user-1"), eq("dev-1"));
+    }
+
+    /**
+     * DELETE /auth/devices/{deviceId}：透传 UserContext 用户 ID 与路径设备标识，返回 R.ok。
+     */
+    @Test
+    void shouldRevokeDevice() throws Exception {
+        mockMvc.perform(delete("/jcloud/api/auth/devices/dev-1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200));
+
+        verify(authService).revokeDevice("user-1", "dev-1");
     }
 
     /**

@@ -19,6 +19,7 @@ import com.fleyx.jcloud.model.dto.UserRegisterDto;
 import com.fleyx.jcloud.model.po.Role;
 import com.fleyx.jcloud.model.po.User;
 import com.fleyx.jcloud.model.po.UserRole;
+import com.fleyx.jcloud.model.vo.DeviceSessionVo;
 import com.fleyx.jcloud.model.vo.LoginVo;
 import com.fleyx.jcloud.model.vo.TokenPairVo;
 import com.fleyx.jcloud.model.vo.UserVo;
@@ -124,6 +125,25 @@ public class AuthServiceImpl implements AuthService {
     @Override
     public void logoutAll(String userId) {
         authSessionSupport.revokeAllSessions(userId);
+    }
+
+    @Override
+    public List<DeviceSessionVo> listDevices(String userId, String currentDeviceId) {
+        return authSessionSupport.listSessions(userId).stream()
+                .map(session -> {
+                    DeviceSessionVo vo = new DeviceSessionVo();
+                    vo.setDeviceId(session.getDeviceId());
+                    vo.setDeviceName(session.getDeviceName());
+                    vo.setLastActiveTime(session.getLastActiveTime());
+                    vo.setCurrent(session.getDeviceId().equals(currentDeviceId));
+                    return vo;
+                })
+                .toList();
+    }
+
+    @Override
+    public void revokeDevice(String userId, String deviceId) {
+        authSessionSupport.revokeSession(userId, deviceId);
     }
 
     private LoginVo buildBaseLoginVo(User user) {

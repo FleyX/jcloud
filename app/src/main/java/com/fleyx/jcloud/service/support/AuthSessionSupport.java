@@ -22,6 +22,10 @@ import org.redisson.client.codec.StringCodec;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.List;
 
 /**
  * 设备会话的 Redis 存储与轮换核心。
@@ -260,6 +264,51 @@ public class AuthSessionSupport {
         }
         sessionBucket.delete();
         log.debug("已吊销会话 sessionKey={}", sessionKey);
+    }
+
+    /**
+     * 枚举指定用户全部有效设备会话，按最近活跃时间倒序排列。
+     * <p>
+     * 通过 scan 模式枚举该用户全部会话 key 实现（与 {@link #revokeAllSessions} 同款模式）。
+     *
+     * @param userId 用户 ID
+     * @return 会话列表
+     */
+    public List<AuthSession> listSessions(String userId) {
+        if (StrUtil.isBlank(userId)) {
+            return Collections.emptyList();
+        }
+        try {
+            Iterable<String> keys = redissonClient.getKeys().getKeysByPattern(SESSION_PREFIX + userId + ":*");
+            List<AuthSession> sessions = new ArrayList<>();
+            for (String sessionKey : keys) {
+                String json = bucket(sessionKey).get();
+                if (json != null) {
+                    sessions.add(fromJson(json, AuthSession.class));
+                }
+            }
+            sessions.sort(Comparator.comparingLong(AuthSession::getLastActiveTime).reversed());
+            return sessions;
+        } catch (SystemException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new SystemException(ResultCode.SYSTEM_ERROR, "查询用户会话列表失败", e);
+        }
+    }
+
+    /**
+     * 按用户与设备标识吊销设备会话（供设备管理踢出使用，仅能吊销该用户自己的会话）。
+     * <p>
+     * 会话 key 自带 userId 前缀，天然隔离；幂等设计：会话不存在时静默 no-op。
+     *
+     * @param userId   用户 ID
+     * @param deviceId 设备标识
+     */
+    public void revokeSession(String userId, String deviceId) {
+        if (StrUtil.isBlank(userId) || StrUtil.isBlank(deviceId)) {
+            return;
+        }
+        revokeSession(buildSessionKey(userId, deviceId));
     }
 
     String buildSessionKey(String userId, String deviceId) {

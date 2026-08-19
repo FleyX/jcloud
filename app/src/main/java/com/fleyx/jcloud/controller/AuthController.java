@@ -7,18 +7,24 @@ import com.fleyx.jcloud.common.context.UserContext;
 import com.fleyx.jcloud.model.dto.TokenRefreshDto;
 import com.fleyx.jcloud.model.dto.UserLoginDto;
 import com.fleyx.jcloud.model.dto.UserRegisterDto;
+import com.fleyx.jcloud.model.vo.DeviceSessionVo;
 import com.fleyx.jcloud.model.vo.LoginVo;
 import com.fleyx.jcloud.model.vo.TokenPairVo;
 import com.fleyx.jcloud.model.vo.UserVo;
 import com.fleyx.jcloud.service.AuthService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
 
 /**
  * 认证授权控制器。
@@ -81,5 +87,22 @@ public class AuthController {
     public R<LoginVo> me() {
         CurrentUser currentUser = UserContext.get();
         return R.ok(authService.getCurrentUser(currentUser.id()));
+    }
+
+    /**
+     * 查询当前用户设备会话列表。
+     */
+    @GetMapping("/devices")
+    public R<List<DeviceSessionVo>> devices(@RequestParam(value = "deviceId", required = false) String deviceId) {
+        return R.ok(authService.listDevices(UserContext.get().id(), deviceId));
+    }
+
+    /**
+     * 踢出指定设备（吊销该设备会话，允许踢出当前设备自身）。
+     */
+    @DeleteMapping("/devices/{deviceId}")
+    public R<Void> revokeDevice(@PathVariable String deviceId) {
+        authService.revokeDevice(UserContext.get().id(), deviceId);
+        return R.ok();
     }
 }

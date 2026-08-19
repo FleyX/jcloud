@@ -31,6 +31,8 @@ public:
 
 login:
   - { code: "GET:/jcloud/api/auth/me", name: "当前用户信息" }
+  - { code: "GET:/jcloud/api/auth/devices", name: "设备会话列表" }
+  - { code: "DELETE:/jcloud/api/auth/devices/{deviceId}", name: "踢出设备会话" }
   - { code: "POST:/jcloud/api/auth/logout-all", name: "登出全部设备" }
   - { code: "GET:/jcloud/api/users/me", name: "获取当前登录用户个人信息" }
   - { code: "PUT:/jcloud/api/users/me", name: "更新当前登录用户个人信息" }
