@@ -12,6 +12,9 @@ import com.fleyx.jcloud.model.vo.LoginVo;
 import com.fleyx.jcloud.model.vo.TokenPairVo;
 import com.fleyx.jcloud.model.vo.UserVo;
 import com.fleyx.jcloud.service.AuthService;
+import com.fleyx.jcloud.service.support.AuthCookieSupport;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -35,6 +38,7 @@ import java.util.List;
 public class AuthController {
 
     private final AuthService authService;
+    private final AuthCookieSupport authCookieSupport;
 
     /**
      * 用户注册。
@@ -49,25 +53,36 @@ public class AuthController {
      */
     @PostMapping("/login")
     public R<LoginVo> login(@Valid @RequestBody UserLoginDto dto,
-                            @RequestHeader(value = "User-Agent", required = false) String userAgent) {
-        return R.ok(authService.login(dto, userAgent));
+                            @RequestHeader(value = "User-Agent", required = false) String userAgent,
+                            HttpServletResponse response) {
+        LoginVo vo = authService.login(dto, userAgent);
+        authCookieSupport.writeTokenCookies(response, vo.getToken(), vo.getRefreshToken());
+        return R.ok(vo);
     }
 
     /**
      * 刷新令牌。
      */
     @PostMapping("/refresh")
-    public R<TokenPairVo> refresh(@Valid @RequestBody TokenRefreshDto dto) {
-        return R.ok(authService.refresh(dto));
+    public R<TokenPairVo> refresh(@Valid @RequestBody TokenRefreshDto dto, HttpServletResponse response) {
+        TokenPairVo vo = authService.refresh(dto);
+        authCookieSupport.writeTokenCookies(response, vo.getToken(), vo.getRefreshToken());
+        return R.ok(vo);
     }
 
     /**
      * 登出当前设备会话（吊销刷新令牌对应的会话）。
      * 登记为 public：访问令牌已过期时仍须能登出（此时客户端只持有刷新令牌）。
+     * body 可为空：Web 端 JS 读不到 HttpOnly cookie，从请求携带的 cookie 中解析刷新令牌。
      */
     @PostMapping("/logout")
-    public R<Void> logout(@Valid @RequestBody TokenRefreshDto dto) {
-        authService.logout(dto.getRefreshToken());
+    public R<Void> logout(@RequestBody(required = false) TokenRefreshDto dto,
+                          HttpServletRequest request,
+                          HttpServletResponse response) {
+        String refreshToken = authCookieSupport.resolveRefreshToken(request,
+                dto == null ? null : dto.getRefreshToken());
+        authService.logout(refreshToken);
+        authCookieSupport.clearTokenCookies(response);
         return R.ok();
     }
 

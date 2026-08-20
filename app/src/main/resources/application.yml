@@ -15,6 +15,7 @@ jcloud:
   auth:
     refresh-expire-days: 30
     rotation-grace-seconds: 30
+    cookie-secure: false
   upload:
     chunk-size: 67108864
   download:

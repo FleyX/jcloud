@@ -21,4 +21,9 @@ public class AuthProperties {
      * 令牌轮换宽限期（秒），用于容忍并发/重试重放。
      */
     private long rotationGraceSeconds = 30;
+
+    /**
+     * cookie 是否启用 Secure。默认关闭以兼容局域网纯 HTTP 环境，HTTPS 部署时应开启。
+     */
+    private boolean cookieSecure = false;
 }

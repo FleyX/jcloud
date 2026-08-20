@@ -4,6 +4,7 @@ import cn.hutool.core.util.StrUtil;
 import tools.jackson.databind.ObjectMapper;
 import com.fleyx.jcloud.common.R;
 import com.fleyx.jcloud.common.cache.UserPermissionCache;
+import com.fleyx.jcloud.common.constant.AuthConstant;
 import com.fleyx.jcloud.common.context.CurrentUser;
 import com.fleyx.jcloud.common.context.UserContext;
 import com.fleyx.jcloud.common.enums.ResultCode;
@@ -18,6 +19,7 @@ import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.JwtException;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
+import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.HttpHeaders;
@@ -186,6 +188,16 @@ public class AuthTokenFilter extends OncePerRequestFilter {
         String header = request.getHeader(HttpHeaders.AUTHORIZATION);
         if (StrUtil.isNotBlank(header) && header.startsWith(BEARER_PREFIX)) {
             return header.substring(BEARER_PREFIX.length());
+        }
+        // Web 端凭证走 HttpOnly cookie
+        Cookie[] cookies = request.getCookies();
+        if (cookies != null) {
+            for (Cookie cookie : cookies) {
+                if (AuthConstant.ACCESS_TOKEN_COOKIE.equals(cookie.getName())
+                        && StrUtil.isNotBlank(cookie.getValue())) {
+                    return cookie.getValue();
+                }
+            }
         }
         // 媒体流、图片等无法携带 Authorization 头的场景，支持 token 查询参数
         String param = request.getParameter("token");

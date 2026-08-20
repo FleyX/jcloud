@@ -14,6 +14,7 @@ import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import jakarta.servlet.ServletException;
+import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockFilterChain;
@@ -251,6 +252,69 @@ class AuthTokenFilterTest {
         JsonNode body = objectMapper.readTree(response.getContentAsString());
         assertEquals(401, body.get("code").asInt());
         assertEquals("缺少登录凭证", body.get("msg").asText());
+    }
+
+    /**
+     * 仅携带有效访问令牌 cookie 的请求应放行（Web 端双通道凭证）。
+     */
+    @Test
+    void tokenViaAccessCookieShouldPass() throws ServletException, IOException {
+        Claims claims = mock(Claims.class);
+        when(jwtUtil.parseToken("valid-token")).thenReturn(claims);
+        when(jwtUtil.getUserId(claims)).thenReturn("1");
+        when(jwtUtil.getUserCode(claims)).thenReturn("user");
+
+        User user = new User();
+        user.setId("1");
+        user.setIsAdmin(0);
+        when(userMapper.selectById("1")).thenReturn(user);
+        when(permissionResolver.resolveResourceCodes(any())).thenReturn(List.of("GET:" + API_PATH));
+
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", API_PATH);
+        request.setCookies(new Cookie("jcloud_access_token", "valid-token"));
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        MockFilterChain chain = new MockFilterChain();
+
+        filter.doFilter(request, response, chain);
+
+        assertEquals(200, response.getStatus());
+        assertTrue(chain.getRequest() != null);
+    }
+
+    /**
+     * 仅携带无关 cookie（无访问令牌）的请求应 401（cookie 通道按名字精确匹配）。
+     */
+    @Test
+    void unrelatedCookieShouldNotAuthenticate() throws ServletException, IOException {
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", API_PATH);
+        request.setCookies(new Cookie("some_other_cookie", "whatever"));
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        MockFilterChain chain = new MockFilterChain();
+
+        filter.doFilter(request, response, chain);
+
+        assertEquals(401, response.getStatus());
+    }
+
+    /**
+     * header 通道与 cookie 通道互不干扰：携带 header 时仍按 header 放行。
+     */
+    @Test
+    void headerChannelStillPassesWhenCookieAbsent() throws ServletException, IOException {
+        Claims claims = mock(Claims.class);
+        when(jwtUtil.parseToken("valid-token")).thenReturn(claims);
+        when(jwtUtil.getUserId(claims)).thenReturn("1");
+        when(jwtUtil.getUserCode(claims)).thenReturn("user");
+
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", LOGIN_PATH);
+        request.addHeader("Authorization", "Bearer valid-token");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        MockFilterChain chain = new MockFilterChain();
+
+        filter.doFilter(request, response, chain);
+
+        assertEquals(200, response.getStatus());
+        assertTrue(chain.getRequest() != null);
     }
 
 }
