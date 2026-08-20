@@ -47,7 +47,7 @@ import static org.mockito.Mockito.when;
  * {@link AuthTokenFilter} 单元测试。
  * <p>
  * 验证资源在构造时从权限注册表一次性加载，token 解析失败（过期/伪造）的异常分支，
- * 以及权限校验逻辑（超级管理员放行、query 参数 token 回退）正确。
+ * 以及权限校验逻辑（超级管理员放行、仅有 cookie/header 通道）正确。
  */
 class AuthTokenFilterTest {
 
@@ -240,19 +240,11 @@ class AuthTokenFilterTest {
         assertTrue(chain.getRequest() != null);
     }
 
+    /**
+     * URL 携带 ?token= 的请求不再生效，一律按无凭证 401。
+     */
     @Test
-    void tokenViaQueryParamShouldPass() throws ServletException, IOException {
-        Claims claims = mock(Claims.class);
-        when(jwtUtil.parseToken("valid-token")).thenReturn(claims);
-        when(jwtUtil.getUserId(claims)).thenReturn("1");
-        when(jwtUtil.getUserCode(claims)).thenReturn("user");
-
-        User user = new User();
-        user.setId("1");
-        user.setIsAdmin(0);
-        when(userMapper.selectById("1")).thenReturn(user);
-        when(permissionResolver.resolveResourceCodes(any())).thenReturn(List.of("GET:" + API_PATH));
-
+    void tokenViaQueryParamShouldReturn401() throws ServletException, IOException {
         MockHttpServletRequest request = new MockHttpServletRequest("GET", API_PATH);
         request.addParameter("token", "valid-token");
         MockHttpServletResponse response = new MockHttpServletResponse();
@@ -260,8 +252,10 @@ class AuthTokenFilterTest {
 
         filter.doFilter(request, response, chain);
 
-        assertEquals(200, response.getStatus());
-        assertTrue(chain.getRequest() != null);
+        assertEquals(401, response.getStatus());
+        JsonNode body = objectMapper.readTree(response.getContentAsString());
+        assertEquals(401, body.get("code").asInt());
+        assertEquals("缺少登录凭证", body.get("msg").asText());
     }
 
     @Test

@@ -55,8 +55,6 @@ public class AuthTokenFilter extends OncePerRequestFilter {
     private static final String CHANNEL_HEADER = "header";
     /** 凭证来源：访问令牌 cookie（Web 端）。 */
     private static final String CHANNEL_COOKIE = "cookie";
-    /** 凭证来源：token 查询参数（媒体流等场景）。 */
-    private static final String CHANNEL_PARAM = "param";
 
     private final JwtUtil jwtUtil;
     private final ObjectMapper objectMapper;
@@ -207,7 +205,7 @@ public class AuthTokenFilter extends OncePerRequestFilter {
      */
     private Claims silentRenew(HttpServletRequest request, HttpServletResponse response, TokenSource source)
             throws IOException {
-        // 非 cookie 通道（原生端 header / 媒体流 param）不参与静默续期，维持 401，由原生端显式调刷新接口
+        // 非 cookie 通道（原生端 header）不参与静默续期，维持 401，由原生端显式调刷新接口
         if (!CHANNEL_COOKIE.equals(source.channel())) {
             writeResponse(response, ResultCode.UNAUTHORIZED, "登录凭证已过期");
             return null;
@@ -260,7 +258,7 @@ public class AuthTokenFilter extends OncePerRequestFilter {
     }
 
     /**
-     * 按 header → cookie → ?token= 顺序提取凭证，并标记其来源通道。
+     * 按 header → cookie 顺序提取凭证，并标记其来源通道。
      * 凭证为空白时返回 token 为空的 TokenSource。
      */
     private TokenSource extractToken(HttpServletRequest request) {
@@ -277,11 +275,6 @@ public class AuthTokenFilter extends OncePerRequestFilter {
                     return new TokenSource(cookie.getValue(), CHANNEL_COOKIE);
                 }
             }
-        }
-        // 媒体流、图片等无法携带 Authorization 头的场景，支持 token 查询参数
-        String param = request.getParameter("token");
-        if (StrUtil.isNotBlank(param)) {
-            return new TokenSource(param, CHANNEL_PARAM);
         }
         return new TokenSource(null, null);
     }
@@ -301,7 +294,7 @@ public class AuthTokenFilter extends OncePerRequestFilter {
      * 提取的令牌及其来源通道。
      *
      * @param token   令牌原文，缺失/空白时为 null
-     * @param channel 来源通道（header / cookie / param）
+     * @param channel 来源通道（header / cookie）
      */
     private record TokenSource(String token, String channel) {
     }
