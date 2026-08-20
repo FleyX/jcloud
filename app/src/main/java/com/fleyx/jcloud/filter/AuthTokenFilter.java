@@ -8,12 +8,17 @@ import com.fleyx.jcloud.common.constant.AuthConstant;
 import com.fleyx.jcloud.common.context.CurrentUser;
 import com.fleyx.jcloud.common.context.UserContext;
 import com.fleyx.jcloud.common.enums.ResultCode;
+import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.common.permission.PermissionRegistry;
 import com.fleyx.jcloud.common.permission.PermissionResolver;
 import com.fleyx.jcloud.mapper.UserMapper;
 import com.fleyx.jcloud.mapper.UserRoleMapper;
+import com.fleyx.jcloud.model.bo.RefreshResult;
 import com.fleyx.jcloud.model.po.User;
+import com.fleyx.jcloud.service.support.AuthCookieSupport;
+import com.fleyx.jcloud.service.support.AuthSessionSupport;
 import com.fleyx.jcloud.util.JwtUtil;
+import lombok.extern.slf4j.Slf4j;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.JwtException;
@@ -40,9 +45,17 @@ import java.util.List;
  * 4. 其它资源根据用户角色查询对应的资源 URL，判断当前请求是否在授权列表中；
  * 5. 超级管理员直接放行所有非 PUBLIC 接口。
  */
+@Slf4j
 public class AuthTokenFilter extends OncePerRequestFilter {
 
     private static final String BEARER_PREFIX = "Bearer ";
+
+    /** 凭证来源：Authorization header（原生端）。 */
+    private static final String CHANNEL_HEADER = "header";
+    /** 凭证来源：访问令牌 cookie（Web 端）。 */
+    private static final String CHANNEL_COOKIE = "cookie";
+    /** 凭证来源：token 查询参数（媒体流等场景）。 */
+    private static final String CHANNEL_PARAM = "param";
 
     private final JwtUtil jwtUtil;
     private final ObjectMapper objectMapper;
@@ -51,6 +64,8 @@ public class AuthTokenFilter extends OncePerRequestFilter {
     private final UserRoleMapper userRoleMapper;
     private final UserPermissionCache userPermissionCache;
     private final PermissionResolver permissionResolver;
+    private final AuthSessionSupport authSessionSupport;
+    private final AuthCookieSupport authCookieSupport;
 
     private final AntPathMatcher pathMatcher = new AntPathMatcher();
 
@@ -58,7 +73,8 @@ public class AuthTokenFilter extends OncePerRequestFilter {
 
     public AuthTokenFilter(JwtUtil jwtUtil, ObjectMapper objectMapper, PermissionRegistry permissionRegistry,
                            UserMapper userMapper, UserRoleMapper userRoleMapper,
-                           UserPermissionCache userPermissionCache, PermissionResolver permissionResolver) {
+                           UserPermissionCache userPermissionCache, PermissionResolver permissionResolver,
+                           AuthSessionSupport authSessionSupport, AuthCookieSupport authCookieSupport) {
         this.jwtUtil = jwtUtil;
         this.objectMapper = objectMapper;
         this.permissionRegistry = permissionRegistry;
@@ -66,6 +82,8 @@ public class AuthTokenFilter extends OncePerRequestFilter {
         this.userRoleMapper = userRoleMapper;
         this.userPermissionCache = userPermissionCache;
         this.permissionResolver = permissionResolver;
+        this.authSessionSupport = authSessionSupport;
+        this.authCookieSupport = authCookieSupport;
         this.resourceEntries = loadResources();
     }
 
@@ -116,36 +134,48 @@ public class AuthTokenFilter extends OncePerRequestFilter {
         }
 
         // 2. 非 PUBLIC 资源必须携带 JWT
-        String token = extractToken(request);
-        if (StrUtil.isBlank(token)) {
+        TokenSource tokenSource = extractToken(request);
+        if (StrUtil.isBlank(tokenSource.token())) {
             writeResponse(response, ResultCode.UNAUTHORIZED, "缺少登录凭证");
             return;
         }
 
-        String userId;
-        CurrentUser currentUser;
+        Claims claims;
         try {
-            Claims claims = jwtUtil.parseToken(token);
-            userId = jwtUtil.getUserId(claims);
-            currentUser = new CurrentUser(userId, jwtUtil.getUserCode(claims));
-            request.setAttribute(CurrentUser.class.getName(), currentUser);
+            claims = jwtUtil.parseToken(tokenSource.token());
         } catch (ExpiredJwtException e) {
-            writeResponse(response, ResultCode.UNAUTHORIZED, "登录凭证已过期");
-            return;
+            // 3. 访问令牌过期：仅 cookie 通道尝试静默续期，失败返回 401
+            Claims renewed = silentRenew(request, response, tokenSource);
+            if (renewed == null) {
+                return;
+            }
+            claims = renewed;
         } catch (JwtException | IllegalArgumentException e) {
             writeResponse(response, ResultCode.UNAUTHORIZED, "登录凭证无效");
             return;
         }
 
+        proceed(request, response, filterChain, result, resourceKey, claims);
+    }
+
+    /**
+     * 令牌有效后统一走 UserContext 与鉴权流程（正常放行与静默续期后的入口）。
+     */
+    private void proceed(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain,
+                         ResourcePermissionResult result, String resourceKey, Claims claims)
+            throws ServletException, IOException {
+        String userId = jwtUtil.getUserId(claims);
+        CurrentUser currentUser = new CurrentUser(userId, jwtUtil.getUserCode(claims));
+        request.setAttribute(CurrentUser.class.getName(), currentUser);
         try {
             UserContext.set(currentUser);
-            // 3. LOGIN 资源直接放行
+            // LOGIN 资源直接放行
             if (result.loginResource()) {
                 filterChain.doFilter(request, response);
                 return;
             }
 
-            // 4. URL 鉴权
+            // URL 鉴权
             if (!isAuthorized(userId, resourceKey)) {
                 writeResponse(response, ResultCode.FORBIDDEN, "权限不足");
                 return;
@@ -153,6 +183,39 @@ public class AuthTokenFilter extends OncePerRequestFilter {
             filterChain.doFilter(request, response);
         } finally {
             UserContext.clear();
+        }
+    }
+
+    /**
+     * 访问令牌过期时的静默续期。
+     * <p>
+     * 仅 Web 端 cookie 通道接入：读取有效刷新令牌 cookie，调用 {@link AuthSessionSupport#refresh}
+     * 复用既有 Redis 轮换逻辑（含分布式锁与宽限期单飞），成功后通过 Set-Cookie 下发新令牌对并
+     * 返回新 Claims 供继续鉴权；刷新令牌缺失/无效或非 cookie 通道返回 {@code null}，调用方按 401 处理。
+     */
+    private Claims silentRenew(HttpServletRequest request, HttpServletResponse response, TokenSource source)
+            throws IOException {
+        // 非 cookie 通道（原生端 header / 媒体流 param）不参与静默续期，维持 401，由原生端显式调刷新接口
+        if (!CHANNEL_COOKIE.equals(source.channel())) {
+            writeResponse(response, ResultCode.UNAUTHORIZED, "登录凭证已过期");
+            return null;
+        }
+        String refreshToken = authCookieSupport.resolveRefreshToken(request, null);
+        if (StrUtil.isBlank(refreshToken)) {
+            writeResponse(response, ResultCode.UNAUTHORIZED, "登录凭证已过期");
+            return null;
+        }
+        try {
+            RefreshResult refreshResult = authSessionSupport.refresh(refreshToken);
+            authCookieSupport.writeTokenCookies(response,
+                    refreshResult.getAccessToken(), refreshResult.getRefreshToken());
+            Claims claims = jwtUtil.parseToken(refreshResult.getAccessToken());
+            log.debug("静默续期成功");
+            return claims;
+        } catch (BusinessException ex) {
+            log.info("静默续期失败，刷新令牌无效或已吊销: {}", ex.getMessage());
+            writeResponse(response, ResultCode.UNAUTHORIZED, "登录状态已失效");
+            return null;
         }
     }
 
@@ -184,10 +247,14 @@ public class AuthTokenFilter extends OncePerRequestFilter {
         return request.getMethod() + ":" + request.getRequestURI();
     }
 
-    private String extractToken(HttpServletRequest request) {
+    /**
+     * 按 header → cookie → ?token= 顺序提取凭证，并标记其来源通道。
+     * 凭证为空白时返回 token 为空的 TokenSource。
+     */
+    private TokenSource extractToken(HttpServletRequest request) {
         String header = request.getHeader(HttpHeaders.AUTHORIZATION);
         if (StrUtil.isNotBlank(header) && header.startsWith(BEARER_PREFIX)) {
-            return header.substring(BEARER_PREFIX.length());
+            return new TokenSource(header.substring(BEARER_PREFIX.length()), CHANNEL_HEADER);
         }
         // Web 端凭证走 HttpOnly cookie
         Cookie[] cookies = request.getCookies();
@@ -195,16 +262,16 @@ public class AuthTokenFilter extends OncePerRequestFilter {
             for (Cookie cookie : cookies) {
                 if (AuthConstant.ACCESS_TOKEN_COOKIE.equals(cookie.getName())
                         && StrUtil.isNotBlank(cookie.getValue())) {
-                    return cookie.getValue();
+                    return new TokenSource(cookie.getValue(), CHANNEL_COOKIE);
                 }
             }
         }
         // 媒体流、图片等无法携带 Authorization 头的场景，支持 token 查询参数
         String param = request.getParameter("token");
         if (StrUtil.isNotBlank(param)) {
-            return param;
+            return new TokenSource(param, CHANNEL_PARAM);
         }
-        return null;
+        return new TokenSource(null, null);
     }
 
     private void writeResponse(HttpServletResponse response, ResultCode code, String message) throws IOException {
@@ -216,6 +283,15 @@ public class AuthTokenFilter extends OncePerRequestFilter {
     }
 
     private record ResourceEntry(String pattern, String type) {
+    }
+
+    /**
+     * 提取的令牌及其来源通道。
+     *
+     * @param token   令牌原文，缺失/空白时为 null
+     * @param channel 来源通道（header / cookie / param）
+     */
+    private record TokenSource(String token, String channel) {
     }
 
     /**
