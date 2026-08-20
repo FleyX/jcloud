@@ -11,7 +11,6 @@ import {
   updateCurrentUserProfile,
   changePassword,
 } from '@/api/user'
-import DeviceSessionPanel from '@/components/DeviceSessionPanel.vue'
 import { useUserStore } from '@/store/user'
 import type { ChangePasswordDto, UserProfileUpdateDto, UserProfileVo } from '@/types/auth'
 
@@ -194,8 +193,5 @@ async function handlePasswordSubmit() {
         </button>
       </div>
     </div>
-
-    <!-- 登录设备 -->
-    <DeviceSessionPanel />
   </div>
 </template>

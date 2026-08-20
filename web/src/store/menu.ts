@@ -120,6 +120,7 @@ export const useMenuStore = defineStore('menu', () => {
       case 'person':
         return [
           { key: 'profile', label: '个人资料', route: '/person' },
+          { key: 'devices', label: '登录设备', route: '/person/devices' },
           { key: 'remote-mounts', label: '远程挂载', route: '/person/remote-mounts' },
           { key: 'webdav', label: 'WebDAV共享', route: '/person/webdav' },
         ]

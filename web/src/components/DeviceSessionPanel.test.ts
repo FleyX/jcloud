@@ -26,7 +26,7 @@ function buildDevice(overrides: Partial<DeviceSessionVo> = {}): DeviceSessionVo 
   return {
     deviceId: 'd1',
     deviceName: 'Chrome',
-    lastActiveTime: 1700000000000,
+    lastActiveTime: '1700000000000',
     current: false,
     ...overrides,
   }

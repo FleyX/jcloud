@@ -116,14 +116,14 @@ describe('menuStore secondary menus', () => {
     expect(menus.map((menu) => menu.key)).toEqual(['users'])
   })
 
-  it('returns person menus with profile, remote-mounts and webdav', () => {
+  it('returns person menus with profile, devices, remote-mounts and webdav', () => {
     const userStore = useUserStore()
     userStore.userInfo = buildRegularUser()
 
     const menuStore = useMenuStore()
     const menus = menuStore.getSecondaryMenusByPrimary('person')
 
-    expect(menus.map((menu) => menu.key)).toEqual(['profile', 'remote-mounts', 'webdav'])
+    expect(menus.map((menu) => menu.key)).toEqual(['profile', 'devices', 'remote-mounts', 'webdav'])
   })
 
   it('does not include remote-mounts in files menus', () => {

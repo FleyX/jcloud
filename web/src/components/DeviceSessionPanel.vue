@@ -38,10 +38,11 @@ async function loadDevices() {
 
 onMounted(loadDevices)
 
-/** 最近活跃时间（epoch 毫秒）格式化为日期 */
-function formatActiveTime(lastActiveTime?: number): string {
-  if (lastActiveTime == null) return '-'
-  return formatDate(new Date(lastActiveTime).toISOString())
+/** 最近活跃时间（epoch 毫秒字符串）格式化为日期 */
+function formatActiveTime(lastActiveTime?: string): string {
+  const millis = Number(lastActiveTime)
+  if (!lastActiveTime || Number.isNaN(millis)) return '-'
+  return formatDate(new Date(millis).toISOString())
 }
 
 async function handleRevoke(device: DeviceSessionVo) {

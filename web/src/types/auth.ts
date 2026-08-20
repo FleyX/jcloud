@@ -80,7 +80,8 @@ export interface TokenPairVo {
 export interface DeviceSessionVo {
   deviceId: string
   deviceName: string
-  lastActiveTime?: number
+  /** 最近活跃时间（epoch 毫秒，后端 Long 统一序列化为字符串） */
+  lastActiveTime?: string
   current?: boolean
 }
 

@@ -12,14 +12,6 @@ vi.mock('@/api/user', () => ({
   changePassword: vi.fn(),
 }))
 
-// DeviceSessionPanel 挂载于 profile 页内，mock 掉其依赖的设备 API，避免测试触发真实网络请求
-vi.mock('@/api/auth', () => ({
-  listDevices: vi.fn().mockResolvedValue([]),
-  revokeDevice: vi.fn(),
-  logoutAll: vi.fn(),
-  logout: vi.fn(),
-}))
-
 async function createTestRouter() {
   const router = createRouter({
     history: createMemoryHistory(),

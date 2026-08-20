@@ -3,7 +3,7 @@ import type { RouteRecordRaw } from 'vue-router'
 import { useUserStore } from '@/store/user'
 import { deviceView } from '@/utils/device'
 
-type RouteName = 'Login' | 'Register' | 'NotFound' | 'Forbidden' | 'Init' | 'Files' | 'Trash' | 'Share' | 'RemoteMount' | 'UserManagement' | 'RoleManagement' | 'StorageSpaceManagement' | 'AdminMediaSettings' | 'PersonProfile' | 'PersonWebDav' | 'MediaHome' | 'MediaLibrary' | 'MediaDirectories' | 'MediaMovieDetail' | 'MediaSeriesDetail' | 'MediaPlay'
+type RouteName = 'Login' | 'Register' | 'NotFound' | 'Forbidden' | 'Init' | 'Files' | 'Trash' | 'Share' | 'RemoteMount' | 'UserManagement' | 'RoleManagement' | 'StorageSpaceManagement' | 'AdminMediaSettings' | 'PersonProfile' | 'PersonDevices' | 'PersonWebDav' | 'MediaHome' | 'MediaLibrary' | 'MediaDirectories' | 'MediaMovieDetail' | 'MediaSeriesDetail' | 'MediaPlay'
 
 /**
  * 公开静态路由
@@ -80,6 +80,12 @@ const dynamicRoutes: RouteRecordRaw[] = [
     name: 'PersonProfile' as RouteName,
     component: deviceView('person/profile'),
     meta: { title: '个人资料' },
+  },
+  {
+    path: '/person/devices',
+    name: 'PersonDevices' as RouteName,
+    component: deviceView('person/devices'),
+    meta: { title: '登录设备' },
   },
   {
     path: '/person/remote-mounts',
