@@ -13,7 +13,6 @@ import {
   DropdownMenuTrigger,
 } from 'radix-vue'
 import { ArrowLeft, Film, Heart, Pencil, Play, RefreshCcw, RefreshCw, RotateCcw, Star } from '@lucide/vue'
-import { withToken } from '@/api/media'
 import { formatDurationText, formatPosition } from './format'
 import { cn } from '@/utils/cn'
 
@@ -107,7 +106,7 @@ function goBack() {
       <div class="absolute inset-0 overflow-hidden bg-surface-900">
         <img
           v-if="backdropUrl && !backdropError"
-          :src="withToken(backdropUrl)"
+          :src="backdropUrl"
           :alt="title"
           class="h-full w-full object-cover opacity-60"
           @error="backdropError = true"
@@ -129,7 +128,7 @@ function goBack() {
         <div class="aspect-[2/3] w-32 shrink-0 overflow-hidden rounded-2xl bg-surface-800 shadow-lg md:w-48">
           <img
             v-if="posterUrl && !posterError"
-            :src="withToken(posterUrl)"
+            :src="posterUrl"
             :alt="title"
             class="h-full w-full object-cover"
             @error="posterError = true"

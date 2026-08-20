@@ -6,7 +6,7 @@
  */
 import { ref, watch } from 'vue'
 import type { MediaGenreVo } from '@/types/media'
-import { fetchMediaGenres, withToken } from '@/api/media'
+import { fetchMediaGenres } from '@/api/media'
 
 interface Props {
   directoryId: string
@@ -73,7 +73,7 @@ async function load(id: string) {
         <div class="relative aspect-[2/3] w-full overflow-hidden rounded-2xl bg-surface-100 shadow-soft transition-transform group-hover:scale-[1.02]">
           <img
             v-if="genre.posterUrl && !failedGenres.has(genre.name)"
-            :src="withToken(genre.posterUrl)"
+            :src="genre.posterUrl"
             :alt="genre.name"
             loading="lazy"
             class="h-full w-full object-cover"

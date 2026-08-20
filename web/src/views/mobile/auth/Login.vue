@@ -12,7 +12,7 @@ const router = useRouter()
 const userStore = useUserStore()
 
 onMounted(() => {
-  if (userStore.token) {
+  if (userStore.isLoggedIn) {
     router.push('/files')
   }
 })

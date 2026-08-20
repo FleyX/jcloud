@@ -4,7 +4,6 @@
  */
 import { Film } from '@lucide/vue'
 import { ref, watch } from 'vue'
-import { withToken } from '@/api/media'
 
 interface Props {
   title: string
@@ -29,7 +28,7 @@ watch(
     <div class="h-14 w-10 shrink-0 overflow-hidden rounded-lg bg-surface-100">
       <img
         v-if="posterUrl && !imgError"
-        :src="withToken(posterUrl)"
+        :src="posterUrl"
         :alt="title"
         loading="lazy"
         class="h-full w-full object-cover"

@@ -12,8 +12,6 @@ vi.mock('@/api/auth', () => ({
 
 function buildLoginVo(): LoginVo {
   return {
-    token: 'token',
-    refreshToken: 'refresh-token',
     deviceId: 'device-1',
     userInfo: {
       id: '1',
@@ -69,14 +67,14 @@ describe('user store scheduleUserInfoRefresh', () => {
   })
 })
 
-describe('user store 双令牌持久化', () => {
+describe('user store 登录态与设备标识', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     localStorage.clear()
     vi.clearAllMocks()
   })
 
-  it('登录成功后持久化访问令牌、刷新令牌与设备标识，登录携带 deviceId', async () => {
+  it('登录成功后不回写任一 token 到 localStorage，仅持久化设备标识', async () => {
     const store = useUserStore()
     const loginMock = vi.mocked(login)
     loginMock.mockResolvedValue(buildLoginVo())
@@ -88,12 +86,19 @@ describe('user store 双令牌持久化', () => {
       password: 'admin',
       deviceId: expect.any(String),
     })
-    expect(localStorage.getItem('jcloud_token')).toBe('token')
-    expect(localStorage.getItem('jcloud_refresh_token')).toBe('refresh-token')
+    // cookie 语义：前端不再持有 token，也不持久化
+    expect(localStorage.getItem('jcloud_token')).toBeNull()
+    expect(localStorage.getItem('jcloud_refresh_token')).toBeNull()
     expect(localStorage.getItem('jcloud_device_id')).toBe('device-1')
-    expect(store.refreshToken).toBe('refresh-token')
     // 设备标识以后端回显为准更新
     expect(store.deviceId).toBe('device-1')
+    // 登录态以 userInfo 为准
+    expect(store.isLoggedIn).toBe(true)
+  })
+
+  it('无 userInfo 时 isLoggedIn 为 false，登入后为 true', () => {
+    const store = useUserStore()
+    expect(store.isLoggedIn).toBe(false)
   })
 
   it('deviceId 首次生成后持久化，二次初始化复用同一标识', () => {
@@ -121,16 +126,14 @@ describe('user store 双令牌持久化', () => {
 
     store.logoutAction()
 
-    expect(localStorage.getItem('jcloud_token')).toBeNull()
-    expect(localStorage.getItem('jcloud_refresh_token')).toBeNull()
     // 设备标识代表设备而非会话，登出后保留
     expect(localStorage.getItem('jcloud_device_id')).toBe('device-1')
-    expect(store.token).toBe('')
-    expect(store.refreshToken).toBe('')
     expect(store.deviceId).toBe('device-1')
+    expect(store.userInfo).toBeNull()
+    expect(store.isLoggedIn).toBe(false)
   })
 
-  it('logoutAction 调用 logout API 携带当前刷新令牌，API 失败不影响本地清理', async () => {
+  it('logoutAction 调用无参 logout()（cookie 由后端清除），API 失败不影响本地清理', async () => {
     const store = useUserStore()
     vi.mocked(login).mockResolvedValue(buildLoginVo())
     await store.loginAction('admin', 'admin')
@@ -140,22 +143,10 @@ describe('user store 双令牌持久化', () => {
 
     store.logoutAction()
 
-    // 登出前先携带当前刷新令牌调用吊销接口
-    expect(logoutMock).toHaveBeenCalledWith('refresh-token')
+    // 登出无参：刷新令牌由后端从 cookie 读取
+    expect(logoutMock).toHaveBeenCalledWith()
     // 吊销失败（best-effort）不影响本地清理
-    expect(localStorage.getItem('jcloud_token')).toBeNull()
-    expect(localStorage.getItem('jcloud_refresh_token')).toBeNull()
-    expect(store.token).toBe('')
-    expect(store.refreshToken).toBe('')
-  })
-
-  it('applyTokenPair 更新访问令牌与刷新令牌并持久化', () => {
-    const store = useUserStore()
-    store.applyTokenPair({ token: 'new-token', refreshToken: 'new-refresh' })
-
-    expect(store.token).toBe('new-token')
-    expect(store.refreshToken).toBe('new-refresh')
-    expect(localStorage.getItem('jcloud_token')).toBe('new-token')
-    expect(localStorage.getItem('jcloud_refresh_token')).toBe('new-refresh')
+    expect(store.userInfo).toBeNull()
+    expect(store.isLoggedIn).toBe(false)
   })
 })

@@ -10,7 +10,7 @@ vi.mock('./request', () => ({
 import { externalSubtitleUrl, subtitleUrl } from './media'
 
 beforeEach(() => {
-  localStorage.setItem('jcloud_token', 'test-token')
+  localStorage.clear()
 })
 
 describe('字幕资源 URL 构造', () => {
@@ -18,7 +18,8 @@ describe('字幕资源 URL 构造', () => {
     const url = subtitleUrl('item-1', 0)
     expect(url).toContain('/jcloud/api/media/items/item-1/subtitles/0')
     expect(url).not.toContain('offsetMs')
-    expect(url).toContain('token=test-token')
+    // cookie 语义：不再拼接 ?token=
+    expect(url).not.toContain('token=')
   })
 
   it('offsetMs 为 0 时不发送偏移参数，即使显式传入 0', () => {
@@ -30,7 +31,7 @@ describe('字幕资源 URL 构造', () => {
   it('转码时携带 offsetMs', () => {
     const url = subtitleUrl('item-1', 0, undefined, 60_000)
     expect(url).toContain('offsetMs=60000')
-    expect(url).toContain('token=test-token')
+    expect(url).not.toContain('token=')
   })
 
   it('versionId 与 offsetMs 并存时不覆盖或丢失版本参数', () => {

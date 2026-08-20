@@ -55,23 +55,16 @@ export interface UserWebDavToggleDto {
 }
 
 /**
- * 登录成功返回对象
+ * 登录成功返回对象。
+ * token/refreshToken 已由后端 cookie 承载，前端不再读取，仅保留类型占位（可选）。
  */
 export interface LoginVo {
-  token: string
-  refreshToken: string
+  token?: string
+  refreshToken?: string
   deviceId: string
   userInfo: UserVo
   resources: string[]
   initialized: boolean
-}
-
-/**
- * 刷新令牌成功后的新令牌对
- */
-export interface TokenPairVo {
-  token: string
-  refreshToken: string
 }
 
 /**

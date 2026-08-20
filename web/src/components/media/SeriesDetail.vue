@@ -9,7 +9,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, Heart, LoaderCircle, Tv } from '@lucide/vue'
 import type { MediaItemVo, MediaSeriesDetailVo, MediaSeriesSeasonVo, TmdbSearchResultVo } from '@/types/media'
-import { fetchSeasonEpisodes, fetchSeriesDetail, refreshMetadata, toggleFavorite, updateMediaMatch, withToken, type MediaRefreshMode } from '@/api/media'
+import { fetchSeasonEpisodes, fetchSeriesDetail, refreshMetadata, toggleFavorite, updateMediaMatch, type MediaRefreshMode } from '@/api/media'
 import { getPlaybackConfig, loadPlaybackConfig } from '@/composables/usePlaybackConfig'
 import { useNotificationStore } from '@/store/notification'
 import { formatDurationText } from './format'
@@ -292,7 +292,7 @@ async function toggleEpisodeFavorite(episode: MediaItemVo) {
               <div class="relative aspect-[2/3] w-full overflow-hidden rounded-2xl bg-surface-100 shadow-soft transition-transform group-hover:scale-[1.02]">
                 <img
                   v-if="season.posterUrl && !failedSeasonPosters.has(season.seasonId)"
-                  :src="withToken(season.posterUrl)"
+                  :src="season.posterUrl"
                   :alt="seasonTitle(season)"
                   loading="lazy"
                   class="h-full w-full object-cover"
@@ -372,7 +372,7 @@ async function toggleEpisodeFavorite(episode: MediaItemVo) {
               <div class="relative aspect-video w-24 shrink-0 overflow-hidden rounded-xl bg-surface-100 md:w-32">
                 <img
                   v-if="episode.posterUrl && !failedEpisodePosters.has(episode.id)"
-                  :src="withToken(episode.posterUrl)"
+                  :src="episode.posterUrl"
                   :alt="episode.title"
                   loading="lazy"
                   class="h-full w-full object-cover"

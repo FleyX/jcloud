@@ -237,12 +237,7 @@ router.beforeEach(async (to, _from, next) => {
     return next()
   }
 
-  // 未登录则跳转登录页
-  if (!userStore.token) {
-    return next('/login')
-  }
-
-  // 需要用户信息但尚未加载时，先拉取用户信息并注入动态路由
+  // 需要用户信息但尚未加载时，先拉取用户信息（cookie 自动携带鉴权）并注入动态路由
   if (!userStore.dynamicRoutesAdded) {
     try {
       if (!userStore.userInfo) {
@@ -264,12 +259,8 @@ router.beforeEach(async (to, _from, next) => {
       // 重新解析目标路由
       return next({ ...to, replace: true })
     } catch {
-      // 后端启动中或网络暂时不可用时保留本地 token，避免重启竞态导致用户被迫重新登录。
-      // 401 由 request 层确认 token 无效并清空后，再进入登录页。
-      if (userStore.token) {
-        return next(false)
-      }
-      return next('/login')
+      // 后端未启动/网络暂时不可用时保留现状（停滞在守卫）；401 已由 request 层清除登录态并跳登录页
+      return next(false)
     }
   }
 

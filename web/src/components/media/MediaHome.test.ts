@@ -17,7 +17,6 @@ vi.mock('@/api/media', () => ({
   fetchMediaHome,
   scanMediaDirectory,
   scrapeMediaDirectory,
-  withToken: (url: string) => url,
 }))
 
 function buildItem(overrides: Partial<MediaItemVo> = {}): MediaItemVo {

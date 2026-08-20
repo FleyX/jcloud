@@ -29,7 +29,7 @@ export function useRemoteMountHealthCheck(): void {
 
   async function runCheck() {
     if (route.meta.public) return
-    if (!userStore.token) return
+    if (!userStore.isLoggedIn) return
     if (!shouldCheckToday()) return
 
     try {

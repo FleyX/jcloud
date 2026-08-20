@@ -10,7 +10,6 @@ const mocks = vi.hoisted(() => ({
   createTranscodeSession: vi.fn(),
   subtitleUrl: vi.fn(),
   externalSubtitleUrl: vi.fn(),
-  withToken: vi.fn((url: string) => url),
   updateMediaProgress: vi.fn().mockResolvedValue(undefined),
   closeTranscodeSession: vi.fn(),
   transcodeHeartbeat: vi.fn(),

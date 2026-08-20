@@ -46,14 +46,8 @@ onBeforeUnmount(() => {
 
 const category = computed(() => resolvePreviewCategory(props.file.mimeType, props.file.name))
 
-function authHeaders(): Record<string, string> {
-  return {
-    Authorization: `Bearer ${localStorage.getItem('jcloud_token') || ''}`,
-  }
-}
-
 async function fetchBlob(url: string): Promise<string> {
-  const response = await fetch(url, { headers: authHeaders() })
+  const response = await fetch(url)
   if (!response.ok) throw new Error('预览加载失败')
   const blob = await response.blob()
   return URL.createObjectURL(blob)
@@ -85,15 +79,11 @@ async function loadPreview() {
     } else if (category.value === 'video') {
       mediaUrl.value = await fetchBlob(`/jcloud/api/files/${props.file.id}/download`)
     } else if (category.value === 'office') {
-      const response = await fetch(`/jcloud/api/files/${props.file.id}/preview?type=office`, {
-        headers: authHeaders(),
-      })
+      const response = await fetch(`/jcloud/api/files/${props.file.id}/preview?type=office`)
       if (!response.ok) throw await extractError(response, '预览加载失败')
       officeData.value = await response.arrayBuffer()
     } else if (category.value === 'text') {
-      const response = await fetch(`/jcloud/api/files/${props.file.id}/preview?type=text`, {
-        headers: authHeaders(),
-      })
+      const response = await fetch(`/jcloud/api/files/${props.file.id}/preview?type=text`)
       if (!response.ok) throw new Error('文本加载失败')
       const data = await response.json() as { content?: string }
       textContent.value = data.content || ''

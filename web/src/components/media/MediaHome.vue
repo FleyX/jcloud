@@ -11,7 +11,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { Settings2, Search, Film, Tv, Clapperboard, LibraryBig } from '@lucide/vue'
 import type { Component } from 'vue'
 import type { MediaDirectoryVo, MediaHomeVo, MediaItemVo, MediaType } from '@/types/media'
-import { fetchMediaHome, scanMediaDirectory, scrapeMediaDirectory, withToken } from '@/api/media'
+import { fetchMediaHome, scanMediaDirectory, scrapeMediaDirectory } from '@/api/media'
 import { useNotificationStore } from '@/store/notification'
 import { formatMediaRelativeTime } from './format'
 import MediaTopMenu from './MediaTopMenu.vue'
@@ -107,14 +107,13 @@ function itemTitle(item: MediaItemVo): string {
 
 /** 条目封面：海报为空时回退到文件预览缩略图 */
 function itemPoster(item: MediaItemVo): string {
-  const url = item.posterUrl ?? (item.fileNodeId ? `/jcloud/api/files/${item.fileNodeId}/preview?type=poster` : '')
-  return withToken(url)
+  return item.posterUrl ?? (item.fileNodeId ? `/jcloud/api/files/${item.fileNodeId}/preview?type=poster` : '')
 }
 
 /** 最新卡片封面：海报优先；仅在有代表文件时才回退文件预览缩略图，否则返回 null 显示占位 */
 function latestPoster(item: MediaItemVo): string | null {
-  if (item.posterUrl) return withToken(item.posterUrl)
-  return item.fileNodeId ? withToken(`/jcloud/api/files/${item.fileNodeId}/preview?type=poster`) : null
+  if (item.posterUrl) return item.posterUrl
+  return item.fileNodeId ? `/jcloud/api/files/${item.fileNodeId}/preview?type=poster` : null
 }
 
 function progressPercent(item: MediaItemVo): number {
@@ -123,7 +122,7 @@ function progressPercent(item: MediaItemVo): number {
 }
 
 function libraryCover(directory: MediaDirectoryVo): string | null {
-  return directory.coverPosterUrl ? withToken(directory.coverPosterUrl) : null
+  return directory.coverPosterUrl ?? null
 }
 
 function openLibrary(directory: MediaDirectoryVo) {

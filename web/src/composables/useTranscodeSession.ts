@@ -14,7 +14,6 @@ import {
   createTranscodeSession,
   transcodeCloseBeaconUrl,
   transcodeHeartbeat,
-  withToken,
 } from '@/api/media'
 import { getPlaybackConfig } from './usePlaybackConfig'
 
@@ -143,7 +142,7 @@ export function useTranscodeSession(deps: TranscodeSessionDeps) {
     startHeartbeat(session.sessionId)
     transcodeActive.value = true
     transcodeBaseMs.value = startMs
-    const url = withToken(session.playlistUrl)
+    const url = session.playlistUrl
     if (Hls.isSupported()) {
       // 转码播放缓冲调大到 120s，吸收转码速度波动，避免播放追上分片产出导致卡顿
       hls = new Hls({ maxBufferLength: 120 })

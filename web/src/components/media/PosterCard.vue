@@ -7,7 +7,7 @@
  */
 import { computed, ref, watch } from 'vue'
 import { Film, Heart } from '@lucide/vue'
-import { toggleFavorite, withToken } from '@/api/media'
+import { toggleFavorite } from '@/api/media'
 import type { MediaFavoriteOwnerType } from '@/types/media'
 import { cn } from '@/utils/cn'
 
@@ -92,7 +92,7 @@ async function toggle() {
     >
       <img
         v-if="posterUrl && !imgError"
-        :src="withToken(posterUrl)"
+        :src="posterUrl"
         :alt="title"
         loading="lazy"
         class="h-full w-full object-cover"
