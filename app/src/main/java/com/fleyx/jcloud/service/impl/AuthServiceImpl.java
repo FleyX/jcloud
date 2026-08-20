@@ -97,6 +97,8 @@ public class AuthServiceImpl implements AuthService {
         String resolvedDeviceId = authSessionSupport.resolveDeviceId(dto.getDeviceId());
         String refreshToken = authSessionSupport.createSession(user.getId(), user.getUsername(), resolvedDeviceId, deviceName);
         LoginVo vo = buildBaseLoginVo(user);
+        // 登录令牌携带设备标识，供黑名单按设备隔离
+        vo.setToken(jwtUtil.generateToken(user.getId(), user.getUsername(), resolvedDeviceId));
         vo.setRefreshToken(refreshToken);
         vo.setDeviceId(resolvedDeviceId);
         return vo;

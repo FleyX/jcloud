@@ -13,6 +13,9 @@ import com.fleyx.jcloud.model.vo.LoginVo;
 import com.fleyx.jcloud.service.AuthService;
 import com.fleyx.jcloud.service.UserService;
 import org.junit.jupiter.api.Test;
+import org.redisson.api.RBucket;
+import org.redisson.api.RedissonClient;
+import org.redisson.client.codec.StringCodec;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
@@ -24,7 +27,9 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * 登出与安全吊销接缝测试：logout/logout-all 语义、改密/重置/禁用/删除触发全量吊销。
@@ -43,6 +48,12 @@ class AuthSessionRevocationTest {
 
     @Autowired
     private UserService userService;
+
+    @Autowired
+    private AuthBlacklistSupport authBlacklistSupport;
+
+    @Autowired
+    private RedissonClient redissonClient;
 
     @Test
     void logoutShouldRevokeOnlyCurrentDeviceSession() {
@@ -181,6 +192,68 @@ class AuthSessionRevocationTest {
 
         assertRefreshUnauthorized(vos[0].getRefreshToken());
         assertRefreshUnauthorized(vos[1].getRefreshToken());
+    }
+
+    /**
+     * 登出后仅当前设备写入访问令牌黑名单，其他设备不受影响。
+     */
+    @Test
+    void logoutShouldWriteBlacklistForCurrentDeviceOnly() {
+        String username = randomUsername("bldev");
+        LoginVo[] vos = registerAndLoginTwoDevices(username);
+        String userId = vos[0].getUserInfo().getId();
+        RBucket<String> devA = redissonClient.getBucket(
+                "jcloud:auth:blacklist:" + userId + ":" + vos[0].getDeviceId(), StringCodec.INSTANCE);
+        RBucket<String> devB = redissonClient.getBucket(
+                "jcloud:auth:blacklist:" + userId + ":" + vos[1].getDeviceId(), StringCodec.INSTANCE);
+
+        authService.logout(vos[0].getRefreshToken());
+
+        // 设备 A 黑名单条目存在且带 TTL
+        assertNotNull(devA.get());
+        assertTrue(devA.remainTimeToLive() > 0);
+        // 设备 B 无黑名单条目，会话仍可刷新
+        assertNull(devB.get());
+        assertRefreshOk(vos[1].getRefreshToken());
+    }
+
+    /**
+     * 全量吊销后全部设备均写入访问令牌黑名单。
+     */
+    @Test
+    void logoutAllShouldWriteBlacklistForAllDevices() {
+        String username = randomUsername("blall");
+        LoginVo[] vos = registerAndLoginTwoDevices(username);
+        String userId = vos[0].getUserInfo().getId();
+
+        authService.logoutAll(userId);
+
+        for (LoginVo vo : vos) {
+            RBucket<String> bucket = redissonClient.getBucket(
+                    "jcloud:auth:blacklist:" + userId + ":" + vo.getDeviceId(), StringCodec.INSTANCE);
+            assertNotNull(bucket.get());
+            assertTrue(bucket.remainTimeToLive() > 0);
+        }
+    }
+
+    /**
+     * 踢出指定设备后仅该设备写入黑名单，其他设备不受影响。
+     */
+    @Test
+    void revokeDeviceShouldWriteBlacklistForThatDeviceOnly() {
+        String username = randomUsername("blkick");
+        LoginVo[] vos = registerAndLoginTwoDevices(username);
+        String userId = vos[0].getUserInfo().getId();
+
+        authService.revokeDevice(userId, vos[0].getDeviceId());
+
+        RBucket<String> devA = redissonClient.getBucket(
+                "jcloud:auth:blacklist:" + userId + ":" + vos[0].getDeviceId(), StringCodec.INSTANCE);
+        RBucket<String> devB = redissonClient.getBucket(
+                "jcloud:auth:blacklist:" + userId + ":" + vos[1].getDeviceId(), StringCodec.INSTANCE);
+        assertNotNull(devA.get());
+        assertNull(devB.get());
+        assertRefreshOk(vos[1].getRefreshToken());
     }
 
     private String randomUsername(String prefix) {

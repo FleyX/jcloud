@@ -47,6 +47,7 @@ public class AuthSessionSupport {
     private final AuthProperties authProperties;
     private final ObjectMapper objectMapper;
     private final JwtUtil jwtUtil;
+    private final AuthBlacklistSupport authBlacklistSupport;
 
     /**
      * 创建设备会话并返回刷新令牌原文。
@@ -131,7 +132,7 @@ public class AuthSessionSupport {
                 AuthSession session = fromJson(sessionJson, AuthSession.class);
                 String newRefreshToken = RandomUtil.randomString(64);
                 String newHash = DigestUtil.sha256Hex(newRefreshToken);
-                String newAccessToken = jwtUtil.generateToken(session.getUserId(), session.getUserCode());
+                String newAccessToken = jwtUtil.generateToken(session.getUserId(), session.getUserCode(), session.getDeviceId());
                 // 更新会话
                 session.setTokenHash(newHash);
                 session.setLastActiveTime(System.currentTimeMillis());
@@ -242,7 +243,7 @@ public class AuthSessionSupport {
     }
 
     /**
-     * 吊销设备会话，删除会话记录与当前令牌索引。
+     * 吊销设备会话，删除会话记录与当前令牌索引，并将该设备写入访问令牌黑名单。
      *
      * @param sessionKey 会话 key
      */
@@ -258,6 +259,8 @@ public class AuthSessionSupport {
                 if (StrUtil.isNotBlank(session.getTokenHash())) {
                     bucket(buildTokenKey(session.getTokenHash())).delete();
                 }
+                // 残余访问令牌立即失效（踢出/登出/全量吊销/泄漏吊销均经此汇合点生效）
+                authBlacklistSupport.revoke(session.getUserId(), session.getDeviceId());
             } catch (Exception e) {
                 log.warn("吊销会话解析失败 sessionKey={}", sessionKey, e);
             }

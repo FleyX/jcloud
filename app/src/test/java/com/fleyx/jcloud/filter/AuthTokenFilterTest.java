@@ -15,6 +15,7 @@ import com.fleyx.jcloud.mapper.UserMapper;
 import com.fleyx.jcloud.mapper.UserRoleMapper;
 import com.fleyx.jcloud.model.bo.RefreshResult;
 import com.fleyx.jcloud.model.po.User;
+import com.fleyx.jcloud.service.support.AuthBlacklistSupport;
 import com.fleyx.jcloud.service.support.AuthCookieSupport;
 import com.fleyx.jcloud.service.support.AuthSessionSupport;
 import com.fleyx.jcloud.util.JwtUtil;
@@ -31,6 +32,7 @@ import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 
 import java.io.IOException;
+import java.util.Date;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -62,6 +64,7 @@ class AuthTokenFilterTest {
     private PermissionResolver permissionResolver;
     private AuthSessionSupport authSessionSupport;
     private AuthCookieSupport authCookieSupport;
+    private AuthBlacklistSupport authBlacklistSupport;
 
     private AuthTokenFilter filter;
 
@@ -80,6 +83,7 @@ class AuthTokenFilterTest {
         jwtProperties.setExpireHours(24);
         authSessionSupport = mock(AuthSessionSupport.class);
         authCookieSupport = new AuthCookieSupport(authProperties, jwtProperties);
+        authBlacklistSupport = mock(AuthBlacklistSupport.class);
 
         List<PermissionRegistry.FilterResourceEntry> entries = List.of(
                 new PermissionRegistry.FilterResourceEntry("GET:" + PUBLIC_PATH, PermissionRegistry.TYPE_PUBLIC),
@@ -89,7 +93,7 @@ class AuthTokenFilterTest {
 
         filter = new AuthTokenFilter(jwtUtil, objectMapper, permissionRegistry,
                 userMapper, userRoleMapper, userPermissionCache, permissionResolver,
-                authSessionSupport, authCookieSupport);
+                authSessionSupport, authCookieSupport, authBlacklistSupport);
     }
 
     @Test
@@ -495,6 +499,113 @@ class AuthTokenFilterTest {
         assertEquals(200, resp2.getStatus());
         assertEquals(2, resp1.getHeaders("Set-Cookie").size());
         assertEquals(resp1.getHeaders("Set-Cookie"), resp2.getHeaders("Set-Cookie"));
+    }
+
+    /**
+     * 黑名单中的有效 access（cookie 通道）→ 401「登录状态已失效」。
+     */
+    @Test
+    void blacklistedAccessViaCookieShouldReturn401() throws ServletException, IOException {
+        Claims claims = mock(Claims.class);
+        when(jwtUtil.parseToken("revoked-access")).thenReturn(claims);
+        when(jwtUtil.getUserId(claims)).thenReturn("1");
+        when(jwtUtil.getUserCode(claims)).thenReturn("user");
+        when(jwtUtil.getDeviceId(claims)).thenReturn("dev-1");
+        when(claims.getIssuedAt()).thenReturn(new Date(1000L));
+        when(authBlacklistSupport.isRevoked("1", "dev-1", 1000L)).thenReturn(true);
+
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", API_PATH);
+        request.setCookies(new Cookie(AuthConstant.ACCESS_TOKEN_COOKIE, "revoked-access"));
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        MockFilterChain chain = new MockFilterChain();
+
+        filter.doFilter(request, response, chain);
+
+        assertEquals(401, response.getStatus());
+        JsonNode body = objectMapper.readTree(response.getContentAsString());
+        assertEquals(401, body.get("code").asInt());
+        assertEquals("登录状态已失效", body.get("msg").asText());
+    }
+
+    /**
+     * 黑名单中的有效 access（header 通道）→ 401「登录状态已失效」（双通道一视同仁）。
+     */
+    @Test
+    void blacklistedAccessViaHeaderShouldReturn401() throws ServletException, IOException {
+        Claims claims = mock(Claims.class);
+        when(jwtUtil.parseToken("revoked-token")).thenReturn(claims);
+        when(jwtUtil.getUserId(claims)).thenReturn("1");
+        when(jwtUtil.getUserCode(claims)).thenReturn("user");
+        when(jwtUtil.getDeviceId(claims)).thenReturn("dev-1");
+        when(claims.getIssuedAt()).thenReturn(new Date(1000L));
+        when(authBlacklistSupport.isRevoked("1", "dev-1", 1000L)).thenReturn(true);
+
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", LOGIN_PATH);
+        request.addHeader("Authorization", "Bearer revoked-token");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        MockFilterChain chain = new MockFilterChain();
+
+        filter.doFilter(request, response, chain);
+
+        assertEquals(401, response.getStatus());
+        JsonNode body = objectMapper.readTree(response.getContentAsString());
+        assertEquals("登录状态已失效", body.get("msg").asText());
+    }
+
+    /**
+     * 未列入黑名单的设备令牌 → 放行，鉴权行为不受影响。
+     */
+    @Test
+    void nonBlacklistedDeviceTokenShouldPass() throws ServletException, IOException {
+        Claims claims = mock(Claims.class);
+        when(jwtUtil.parseToken("valid-token")).thenReturn(claims);
+        when(jwtUtil.getUserId(claims)).thenReturn("1");
+        when(jwtUtil.getUserCode(claims)).thenReturn("user");
+        when(jwtUtil.getDeviceId(claims)).thenReturn("dev-1");
+        when(claims.getIssuedAt()).thenReturn(new Date(1000L));
+        when(authBlacklistSupport.isRevoked("1", "dev-1", 1000L)).thenReturn(false);
+
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", LOGIN_PATH);
+        request.addHeader("Authorization", "Bearer valid-token");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        MockFilterChain chain = new MockFilterChain();
+
+        filter.doFilter(request, response, chain);
+
+        assertEquals(200, response.getStatus());
+        assertTrue(chain.getRequest() != null);
+    }
+
+    /**
+     * 同设备重新登录产生的新 token（iat 晚于吊销时间戳）→ 放行。
+     * <p>
+     * 过滤器负责将请求令牌的 iat 透传给黑名单判定；比较语义在 AuthBlacklistSupport 内完成，
+     * 此处以 isRevoked 返回 false 模拟「新 token 晚于吊销时间戳」的放行分支。
+     */
+    @Test
+    void sameDeviceNewerTokenAfterRevokeShouldPass() throws ServletException, IOException {
+        long revokeAtMillis = 5000L;
+        long newerIat = 6000L; // 晚于吊销时间戳
+        Claims claims = mock(Claims.class);
+        when(jwtUtil.parseToken("newer-token")).thenReturn(claims);
+        when(jwtUtil.getUserId(claims)).thenReturn("1");
+        when(jwtUtil.getUserCode(claims)).thenReturn("user");
+        when(jwtUtil.getDeviceId(claims)).thenReturn("dev-1");
+        when(claims.getIssuedAt()).thenReturn(new Date(newerIat));
+        // 模拟 AuthBlacklistSupport 的 iat 与吊销时间戳比较：新 token 放行
+        when(authBlacklistSupport.isRevoked("1", "dev-1", newerIat))
+                .thenAnswer(inv -> inv.<Long>getArgument(2) <= revokeAtMillis);
+
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", LOGIN_PATH);
+        request.addHeader("Authorization", "Bearer newer-token");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        MockFilterChain chain = new MockFilterChain();
+
+        filter.doFilter(request, response, chain);
+
+        assertEquals(200, response.getStatus());
+        assertTrue(chain.getRequest() != null);
+        verify(authBlacklistSupport).isRevoked("1", "dev-1", newerIat);
     }
 
     private MockHttpServletRequest requestWithExpiredCookies() {

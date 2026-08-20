@@ -15,6 +15,7 @@ import com.fleyx.jcloud.mapper.UserMapper;
 import com.fleyx.jcloud.mapper.UserRoleMapper;
 import com.fleyx.jcloud.model.bo.RefreshResult;
 import com.fleyx.jcloud.model.po.User;
+import com.fleyx.jcloud.service.support.AuthBlacklistSupport;
 import com.fleyx.jcloud.service.support.AuthCookieSupport;
 import com.fleyx.jcloud.service.support.AuthSessionSupport;
 import com.fleyx.jcloud.util.JwtUtil;
@@ -66,6 +67,7 @@ public class AuthTokenFilter extends OncePerRequestFilter {
     private final PermissionResolver permissionResolver;
     private final AuthSessionSupport authSessionSupport;
     private final AuthCookieSupport authCookieSupport;
+    private final AuthBlacklistSupport authBlacklistSupport;
 
     private final AntPathMatcher pathMatcher = new AntPathMatcher();
 
@@ -74,7 +76,8 @@ public class AuthTokenFilter extends OncePerRequestFilter {
     public AuthTokenFilter(JwtUtil jwtUtil, ObjectMapper objectMapper, PermissionRegistry permissionRegistry,
                            UserMapper userMapper, UserRoleMapper userRoleMapper,
                            UserPermissionCache userPermissionCache, PermissionResolver permissionResolver,
-                           AuthSessionSupport authSessionSupport, AuthCookieSupport authCookieSupport) {
+                           AuthSessionSupport authSessionSupport, AuthCookieSupport authCookieSupport,
+                           AuthBlacklistSupport authBlacklistSupport) {
         this.jwtUtil = jwtUtil;
         this.objectMapper = objectMapper;
         this.permissionRegistry = permissionRegistry;
@@ -84,6 +87,7 @@ public class AuthTokenFilter extends OncePerRequestFilter {
         this.permissionResolver = permissionResolver;
         this.authSessionSupport = authSessionSupport;
         this.authCookieSupport = authCookieSupport;
+        this.authBlacklistSupport = authBlacklistSupport;
         this.resourceEntries = loadResources();
     }
 
@@ -165,6 +169,14 @@ public class AuthTokenFilter extends OncePerRequestFilter {
                          ResourcePermissionResult result, String resourceKey, Claims claims)
             throws ServletException, IOException {
         String userId = jwtUtil.getUserId(claims);
+        // 黑名单校验：携带设备标识的令牌若签发时间不晚于吊销时间戳则判定已吊销（cookie 与 header 通道一视同仁）
+        String deviceId = jwtUtil.getDeviceId(claims);
+        if (StrUtil.isNotBlank(deviceId) && claims.getIssuedAt() != null
+                && authBlacklistSupport.isRevoked(userId, deviceId, claims.getIssuedAt().getTime())) {
+            log.info("黑名单命中，拒绝访问 userId={}, deviceId={}", userId, deviceId);
+            writeResponse(response, ResultCode.UNAUTHORIZED, "登录状态已失效");
+            return;
+        }
         CurrentUser currentUser = new CurrentUser(userId, jwtUtil.getUserCode(claims));
         request.setAttribute(CurrentUser.class.getName(), currentUser);
         try {

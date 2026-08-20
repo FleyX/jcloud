@@ -9,6 +9,7 @@ import com.fleyx.jcloud.filter.TraceIdFilter;
 import com.fleyx.jcloud.filter.WebDavAuthFilter;
 import com.fleyx.jcloud.mapper.UserMapper;
 import com.fleyx.jcloud.mapper.UserRoleMapper;
+import com.fleyx.jcloud.service.support.AuthBlacklistSupport;
 import com.fleyx.jcloud.service.support.AuthCookieSupport;
 import com.fleyx.jcloud.service.support.AuthSessionSupport;
 import com.fleyx.jcloud.util.JwtUtil;
@@ -33,6 +34,7 @@ public class FilterConfig {
     private final PermissionResolver permissionResolver;
     private final AuthSessionSupport authSessionSupport;
     private final AuthCookieSupport authCookieSupport;
+    private final AuthBlacklistSupport authBlacklistSupport;
 
     /**
      * 注册链路追踪 ID 过滤器。
@@ -55,7 +57,7 @@ public class FilterConfig {
         FilterRegistrationBean<AuthTokenFilter> registration = new FilterRegistrationBean<>();
         registration.setFilter(new AuthTokenFilter(jwtUtil, objectMapper, permissionRegistry,
                 userMapper, userRoleMapper, userPermissionCache, permissionResolver,
-                authSessionSupport, authCookieSupport));
+                authSessionSupport, authCookieSupport, authBlacklistSupport));
         registration.addUrlPatterns("/jcloud/api/*");
         registration.setName("authTokenFilter");
         registration.setOrder(2);
