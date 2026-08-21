@@ -180,6 +180,8 @@ export interface MediaSeriesVo {
   lastPlayTime: string | null
   /** 元数据完整性（后端重算，前端已不展示弱标识） */
   metadataComplete: boolean
+  /** 已观看标记：整剧是否全部集已观看（工单 02 三级联动聚合） */
+  watched: boolean
   /** 当前用户是否已收藏 */
   favorited: boolean
 }
@@ -353,6 +355,8 @@ export interface MediaSeriesSeasonVo {
   episodeCount: number
   /** 是否有观看进度（存在 progressMs > 0 的集） */
   hasProgress: boolean
+  /** 已观看标记：本季是否全部集已观看（工单 02 三级联动聚合） */
+  watched: boolean
   /** 当前用户是否已收藏 */
   favorited: boolean
 }
@@ -373,6 +377,8 @@ export interface MediaSeriesDetailVo {
   seasons: MediaSeriesSeasonVo[]
   /** 元数据完整性（后端重算，前端已不展示弱标识） */
   metadataComplete: boolean
+  /** 已观看标记：整剧是否全部集已观看（工单 02 三级联动聚合） */
+  watched: boolean
   /** 当前用户是否已收藏 */
   favorited: boolean
 }

@@ -11,6 +11,7 @@ import com.fleyx.jcloud.mapper.MediaEpisodeMapper;
 import com.fleyx.jcloud.mapper.MediaMovieFileMapper;
 import com.fleyx.jcloud.mapper.MediaMovieMapper;
 import com.fleyx.jcloud.mapper.MediaOtherMapper;
+import com.fleyx.jcloud.mapper.MediaSeasonMapper;
 import com.fleyx.jcloud.mapper.MediaSeriesMapper;
 import com.fleyx.jcloud.model.dto.MediaMatchUpdateDto;
 import com.fleyx.jcloud.model.dto.MediaPageQueryDto;
@@ -22,6 +23,7 @@ import com.fleyx.jcloud.model.po.MediaMetadata;
 import com.fleyx.jcloud.model.po.MediaMovie;
 import com.fleyx.jcloud.model.po.MediaMovieFile;
 import com.fleyx.jcloud.model.po.MediaOther;
+import com.fleyx.jcloud.model.po.MediaSeason;
 import com.fleyx.jcloud.model.po.MediaSeries;
 import com.fleyx.jcloud.model.vo.MediaGenreVo;
 import com.fleyx.jcloud.model.vo.MediaItemDetailVo;
@@ -39,12 +41,14 @@ import com.fleyx.jcloud.service.support.MediaOtherQuerySupport;
 import com.fleyx.jcloud.service.support.MediaPlaybackResolveSupport;
 import com.fleyx.jcloud.service.support.MediaTvQuerySupport;
 import com.fleyx.jcloud.service.support.MediaTvScrapeSupport;
+import com.fleyx.jcloud.service.support.MediaWatchedLinkageSupport;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * 媒体条目查询与匹配服务实现。
@@ -64,6 +68,7 @@ public class MediaItemServiceImpl implements MediaItemService {
     private final MediaMovieFileMapper mediaMovieFileMapper;
     private final MediaEpisodeMapper mediaEpisodeMapper;
     private final MediaEpisodeFileMapper mediaEpisodeFileMapper;
+    private final MediaSeasonMapper mediaSeasonMapper;
     private final MediaOtherMapper mediaOtherMapper;
     private final TmdbService tmdbService;
     private final MediaTvQuerySupport mediaTvQuerySupport;
@@ -73,6 +78,7 @@ public class MediaItemServiceImpl implements MediaItemService {
     private final MediaTvScrapeSupport mediaTvScrapeSupport;
     private final MediaMovieScrapeSupport mediaMovieScrapeSupport;
     private final MediaGenreSupport mediaGenreSupport;
+    private final MediaWatchedLinkageSupport mediaWatchedLinkageSupport;
 
     @Override
     public IPage<MediaItemVo> listMovies(String userId, MediaPageQueryDto query) {
@@ -209,9 +215,15 @@ public class MediaItemServiceImpl implements MediaItemService {
             if (file != null) {
                 episode.setLastPlayFileId(file.getId());
             }
+            boolean beforeWatched = Boolean.TRUE.equals(episode.getWatched());
             applyWatchedDrivenProgress(episode.getWatched(), episode::setWatched, episode::setProgressMs,
                     dto.getProgressMs(), file == null ? null : file.getDurationMs());
+            boolean afterWatched = Boolean.TRUE.equals(episode.getWatched());
             mediaEpisodeMapper.updateById(episode);
+            // 集由未看转已看（进度驱动）→ 重算父级联动（工单 02）
+            if (!beforeWatched && afterWatched) {
+                mediaWatchedLinkageSupport.recomputeParents(episode.getSeasonId(), episode.getSeriesId());
+            }
             return;
         }
         MediaOther other = mediaOtherMapper.selectById(itemId);
@@ -246,7 +258,7 @@ public class MediaItemServiceImpl implements MediaItemService {
 
     @Override
     public void updateWatched(String itemId, MediaWatchedUpdateDto dto, String userId) {
-        // 电影/集/其他三类的已观看标记（工单 01）：标记已观看时清零进度，取消标记仅清标记。
+        // 电影/剧/集/季/其他五类的已观看标记（工单 01/02）：标记已观看时清零进度，取消标记仅清标记。
         boolean watched = Boolean.TRUE.equals(dto.getWatched());
         MediaMovie movie = mediaMovieMapper.selectById(itemId);
         if (movie != null) {
@@ -260,17 +272,42 @@ public class MediaItemServiceImpl implements MediaItemService {
             mediaMovieMapper.updateById(movie);
             return;
         }
+        // 剧：整剧向下级联所有季与集同值（工单 02）
+        MediaSeries series = mediaSeriesMapper.selectById(itemId);
+        if (series != null) {
+            if (!userId.equals(series.getUserId())) {
+                throw new BusinessException(ResultCode.NOT_FOUND, "电视剧不存在");
+            }
+            mediaWatchedLinkageSupport.cascadeSeries(series.getId(), watched);
+            return;
+        }
         MediaEpisode episode = mediaEpisodeMapper.selectById(itemId);
         if (episode != null) {
-            MediaSeries series = mediaSeriesMapper.selectById(episode.getSeriesId());
-            if (series == null || !userId.equals(series.getUserId())) {
+            MediaSeries owner = mediaSeriesMapper.selectById(episode.getSeriesId());
+            if (owner == null || !userId.equals(owner.getUserId())) {
                 throw new BusinessException(ResultCode.NOT_FOUND, "媒体条目不存在");
             }
+            boolean changed = !Objects.equals(episode.getWatched(), watched);
             episode.setWatched(watched);
             if (watched) {
                 episode.setProgressMs(0L);
             }
             mediaEpisodeMapper.updateById(episode);
+            // 集标记实际变化 → 重算父级联动（工单 02）
+            if (changed) {
+                mediaWatchedLinkageSupport.recomputeParents(episode.getSeasonId(), episode.getSeriesId());
+            }
+            return;
+        }
+        // 季：向下级联其所有集，并经剧间接校验归属（工单 02）
+        MediaSeason season = mediaSeasonMapper.selectById(itemId);
+        if (season != null) {
+            MediaSeries owner = mediaSeriesMapper.selectById(season.getSeriesId());
+            if (owner == null || !userId.equals(owner.getUserId())) {
+                throw new BusinessException(ResultCode.NOT_FOUND, "季不存在");
+            }
+            mediaWatchedLinkageSupport.cascadeSeason(season.getId(), watched);
+            mediaWatchedLinkageSupport.recomputeParents(season.getId(), season.getSeriesId());
             return;
         }
         MediaOther other = mediaOtherMapper.selectById(itemId);

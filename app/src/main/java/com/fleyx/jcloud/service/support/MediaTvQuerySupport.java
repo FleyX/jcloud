@@ -125,6 +125,7 @@ public class MediaTvQuerySupport implements MediaItemQueryStrategy<MediaSeries, 
         vo.setVoteAverage(metadata == null ? null : metadata.getVoteAverage());
         vo.setPosterUrl(mediaItemVoSupport.posterUrlOf(metadata, ctx.nodeVersionMap()));
         vo.setFavorited(ctx.isFavorited(series.getId()));
+        vo.setWatched(series.getWatched());
         return vo;
     }
 
@@ -172,6 +173,7 @@ public class MediaTvQuerySupport implements MediaItemQueryStrategy<MediaSeries, 
         vo.setMatchStatus(series.getMatchStatus());
         vo.setMetadataComplete(series.getMetadataComplete());
         vo.setMetadataId(series.getMetadataId());
+        vo.setWatched(series.getWatched());
         vo.setSeasons(buildSeasonVos(series));
         vo.setSeasonCount(vo.getSeasons().size());
         if (metadata != null) {
@@ -344,6 +346,7 @@ public class MediaTvQuerySupport implements MediaItemQueryStrategy<MediaSeries, 
                     : mediaItemVoSupport.posterUrlOf(metadataMap.get(season.getMetadataId()), nodeVersionMap));
             vo.setEpisodeCount((long) episodes.size());
             vo.setHasProgress(episodes.stream().anyMatch(e -> e.getProgressMs() != null && e.getProgressMs() > 0));
+            vo.setWatched(season.getWatched());
             result.add(vo);
         }
         result.sort(Comparator.comparing(MediaSeriesSeasonVo::getSeasonNo, Comparator.nullsLast(Integer::compareTo)));

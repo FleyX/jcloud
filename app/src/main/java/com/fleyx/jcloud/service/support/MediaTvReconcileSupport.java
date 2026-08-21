@@ -53,6 +53,7 @@ public class MediaTvReconcileSupport {
     private final MediaEpisodeFileMapper mediaEpisodeFileMapper;
     private final MediaTvCascadeSupport mediaTvCascadeSupport;
     private final MediaReconcileDriverSupport mediaReconcileDriverSupport;
+    private final MediaWatchedLinkageSupport mediaWatchedLinkageSupport;
 
     /** 一季内待 reconcile 的集文件。 */
     public record SeasonFiles(FileNode seasonFolder, List<FileNode> videoFiles) {
@@ -294,6 +295,8 @@ public class MediaTvReconcileSupport {
                 .eq(MediaEpisodeFile::getEpisodeId, current.getId())
                 .ne(MediaEpisodeFile::getId, row.getId()));
         if (siblings != null && siblings == 0) {
+            String srcSeasonId = current.getSeasonId();
+            String srcSeriesId = current.getSeriesId();
             mediaEpisodeMapper.update(null, new LambdaUpdateWrapper<MediaEpisode>()
                     .eq(MediaEpisode::getId, current.getId())
                     .set(MediaEpisode::getSeriesId, series.getId())
@@ -306,13 +309,16 @@ public class MediaTvReconcileSupport {
                 existingEpisodes.add(current);
                 episodeById.put(current.getId(), current);
             }
+            // 集改挂移动（watched 随行）：重算源与目标两侧父级（工单 02）
+            mediaWatchedLinkageSupport.recomputeParents(srcSeasonId, srcSeriesId);
+            mediaWatchedLinkageSupport.recomputeParents(season.getId(), series.getId());
             return current;
         }
         return createEpisode(series, season, episodeNo, existingEpisodes, episodeById);
     }
 
-    private MediaEpisode createEpisode(MediaSeries series, MediaSeason season, Integer episodeNo,
-                                       List<MediaEpisode> existingEpisodes, Map<String, MediaEpisode> episodeById) {
+    MediaEpisode createEpisode(MediaSeries series, MediaSeason season, Integer episodeNo,
+                               List<MediaEpisode> existingEpisodes, Map<String, MediaEpisode> episodeById) {
         MediaEpisode episode = new MediaEpisode();
         episode.setSeriesId(series.getId());
         episode.setSeasonId(season.getId());
@@ -321,6 +327,8 @@ public class MediaTvReconcileSupport {
         mediaEpisodeMapper.insert(episode);
         existingEpisodes.add(episode);
         episodeById.put(episode.getId(), episode);
+        // 新集默认未观看 → 父级重算：追更剧回到未看完（工单 02）
+        mediaWatchedLinkageSupport.recomputeParents(season.getId(), series.getId());
         return episode;
     }
 

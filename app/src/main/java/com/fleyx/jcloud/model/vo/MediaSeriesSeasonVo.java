@@ -34,6 +34,11 @@ public class MediaSeriesSeasonVo {
     private Boolean hasProgress;
 
     /**
+     * 已观看标记：本季是否全部集已观看（工单 02 三级联动聚合）。
+     */
+    private Boolean watched;
+
+    /**
      * 当前用户是否已收藏（季卡片悬浮心形展示用）。
      */
     private Boolean favorited = Boolean.FALSE;
