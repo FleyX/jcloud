@@ -14,6 +14,7 @@ import { fetchItemDetail, refreshMetadata, toggleFavorite, updateMediaMatch, upd
 import { formatSize } from '@/utils/fileDisplay'
 import { cn } from '@/utils/cn'
 import { useNotificationStore } from '@/store/notification'
+import { useOptimisticToggle } from '@/composables/useOptimisticToggle'
 import { formatDurationText } from './format'
 import MediaDetailHero from './MediaDetailHero.vue'
 import TmdbMatchModal from './TmdbMatchModal.vue'
@@ -106,20 +107,19 @@ async function toggleMovieFavorite() {
 }
 
 /** 标记/取消已观看：本地先翻转，成功后保留、失败回滚；标记已观看时同步清零进度（使播放按钮文案回退为「播放」） */
-async function toggleMovieWatched() {
-  if (!detail.value) return
-  const previous = detail.value.watched
-  const previousProgressMs = detail.value.progressMs
-  const watched = !previous
-  detail.value.watched = watched
-  if (watched) detail.value.progressMs = 0
-  try {
-    await updateMediaWatched(itemId, watched)
-  } catch {
-    detail.value.watched = previous
-    if (watched) detail.value.progressMs = previousProgressMs
-  }
-}
+const toggleMovieWatched = useOptimisticToggle({
+  isWatched: () => !!detail.value?.watched,
+  setWatched: (watched) => {
+    if (detail.value) detail.value.watched = watched
+  },
+  progress: {
+    get: () => detail.value?.progressMs ?? null,
+    set: (value) => {
+      if (detail.value) detail.value.progressMs = value ?? 0
+    },
+  },
+  toggle: (watched) => updateMediaWatched(itemId, watched),
+}).toggle
 </script>
 
 <template>

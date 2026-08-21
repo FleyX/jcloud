@@ -12,6 +12,7 @@ import { Check, Film, Heart } from '@lucide/vue'
 import { toggleFavorite, updateMediaWatched } from '@/api/media'
 import type { MediaFavoriteOwnerType } from '@/types/media'
 import { cn } from '@/utils/cn'
+import { useOptimisticToggle } from '@/composables/useOptimisticToggle'
 
 interface Props {
   title: string
@@ -74,7 +75,14 @@ watch(
   },
 )
 
-const watchedToggling = ref(false)
+/** 已观看切换（乐观 toggle）：本地先翻转、调 update 成功保留、失败回滚（异常提示由统一请求层处理） */
+const { toggle: performWatchToggle, toggling: watchedToggling } = useOptimisticToggle({
+  isWatched: () => watched.value,
+  setWatched: (value) => {
+    watched.value = value
+  },
+  toggle: (value) => updateMediaWatched(props.ownerId ?? '', value),
+})
 
 /** 海报加载失败标志：加载失败视同无图走 v-else 占位（URL 变化时复位） */
 const imgError = ref(false)
@@ -101,19 +109,10 @@ async function toggle() {
   }
 }
 
-/** 点击 ✓：本地先翻转，调 update 成功保留、失败回滚（异常提示由统一请求层处理） */
+/** 点击 ✓：ownerId 缺失或切换进行中则不触发 */
 async function toggleWatched() {
   if (!props.ownerId || watchedToggling.value) return
-  const previous = watched.value
-  watched.value = !previous
-  watchedToggling.value = true
-  try {
-    await updateMediaWatched(props.ownerId, !previous)
-  } catch {
-    watched.value = previous
-  } finally {
-    watchedToggling.value = false
-  }
+  await performWatchToggle()
 }
 </script>
 

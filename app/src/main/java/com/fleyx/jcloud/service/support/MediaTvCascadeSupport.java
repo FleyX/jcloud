@@ -154,7 +154,7 @@ public class MediaTvCascadeSupport {
             deletedEpisodeIds.add(episodeId);
             // 集删除后重算其父级标记（工单 02）
             if (episode != null) {
-                mediaWatchedLinkageSupport.recomputeParents(episode.getSeasonId(), episode.getSeriesId());
+                mediaWatchedLinkageSupport.recomputeParentsOf(episode);
             }
             log.info("即时删除消失的集: {}", episodeId);
         }

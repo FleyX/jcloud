@@ -311,7 +311,7 @@ public class MediaTvReconcileSupport {
             }
             // 集改挂移动（watched 随行）：重算源与目标两侧父级（工单 02）
             mediaWatchedLinkageSupport.recomputeParents(srcSeasonId, srcSeriesId);
-            mediaWatchedLinkageSupport.recomputeParents(season.getId(), series.getId());
+            mediaWatchedLinkageSupport.recomputeParentsOf(current);
             return current;
         }
         return createEpisode(series, season, episodeNo, existingEpisodes, episodeById);

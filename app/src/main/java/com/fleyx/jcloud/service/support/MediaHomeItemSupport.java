@@ -119,6 +119,27 @@ public class MediaHomeItemSupport {
                 && progressMs != null && progressMs >= FINISHED_RATIO * durationMs;
     }
 
+    /**
+     * 进度驱动已观看的新状态。
+     *
+     * @param currentWatched 标记前 watched（可为 null，未看完且原为 null 时保持 null 不落库）
+     * @param progressMs     上报进度
+     * @param durationMs     代表文件时长（为空/非正时无法判定阈值，仅照写进度）
+     */
+    public record WatchedProgressState(Boolean watched, Long progressMs) {
+    }
+
+    /**
+     * 进度驱动已观看标记（纯函数，阈值事实源与 {@link #isFinished} 同处）：
+     * 进度达看完阈值 → (true, 0)；否则 → (currentWatched 原值, progressMs)。
+     */
+    public static WatchedProgressState applyWatchedDrivenProgress(Boolean currentWatched, long progressMs, Long durationMs) {
+        if (isFinished(progressMs, durationMs)) {
+            return new WatchedProgressState(true, 0L);
+        }
+        return new WatchedProgressState(currentWatched, progressMs);
+    }
+
     public boolean isFinished(MediaEpisodeFile file, MediaEpisode episode) {
         Long duration = file == null ? null : file.getDurationMs();
         return isFinished(progressOf(episode), duration);

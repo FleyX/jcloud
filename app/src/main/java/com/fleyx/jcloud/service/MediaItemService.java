@@ -87,7 +87,7 @@ public interface MediaItemService {
     void updateProgress(String itemId, MediaProgressUpdateDto dto, String userId);
 
     /**
-     * 标记/取消已观看（电影/集/其他标题级行）。标记已观看时清零播放进度，
+     * 标记/取消已观看（电影/剧/季/集/其他标题级行）。标记已观看时清零播放进度，
      * 取消标记仅清除 watched 不动进度。
      *
      * @param itemId 条目 ID

@@ -2,6 +2,7 @@ package com.fleyx.jcloud.service.support;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.baomidou.mybatisplus.core.toolkit.support.SFunction;
 import com.fleyx.jcloud.mapper.MediaEpisodeMapper;
 import com.fleyx.jcloud.mapper.MediaSeasonMapper;
 import com.fleyx.jcloud.mapper.MediaSeriesMapper;
@@ -79,20 +80,31 @@ public class MediaWatchedLinkageSupport {
      * 便利重载：仅重算一部剧的 watched（季删除等只影响剧的场景）。
      */
     public void recomputeSeries(String seriesId) {
-        Long total = mediaEpisodeMapper.selectCount(new LambdaQueryWrapper<MediaEpisode>()
-                .eq(MediaEpisode::getSeriesId, seriesId));
-        Long unwatched = mediaEpisodeMapper.selectCount(new LambdaQueryWrapper<MediaEpisode>()
-                .eq(MediaEpisode::getSeriesId, seriesId).eq(MediaEpisode::getWatched, false));
         mediaSeriesMapper.update(null, new LambdaUpdateWrapper<MediaSeries>()
                 .eq(MediaSeries::getId, seriesId)
-                .set(MediaSeries::getWatched, fullyWatched(total, unwatched)));
+                .set(MediaSeries::getWatched, parentFullyWatched(MediaEpisode::getSeriesId, seriesId)));
+    }
+
+    /**
+     * 便利重载：手上有集对象时直接重算其父级（内部取其 seasonId/seriesId）。
+     */
+    public void recomputeParentsOf(MediaEpisode episode) {
+        recomputeParents(episode.getSeasonId(), episode.getSeriesId());
     }
 
     private boolean seasonFullyWatched(String seasonId) {
+        return parentFullyWatched(MediaEpisode::getSeasonId, seasonId);
+    }
+
+    /**
+     * 父级已观看判定（共用形状）：聚合该父级下全部集数（total）与未观看数（unwatched），
+     * 全部集已观看即父级已观看。
+     */
+    private boolean parentFullyWatched(SFunction<MediaEpisode, ?> parentColumn, String parentValue) {
         Long total = mediaEpisodeMapper.selectCount(new LambdaQueryWrapper<MediaEpisode>()
-                .eq(MediaEpisode::getSeasonId, seasonId));
+                .eq(parentColumn, parentValue));
         Long unwatched = mediaEpisodeMapper.selectCount(new LambdaQueryWrapper<MediaEpisode>()
-                .eq(MediaEpisode::getSeasonId, seasonId).eq(MediaEpisode::getWatched, false));
+                .eq(parentColumn, parentValue).eq(MediaEpisode::getWatched, false));
         return fullyWatched(total, unwatched);
     }
 

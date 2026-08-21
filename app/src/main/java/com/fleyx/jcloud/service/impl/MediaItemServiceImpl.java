@@ -11,7 +11,6 @@ import com.fleyx.jcloud.mapper.MediaEpisodeMapper;
 import com.fleyx.jcloud.mapper.MediaMovieFileMapper;
 import com.fleyx.jcloud.mapper.MediaMovieMapper;
 import com.fleyx.jcloud.mapper.MediaOtherMapper;
-import com.fleyx.jcloud.mapper.MediaSeasonMapper;
 import com.fleyx.jcloud.mapper.MediaSeriesMapper;
 import com.fleyx.jcloud.model.dto.MediaMatchUpdateDto;
 import com.fleyx.jcloud.model.dto.MediaPageQueryDto;
@@ -23,7 +22,6 @@ import com.fleyx.jcloud.model.po.MediaMetadata;
 import com.fleyx.jcloud.model.po.MediaMovie;
 import com.fleyx.jcloud.model.po.MediaMovieFile;
 import com.fleyx.jcloud.model.po.MediaOther;
-import com.fleyx.jcloud.model.po.MediaSeason;
 import com.fleyx.jcloud.model.po.MediaSeries;
 import com.fleyx.jcloud.model.vo.MediaGenreVo;
 import com.fleyx.jcloud.model.vo.MediaItemDetailVo;
@@ -34,21 +32,17 @@ import com.fleyx.jcloud.model.vo.MediaSeriesVo;
 import com.fleyx.jcloud.service.MediaItemService;
 import com.fleyx.jcloud.service.TmdbService;
 import com.fleyx.jcloud.service.support.MediaGenreSupport;
-import com.fleyx.jcloud.service.support.MediaHomeItemSupport;
 import com.fleyx.jcloud.service.support.MediaMovieQuerySupport;
 import com.fleyx.jcloud.service.support.MediaMovieScrapeSupport;
 import com.fleyx.jcloud.service.support.MediaOtherQuerySupport;
-import com.fleyx.jcloud.service.support.MediaPlaybackResolveSupport;
 import com.fleyx.jcloud.service.support.MediaTvQuerySupport;
 import com.fleyx.jcloud.service.support.MediaTvScrapeSupport;
-import com.fleyx.jcloud.service.support.MediaWatchedLinkageSupport;
+import com.fleyx.jcloud.service.support.MediaWatchedWriteSupport;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Objects;
 
 /**
  * 媒体条目查询与匹配服务实现。
@@ -68,17 +62,15 @@ public class MediaItemServiceImpl implements MediaItemService {
     private final MediaMovieFileMapper mediaMovieFileMapper;
     private final MediaEpisodeMapper mediaEpisodeMapper;
     private final MediaEpisodeFileMapper mediaEpisodeFileMapper;
-    private final MediaSeasonMapper mediaSeasonMapper;
     private final MediaOtherMapper mediaOtherMapper;
     private final TmdbService tmdbService;
     private final MediaTvQuerySupport mediaTvQuerySupport;
     private final MediaMovieQuerySupport mediaMovieQuerySupport;
     private final MediaOtherQuerySupport mediaOtherQuerySupport;
-    private final MediaPlaybackResolveSupport mediaPlaybackResolveSupport;
     private final MediaTvScrapeSupport mediaTvScrapeSupport;
     private final MediaMovieScrapeSupport mediaMovieScrapeSupport;
     private final MediaGenreSupport mediaGenreSupport;
-    private final MediaWatchedLinkageSupport mediaWatchedLinkageSupport;
+    private final MediaWatchedWriteSupport mediaWatchedWriteSupport;
 
     @Override
     public IPage<MediaItemVo> listMovies(String userId, MediaPageQueryDto query) {
@@ -182,143 +174,14 @@ public class MediaItemServiceImpl implements MediaItemService {
 
     @Override
     public void updateProgress(String itemId, MediaProgressUpdateDto dto, String userId) {
-        // 播放进度记录到标题级新行（issue #19）：电影 → t_media_movie、集 → t_media_episode、
-        // 其他 → t_media_other；一部电影多版本共享进度，续播按 last_play_file_id 定位版本文件。
-        // 进度驱动已观看（工单 01）：进度达看完阈值自动置 watched 并清零进度，否则照写进度。
-        LocalDateTime now = LocalDateTime.now();
-        MediaMovie movie = mediaMovieMapper.selectById(itemId);
-        if (movie != null) {
-            if (!userId.equals(movie.getUserId())) {
-                throw new BusinessException(ResultCode.NOT_FOUND, "媒体条目不存在");
-            }
-            // 指定版本时校验该明细行属于此电影并记为该次播放版本，缺省按续播定位（last_play_file_id 优先）
-            MediaMovieFile file = dto.getVersionId() == null
-                    ? mediaPlaybackResolveSupport.pickMovieFile(movie)
-                    : mediaPlaybackResolveSupport.pickVersion(movie, dto.getVersionId());
-            movie.setLastPlayTime(now);
-            if (file != null) {
-                movie.setLastPlayFileId(file.getId());
-            }
-            applyWatchedDrivenProgress(movie.getWatched(), movie::setWatched, movie::setProgressMs,
-                    dto.getProgressMs(), file == null ? null : file.getDurationMs());
-            mediaMovieMapper.updateById(movie);
-            return;
-        }
-        MediaEpisode episode = mediaEpisodeMapper.selectById(itemId);
-        if (episode != null) {
-            MediaSeries series = mediaSeriesMapper.selectById(episode.getSeriesId());
-            if (series == null || !userId.equals(series.getUserId())) {
-                throw new BusinessException(ResultCode.NOT_FOUND, "媒体条目不存在");
-            }
-            MediaEpisodeFile file = mediaPlaybackResolveSupport.pickEpisodeFile(episode);
-            episode.setLastPlayTime(now);
-            if (file != null) {
-                episode.setLastPlayFileId(file.getId());
-            }
-            boolean beforeWatched = Boolean.TRUE.equals(episode.getWatched());
-            applyWatchedDrivenProgress(episode.getWatched(), episode::setWatched, episode::setProgressMs,
-                    dto.getProgressMs(), file == null ? null : file.getDurationMs());
-            boolean afterWatched = Boolean.TRUE.equals(episode.getWatched());
-            mediaEpisodeMapper.updateById(episode);
-            // 集由未看转已看（进度驱动）→ 重算父级联动（工单 02）
-            if (!beforeWatched && afterWatched) {
-                mediaWatchedLinkageSupport.recomputeParents(episode.getSeasonId(), episode.getSeriesId());
-            }
-            return;
-        }
-        MediaOther other = mediaOtherMapper.selectById(itemId);
-        if (other == null || !userId.equals(other.getUserId())) {
-            throw new BusinessException(ResultCode.NOT_FOUND, "媒体条目不存在");
-        }
-        other.setLastPlayTime(now);
-        applyWatchedDrivenProgress(other.getWatched(), other::setWatched, other::setProgressMs,
-                dto.getProgressMs(), other.getDurationMs());
-        mediaOtherMapper.updateById(other);
-    }
-
-    /**
-     * 进度驱动已观看标记：进度达看完阈值（{@link MediaHomeItemSupport#isFinished(Long, Long)}）时
-     * 置 watched=true 并清零进度；否则照写进度，watched 保持原值（已看完再次观看不复活）。
-     * durationMs 为空/非正时无法判定阈值，仅照写进度。
-     */
-    private void applyWatchedDrivenProgress(Boolean currentWatched,
-                                            java.util.function.Consumer<Boolean> watchedSetter,
-                                            java.util.function.Consumer<Long> progressSetter,
-                                            long progressMs, Long durationMs) {
-        if (MediaHomeItemSupport.isFinished(progressMs, durationMs)) {
-            watchedSetter.accept(true);
-            progressSetter.accept(0L);
-        } else {
-            if (Boolean.TRUE.equals(currentWatched)) {
-                watchedSetter.accept(true);
-            }
-            progressSetter.accept(progressMs);
-        }
+        // 实现下沉到 MediaWatchedWriteSupport（进度写入 + 归属校验 + 进度驱动已观看联动）
+        mediaWatchedWriteSupport.updateProgress(itemId, dto, userId);
     }
 
     @Override
     public void updateWatched(String itemId, MediaWatchedUpdateDto dto, String userId) {
-        // 电影/剧/集/季/其他五类的已观看标记（工单 01/02）：标记已观看时清零进度，取消标记仅清标记。
-        boolean watched = Boolean.TRUE.equals(dto.getWatched());
-        MediaMovie movie = mediaMovieMapper.selectById(itemId);
-        if (movie != null) {
-            if (!userId.equals(movie.getUserId())) {
-                throw new BusinessException(ResultCode.NOT_FOUND, "媒体条目不存在");
-            }
-            movie.setWatched(watched);
-            if (watched) {
-                movie.setProgressMs(0L);
-            }
-            mediaMovieMapper.updateById(movie);
-            return;
-        }
-        // 剧：整剧向下级联所有季与集同值（工单 02）
-        MediaSeries series = mediaSeriesMapper.selectById(itemId);
-        if (series != null) {
-            if (!userId.equals(series.getUserId())) {
-                throw new BusinessException(ResultCode.NOT_FOUND, "电视剧不存在");
-            }
-            mediaWatchedLinkageSupport.cascadeSeries(series.getId(), watched);
-            return;
-        }
-        MediaEpisode episode = mediaEpisodeMapper.selectById(itemId);
-        if (episode != null) {
-            MediaSeries owner = mediaSeriesMapper.selectById(episode.getSeriesId());
-            if (owner == null || !userId.equals(owner.getUserId())) {
-                throw new BusinessException(ResultCode.NOT_FOUND, "媒体条目不存在");
-            }
-            boolean changed = !Objects.equals(episode.getWatched(), watched);
-            episode.setWatched(watched);
-            if (watched) {
-                episode.setProgressMs(0L);
-            }
-            mediaEpisodeMapper.updateById(episode);
-            // 集标记实际变化 → 重算父级联动（工单 02）
-            if (changed) {
-                mediaWatchedLinkageSupport.recomputeParents(episode.getSeasonId(), episode.getSeriesId());
-            }
-            return;
-        }
-        // 季：向下级联其所有集，并经剧间接校验归属（工单 02）
-        MediaSeason season = mediaSeasonMapper.selectById(itemId);
-        if (season != null) {
-            MediaSeries owner = mediaSeriesMapper.selectById(season.getSeriesId());
-            if (owner == null || !userId.equals(owner.getUserId())) {
-                throw new BusinessException(ResultCode.NOT_FOUND, "季不存在");
-            }
-            mediaWatchedLinkageSupport.cascadeSeason(season.getId(), watched);
-            mediaWatchedLinkageSupport.recomputeParents(season.getId(), season.getSeriesId());
-            return;
-        }
-        MediaOther other = mediaOtherMapper.selectById(itemId);
-        if (other == null || !userId.equals(other.getUserId())) {
-            throw new BusinessException(ResultCode.NOT_FOUND, "媒体条目不存在");
-        }
-        other.setWatched(watched);
-        if (watched) {
-            other.setProgressMs(0L);
-        }
-        mediaOtherMapper.updateById(other);
+        // 实现下沉到 MediaWatchedWriteSupport（五类已观看标记 + 归属校验 + 父级联动）
+        mediaWatchedWriteSupport.updateWatched(itemId, dto, userId);
     }
 
     @Override

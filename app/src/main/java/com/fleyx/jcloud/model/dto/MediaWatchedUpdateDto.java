@@ -4,7 +4,7 @@ import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
 /**
- * 已观看标记更新入参（电影/集/其他标题级行）。
+ * 已观看标记更新入参（电影/剧/季/集/其他标题级行）。
  */
 @Data
 public class MediaWatchedUpdateDto {

@@ -41,6 +41,7 @@ import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
@@ -190,30 +191,40 @@ class MediaPlaybackServiceTest extends MediaScanTestBase {
                 .findFirst().orElseThrow();
         MediaMovieFile v2 = versions.stream().filter(f -> f.getFileNodeId().equals(fileNodeIdByName("沙丘.4K.mkv")))
                 .findFirst().orElseThrow();
+        // 首播定位与 pickRepresentative 契约同规则（createTime 最小，相同则 id 较小者），
+        // 不假设扫描插入顺序（目录文件列举顺序不稳定，曾致本断言偶发失败）
+        MediaMovieFile first = versions.stream()
+                .min(Comparator.comparing(MediaMovieFile::getCreateTime,
+                                Comparator.nullsLast(Comparator.naturalOrder()))
+                        .thenComparing(MediaMovieFile::getId))
+                .orElseThrow();
+        MediaMovieFile second = first == v1 ? v2 : v1;
+        String firstSubtitle = first == v1 ? "简体" : "English";
+        String secondSubtitle = first == v1 ? "English" : "简体";
 
-        // 第一次播放：进度记到电影行，last_play_file_id 定位最早版本（v1）
+        // 第一次播放：进度记到电影行，last_play_file_id 定位最早版本
         mediaItemService.updateProgress(movie.getId(), progressDto(5000L), user.getId());
         MediaMovie afterFirstPlay = mediaMovieMapper.selectById(movie.getId());
         assertEquals(5000L, afterFirstPlay.getProgressMs());
-        assertEquals(v1.getId(), afterFirstPlay.getLastPlayFileId());
+        assertEquals(first.getId(), afterFirstPlay.getLastPlayFileId());
 
-        // 续播：按 last_play_file_id 定位 v1，字幕列表只含 v1 的简体字幕
+        // 续播：按 last_play_file_id 定位首播版本，字幕列表只含该版本的外部字幕
         MediaPlaybackInfoVo resumeV1 = mediaPlaybackService.getPlaybackInfo(movie.getId(), user.getId(), null);
         assertEquals(5000L, resumeV1.getProgressMs());
         assertEquals(1, resumeV1.getSubtitles().size());
-        assertEquals("简体", resumeV1.getSubtitles().get(0).getLabel());
+        assertEquals(firstSubtitle, resumeV1.getSubtitles().get(0).getLabel());
 
-        // 切换到 v2（手动指定版本）后继续播放：进度共享更新，last_play_file_id 指向 v2
-        movie.setLastPlayFileId(v2.getId());
+        // 切换到另一版本（手动指定版本）后继续播放：进度共享更新，last_play_file_id 指向切换后版本
+        movie.setLastPlayFileId(second.getId());
         mediaMovieMapper.updateById(movie);
         mediaItemService.updateProgress(movie.getId(), progressDto(9000L), user.getId());
         MediaMovie afterSecondPlay = mediaMovieMapper.selectById(movie.getId());
         assertEquals(9000L, afterSecondPlay.getProgressMs());
-        assertEquals(v2.getId(), afterSecondPlay.getLastPlayFileId());
+        assertEquals(second.getId(), afterSecondPlay.getLastPlayFileId());
         MediaPlaybackInfoVo resumeV2 = mediaPlaybackService.getPlaybackInfo(movie.getId(), user.getId(), null);
         assertEquals(9000L, resumeV2.getProgressMs());
         assertEquals(1, resumeV2.getSubtitles().size());
-        assertEquals("English", resumeV2.getSubtitles().get(0).getLabel());
+        assertEquals(secondSubtitle, resumeV2.getSubtitles().get(0).getLabel());
     }
 
     /**

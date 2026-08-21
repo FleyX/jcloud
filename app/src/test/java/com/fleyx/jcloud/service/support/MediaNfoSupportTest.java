@@ -15,7 +15,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class MediaNfoSupportTest {
 
-    private final MediaNfoSupport nfoSupport = new MediaNfoSupport();
+    private final MediaNfoSupport nfoSupport = new MediaNfoSupport(new MediaNfoMergeSupport());
 
     /**
      * 电影 NFO 完整字段解析。
@@ -420,5 +420,85 @@ class MediaNfoSupportTest {
                 nfoSupport.mergeNfo("<movie/>", movieMeta, 3, 4));
         assertNull(mdata.seasonNo());
         assertNull(mdata.episodeNo());
+    }
+
+    /**
+     * 管理标量字段值为 null（如 title/plot/rating/releaseDate 缺失）时删除既有同名元素，
+     * 对齐「jcloud 为准覆盖」与 genre 整体替换语义。
+     */
+    @Test
+    void shouldMergeDeleteManagedFieldsWhenValueNull() {
+        MediaMetadata metadata = new MediaMetadata();
+        metadata.setOwnerType(MediaMetadataOwnerType.MOVIE.getCode());
+        metadata.setTmdbId(42L);
+        String existing = """
+                <movie>
+                  <tmdbid>1</tmdbid>
+                  <title>旧标题</title>
+                  <plot>旧简介</plot>
+                  <year>2010</year>
+                  <premiered>2010-01-01</premiered>
+                  <rating>7.0</rating>
+                  <genre>科幻</genre>
+                </movie>
+                """;
+
+        String merged = nfoSupport.mergeNfo(existing, metadata, null, null);
+        MediaNfoSupport.NfoData data = nfoSupport.parse(merged);
+
+        // 值非空字段照常覆盖（tmdbid 更新为 42）
+        assertEquals(42L, data.tmdbId());
+        // 管理标量值为 null 时删除既有旧元素（title/plot/rating/releaseDate→year/premiered）
+        assertNull(data.title());
+        assertNull(data.overview());
+        assertNull(data.voteAverage());
+        assertNull(data.releaseDate());
+        assertTrue(!merged.contains("<title>"));
+        assertTrue(!merged.contains("<plot>"));
+        assertTrue(!merged.contains("<year>"));
+        assertTrue(!merged.contains("<premiered>"));
+        assertTrue(!merged.contains("<rating>"));
+        // genre 无值时整体替换为空
+        assertTrue(!merged.contains("科幻"));
+    }
+
+    /**
+     * 同名管理元素存在多个时：更新第一个、删除其余，收敛为单值。
+     */
+    @Test
+    void shouldMergeConvergeDuplicateManagedElements() {
+        MediaMetadata metadata = new MediaMetadata();
+        metadata.setOwnerType(MediaMetadataOwnerType.MOVIE.getCode());
+        metadata.setTmdbId(77L);
+        metadata.setTitle("收敛标题");
+        metadata.setReleaseDate("2021-05-06");
+        String existing = """
+                <movie>
+                  <title>旧一</title>
+                  <title>旧二</title>
+                  <title>旧三</title>
+                  <tmdbid>5</tmdbid>
+                </movie>
+                """;
+
+        String merged = nfoSupport.mergeNfo(existing, metadata, null, null);
+
+        assertEquals("收敛标题", nfoSupport.parse(merged).title());
+        // 同名元素多个：更新第一个、删除其余，收敛为单值
+        assertEquals(1, occurrences(merged, "<title>"));
+        assertEquals(77L, nfoSupport.parse(merged).tmdbId());
+        // releaseDate 派生 year/premiered 均为单值
+        assertEquals(1, occurrences(merged, "<year>"));
+        assertEquals(1, occurrences(merged, "<premiered>"));
+    }
+
+    private static int occurrences(String text, String token) {
+        int count = 0;
+        int idx = 0;
+        while ((idx = text.indexOf(token, idx)) >= 0) {
+            count++;
+            idx += token.length();
+        }
+        return count;
     }
 }
