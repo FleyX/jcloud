@@ -137,6 +137,11 @@ html.dark .bg-white\/95 {
   background-color: rgb(15 23 42 / 0.95);
 }
 
+/* 修复暗色主题下输入框/下拉框 focus:bg-white 导致的全白问题 */
+html.dark .focus\:bg-white:focus {
+  background-color: #1e293b;
+}
+
 html.dark .text-surface-900,
 html.dark .text-surface-800 {
   color: #f8fafc;
