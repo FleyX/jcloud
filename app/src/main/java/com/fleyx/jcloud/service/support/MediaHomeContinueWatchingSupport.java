@@ -58,7 +58,9 @@ public class MediaHomeContinueWatchingSupport {
      */
     private List<MediaHomeItemSupport.HomeItem> movieItems(String userId, boolean withProgressOnly) {
         List<MediaMovie> movies = mediaMovieMapper.selectList(
-                new LambdaQueryWrapper<MediaMovie>().eq(MediaMovie::getUserId, userId));
+                new LambdaQueryWrapper<MediaMovie>()
+                        .eq(MediaMovie::getUserId, userId)
+                        .eq(MediaMovie::getWatched, false));
         if (withProgressOnly) {
             movies = movies.stream().filter(m -> itemSupport.progressOf(m) > 0).toList();
         }
@@ -77,7 +79,8 @@ public class MediaHomeContinueWatchingSupport {
             result.add(new MediaHomeItemSupport.HomeItem(movie.getId(), file.getFileNodeId(),
                     MediaItemType.MOVIE.getCode(), movie.getTitle(), fileNameMap.get(file.getFileNodeId()),
                     movie.getMetadataId(), null, null, null, null, null,
-                    file.getDurationMs(), movie.getProgressMs(), movie.getLastPlayTime(), null, null));
+                    file.getDurationMs(), movie.getProgressMs(), movie.getWatched(), movie.getLastPlayTime(),
+                    null, null));
         }
         return result;
     }
@@ -93,7 +96,9 @@ public class MediaHomeContinueWatchingSupport {
         }
         List<String> seriesIds = seriesList.stream().map(MediaSeries::getId).toList();
         List<MediaEpisode> episodes = mediaEpisodeMapper.selectList(
-                new LambdaQueryWrapper<MediaEpisode>().in(MediaEpisode::getSeriesId, seriesIds));
+                new LambdaQueryWrapper<MediaEpisode>()
+                        .in(MediaEpisode::getSeriesId, seriesIds)
+                        .eq(MediaEpisode::getWatched, false));
         if (withProgressOnly) {
             episodes = episodes.stream().filter(e -> itemSupport.progressOf(e) > 0).toList();
         }
@@ -120,7 +125,9 @@ public class MediaHomeContinueWatchingSupport {
      */
     private List<MediaHomeItemSupport.HomeItem> otherItems(String userId, boolean withProgressOnly) {
         List<MediaOther> others = mediaOtherMapper.selectList(
-                new LambdaQueryWrapper<MediaOther>().eq(MediaOther::getUserId, userId));
+                new LambdaQueryWrapper<MediaOther>()
+                        .eq(MediaOther::getUserId, userId)
+                        .eq(MediaOther::getWatched, false));
         if (withProgressOnly) {
             others = others.stream().filter(o -> itemSupport.progressOf(o) > 0).toList();
         }
@@ -133,7 +140,7 @@ public class MediaHomeContinueWatchingSupport {
                         o.getId(), o.getFileNodeId(), MediaItemType.OTHER.getCode(),
                         o.getName(), fileNameMap.get(o.getFileNodeId()), null,
                         null, null, null, null, null,
-                        o.getDurationMs(), o.getProgressMs(), o.getLastPlayTime(), null, null))
+                        o.getDurationMs(), o.getProgressMs(), o.getWatched(), o.getLastPlayTime(), null, null))
                 .toList();
     }
 
@@ -150,6 +157,7 @@ public class MediaHomeContinueWatchingSupport {
                 MediaItemType.EPISODE.getCode(), series.getSeriesName(), fileNameMap.get(file.getFileNodeId()),
                 episode.getMetadataId(), series.getId(), series.getSeriesName(), series.getMetadataId(),
                 season == null ? null : season.getSeasonNo(), episode.getEpisodeNo(),
-                file.getDurationMs(), episode.getProgressMs(), episode.getLastPlayTime(), null, null);
+                file.getDurationMs(), episode.getProgressMs(), episode.getWatched(), episode.getLastPlayTime(),
+                null, null);
     }
 }

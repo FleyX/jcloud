@@ -106,6 +106,7 @@ public class MediaOtherQuerySupport implements MediaItemQueryStrategy<MediaOther
         vo.setTitle(row.getName());
         vo.setDurationMs(row.getDurationMs());
         vo.setProgressMs(row.getProgressMs());
+        vo.setWatched(row.getWatched());
         vo.setLastPlayTime(row.getLastPlayTime());
         vo.setFavorited(ctx.isFavorited(row.getId()));
         return vo;
@@ -155,6 +156,7 @@ public class MediaOtherQuerySupport implements MediaItemQueryStrategy<MediaOther
         vo.setMatchStatus(MediaMatchStatus.NONE.getCode());
         vo.setDurationMs(row.getDurationMs());
         vo.setProgressMs(row.getProgressMs());
+        vo.setWatched(row.getWatched());
         vo.setWidth(row.getWidth());
         vo.setHeight(row.getHeight());
         vo.setVideoCodec(row.getVideoCodec());

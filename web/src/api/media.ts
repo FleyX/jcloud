@@ -110,6 +110,20 @@ export function updateMediaProgress(id: string, progressMs: number, versionId?: 
   return put<void>(`/media/items/${id}/progress`, body)
 }
 
+/** 已观看标记更新入参 */
+export interface MediaWatchedUpdateDto {
+  watched: boolean
+}
+
+/**
+ * 标记/取消已观看（电影/集/其他）：标记已观看时后端清零播放进度，取消标记不动进度。
+ * 本工单仅提供 API 封装，前端交互入口在工单 03。
+ */
+export function updateMediaWatched(id: string, watched: boolean): Promise<void> {
+  const body: MediaWatchedUpdateDto = { watched }
+  return put<void>(`/media/items/${id}/watched`, body)
+}
+
 // ---------- 播放 ----------
 
 /**

@@ -61,7 +61,8 @@ public class MediaHomeLatestSupport {
             return new MediaHomeItemSupport.HomeItem(movie.getId(), fileNodeId, MediaItemType.MOVIE.getCode(),
                     movie.getTitle(), fileNodeId == null ? null : fileNameMap.get(fileNodeId),
                     movie.getMetadataId(), null, null, null, null, null,
-                    null, movie.getProgressMs(), movie.getLastPlayTime(), movie.getAddedTime(), null);
+                    null, movie.getProgressMs(), movie.getWatched(), movie.getLastPlayTime(),
+                    movie.getAddedTime(), null);
         }).toList();
     }
 
@@ -83,7 +84,7 @@ public class MediaHomeLatestSupport {
         return seriesList.stream().map(series -> new MediaHomeItemSupport.HomeItem(
                 series.getId(), null, MediaItemType.SERIES.getCode(), series.getSeriesName(), null,
                 series.getMetadataId(), series.getId(), series.getSeriesName(), null,
-                null, null, null, null, null, series.getLatestAddedTime(),
+                null, null, null, null, series.getWatched(), null, series.getLatestAddedTime(),
                 posterFallbackBySeries.get(series.getId()))).toList();
     }
 

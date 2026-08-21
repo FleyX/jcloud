@@ -37,6 +37,7 @@ function buildItem(overrides: Partial<MediaItemVo> = {}): MediaItemVo {
     seasonNo: null,
     episodeNo: null,
     progressMs: 0,
+    watched: false,
     lastPlayTime: null,
     addedTime: '2023-03-04 10:00:00',
     metadataComplete: true,

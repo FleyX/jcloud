@@ -49,7 +49,7 @@ public class MediaHomeItemSupport {
      */
     public record HomeItem(String id, String fileNodeId, String itemType, String title, String fileName,
                            String metadataId, String seriesId, String seriesName, String seriesMetadataId,
-                           Integer seasonNo, Integer episodeNo, Long durationMs, Long progressMs,
+                           Integer seasonNo, Integer episodeNo, Long durationMs, Long progressMs, Boolean watched,
                            LocalDateTime lastPlayTime, LocalDateTime addedTime, String posterFallbackFileNodeId) {
     }
 
@@ -106,13 +106,22 @@ public class MediaHomeItemSupport {
     }
 
     public boolean isFinished(HomeItem item) {
-        return item.durationMs() != null && item.durationMs() > 0
-                && item.progressMs() != null && item.progressMs() >= FINISHED_RATIO * item.durationMs();
+        return isFinished(item.progressMs(), item.durationMs());
+    }
+
+    /**
+     * 看完判定（统一 0.95 阈值的事实源）：进度达到时长的 FINISHED_RATIO 视为看完；
+     * 时长为空/非正或进度为空时不视为看完。updateProgress 自动标记与首页分区复用同一判定，
+     * 避免两处阈值逻辑分叉。
+     */
+    public static boolean isFinished(Long progressMs, Long durationMs) {
+        return durationMs != null && durationMs > 0
+                && progressMs != null && progressMs >= FINISHED_RATIO * durationMs;
     }
 
     public boolean isFinished(MediaEpisodeFile file, MediaEpisode episode) {
         Long duration = file == null ? null : file.getDurationMs();
-        return duration != null && duration > 0 && progressOf(episode) >= FINISHED_RATIO * duration;
+        return isFinished(progressOf(episode), duration);
     }
 
     public Comparator<HomeItem> lastPlayDesc() {

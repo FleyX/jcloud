@@ -81,6 +81,11 @@ public class MediaItemDetailVo {
     private Long progressMs;
 
     /**
+     * 已观看标记：详情条目（电影/集/其他）的观看状态。
+     */
+    private Boolean watched;
+
+    /**
      * 视频宽。
      */
     private Integer width;

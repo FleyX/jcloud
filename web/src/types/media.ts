@@ -32,6 +32,8 @@ export interface MediaFavoriteVo {
   fileNodeId: string | null
   /** 时长（毫秒，other 有效） */
   durationMs: string | null
+  /** 已观看标记：所属五类实体（剧/季工单 02 填充分级联动） */
+  watched: boolean
   releaseDate: string | null
   voteAverage: number | null
   matchStatus: MediaMatchStatus | null
@@ -154,6 +156,8 @@ export interface MediaItemVo {
   episodeNo: number | null
   /** 观看进度（毫秒），无进度记录为 null */
   progressMs: number | null
+  /** 已观看标记（电影/集/其他由进度驱动或手动置位） */
+  watched: boolean
   lastPlayTime: string | null
   /** 入库时间（后端 yyyy-MM-dd HH:mm:ss，GMT+8）；最新电影为电影入库时间，最新剧集为剧集最近入库时间 */
   addedTime: string | null
@@ -296,6 +300,8 @@ export interface MediaItemDetailVo {
   seasonNo: number | null
   episodeNo: number | null
   durationMs: number | null
+  /** 已观看标记：详情条目（电影/集/其他）的观看状态 */
+  watched: boolean
   progressMs: number
   width: number | null
   height: number | null

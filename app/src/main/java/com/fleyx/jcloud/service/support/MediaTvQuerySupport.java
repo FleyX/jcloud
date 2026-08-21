@@ -230,6 +230,7 @@ public class MediaTvQuerySupport implements MediaItemQueryStrategy<MediaSeries, 
         vo.setEpisodeNo(episode.getEpisodeNo());
         vo.setDurationMs(file == null ? null : file.getDurationMs());
         vo.setProgressMs(episode.getProgressMs());
+        vo.setWatched(episode.getWatched());
         if (file != null) {
             vo.setWidth(file.getWidth());
             vo.setHeight(file.getHeight());
@@ -295,6 +296,7 @@ public class MediaTvQuerySupport implements MediaItemQueryStrategy<MediaSeries, 
             vo.setEpisodeNo(episode.getEpisodeNo());
             vo.setDurationMs(file == null ? null : file.getDurationMs());
             vo.setProgressMs(episode.getProgressMs());
+            vo.setWatched(episode.getWatched());
             vo.setLastPlayTime(episode.getLastPlayTime());
             if (metadata != null) {
                 vo.setTitle(metadata.getTitle());

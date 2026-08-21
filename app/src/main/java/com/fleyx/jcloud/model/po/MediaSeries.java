@@ -65,6 +65,11 @@ public class MediaSeries extends BaseEntity {
     private Boolean metadataComplete;
 
     /**
+     * 已观看标记：剧自身的标记（工单 02 三级联动使用），默认 false。
+     */
+    private Boolean watched;
+
+    /**
      * 剧内最早一集的文件修改时间（毫秒）。
      */
     private Long minFileLastModified;

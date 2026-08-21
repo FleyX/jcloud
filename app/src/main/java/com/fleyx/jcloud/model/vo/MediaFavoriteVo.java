@@ -59,6 +59,11 @@ public class MediaFavoriteVo {
     private Long durationMs;
 
     /**
+     * 已观看标记：所属五类实体（电影/集/其他由进度驱动或手动置位；剧/季工单 02 填充分级联动）。
+     */
+    private Boolean watched;
+
+    /**
      * 上映/首播日期（movie/series）。
      */
     private String releaseDate;

@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.fleyx.jcloud.model.dto.MediaMatchUpdateDto;
 import com.fleyx.jcloud.model.dto.MediaPageQueryDto;
 import com.fleyx.jcloud.model.dto.MediaProgressUpdateDto;
+import com.fleyx.jcloud.model.dto.MediaWatchedUpdateDto;
 import com.fleyx.jcloud.model.vo.MediaGenreVo;
 import com.fleyx.jcloud.model.vo.MediaItemDetailVo;
 import com.fleyx.jcloud.model.vo.MediaItemVo;
@@ -84,6 +85,16 @@ public interface MediaItemService {
      * @param userId 用户 ID
      */
     void updateProgress(String itemId, MediaProgressUpdateDto dto, String userId);
+
+    /**
+     * 标记/取消已观看（电影/集/其他标题级行）。标记已观看时清零播放进度，
+     * 取消标记仅清除 watched 不动进度。
+     *
+     * @param itemId 条目 ID
+     * @param dto    入参
+     * @param userId 用户 ID
+     */
+    void updateWatched(String itemId, MediaWatchedUpdateDto dto, String userId);
 
     /**
      * 查询条目详情（详情页）。

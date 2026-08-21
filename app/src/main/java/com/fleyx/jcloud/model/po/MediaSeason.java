@@ -34,6 +34,11 @@ public class MediaSeason extends BaseEntity {
     private Integer seasonNo;
 
     /**
+     * 已观看标记：季自身的标记（工单 02 三级联动使用），默认 false。
+     */
+    private Boolean watched;
+
+    /**
      * 季元数据 ID，未匹配时为空。
      */
     private String metadataId;

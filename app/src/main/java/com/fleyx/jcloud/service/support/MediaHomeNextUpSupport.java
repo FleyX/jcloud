@@ -78,6 +78,7 @@ public class MediaHomeNextUpSupport {
             }
             seriesEpisodes.sort(itemSupport.seasonEpisodeOrder(seasonMap));
             seriesEpisodes.stream()
+                    .filter(e -> !Boolean.TRUE.equals(e.getWatched()))
                     .filter(e -> itemSupport.progressOf(e) == 0
                             && !itemSupport.isFinished(fileMap.get(e.getId()), e))
                     .findFirst()

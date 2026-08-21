@@ -7,6 +7,7 @@ import com.fleyx.jcloud.common.context.UserContext;
 import com.fleyx.jcloud.model.dto.MediaMatchUpdateDto;
 import com.fleyx.jcloud.model.dto.MediaPageQueryDto;
 import com.fleyx.jcloud.model.dto.MediaProgressUpdateDto;
+import com.fleyx.jcloud.model.dto.MediaWatchedUpdateDto;
 import com.fleyx.jcloud.model.vo.MediaGenreVo;
 import com.fleyx.jcloud.model.vo.MediaItemDetailVo;
 import com.fleyx.jcloud.model.vo.MediaItemVo;
@@ -94,6 +95,12 @@ public class MediaItemController {
     @PutMapping("/items/{id}/progress")
     public R<Void> updateProgress(@PathVariable String id, @Valid @RequestBody MediaProgressUpdateDto dto) {
         mediaItemService.updateProgress(id, dto, UserContext.get().id());
+        return R.ok();
+    }
+
+    @PutMapping("/items/{id}/watched")
+    public R<Void> updateWatched(@PathVariable String id, @Valid @RequestBody MediaWatchedUpdateDto dto) {
+        mediaItemService.updateWatched(id, dto, UserContext.get().id());
         return R.ok();
     }
 }

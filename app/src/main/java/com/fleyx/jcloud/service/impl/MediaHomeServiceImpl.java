@@ -85,6 +85,7 @@ public class MediaHomeServiceImpl implements MediaHomeService {
             vo.setEpisodeNo(item.episodeNo());
             vo.setDurationMs(item.durationMs());
             vo.setProgressMs(item.progressMs());
+            vo.setWatched(item.watched());
             vo.setLastPlayTime(item.lastPlayTime());
             vo.setAddedTime(item.addedTime());
             MediaMetadata metadata = item.metadataId() == null ? null : metadataMap.get(item.metadataId());
