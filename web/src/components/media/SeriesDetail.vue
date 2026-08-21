@@ -7,9 +7,9 @@
  */
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, Heart, LoaderCircle, Tv } from '@lucide/vue'
+import { ArrowLeft, Check, Heart, LoaderCircle, Tv } from '@lucide/vue'
 import type { MediaItemVo, MediaSeriesDetailVo, MediaSeriesSeasonVo, TmdbSearchResultVo } from '@/types/media'
-import { fetchSeasonEpisodes, fetchSeriesDetail, refreshMetadata, toggleFavorite, updateMediaMatch, type MediaRefreshMode } from '@/api/media'
+import { fetchSeasonEpisodes, fetchSeriesDetail, refreshMetadata, toggleFavorite, updateMediaMatch, updateMediaWatched, type MediaRefreshMode } from '@/api/media'
 import { useNotificationStore } from '@/store/notification'
 import { formatDurationText } from './format'
 import { cn } from '@/utils/cn'
@@ -237,6 +237,47 @@ async function toggleEpisodeFavorite(episode: MediaItemVo) {
     episode.favorited = previous
   }
 }
+
+/** 标记/取消整剧已观看：成功后重拉详情保持季卡片聚合一致（后端联动），失败回滚 */
+async function toggleSeriesWatched() {
+  if (!detail.value) return
+  const previous = detail.value.watched
+  detail.value.watched = !previous
+  try {
+    await updateMediaWatched(seriesId, !previous)
+    detail.value = await fetchSeriesDetail(seriesId)
+  } catch {
+    detail.value.watched = previous
+  }
+}
+
+/** 标记/取消季已观看：成功后重拉详情保持父级聚合一致，失败回滚 */
+async function toggleSeasonWatched(season: MediaSeriesSeasonVo) {
+  const previous = season.watched
+  season.watched = !previous
+  try {
+    await updateMediaWatched(season.seasonId, !previous)
+    if (detail.value) detail.value = await fetchSeriesDetail(seriesId)
+  } catch {
+    season.watched = previous
+  }
+}
+
+/** 标记/取消集已观看：本地翻转，标记时本地清零进度；成功后重拉详情保持季/整剧聚合一致，失败回滚 */
+async function toggleEpisodeWatched(episode: MediaItemVo) {
+  const previous = episode.watched
+  const previousProgressMs = episode.progressMs
+  const watched = !previous
+  episode.watched = watched
+  if (watched) episode.progressMs = 0
+  try {
+    await updateMediaWatched(episode.id, watched)
+    if (detail.value) detail.value = await fetchSeriesDetail(seriesId)
+  } catch {
+    episode.watched = previous
+    if (watched) episode.progressMs = previousProgressMs
+  }
+}
 </script>
 
 <template>
@@ -261,10 +302,12 @@ async function toggleEpisodeFavorite(episode: MediaItemVo) {
         :continue-ms="continueMs"
         :show-refresh="!!detail.metadataId"
         :favorited="detail.favorited"
+        :watched="detail.watched"
         @play="handleHeroPlay"
         @rematch="matchOpen = true"
         @refresh="handleRefresh"
         @toggle-favorite="toggleSeriesFavorite"
+        @toggle-watched="toggleSeriesWatched"
       />
 
       <div class="mt-6 px-4 pb-8 md:px-10">
@@ -316,6 +359,22 @@ async function toggleEpisodeFavorite(episode: MediaItemVo) {
                   <Heart
                     class="h-4 w-4"
                     :class="season.favorited && 'fill-rose-500'"
+                  />
+                </button>
+                <!-- 季卡片已观看 ✓ 角标：已观看常显实心高亮；未观看 PC 端悬浮显现、移动端常显淡色 -->
+                <button
+                  class="absolute right-2 top-16 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-sm transition-all hover:bg-black/70"
+                  :class="cn(
+                    season.watched
+                      ? 'text-emerald-400'
+                      : 'max-sm:opacity-70 sm:opacity-0 sm:group-hover:opacity-100'
+                  )"
+                  :title="season.watched ? '标记未观看' : '标记已观看'"
+                  @click.stop="toggleSeasonWatched(season)"
+                >
+                  <Check
+                    class="h-4 w-4"
+                    :class="season.watched && 'fill-emerald-400'"
                   />
                 </button>
               </div>
@@ -412,6 +471,18 @@ async function toggleEpisodeFavorite(episode: MediaItemVo) {
                 <Heart
                   class="h-4 w-4"
                   :class="episode.favorited && 'fill-rose-500'"
+                />
+              </button>
+              <!-- 集行已观看切换按钮：已观看实心高亮，未观看淡色 -->
+              <button
+                class="shrink-0 rounded-full p-2 transition-colors hover:bg-surface-100"
+                :class="episode.watched ? 'text-emerald-500' : 'text-surface-300'"
+                :title="episode.watched ? '标记未观看' : '标记已观看'"
+                @click.stop="toggleEpisodeWatched(episode)"
+              >
+                <Check
+                  class="h-4 w-4"
+                  :class="episode.watched && 'fill-emerald-500'"
                 />
               </button>
             </div>

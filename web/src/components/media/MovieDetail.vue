@@ -10,7 +10,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Clapperboard, Play } from '@lucide/vue'
 import type { MediaItemDetailVo, MediaMovieVersionVo, TmdbSearchResultVo } from '@/types/media'
-import { fetchItemDetail, refreshMetadata, toggleFavorite, updateMediaMatch, type MediaRefreshMode } from '@/api/media'
+import { fetchItemDetail, refreshMetadata, toggleFavorite, updateMediaMatch, updateMediaWatched, type MediaRefreshMode } from '@/api/media'
 import { formatSize } from '@/utils/fileDisplay'
 import { cn } from '@/utils/cn'
 import { useNotificationStore } from '@/store/notification'
@@ -104,6 +104,22 @@ async function toggleMovieFavorite() {
     detail.value.favorited = previous
   }
 }
+
+/** 标记/取消已观看：本地先翻转，成功后保留、失败回滚；标记已观看时同步清零进度（使播放按钮文案回退为「播放」） */
+async function toggleMovieWatched() {
+  if (!detail.value) return
+  const previous = detail.value.watched
+  const previousProgressMs = detail.value.progressMs
+  const watched = !previous
+  detail.value.watched = watched
+  if (watched) detail.value.progressMs = 0
+  try {
+    await updateMediaWatched(itemId, watched)
+  } catch {
+    detail.value.watched = previous
+    if (watched) detail.value.progressMs = previousProgressMs
+  }
+}
 </script>
 
 <template>
@@ -130,10 +146,12 @@ async function toggleMovieFavorite() {
         :file-info-chips="fileInfoChips"
         :show-refresh="!!detail.metadataId"
         :favorited="detail.favorited"
+        :watched="detail.watched"
         @play="handlePlay"
         @rematch="matchOpen = true"
         @refresh="handleRefresh"
         @toggle-favorite="toggleMovieFavorite"
+        @toggle-watched="toggleMovieWatched"
       />
 
       <!-- 单版本或无版本时展示文件名；单版本由播放按钮直接播默认版本 -->

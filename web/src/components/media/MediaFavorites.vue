@@ -200,6 +200,7 @@ function openItem(type: MediaFavoriteOwnerType, item: MediaFavoriteVo) {
             :owner-type="type"
             :owner-id="item.ownerId"
             :favorited="item.favorited"
+            :watched="item.watched"
             @play="openItem(type, item)"
             @unfavorite="removeItem(type, item)"
           />

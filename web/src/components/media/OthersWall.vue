@@ -108,6 +108,7 @@ function thumbUrl(item: MediaItemVo): string {
           owner-type="other"
           :owner-id="item.id"
           :favorited="item.favorited"
+          :watched="item.watched"
           @play="handlePlay(item)"
         />
       </div>

@@ -12,7 +12,7 @@ import {
   DropdownMenuRoot,
   DropdownMenuTrigger,
 } from 'radix-vue'
-import { ArrowLeft, Film, Heart, Pencil, Play, RefreshCcw, RefreshCw, RotateCcw, Star } from '@lucide/vue'
+import { ArrowLeft, Check, Film, Heart, Pencil, Play, RefreshCcw, RefreshCw, RotateCcw, Star } from '@lucide/vue'
 import { formatDurationText, formatPosition } from './format'
 import { cn } from '@/utils/cn'
 
@@ -35,6 +35,8 @@ interface Props {
   showRefresh?: boolean
   /** 是否已收藏（显示收藏按钮） */
   favorited?: boolean
+  /** 是否已观看（显示标记已观看/未观看按钮） */
+  watched?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -42,6 +44,7 @@ const props = withDefaults(defineProps<Props>(), {
   fileInfoChips: () => [],
   continueMs: 0,
   favorited: false,
+  watched: false,
 })
 
 const emit = defineEmits<{
@@ -49,6 +52,7 @@ const emit = defineEmits<{
   rematch: []
   refresh: [mode: 'missing' | 'force']
   'toggle-favorite': []
+  'toggle-watched': []
 }>()
 
 /** 刷新菜单是否展开（radix-vue DropdownMenu 受控） */
@@ -225,6 +229,22 @@ function goBack() {
                 :class="favorited && 'fill-rose-400'"
               />
               {{ favorited ? '已收藏' : '收藏' }}
+            </button>
+            <button
+              class="flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm text-white transition-colors"
+              :class="cn(
+                watched
+                  ? 'bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30'
+                  : 'bg-white/10 hover:bg-white/20'
+              )"
+              :title="watched ? '标记未观看' : '标记已观看'"
+              @click="emit('toggle-watched')"
+            >
+              <Check
+                class="h-4 w-4"
+                :class="watched && 'fill-emerald-400'"
+              />
+              {{ watched ? '已观看' : '标记已观看' }}
             </button>
             <DropdownMenuRoot
               v-if="showRefresh"

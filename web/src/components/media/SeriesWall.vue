@@ -122,6 +122,7 @@ function resultSubtitle(series: MediaSeriesVo): string {
           owner-type="series"
           :owner-id="series.id"
           :favorited="series.favorited"
+          :watched="series.watched"
           @play="openDetail(series)"
         />
       </div>

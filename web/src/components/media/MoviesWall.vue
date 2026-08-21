@@ -123,6 +123,7 @@ function resultSubtitle(item: MediaItemVo): string {
           owner-type="movie"
           :owner-id="item.id"
           :favorited="item.favorited"
+          :watched="item.watched"
           @play="openDetail(item)"
         />
       </div>
