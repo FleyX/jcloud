@@ -8,6 +8,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * 媒体 NFO 支撑组件测试（issue #21 起仅覆盖解析/命名/新模型生成路径，本地元数据 upsert 已随旧表弃用删除）。
@@ -246,5 +247,178 @@ class MediaNfoSupportTest {
         assertEquals(MediaNfoSupport.POSTER_WRITE_NAME, MediaNfoSupport.MOVIE_POSTER_NAMES.get(0));
         assertEquals(MediaNfoSupport.POSTER_WRITE_NAME, MediaNfoSupport.TV_POSTER_NAMES.get(0));
         assertEquals(MediaNfoSupport.BACKDROP_WRITE_NAME, MediaNfoSupport.BACKDROP_NAMES.get(0));
+    }
+
+    // ---------- NFO 合并写回（ADR 0033，工单 04） ----------
+
+    /**
+     * 现有 NFO 含未知元素（actor/uniqueid/studio）：合并后管理字段被覆盖，未知元素原样保留。
+     */
+    @Test
+    void shouldMergePreserveUnknownFieldsAndOverrideManaged() {
+        MediaMetadata metadata = new MediaMetadata();
+        metadata.setOwnerType(MediaMetadataOwnerType.MOVIE.getCode());
+        metadata.setTmdbId(27205L);
+        metadata.setTitle("新标题");
+        metadata.setReleaseDate("2010-07-16");
+        metadata.setVoteAverage(7.5);
+        metadata.setGenres("科幻");
+        String existing = """
+                <movie>
+                  <tmdbid>1</tmdbid>
+                  <title>旧标题</title>
+                  <rating>1.0</rating>
+                  <actor><name>某演员</name><role>主角</role></actor>
+                  <uniqueid type="imdb">tt1375666</uniqueid>
+                  <studio>华纳</studio>
+                </movie>
+                """;
+
+        String merged = nfoSupport.mergeNfo(existing, metadata, null, null);
+        MediaNfoSupport.NfoData data = nfoSupport.parse(merged);
+
+        assertEquals(27205L, data.tmdbId());
+        assertEquals("新标题", data.title());
+        assertEquals(7.5, data.voteAverage());
+        assertEquals("科幻", data.genres());
+        assertTrue(merged.contains("<actor>"));
+        assertTrue(merged.contains("某演员"));
+        assertTrue(merged.contains("tt1375666"));
+        assertTrue(merged.contains("<studio>"));
+        assertTrue(!merged.contains("旧标题"));
+    }
+
+    /**
+     * 现有 NFO 缺失的管理字段在合并后被补上，根元素与无关元素保留。
+     */
+    @Test
+    void shouldMergeAddMissingManagedFields() {
+        MediaMetadata metadata = new MediaMetadata();
+        metadata.setOwnerType(MediaMetadataOwnerType.MOVIE.getCode());
+        metadata.setTmdbId(999L);
+        metadata.setTitle("新片");
+        metadata.setOriginalTitle("New Movie");
+        metadata.setOverview("简介");
+        metadata.setReleaseDate("2020-01-02");
+        metadata.setVoteAverage(8.0);
+        metadata.setGenres("动作,冒险");
+
+        String merged = nfoSupport.mergeNfo("<movie><streamdetails/></movie>", metadata, null, null);
+        MediaNfoSupport.NfoData data = nfoSupport.parse(merged);
+
+        assertEquals(999L, data.tmdbId());
+        assertEquals("新片", data.title());
+        assertEquals("New Movie", data.originalTitle());
+        assertEquals("简介", data.overview());
+        assertEquals("2020-01-02", data.releaseDate());
+        assertEquals(8.0, data.voteAverage());
+        assertEquals("动作,冒险", data.genres());
+        assertTrue(merged.contains("streamdetails"));
+    }
+
+    /**
+     * genre 整体替换而非并集：旧 genre 消失、新 genre 出现且无重复。
+     */
+    @Test
+    void shouldMergeReplaceGenresWholly() {
+        MediaMetadata metadata = new MediaMetadata();
+        metadata.setOwnerType(MediaMetadataOwnerType.MOVIE.getCode());
+        metadata.setGenres("战争,剧情");
+
+        String merged = nfoSupport.mergeNfo(
+                "<movie><genre>科幻</genre><genre>悬疑</genre></movie>", metadata, null, null);
+        MediaNfoSupport.NfoData data = nfoSupport.parse(merged);
+
+        assertEquals("战争,剧情", data.genres());
+        assertTrue(!merged.contains("科幻"));
+        assertTrue(!merged.contains("悬疑"));
+    }
+
+    /**
+     * metadata 无 genre 时整体替换为空：既有 genre 全部移除。
+     */
+    @Test
+    void shouldMergeClearGenresWhenEmpty() {
+        MediaMetadata metadata = new MediaMetadata();
+        metadata.setOwnerType(MediaMetadataOwnerType.MOVIE.getCode());
+
+        String merged = nfoSupport.mergeNfo(
+                "<movie><genre>科幻</genre></movie>", metadata, null, null);
+
+        assertNull(nfoSupport.parse(merged).genres());
+        assertTrue(!merged.contains("科幻"));
+    }
+
+    /**
+     * 畸形 XML 回退整体重写：根元素为 movie、管理字段完整。
+     */
+    @Test
+    void shouldMergeFallbackOnMalformedXml() {
+        MediaMetadata metadata = new MediaMetadata();
+        metadata.setOwnerType(MediaMetadataOwnerType.MOVIE.getCode());
+        metadata.setTmdbId(5L);
+        metadata.setTitle("坏XML回退");
+
+        String merged = nfoSupport.mergeNfo("not xml <<<", metadata, null, null);
+        MediaNfoSupport.NfoData data = nfoSupport.parse(merged);
+
+        assertEquals("movie", data.mediaType());
+        assertEquals(5L, data.tmdbId());
+        assertEquals("坏XML回退", data.title());
+    }
+
+    /**
+     * 根元素与媒体类型不符（movie 元数据配 tvshow NFO）回退整体重写。
+     */
+    @Test
+    void shouldMergeFallbackOnWrongRoot() {
+        MediaMetadata metadata = new MediaMetadata();
+        metadata.setOwnerType(MediaMetadataOwnerType.MOVIE.getCode());
+        metadata.setTmdbId(7L);
+        metadata.setTitle("根不符回退");
+
+        String merged = nfoSupport.mergeNfo("<tvshow><title>x</title></tvshow>", metadata, null, null);
+        MediaNfoSupport.NfoData data = nfoSupport.parse(merged);
+
+        assertEquals("movie", data.mediaType());
+        assertEquals(7L, data.tmdbId());
+        assertEquals("根不符回退", data.title());
+    }
+
+    /**
+     * 无现有 NFO（空/空白）时行为与现状一致：全新生成。
+     */
+    @Test
+    void shouldMergeGenerateWhenNoExisting() {
+        MediaMetadata metadata = new MediaMetadata();
+        metadata.setOwnerType(MediaMetadataOwnerType.MOVIE.getCode());
+        metadata.setTitle("全新");
+
+        assertEquals("movie", nfoSupport.parse(nfoSupport.mergeNfo(null, metadata, null, null)).mediaType());
+        assertEquals("movie", nfoSupport.parse(nfoSupport.mergeNfo("", metadata, null, null)).mediaType());
+        assertEquals("movie", nfoSupport.parse(nfoSupport.mergeNfo("   ", metadata, null, null)).mediaType());
+    }
+
+    /**
+     * season/episode 仅集类型写入；电影类型不变（不写也不清）。
+     */
+    @Test
+    void shouldMergeSeasonEpisodeOnlyForEpisode() {
+        MediaMetadata episodeMeta = new MediaMetadata();
+        episodeMeta.setOwnerType(MediaMetadataOwnerType.EPISODE.getCode());
+        episodeMeta.setTitle("集");
+        MediaMetadata movieMeta = new MediaMetadata();
+        movieMeta.setOwnerType(MediaMetadataOwnerType.MOVIE.getCode());
+        movieMeta.setTitle("片");
+
+        MediaNfoSupport.NfoData edata = nfoSupport.parse(
+                nfoSupport.mergeNfo("<episodedetails/>", episodeMeta, 3, 4));
+        assertEquals(3, edata.seasonNo());
+        assertEquals(4, edata.episodeNo());
+
+        MediaNfoSupport.NfoData mdata = nfoSupport.parse(
+                nfoSupport.mergeNfo("<movie/>", movieMeta, 3, 4));
+        assertNull(mdata.seasonNo());
+        assertNull(mdata.episodeNo());
     }
 }

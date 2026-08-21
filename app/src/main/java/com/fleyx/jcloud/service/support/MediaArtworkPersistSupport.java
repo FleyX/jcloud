@@ -51,7 +51,8 @@ import java.util.List;
  * 同样执行写回（ADR 0023），图片沿用本地已存在文件、缺失才下载。
  * 图片写回分两模式（工单 06）：非强制走 ensureArtworkIfMissing——已存在的本地图片文件直接沿用不覆盖，
  * 缺失的按 rawJson 下载；强制（force=true）走 ensureArtwork——总是按 rawJson 重新下载并覆盖同名文件
- * （图片产物全量替换）。NFO 两模式均整体重写。
+ * （图片产物全量替换）。NFO 写回走合并写（ADR 0033）：已存在 NFO 仅覆盖 jcloud 管理字段、保留外部工具
+ * 未知元素，缺失时才全新生成；解析/读取失败回退整体重写。
  * 电影写 {@code movie.nfo} + folder.jpg/backdrop.jpg（ADR 0022）；剧写
  * tvshow.nfo + folder.jpg/backdrop.jpg + 季海报（seasonXX-poster.jpg）+ 逐集 nfo 与剧照（{@code <视频名>-thumb.jpg}）。
  * 旧模型（t_media_item / 旧 t_media_series）写回方法已随 issue #21 弃表删除。
@@ -125,6 +126,26 @@ public class MediaArtworkPersistSupport {
      */
     public FileNode writeNfoXml(FileNode dir, String name, String xml) {
         return writeFileNode(dir, name, xml.getBytes(StandardCharsets.UTF_8), nfoSupport.nfoMimeType());
+    }
+
+    /**
+     * 合并写回 NFO（ADR 0033）：目标 NFO 已存在时先读出内容、经 {@link MediaNfoSupport#mergeNfo} 仅覆盖
+     * jcloud 管理字段并保留外部工具写入的未知元素；不存在或读取/解析失败回退整体生成。电影/剧/集三级写回复用。
+     */
+    public FileNode writeNfoXml(FileNode dir, String name, MediaMetadata metadata, Integer seasonNo, Integer episodeNo) {
+        FileNode existing = findChildFile(dir.getUserId(), dir.getId(), name);
+        String existingXml = existing == null ? null : readExistingNfo(existing);
+        String xml = nfoSupport.mergeNfo(existingXml, metadata, seasonNo, episodeNo);
+        return writeFileNode(dir, name, xml.getBytes(StandardCharsets.UTF_8), nfoSupport.nfoMimeType());
+    }
+
+    private String readExistingNfo(FileNode node) {
+        byte[] bytes = readFileBytes(node);
+        if (bytes == null) {
+            log.debug("NFO 合并读取失败，回退整体重写: {}", node.getName());
+            return null;
+        }
+        return new String(bytes, StandardCharsets.UTF_8);
     }
 
     /**
@@ -261,8 +282,7 @@ public class MediaArtworkPersistSupport {
             if (video == null) {
                 throw new IllegalStateException("电影视频文件节点不存在: " + movie.getId());
             }
-            writeNfoXml(folder, MediaNfoSupport.MOVIE_NFO,
-                    nfoSupport.generate(metadata, null, null));
+            writeNfoXml(folder, MediaNfoSupport.MOVIE_NFO, metadata, null, null);
             FileNode poster = ensureArtwork(force, metadata.getPosterFileNodeId(), folder,
                     MediaNfoSupport.POSTER_WRITE_NAME, metadata.getRawJson(), "poster_path", "poster");
             FileNode fanart = ensureArtwork(force, metadata.getBackdropFileNodeId(), folder,
@@ -305,8 +325,7 @@ public class MediaArtworkPersistSupport {
             if (seriesFolder == null) {
                 throw new IllegalStateException("剧文件夹节点不存在: " + series.getFolderNodeId());
             }
-            writeNfoXml(seriesFolder, MediaNfoSupport.TVSHOW_NFO,
-                    nfoSupport.generate(seriesMetadata, null, null));
+            writeNfoXml(seriesFolder, MediaNfoSupport.TVSHOW_NFO, seriesMetadata, null, null);
             FileNode poster = ensureArtwork(force, seriesMetadata.getPosterFileNodeId(), seriesFolder,
                     MediaNfoSupport.POSTER_WRITE_NAME, seriesMetadata.getRawJson(), "poster_path", "poster");
             FileNode fanart = ensureArtwork(force, seriesMetadata.getBackdropFileNodeId(), seriesFolder,
@@ -373,8 +392,8 @@ public class MediaArtworkPersistSupport {
                 if (video == null || dir == null) {
                     throw new IllegalStateException("集视频文件节点不存在: " + episode.getId());
                 }
-                writeNfoXml(dir, nfoSupport.nfoNameOf(video.getName()),
-                        nfoSupport.generate(metadata, episodeSeasonNo(episode), episode.getEpisodeNo()));
+                writeNfoXml(dir, nfoSupport.nfoNameOf(video.getName()), metadata,
+                        episodeSeasonNo(episode), episode.getEpisodeNo());
                 FileNode thumb = ensureArtwork(force, metadata.getPosterFileNodeId(), dir,
                         nfoSupport.episodeThumbNameOf(video.getName()),
                         metadata.getRawJson(), "still_path", "poster");

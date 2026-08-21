@@ -198,61 +198,84 @@ public class MediaNfoSupport {
      * @return NFO XML 字符串
      */
     public String generate(MediaMetadata metadata, Integer seasonNo, Integer episodeNo) {
-        // owner_type 未知编码时回退 movie 根元素（of 空安全，issue #21 收尾）
-        MediaMetadataOwnerType ownerType = MediaMetadataOwnerType.of(metadata.getOwnerType());
-        String mediaType = ownerType == null ? "movie" : switch (ownerType) {
-            case SERIES -> "tv";
-            case EPISODE -> "episode";
-            default -> "movie";
-        };
+        String mediaType = expectedMediaType(metadata);
         return generateXml(mediaType, metadata.getTmdbId(), metadata.getTitle(),
                 metadata.getOriginalTitle(), metadata.getOverview(), metadata.getReleaseDate(),
                 metadata.getVoteAverage(), metadata.getGenres(), seasonNo, episodeNo);
     }
 
-    /**
-     * 按字段生成 Jellyfin/Kodi 兼容 NFO XML（movie/tvshow/episodedetails 根元素按 mediaType 派生）。
-     */
-    private String generateXml(String mediaType, Long tmdbId, String title, String originalTitle,
-                               String overview, String releaseDate, Double voteAverage, String genres,
-                               Integer seasonNo, Integer episodeNo) {
-        String rootTag = switch (mediaType) {
+    /** 合并写回 NFO（ADR 0033）：管理字段覆盖、genre 整体替换，其余元素保留；空/解析失败/根元素不符回退整体重写。 */
+    public String mergeNfo(String existingXml, MediaMetadata metadata, Integer seasonNo, Integer episodeNo) {
+        String mediaType = expectedMediaType(metadata);
+        Element root = (existingXml == null || existingXml.isBlank()) ? null : parseRoot(existingXml);
+        if (root == null) {
+            return generate(metadata, seasonNo, episodeNo);
+        }
+        if (!expectedRootTag(mediaType).equals(root.getTagName())) {
+            log.warn("NFO 根元素不符，回退整体重写: {}", root.getTagName());
+            return generate(metadata, seasonNo, episodeNo);
+        }
+        Document doc = root.getOwnerDocument();
+        setScalar(doc, root, "tmdbid", metadata.getTmdbId());
+        setScalar(doc, root, "title", metadata.getTitle());
+        setScalar(doc, root, "originaltitle", metadata.getOriginalTitle());
+        setScalar(doc, root, "plot", metadata.getOverview());
+        if (metadata.getReleaseDate() != null) {
+            setScalar(doc, root, "year", metadata.getReleaseDate().length() >= 4
+                    ? metadata.getReleaseDate().substring(0, 4) : metadata.getReleaseDate());
+            setScalar(doc, root, "premiered", metadata.getReleaseDate());
+        }
+        setScalar(doc, root, "rating", metadata.getVoteAverage());
+        replaceGenres(doc, root, metadata.getGenres());
+        if ("episode".equals(mediaType)) {
+            setScalar(doc, root, "season", seasonNo);
+            setScalar(doc, root, "episode", episodeNo);
+        }
+        return serialize(doc);
+    }
+    private String expectedMediaType(MediaMetadata metadata) {
+        MediaMetadataOwnerType ownerType = MediaMetadataOwnerType.of(metadata.getOwnerType());
+        return ownerType == null ? "movie" : switch (ownerType) {
+            case SERIES -> "tv";
+            case EPISODE -> "episode";
+            default -> "movie";
+        };
+    }
+    private String expectedRootTag(String mediaType) {
+        return switch (mediaType) {
             case "tv" -> "tvshow";
             case "episode" -> "episodedetails";
             default -> "movie";
         };
-        try {
-            Document doc = DocumentBuilderFactory.newInstance().newDocumentBuilder().newDocument();
-            Element root = doc.createElement(rootTag);
-            doc.appendChild(root);
-            append(doc, root, "tmdbid", tmdbId);
-            append(doc, root, "title", title);
-            append(doc, root, "originaltitle", originalTitle);
-            append(doc, root, "plot", overview);
-            if (releaseDate != null) {
-                append(doc, root, "year", releaseDate.length() >= 4
-                        ? releaseDate.substring(0, 4) : releaseDate);
-                append(doc, root, "premiered", releaseDate);
-            }
-            append(doc, root, "rating", voteAverage);
-            if (genres != null && !genres.isBlank()) {
-                for (String genre : genres.split(",")) {
-                    append(doc, root, "genre", genre.isBlank() ? null : genre.trim());
-                }
-            }
-            if ("episode".equals(mediaType)) {
-                append(doc, root, "season", seasonNo);
-                append(doc, root, "episode", episodeNo);
-            }
-            StringWriter writer = new StringWriter();
-            TransformerFactory.newInstance().newTransformer()
-                    .transform(new DOMSource(doc), new StreamResult(writer));
-            return writer.toString();
-        } catch (Exception e) {
-            throw new IllegalStateException("NFO 生成失败", e);
-        }
     }
-
+    private String generateXml(String mediaType, Long tmdbId, String title, String originalTitle,
+                               String overview, String releaseDate, Double voteAverage, String genres,
+                               Integer seasonNo, Integer episodeNo) {
+        String rootTag = expectedRootTag(mediaType);
+        Document doc = newDocument();
+        Element root = doc.createElement(rootTag);
+        doc.appendChild(root);
+        append(doc, root, "tmdbid", tmdbId);
+        append(doc, root, "title", title);
+        append(doc, root, "originaltitle", originalTitle);
+        append(doc, root, "plot", overview);
+        if (releaseDate != null) {
+            append(doc, root, "year", releaseDate.length() >= 4
+                    ? releaseDate.substring(0, 4) : releaseDate);
+            append(doc, root, "premiered", releaseDate);
+        }
+        append(doc, root, "rating", voteAverage);
+        if (genres != null && !genres.isBlank()) {
+            for (String genre : genres.split(",")) {
+                append(doc, root, "genre", genre.isBlank() ? null : genre.trim());
+            }
+        }
+        if ("episode".equals(mediaType)) {
+            append(doc, root, "season", seasonNo);
+            append(doc, root, "episode", episodeNo);
+        }
+        return serialize(doc);
+    }
     private void append(Document doc, Element parent, String tag, Object value) {
         if (value == null) {
             return;
@@ -260,6 +283,63 @@ public class MediaNfoSupport {
         Element element = doc.createElement(tag);
         element.setTextContent(String.valueOf(value));
         parent.appendChild(element);
+    }
+    private Document newDocument() {
+        try {
+            return DocumentBuilderFactory.newInstance().newDocumentBuilder().newDocument();
+        } catch (Exception e) {
+            throw new IllegalStateException("NFO 生成失败", e);
+        }
+    }
+
+    private Element parseRoot(String xml) {
+        try {
+            DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+            factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+            factory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
+            factory.setExpandEntityReferences(false);
+            return factory.newDocumentBuilder().parse(new InputSource(new StringReader(StrUtil.removePrefix(xml, "\uFEFF")))).getDocumentElement();
+        } catch (Exception e) {
+            log.debug("NFO 合并解析失败，回退整体重写: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    private void setScalar(Document doc, Element root, String tag, Object value) {
+        if (value == null) {
+            return;
+        }
+        Element existing = (Element) root.getElementsByTagName(tag).item(0);
+        if (existing != null) {
+            existing.setTextContent(String.valueOf(value));
+            return;
+        }
+        append(doc, root, tag, value);
+    }
+
+    private void replaceGenres(Document doc, Element root, String genres) {
+        NodeList nodes = root.getElementsByTagName("genre");
+        for (int i = nodes.getLength() - 1; i >= 0; i--) {
+            root.removeChild(nodes.item(i));
+        }
+        if (genres != null && !genres.isBlank()) {
+            for (String genre : genres.split(",")) {
+                if (!genre.isBlank()) {
+                    append(doc, root, "genre", genre.trim());
+                }
+            }
+        }
+    }
+
+    private String serialize(Document doc) {
+        try {
+            StringWriter writer = new StringWriter();
+            TransformerFactory.newInstance().newTransformer()
+                    .transform(new DOMSource(doc), new StreamResult(writer));
+            return writer.toString();
+        } catch (Exception e) {
+            throw new IllegalStateException("NFO 序列化失败", e);
+        }
     }
 
     private String text(Element root, String tag) {

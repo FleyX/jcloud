@@ -313,8 +313,8 @@ class MediaScrapeServiceTest extends MediaScanTestBase {
 
     /**
      * 电影本地优先（反转，工单 05）：同目录同名 .nfo 存在时本地字段优先、字段齐备时不请求 TMDB 补全
-     * （方法内短路）、不重新自动匹配，合并结果整体重写回 NFO（写回 movie.nfo，
-     * 用户自定义未知字段如 studio 不保留）。
+     * （方法内短路）、不重新自动匹配，合并写回 NFO（写回 movie.nfo，用户自定义未知字段如 studio 保留，
+     * ADR 0033）。
      */
     @Test
     void shouldScrapeMovieFromLocalNfoWithoutTmdb() {
@@ -363,13 +363,13 @@ class MediaScrapeServiceTest extends MediaScanTestBase {
         assertEquals("persisted", metadata.getPersistStatus());
         assertEquals(queryChildNode(parentFolder.getId(), "poster.jpg").getId(), metadata.getPosterFileNodeId());
         assertEquals(queryChildNode(parentFolder.getId(), "fanart.jpg").getId(), metadata.getBackdropFileNodeId());
-        // 已整体重写：写回 movie.nfo 含本地字段，用户自定义 <studio> 不保留
+        // movie.nfo 原先不存在（本地 NFO 为同名 nfo）→ 全新生成 movie.nfo，用户自定义 <studio> 不写入
         FileNode nfoNode = queryChildNode(parentFolder.getId(), "movie.nfo");
         assertNotNull(nfoNode);
         String nfoContent = downloadText(nfoNode.getId(), user.getId());
-        assertTrue(nfoContent.contains("<plot>托尼·斯塔克打造钢铁战衣</plot>"), "movie.nfo 应整体重写含本地简介");
+        assertTrue(nfoContent.contains("<plot>托尼·斯塔克打造钢铁战衣</plot>"), "movie.nfo 应含本地简介");
         assertTrue(nfoContent.contains("<tmdbid>1726</tmdbid>"));
-        assertFalse(nfoContent.contains("studio"), "用户自定义未知字段不保留");
+        assertFalse(nfoContent.contains("studio"), "movie.nfo 为全新生成，不含同名 nfo 的用户自定义字段");
     }
 
     /**
@@ -455,7 +455,7 @@ class MediaScrapeServiceTest extends MediaScanTestBase {
     /**
      * 电视剧本地优先（反转，工单 05）：tvshow.nfo + 季海报 + 集 nfo/剧照全本地绑定，不重新自动匹配；
      * 剧级字段齐备不拉详情补全（方法内短路），季/集本地字段优先、缺失字段由 TMDB 季数据补全
-     * （fetchSeasonV2），补全后整剧完整；tvshow.nfo 与集 nfo 被整体重写（用户自定义字段不保留）。
+     * （fetchSeasonV2），补全后整剧完整；tvshow.nfo 与集 nfo 合并写回（用户自定义字段保留，ADR 0033）。
      */
     @Test
     void shouldScrapeSeriesFromLocalNfoWithoutTmdb() {
@@ -528,10 +528,10 @@ class MediaScrapeServiceTest extends MediaScanTestBase {
                 episodeMetadata.getPosterFileNodeId());
         // 聚合语义：季/集补全后整剧完整
         assertTrue(after.getMetadataComplete());
-        // 已整体重写：tvshow.nfo 规范化重写（用户自定义 <studio> 不保留），集 nfo 写回
+        // 已合并写回（ADR 0033）：tvshow.nfo 覆盖管理字段，用户自定义 <studio> 保留，集 nfo 写回
         String tvshowNfo = downloadText(queryChildNode(seriesFolder.getId(), "tvshow.nfo").getId(), user.getId());
-        assertTrue(tvshowNfo.contains("<plot>李云龙抗战传奇</plot>"), "tvshow.nfo 应整体重写含本地简介");
-        assertFalse(tvshowNfo.contains("studio"), "用户自定义未知字段不保留");
+        assertTrue(tvshowNfo.contains("<plot>李云龙抗战传奇</plot>"), "tvshow.nfo 合并写回含本地简介");
+        assertTrue(tvshowNfo.contains("八一电影制片厂"), "用户自定义未知字段保留（ADR 0033）");
         assertNotNull(queryChildNode(seasonFolder.getId(), "亮剑.S01E01.1080p.nfo"));
     }
 
