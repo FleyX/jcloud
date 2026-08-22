@@ -247,8 +247,10 @@ public class TranscodeCommandBuilder {
                 command.addAll(List.of("-preset", "veryfast", "-global_quality", "23"));
             }
             case "h264_nvenc" -> {
-                if (scale != null) {
-                    command.addAll(List.of("-vf", scale));
+                // nvenc 仅支持 8bit 输入，10bit 源（如 x265 10bit）不加格式转换会启动失败；
+                // 8bit 源时 format=nv12 为 no-op，故非烧录路径无条件附加；烧录路径由 filter_complex 承担
+                if (!burnSubtitle) {
+                    command.addAll(List.of("-vf", scale != null ? scale + ",format=nv12" : "format=nv12"));
                 }
                 command.addAll(List.of("-preset", "p4", "-cq", "23"));
             }
@@ -288,9 +290,10 @@ public class TranscodeCommandBuilder {
         }
         switch (encoder) {
             case "h264_vaapi" -> chain.append(",format=nv12,hwupload");
-            case "h264_qsv" -> chain.append(",format=nv12");
+            // nvenc 与 qsv 同样仅支持 8bit 输入，10bit 源烧录也需转 nv12
+            case "h264_qsv", "h264_nvenc" -> chain.append(",format=nv12");
             default -> {
-                // nvenc 与软解无后缀，滤镜即止
+                // 软解无后缀，滤镜即止
             }
         }
         return chain.append("[v]").toString();

@@ -72,10 +72,11 @@ public class TranscodeSessionManager {
                     request.externalSubtitlePath(), request.externalSubtitleStream());
             String hwaccel = configResolver.resolveHwaccel();
             String encoder = videoCopy ? TranscodeCommandBuilder.ENCODER_COPY : commandBuilder.selectEncoder(hwaccel);
-            Process process = processLauncher.startFfmpeg(outputDir, request, encoder);
+            TranscodeProcessLauncher.StderrTail stderrTail = new TranscodeProcessLauncher.StderrTail();
+            Process process = processLauncher.startFfmpeg(outputDir, request, encoder, stderrTail);
             TranscodeSession session = new TranscodeSession(sessionId, userId, outputDir, process, encoder, Instant.now());
             sessions.put(sessionId, session);
-            processLauncher.watchEarlyFailure(session, sessions);
+            processLauncher.watchEarlyFailure(session, sessions, stderrTail);
             started = true;
             return session;
         } catch (IOException e) {

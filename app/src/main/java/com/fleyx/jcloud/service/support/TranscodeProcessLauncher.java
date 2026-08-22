@@ -9,7 +9,6 @@ import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -41,11 +40,33 @@ public class TranscodeProcessLauncher {
     }
 
     /**
-     * 启动 ffmpeg 进程并排空 stderr；远程输入流在独立虚拟线程中管道喂给进程 stdin。
+     * ffmpeg stderr 尾部环形缓冲：固定保留最后若干行，仅用于早期失败时输出诊断日志，
+     * 正常路径只覆盖写、开销可忽略。线程安全（排空线程写、监控线程读）。
+     */
+    static final class StderrTail {
+
+        private static final int MAX_LINES = 10;
+
+        private final java.util.Deque<String> lines = new java.util.ArrayDeque<>(MAX_LINES + 1);
+
+        synchronized void append(String line) {
+            if (lines.size() == MAX_LINES) {
+                lines.pollFirst();
+            }
+            lines.addLast(line);
+        }
+
+        synchronized String tail() {
+            return String.join(" | ", lines);
+        }
+    }
+
+    /**
+     * 启动 ffmpeg 进程并排空 stderr（尾部行存入 stderrTail 供失败诊断）；远程输入流在独立虚拟线程中管道喂给进程 stdin。
      * 远程外挂位图字幕先物化到会话输出目录（destroy 时递归删除即自动清理），命令以物化文件为第二输入。
      */
     public Process startFfmpeg(Path outputDir, TranscodeCommandBuilder.TranscodeRequest request,
-                               String encoder) throws IOException {
+                               String encoder, StderrTail stderrTail) throws IOException {
         TranscodeCommandBuilder.TranscodeRequest effective = request;
         if (request.externalSubtitleStream() != null) {
             effective = request.withExternalSubtitlePath(
@@ -58,8 +79,12 @@ public class TranscodeProcessLauncher {
         builder.redirectErrorStream(false);
         Process process = builder.start();
         Thread.startVirtualThread(() -> {
-            try {
-                process.getErrorStream().transferTo(OutputStream.nullOutputStream());
+            try (var reader = new java.io.BufferedReader(
+                    new java.io.InputStreamReader(process.getErrorStream(), java.nio.charset.StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    stderrTail.append(line);
+                }
             } catch (IOException ignored) {
             }
         });
@@ -141,7 +166,8 @@ public class TranscodeProcessLauncher {
      * @param session  被监控会话
      * @param sessions 会话注册表（用于判断会话是否已被回收）
      */
-    public void watchEarlyFailure(TranscodeSession session, Map<String, TranscodeSession> sessions) {
+    public void watchEarlyFailure(TranscodeSession session, Map<String, TranscodeSession> sessions,
+                                  StderrTail stderrTail) {
         Thread.startVirtualThread(() -> {
             try {
                 Thread.sleep(3000);
@@ -161,7 +187,8 @@ public class TranscodeProcessLauncher {
                     || TranscodeCommandBuilder.ENCODER_COPY.equals(session.encoder())) {
                 return;
             }
-            log.warn("显式指定的硬解方式启动失败: session={}, encoder={}", session.id(), session.encoder());
+            log.warn("显式指定的硬解方式启动失败: session={}, encoder={}, ffmpeg stderr: {}",
+                    session.id(), session.encoder(), stderrTail.tail());
             session.failed(true);
             process.destroy();
         });

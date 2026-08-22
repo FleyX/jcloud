@@ -359,15 +359,37 @@ class TranscodeCommandBuilderTest {
     }
 
     @Test
-    void shouldBurnSubtitleWithNvencWithoutSuffix() {
-        // nvenc 硬解：无滤镜后缀，其余转码参数保持原样
+    void shouldBurnSubtitleWithNvencFormatSuffix() {
+        // nvenc 硬解：仅支持 8bit 输入，软件帧叠加后 format=nv12 兜底 10bit 源
         List<String> command = builder.buildCommand(request("mpeg2video", "ac3", null, null, false, 1),
                 "h264_nvenc", "/dev/dri/renderD128", 0, Path.of("/out/burn5"));
         String joined = String.join(" ", command);
 
-        assertTrue(joined.contains("-filter_complex [0:v:0][0:s:1]overlay[v]"));
+        assertTrue(joined.contains("-filter_complex [0:v:0][0:s:1]overlay,format=nv12[v]"));
         assertTrue(joined.contains("-preset p4 -cq 23"));
         assertFalse(joined.contains("-vf"));
+    }
+
+    @Test
+    void shouldAppendFormatNv12ForNvencWithoutScale() {
+        // nvenc 非烧录、无缩放：无条件带 format=nv12（8bit 源为 no-op，10bit 源兜底防启动失败）
+        List<String> command = builder.buildCommand(request("hevc", "aac", null, null, true),
+                "h264_nvenc", "/dev/dri/renderD128", 0, Path.of("/out/nvenc1"));
+        String joined = String.join(" ", command);
+
+        assertTrue(joined.contains("-c:v h264_nvenc"));
+        assertTrue(joined.contains("-vf format=nv12"));
+        assertTrue(joined.contains("-preset p4 -cq 23"));
+    }
+
+    @Test
+    void shouldAppendScaleBeforeFormatNv12ForNvenc() {
+        // nvenc 非烧录、有缩放：scale 在前 format=nv12 在后
+        List<String> command = builder.buildCommand(request("hevc", "aac", 2000L, 720, true),
+                "h264_nvenc", "/dev/dri/renderD128", 0, Path.of("/out/nvenc2"));
+        String joined = String.join(" ", command);
+
+        assertTrue(joined.contains("-vf scale=-2:min(720\\,ih),format=nv12"));
     }
 
     @Test

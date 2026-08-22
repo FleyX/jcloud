@@ -41,7 +41,7 @@ class TranscodeProcessLauncherTest {
         Map<String, TranscodeSession> sessions = new ConcurrentHashMap<>();
         sessions.put("s1", session);
 
-        launcher.watchEarlyFailure(session, sessions);
+        launcher.watchEarlyFailure(session, sessions, new TranscodeProcessLauncher.StderrTail());
 
         await(() -> session.failed(), "启动失败的会话应被标记失败");
         assertSame(session, sessions.get("s1"), "注册表中的会话不应被替换");
@@ -57,11 +57,28 @@ class TranscodeProcessLauncherTest {
         Map<String, TranscodeSession> sessions = new ConcurrentHashMap<>();
         sessions.put("s2", session);
 
-        launcher.watchEarlyFailure(session, sessions);
+        launcher.watchEarlyFailure(session, sessions, new TranscodeProcessLauncher.StderrTail());
 
         // 等过 3 秒监控窗口后确认未误标
         Thread.sleep(3600);
         assertFalse(session.failed(), "已有产出时不应标记失败");
+    }
+
+    @Test
+    void shouldKeepOnlyLastTenLinesInStderrTail() {
+        // 环形缓冲：超过 10 行时丢弃最早的行，仅保留尾部
+        TranscodeProcessLauncher.StderrTail tail = new TranscodeProcessLauncher.StderrTail();
+        for (int i = 1; i <= 12; i++) {
+            tail.append("line" + i);
+        }
+
+        assertEquals("line3 | line4 | line5 | line6 | line7 | line8 | line9 | line10 | line11 | line12",
+                tail.tail());
+    }
+
+    @Test
+    void shouldReturnEmptyTailWhenNoStderr() {
+        assertEquals("", new TranscodeProcessLauncher.StderrTail().tail());
     }
 
     /**
