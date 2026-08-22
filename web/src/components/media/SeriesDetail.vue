@@ -286,15 +286,13 @@ async function toggleEpisodeWatched(episode: MediaItemVo) {
         @refresh="handleRefresh"
         @toggle-favorite="toggleSeriesFavorite"
         @toggle-watched="toggleSeriesWatched"
-      />
-
-      <div class="mt-6 px-4 pb-8 md:px-10">
+      >
         <!-- 季卡片网格 -->
         <template v-if="!activeSeason">
           <h2 class="mb-3 text-base font-semibold text-surface-900">
             季（{{ detail.seasons.length }}）
           </h2>
-          <div class="grid grid-cols-3 gap-3 sm:grid-cols-4 md:gap-4 lg:grid-cols-7 xl:grid-cols-9">
+          <div class="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-3 md:gap-4 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
             <SeasonCard
               v-for="season in detail.seasons"
               :key="season.seasonId"
@@ -405,7 +403,7 @@ async function toggleEpisodeWatched(episode: MediaItemVo) {
             </div>
           </div>
         </template>
-      </div>
+      </MediaDetailHero>
     </template>
 
     <TmdbMatchModal
