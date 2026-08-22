@@ -10,7 +10,7 @@ import { useRouter } from 'vue-router'
 import type { MediaItemVo } from '@/types/media'
 import { fetchMediaOthers } from '@/api/media'
 import PosterCard from './PosterCard.vue'
-import MediaSortDialog from './MediaSortDialog.vue'
+import SortDialog from '@/components/SortDialog.vue'
 import MediaSearchModal from './MediaSearchModal.vue'
 import MediaSearchResultRow from './MediaSearchResultRow.vue'
 import { useMediaWall, type MediaWallFetcher, type MediaWallSortField } from './useMediaWall'
@@ -146,7 +146,7 @@ function thumbUrl(item: MediaItemVo): string {
       </template>
     </MediaSearchModal>
 
-    <MediaSortDialog
+    <SortDialog
       :open="sortOpen"
       :fields="sortFields"
       :sort-field="sortField"

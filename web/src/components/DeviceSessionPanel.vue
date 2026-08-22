@@ -107,7 +107,9 @@ async function handleLogoutAll() {
       v-else-if="loadError"
       class="flex flex-col items-center gap-3 py-6"
     >
-      <p class="text-sm text-surface-500">设备列表加载失败</p>
+      <p class="text-sm text-surface-500">
+        设备列表加载失败
+      </p>
       <button
         class="rounded-xl border border-surface-200 px-4 py-2 text-sm font-medium text-surface-700 transition-colors hover:bg-surface-100"
         @click="loadDevices"

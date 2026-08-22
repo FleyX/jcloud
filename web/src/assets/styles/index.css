@@ -19,6 +19,9 @@
   --color-surface-800: #1e293b;
   --color-surface-900: #0f172a;
 
+  /* 页面底色（与 bg-white 的明暗映射一致），用于详情页背景图渐变融入页面 */
+  --color-pagebg: #ffffff;
+
   /* 自定义阴影 */
   --shadow-soft: 0 4px 20px -4px rgba(0, 0, 0, 0.08);
   --shadow-card: 0 2px 12px rgba(0, 0, 0, 0.06);
@@ -60,6 +63,7 @@
 
 html.dark {
   color-scheme: dark;
+  --color-pagebg: #1e293b;
   --color-primary-50: #172554;
   --color-primary-100: #1e3a8a;
   --color-primary-700: #2563eb;

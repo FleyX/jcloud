@@ -54,11 +54,17 @@ const fileInfoChips = computed(() => {
   return chips
 })
 
-/** 版本文件事实标签：分辨率/封装/编码/大小/时长 */
+/** 版本行主标题：分辨率优先，无分辨率用容器格式（如 MKV），皆无用「版本 N」 */
+function versionTitle(version: MediaMovieVersionVo, index: number): string {
+  if (version.width && version.height) return `${version.width}×${version.height}`
+  if (version.container) return version.container.toUpperCase()
+  return `版本 ${index + 1}`
+}
+
+/** 版本文件事实副行标签：编码/大小/时长；分辨率已作主标题不重复，容器格式仅在未作主标题时展示 */
 function versionChips(version: MediaMovieVersionVo): string {
   const parts: string[] = []
-  if (version.width && version.height) parts.push(`${version.width}×${version.height}`)
-  if (version.container) parts.push(version.container.toUpperCase())
+  if (version.width && version.height && version.container) parts.push(version.container.toUpperCase())
   if (version.videoCodec) parts.push(version.videoCodec.toUpperCase())
   if (version.audioCodec) parts.push(version.audioCodec.toUpperCase())
   if (version.fileSize) parts.push(formatSize(version.fileSize))
@@ -154,17 +160,9 @@ const toggleMovieWatched = useOptimisticToggle({
         @toggle-watched="toggleMovieWatched"
       />
 
-      <!-- 单版本或无版本时展示文件名；单版本由播放按钮直接播默认版本 -->
-      <p
-        v-if="versions.length <= 1"
-        class="mt-2 px-4 text-xs text-surface-400 md:px-10"
-      >
-        {{ detail.fileName }}
-      </p>
-
       <!-- 版本列表（电影多版本）：点击播放该版本，默认版本按后端 defaultVersionId 标记 -->
       <div
-        v-else
+        v-if="versions.length > 1"
         class="mt-4 px-4 pb-2 md:px-10"
       >
         <h2 class="text-base font-semibold text-surface-900">
@@ -172,7 +170,7 @@ const toggleMovieWatched = useOptimisticToggle({
         </h2>
         <div class="mt-3 divide-y divide-surface-100 rounded-2xl border border-surface-100">
           <button
-            v-for="version in versions"
+            v-for="(version, index) in versions"
             :key="version.id"
             :class="cn(
               'group flex w-full items-center gap-3 px-3 py-3 text-left transition-colors hover:bg-surface-50 md:gap-4 md:px-4',
@@ -184,8 +182,8 @@ const toggleMovieWatched = useOptimisticToggle({
               <Clapperboard class="h-5 w-5" />
             </div>
             <div class="min-w-0 flex-1">
-              <p class="flex items-center gap-1.5 truncate text-sm font-medium text-surface-800">
-                <span class="truncate">{{ version.fileName }}</span>
+              <p class="flex items-center gap-1.5 text-sm font-medium text-surface-800">
+                <span>{{ versionTitle(version, index) }}</span>
                 <span
                   v-if="isDefaultVersion(version)"
                   class="shrink-0 rounded-md bg-primary-500/10 px-1.5 py-0.5 text-[10px] font-medium text-primary-600"

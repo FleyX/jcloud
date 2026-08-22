@@ -1,7 +1,8 @@
 <script setup lang="ts">
 /**
- * 媒体详情页头部（Jellyfin 风格两栏改版：背景横幅 + 左海报右内容）
- * 顶部为纯视觉 backdrop 横幅，下方主体为「左侧大海报 + 右侧内容」两栏；
+ * 媒体详情页头部（Jellyfin 风格沉浸两栏）
+ * 顶部为加高的 backdrop 背景图，底部渐变融入页面底色（明暗主题各自自然）；
+ * 下方主体「左侧大海报 + 右侧内容」两栏，海报约一半高度压入背景图。
  * PC/移动端共用，<md 时纵向堆叠。
  */
 import { computed, ref, watch } from 'vue'
@@ -106,16 +107,16 @@ function goBack() {
 
 <template>
   <div>
-    <!-- 背景横幅（纯视觉：仅 backdrop + 暗化渐变 + 返回按钮，无海报与文字） -->
-    <div class="relative h-56 overflow-hidden bg-surface-900 md:h-72">
+    <!-- 背景横幅（纯视觉：backdrop 加高，底部渐变融入页面底色 + 返回按钮，无海报与文字） -->
+    <div class="relative h-64 overflow-hidden bg-surface-900 md:h-96 lg:h-[26rem]">
       <img
         v-if="backdropUrl && !backdropError"
         :src="backdropUrl"
         :alt="title"
-        class="h-full w-full object-cover opacity-60"
+        class="h-full w-full object-cover"
         @error="backdropError = true"
       >
-      <div class="absolute inset-0 bg-gradient-to-t from-surface-900 via-surface-900/60 to-surface-900/10" />
+      <div class="absolute inset-0 bg-gradient-to-t from-pagebg via-pagebg/30 to-black/20" />
 
       <!-- 返回按钮 -->
       <button
@@ -127,10 +128,10 @@ function goBack() {
       </button>
     </div>
 
-    <!-- 主体：左海报 + 右内容两栏（<md 纵向堆叠） -->
-    <div class="flex flex-col items-start gap-5 px-4 pb-10 pt-2 md:flex-row md:items-start md:gap-10 md:px-10 md:pt-0">
-      <!-- 左栏：大海报，md 起轻微上探压横幅下缘 -->
-      <div class="-mt-8 aspect-[2/3] w-32 shrink-0 self-center overflow-hidden rounded-2xl bg-surface-200 shadow-xl ring-1 ring-white/20 md:-mt-16 md:w-56 md:self-auto lg:w-64">
+    <!-- 主体：左海报 + 右内容两栏（<md 纵向堆叠）；整行上探使海报约一半压入背景图，右栏与海报顶部对齐；relative 使上探部分压在背景渐变遮罩之上 -->
+    <div class="relative -mt-24 flex flex-col items-start gap-5 px-4 pb-10 md:-mt-44 md:flex-row md:items-start md:gap-10 md:px-10">
+      <!-- 左栏：大海报 -->
+      <div class="aspect-[2/3] w-32 shrink-0 self-center overflow-hidden rounded-2xl bg-surface-200 shadow-xl ring-1 ring-white/20 md:w-56 md:self-auto lg:w-64">
         <img
           v-if="posterUrl && !posterError"
           :src="posterUrl"
@@ -192,7 +193,7 @@ function goBack() {
           </span>
         </div>
 
-        <!-- 操作按钮组 -->
+        <!-- 操作按钮组：主播放键保留文字，其余仅图标 + 悬浮提示 -->
         <div class="mt-4 flex flex-wrap items-center gap-2">
           <button
             class="flex items-center gap-1.5 rounded-xl bg-primary-600 px-5 py-2 text-sm font-semibold text-white hover:bg-primary-700"
@@ -203,21 +204,21 @@ function goBack() {
           </button>
           <button
             v-if="continueMs > 0"
-            class="flex items-center gap-1.5 rounded-xl bg-surface-100 px-4 py-2 text-sm font-medium text-surface-700 hover:bg-surface-200"
+            class="flex items-center rounded-xl bg-surface-100 px-3 py-2 text-sm text-surface-700 hover:bg-surface-200"
+            title="从头播放"
             @click="emit('play', 0)"
           >
             <RotateCcw class="h-4 w-4" />
-            从头播放
           </button>
           <button
-            class="flex items-center gap-1.5 rounded-xl bg-surface-100 px-3 py-2 text-sm text-surface-700 hover:bg-surface-200"
+            class="flex items-center rounded-xl bg-surface-100 px-3 py-2 text-sm text-surface-700 hover:bg-surface-200"
             title="修正匹配"
             @click="emit('rematch')"
           >
             <Pencil class="h-4 w-4" />
           </button>
           <button
-            class="flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm transition-colors"
+            class="flex items-center rounded-xl px-3 py-2 text-sm transition-colors"
             :class="cn(
               favorited
                 ? 'bg-rose-100 text-rose-600 hover:bg-rose-200'
@@ -230,10 +231,9 @@ function goBack() {
               class="h-4 w-4"
               :class="favorited && 'fill-rose-500'"
             />
-            {{ favorited ? '已收藏' : '收藏' }}
           </button>
           <button
-            class="flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm transition-colors"
+            class="flex items-center rounded-xl px-3 py-2 text-sm transition-colors"
             :class="cn(
               watched
                 ? 'bg-emerald-100 text-emerald-600 hover:bg-emerald-200'
@@ -246,7 +246,6 @@ function goBack() {
               class="h-4 w-4"
               :class="watched && 'fill-emerald-600'"
             />
-            {{ watched ? '已观看' : '标记已观看' }}
           </button>
           <DropdownMenuRoot
             v-if="showRefresh"

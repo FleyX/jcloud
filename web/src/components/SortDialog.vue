@@ -1,25 +1,24 @@
-<script setup lang="ts">
+<script setup lang="ts" generic="T extends string">
 /**
- * 海报墙排序弹窗：排序字段单选 + 排序方向单选，确认后由父组件应用排序
+ * 通用排序弹窗：排序字段单选 + 排序方向单选，确认后由父组件应用排序
  * - 内部暂存选择，打开时同步 props 当前值
  * - 选中项用 Check 图标标记（仿 PlayerOptionMenu），样式对齐 MediaSearchModal
  */
-import { ref, watch } from 'vue'
+import { shallowRef, watch, type ShallowRef } from 'vue'
 import { ArrowUpDown, X, Check } from '@lucide/vue'
-import type { MediaWallSortField } from './useMediaWall'
 import { cn } from '@/utils/cn'
 
 interface Props {
   open: boolean
-  fields: Array<{ value: MediaWallSortField; label: string }>
-  sortField: MediaWallSortField
+  fields: Array<{ value: T; label: string }>
+  sortField: T
   sortOrder: 'asc' | 'desc'
 }
 
 const props = defineProps<Props>()
 const emit = defineEmits<{
   close: []
-  confirm: [field: MediaWallSortField, order: 'asc' | 'desc']
+  confirm: [field: T, order: 'asc' | 'desc']
 }>()
 
 const orderOptions = [
@@ -27,8 +26,8 @@ const orderOptions = [
   { value: 'desc' as const, label: '降序' },
 ]
 
-const selectedField = ref<MediaWallSortField>('added')
-const selectedOrder = ref<'asc' | 'desc'>('desc')
+const selectedField: ShallowRef<T> = shallowRef<T>('' as T)
+const selectedOrder: ShallowRef<'asc' | 'desc'> = shallowRef<'asc' | 'desc'>('desc')
 
 watch(
   () => props.open,
