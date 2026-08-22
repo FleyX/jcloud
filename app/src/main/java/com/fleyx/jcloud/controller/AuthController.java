@@ -1,9 +1,12 @@
 package com.fleyx.jcloud.controller;
 
+import cn.hutool.core.util.StrUtil;
 import com.fleyx.jcloud.common.R;
 import com.fleyx.jcloud.common.constant.CommonConstant;
 import com.fleyx.jcloud.common.context.CurrentUser;
 import com.fleyx.jcloud.common.context.UserContext;
+import com.fleyx.jcloud.common.enums.ResultCode;
+import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.model.dto.TokenRefreshDto;
 import com.fleyx.jcloud.model.dto.UserLoginDto;
 import com.fleyx.jcloud.model.dto.UserRegisterDto;
@@ -62,10 +65,22 @@ public class AuthController {
 
     /**
      * 刷新令牌。
+     * <p>
+     * body 可为空：Web 端 JS 读不到 HttpOnly 刷新 cookie，从请求携带的 cookie 中解析
+     * （复用登出的「body 优先、否则读 cookie」模式）；body 携带（原生端）时校验规则不变。
      */
     @PostMapping("/refresh")
-    public R<TokenPairVo> refresh(@Valid @RequestBody TokenRefreshDto dto, HttpServletResponse response) {
-        TokenPairVo vo = authService.refresh(dto);
+    public R<TokenPairVo> refresh(@RequestBody(required = false) @Valid TokenRefreshDto dto,
+                                  HttpServletRequest request,
+                                  HttpServletResponse response) {
+        String refreshToken = authCookieSupport.resolveRefreshToken(request,
+                dto == null ? null : dto.getRefreshToken());
+        if (StrUtil.isBlank(refreshToken)) {
+            throw new BusinessException(ResultCode.UNAUTHORIZED, "刷新令牌不能为空");
+        }
+        TokenRefreshDto resolvedDto = dto == null ? new TokenRefreshDto() : dto;
+        resolvedDto.setRefreshToken(refreshToken);
+        TokenPairVo vo = authService.refresh(resolvedDto);
         authCookieSupport.writeTokenCookies(response, vo.getToken(), vo.getRefreshToken());
         return R.ok(vo);
     }

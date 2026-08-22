@@ -7,6 +7,7 @@ import com.fleyx.jcloud.common.enums.UserStatus;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.common.permission.PermissionRegistry;
 import com.fleyx.jcloud.common.permission.PermissionResolver;
+import com.fleyx.jcloud.config.JwtProperties;
 import com.fleyx.jcloud.mapper.RoleMapper;
 import com.fleyx.jcloud.mapper.UserMapper;
 import com.fleyx.jcloud.mapper.UserRoleMapper;
@@ -33,6 +34,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
 import java.util.Collections;
 import java.util.List;
 
@@ -53,6 +55,7 @@ public class AuthServiceImpl implements AuthService {
     private final PermissionRegistry permissionRegistry;
     private final SystemInitService systemInitService;
     private final AuthSessionSupport authSessionSupport;
+    private final JwtProperties jwtProperties;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -101,6 +104,7 @@ public class AuthServiceImpl implements AuthService {
         vo.setToken(jwtUtil.generateToken(user.getId(), user.getUsername(), resolvedDeviceId));
         vo.setRefreshToken(refreshToken);
         vo.setDeviceId(resolvedDeviceId);
+        vo.setAccessExpiresAt(accessExpiresAt());
         return vo;
     }
 
@@ -116,7 +120,7 @@ public class AuthServiceImpl implements AuthService {
     @Override
     public TokenPairVo refresh(TokenRefreshDto dto) {
         RefreshResult result = authSessionSupport.refresh(dto.getRefreshToken());
-        return new TokenPairVo(result.getAccessToken(), result.getRefreshToken());
+        return new TokenPairVo(result.getAccessToken(), result.getRefreshToken(), accessExpiresAt());
     }
 
     @Override
@@ -146,6 +150,10 @@ public class AuthServiceImpl implements AuthService {
     @Override
     public void revokeDevice(String userId, String deviceId) {
         authSessionSupport.revokeSession(userId, deviceId);
+    }
+
+    private long accessExpiresAt() {
+        return System.currentTimeMillis() + Duration.ofHours(jwtProperties.getExpireHours()).toMillis();
     }
 
     private LoginVo buildBaseLoginVo(User user) {
