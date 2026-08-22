@@ -1,6 +1,7 @@
 import { useNotificationStore } from '@/store/notification'
 import { useUserStore } from '@/store/user'
-import router from '@/router'
+import router, { isGuardInFlight } from '@/router'
+import { UnauthorizedError } from '@/api/errors'
 import type { ApiResponse } from '@/types/auth'
 
 export const BASE_URL = '/jcloud/api'
@@ -8,11 +9,14 @@ export const BASE_URL = '/jcloud/api'
 async function handleResponse<T>(response: Response): Promise<T> {
   const json = (await response.json()) as ApiResponse<T>
   if (json.code === 401) {
-    // 登录态经 cookie 承载，静默续期由后端过滤器接管；401 直接清登录态并跳登录页
+    // 登录态经 cookie 承载，静默续期由后端过滤器接管；401 直接清登录态并跳登录页。
+    // 守卫进行中不主动跳转：由守卫通过重定向完成（守卫内的 push 会与当前导航竞态，导致首跳异常终止、应用无法挂载白屏）。
     const userStore = useUserStore()
     userStore.logoutAction()
-    router.push('/login')
-    throw new Error(json.msg || '登录已过期')
+    if (!isGuardInFlight()) {
+      router.push('/login')
+    }
+    throw new UnauthorizedError(json.msg || '登录已过期')
   }
   if (json.code !== 200) {
     const message = json.msg || '请求失败'

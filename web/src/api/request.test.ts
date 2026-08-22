@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { get } from './request'
+import { UnauthorizedError } from './errors'
 
 const mocks = vi.hoisted(() => {
   const userStore = {
@@ -9,6 +10,7 @@ const mocks = vi.hoisted(() => {
     userStore,
     routerPush: vi.fn(),
     notificationError: vi.fn(),
+    guardInFlight: false,
   }
 })
 
@@ -22,6 +24,7 @@ vi.mock('@/store/notification', () => ({
 
 vi.mock('@/router', () => ({
   default: { push: mocks.routerPush },
+  isGuardInFlight: () => mocks.guardInFlight,
 }))
 
 /** 构造与 Response 兼容的假响应（仅 handleResponse 使用的 json 方法） */
@@ -38,6 +41,7 @@ describe('request 同源 cookie 鉴权', () => {
     mocks.userStore.logoutAction.mockClear()
     mocks.routerPush.mockClear()
     mocks.notificationError.mockClear()
+    mocks.guardInFlight = false
   })
 
   afterEach(() => {
@@ -68,6 +72,17 @@ describe('request 同源 cookie 鉴权', () => {
     expect(mocks.userStore.logoutAction).toHaveBeenCalledTimes(1)
     expect(mocks.routerPush).toHaveBeenCalledWith('/login')
     expect(mocks.notificationError).not.toHaveBeenCalled()
+  })
+
+  it('守卫进行中 401 不主动 push 登录页（由守卫重定向收尾，避免与当前导航竞态）', async () => {
+    mocks.guardInFlight = true
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ code: 401, msg: '登录已过期' }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    // 仍抛出 UnauthorizedError 供守卫识别，且登录态照常清除
+    await expect(get('/files/list')).rejects.toBeInstanceOf(UnauthorizedError)
+    expect(mocks.userStore.logoutAction).toHaveBeenCalledTimes(1)
+    expect(mocks.routerPush).not.toHaveBeenCalled()
   })
 
   it('业务错误（code!==200）只弹通知，不清理登录态', async () => {
