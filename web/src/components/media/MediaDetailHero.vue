@@ -2,8 +2,9 @@
 /**
  * 媒体详情页头部（Jellyfin 风格沉浸两栏）
  * 顶部为加高的 backdrop 背景图，底部渐变融入页面底色（明暗主题各自自然）；
- * 下方主体「左侧大海报 + 右侧内容」两栏，海报约一半高度压入背景图。
- * PC/移动端共用，<md 时纵向堆叠。
+ * 下方主体桌面端（≥md）为 1:2 两栏：左栏仅海报（撑满栏宽、2:3 比例、约一半压入背景图），
+ * 右栏依次为标题/元信息/操作按钮/简介，并在简介之下开放默认插槽承载页面级内容；
+ * <md 时纵向堆叠（整页统一滚动、左栏不吸顶）。
  */
 import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
@@ -128,10 +129,10 @@ function goBack() {
       </button>
     </div>
 
-    <!-- 主体：左海报 + 右内容两栏（<md 纵向堆叠）；整行上探使海报约一半压入背景图，右栏与海报顶部对齐；relative 使上探部分压在背景渐变遮罩之上 -->
-    <div class="relative -mt-24 flex flex-col items-start gap-5 px-4 pb-10 md:-mt-44 md:flex-row md:items-start md:gap-10 md:px-10">
+    <!-- 主体：桌面端 1:2 两栏（左海报右内容，grid-cols-[1fr_2fr]），<md 纵向堆叠；整行上探使海报约一半压入背景图（md:-mt-44 / lg:-mt-60 / xl:-mt-72 按海报高度校准，顶部不超出横幅）；relative 使上探部分压在背景渐变遮罩之上 -->
+    <div class="relative -mt-24 flex flex-col items-start gap-5 px-4 pb-10 md:grid md:grid-cols-[1fr_2fr] md:items-start md:gap-10 md:px-10 md:-mt-44 lg:-mt-60 xl:-mt-72">
       <!-- 左栏：大海报 -->
-      <div class="aspect-[2/3] w-32 shrink-0 self-center overflow-hidden rounded-2xl bg-surface-200 shadow-xl ring-1 ring-white/20 md:w-56 md:self-auto lg:w-64">
+      <div class="aspect-[2/3] w-32 shrink-0 self-center overflow-hidden rounded-2xl bg-surface-200 shadow-xl ring-1 ring-white/20 md:w-full md:self-auto">
         <img
           v-if="posterUrl && !posterError"
           :src="posterUrl"
@@ -147,8 +148,8 @@ function goBack() {
         </div>
       </div>
 
-      <!-- 右栏：内容 -->
-      <div class="min-w-0 flex-1">
+      <!-- 右栏：内容（grid 列内无需 flex-1，min-w-0 保证长内容不撑破 2fr 列） -->
+      <div class="min-w-0">
         <div class="flex items-center gap-2">
           <h1 class="truncate text-2xl font-bold text-surface-900 md:text-3xl">
             {{ title }}
@@ -289,6 +290,11 @@ function goBack() {
         >
           {{ overview }}
         </p>
+
+        <!-- 插槽：简介之下的页面级扩展位。用 v-if 包裹，调用方不传时不产生多余 DOM/间距；间距统一由本容器 mt-5 提供 -->
+        <div v-if="$slots.default" class="mt-5">
+          <slot />
+        </div>
       </div>
     </div>
   </div>

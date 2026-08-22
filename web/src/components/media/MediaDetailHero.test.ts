@@ -3,7 +3,11 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import MediaDetailHero from './MediaDetailHero.vue'
 
-function mountHero(showRefresh = true, extraProps: Record<string, unknown> = {}) {
+function mountHero(
+  showRefresh = true,
+  extraProps: Record<string, unknown> = {},
+  slots: Record<string, string> = {},
+) {
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [{ path: '/', component: { template: '<div />' } }],
@@ -12,6 +16,7 @@ function mountHero(showRefresh = true, extraProps: Record<string, unknown> = {})
     props: { title: '钢铁侠', showRefresh, ...extraProps },
     attachTo: document.body,
     global: { plugins: [router] },
+    slots,
   })
 }
 
@@ -95,5 +100,69 @@ describe('MediaDetailHero 操作按钮（Jellyfin 改版：仅主播放键保留
     expect(restart).not.toBeNull()
     expect(restart!.textContent!.trim()).toBe('')
     wrapper.unmount()
+  })
+})
+
+describe('MediaDetailHero 桌面端 1:2 两栏布局（工单 01：左海报 + 右内容 + 插槽）', () => {
+  afterEach(() => {
+    document.body.innerHTML = ''
+  })
+
+  /**
+   * 定位主体两栏容器：h1 固定渲染于右栏（标题行内），其祖父节点即右栏容器，
+   * 右栏的父节点为主体容器（两栏），第一子元素为左栏。
+   * 用 DOM 结构/文本关系断言，不断言 Tailwind 类名字符串。
+   */
+  function layoutColumns(wrapper: ReturnType<typeof mountHero>) {
+    const h1 = wrapper.get('h1').element
+    const rightColumn = h1.parentElement!.parentElement!
+    const body = rightColumn.parentElement!
+    expect(body.children).toHaveLength(2)
+    return { leftColumn: body.children[0], rightColumn }
+  }
+
+  it('桌面端左栏仅含海报，右栏包含标题/操作按钮/简介', () => {
+    const wrapper = mountHero(true, { posterUrl: '/poster.jpg', overview: '一段简介' })
+    const { leftColumn, rightColumn } = layoutColumns(wrapper)
+    // 左栏：仅海报 img，无其他内容
+    expect(leftColumn.querySelector('img')).not.toBeNull()
+    expect(leftColumn.textContent!.trim()).toBe('')
+    // 右栏：标题 / 元信息下方操作按钮组 / 简介
+    expect(rightColumn.querySelector('h1')!.textContent).toContain('钢铁侠')
+    expect(rightColumn.querySelector('button[title="修正匹配"]')).not.toBeNull()
+    expect(Array.from(rightColumn.querySelectorAll('button')).some((b) => b.textContent!.includes('播放'))).toBe(true)
+    expect(rightColumn.textContent).toContain('一段简介')
+    wrapper.unmount()
+  })
+
+  it('左栏无海报图时渲染占位图标，仍无其他内容', () => {
+    const wrapper = mountHero(true, { overview: '一段简介' })
+    const { leftColumn } = layoutColumns(wrapper)
+    expect(leftColumn.querySelector('img')).toBeNull()
+    expect(leftColumn.querySelector('svg')).not.toBeNull() // Film 占位图标
+    expect(leftColumn.textContent!.trim()).toBe('')
+    wrapper.unmount()
+  })
+
+  it('传入默认插槽时渲染在简介之后（右栏内），未传入时不渲染', () => {
+    const withSlot = mountHero(
+      true,
+      { posterUrl: '/poster.jpg', overview: '一段简介' },
+      { default: '<p data-slot="page-content">页面级插槽内容</p>' },
+    )
+    const withRight = layoutColumns(withSlot).rightColumn
+    const slotEl = withRight.querySelector('[data-slot="page-content"]')!
+    expect(slotEl).not.toBeNull()
+    // 插槽位于简介之后，且是右栏最后一个子元素（无其他内容跟在后面）
+    expect(withRight.textContent!.indexOf('一段简介')).toBeLessThan(withRight.textContent!.indexOf('页面级插槽内容'))
+    expect(withRight.lastElementChild!.querySelector('[data-slot="page-content"]')).not.toBeNull()
+    withSlot.unmount()
+
+    const without = mountHero(true, { posterUrl: '/poster.jpg', overview: '一段简介' })
+    const withoutRight = layoutColumns(without).rightColumn
+    expect(withoutRight.querySelector('[data-slot="page-content"]')).toBeNull()
+    // 未传插槽时右栏最后一个子元素即简介 <p>，无多余容器/间距
+    expect(withoutRight.lastElementChild!.textContent).toContain('一段简介')
+    without.unmount()
   })
 })
