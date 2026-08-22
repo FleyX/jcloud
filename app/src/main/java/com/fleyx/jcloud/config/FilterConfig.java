@@ -10,8 +10,6 @@ import com.fleyx.jcloud.filter.WebDavAuthFilter;
 import com.fleyx.jcloud.mapper.UserMapper;
 import com.fleyx.jcloud.mapper.UserRoleMapper;
 import com.fleyx.jcloud.service.support.AuthBlacklistSupport;
-import com.fleyx.jcloud.service.support.AuthCookieSupport;
-import com.fleyx.jcloud.service.support.AuthSessionSupport;
 import com.fleyx.jcloud.util.JwtUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
@@ -32,8 +30,6 @@ public class FilterConfig {
     private final UserRoleMapper userRoleMapper;
     private final UserPermissionCache userPermissionCache;
     private final PermissionResolver permissionResolver;
-    private final AuthSessionSupport authSessionSupport;
-    private final AuthCookieSupport authCookieSupport;
     private final AuthBlacklistSupport authBlacklistSupport;
 
     /**
@@ -57,7 +53,7 @@ public class FilterConfig {
         FilterRegistrationBean<AuthTokenFilter> registration = new FilterRegistrationBean<>();
         registration.setFilter(new AuthTokenFilter(jwtUtil, objectMapper, permissionRegistry,
                 userMapper, userRoleMapper, userPermissionCache, permissionResolver,
-                authSessionSupport, authCookieSupport, authBlacklistSupport));
+                authBlacklistSupport));
         registration.addUrlPatterns("/jcloud/api/*");
         registration.setName("authTokenFilter");
         registration.setOrder(2);
