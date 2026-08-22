@@ -226,12 +226,9 @@ class UsedSpaceWritePathAccountingTest extends IntegrationTestBase {
 
             put(username, "/over.txt", newContent);
 
-            // 记账口径（计划步骤 3）：覆盖处理器已原子扣减旧大小，upload 末尾只加新大小
-            assertEquals(newContent.length, usedSpaceOf(userId));
-            // 重算口径差异：被覆盖的旧文件节点仅物理删除、DB 记录未删（迁移前既有行为，
-            // 02 票 Out of scope「已知疑点」不修），故重算值 = 新大小 + 旧大小
-            assertEquals((long) oldContent.length + newContent.length,
-                    userUsedSpaceSupport.recalcUsedSpace(userId));
+            // WebDAV PUT 覆盖为原地更新节点（票据01 ab1b23a）：复用原 FileNode id，
+            // 已用空间按差额调整，无旧节点残留，记账值与重算值一致且等于新大小
+            assertUsedEqualsRecalc(userId, newContent.length);
         } finally {
             UserContext.clear();
         }
