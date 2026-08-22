@@ -34,7 +34,7 @@ const canSubmit = computed(() =>
 )
 
 onMounted(async () => {
-  if (!userStore.token) {
+  if (!userStore.isLoggedIn) {
     router.replace('/login')
     return
   }

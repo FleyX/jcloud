@@ -51,27 +51,49 @@ RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
 COPY web/ ./
 RUN pnpm build
 
-# 阶段 3：准备 JRE（与运行镜像同平台）
-FROM eclipse-temurin:25-jre-alpine AS jre-base
+# 阶段 3：准备 JRE（与运行镜像同平台；jammy 的 glibc 2.35 可前向兼容 bookworm 的 2.36，temurin 无 Debian 变体）
+FROM eclipse-temurin:25-jre-jammy AS jre-base
 
 # 阶段 4：运行镜像
-# 使用官方 Caddy 镜像作为基础，并注入 Eclipse Temurin JRE
-FROM caddy:2-alpine
+# 基础镜像为 Debian（caddy 官方镜像无 Debian 变体，Caddy 静态二进制从其 Alpine 镜像拷贝）；注入 Eclipse Temurin JRE
+FROM debian:bookworm-slim
+# Caddy 官方镜像（含 caddy:2-alpine）为 Alpine 且无 Debian 变体；其 /usr/bin/caddy 为全静态二进制，跨发行版可跑
+COPY --from=caddy:2-alpine /usr/bin/caddy /usr/bin/caddy
 ARG CN_MIRROR
+ARG TARGETARCH
+ARG JELLYFIN_FFMPEG_VERSION=7.1.4-3
 COPY --from=jre-base /opt/java /opt/java
 ENV JAVA_HOME=/opt/java/openjdk
 ENV PATH="${JAVA_HOME}/bin:${PATH}"
+# jellyfin-ffmpeg 二进制不进 PATH，通过 Spring 宽松绑定注入 ffmpeg/ffprobe 路径（jcloud.media.ffmpeg-path/ffprobe-path）
+ENV JCLOUD_MEDIA_FFMPEG_PATH=/usr/lib/jellyfin-ffmpeg/ffmpeg
+ENV JCLOUD_MEDIA_FFPROBE_PATH=/usr/lib/jellyfin-ffmpeg/ffprobe
 
-# 国内镜像加速：阿里云 Alpine 镜像源
-RUN if [ "$CN_MIRROR" = "true" ]; then \
-        sed -i 's#dl-cdn.alpinelinux.org#mirrors.aliyun.com#g' /etc/apk/repositories; \
+# 国内镜像加速：阿里云 Debian 镜像源（deb822 格式，文件存在才替换，防御基础镜像变化）
+RUN if [ "$CN_MIRROR" = "true" ] && [ -f /etc/apt/sources.list.d/debian.sources ]; then \
+        sed -i 's#deb.debian.org#mirrors.aliyun.com#g' /etc/apt/sources.list.d/debian.sources; \
     fi
 
-# 安装 LibreOffice（Office 文档转 PDF 预览）与中文字体（Noto CJK，避免转换后中文乱码）
-RUN apk add --no-cache libreoffice font-noto-cjk
+# 安装 LibreOffice（Office 文档转 PDF 预览，nogui 变体专为 headless 转换设计）、中文字体（Noto CJK，避免转换后中文乱码）、mesa VAAPI 驱动（AMD 硬解/硬编）与 vainfo
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libreoffice-writer-nogui \
+        libreoffice-calc-nogui \
+        libreoffice-impress-nogui \
+        fonts-noto-cjk \
+        mesa-va-drivers \
+        vainfo \
+        curl \
+        ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
-# 安装 ffmpeg（视频转码、缩略图、字幕提取、ffprobe 探测）
-RUN apk add --no-cache ffmpeg
+# 安装 jellyfin-ffmpeg（自带 Intel iHD 驱动、oneVPL GPU 运行时、NVENC 支持），版本由 ARG 固定；
+# 官方源在国内直连极慢，可用 --build-arg JELLYFIN_FFMPEG_BASE_URL 指向镜像/本地源覆盖；
+# 上一层已清理 apt lists，安装 deb 前需重新 update 才能解析系统依赖
+ARG JELLYFIN_FFMPEG_BASE_URL=https://repo.jellyfin.org/files/ffmpeg/debian/latest-7.x
+RUN curl -fsSL -o /tmp/jellyfin-ffmpeg.deb "${JELLYFIN_FFMPEG_BASE_URL}/${TARGETARCH}/jellyfin-ffmpeg7_${JELLYFIN_FFMPEG_VERSION}-bookworm_${TARGETARCH}.deb" \
+    && apt-get update && apt-get install -y --no-install-recommends /tmp/jellyfin-ffmpeg.deb \
+    && rm -f /tmp/jellyfin-ffmpeg.deb \
+    && apt-get purge -y curl && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 

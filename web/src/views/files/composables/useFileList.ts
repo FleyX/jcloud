@@ -34,6 +34,13 @@ export interface UseFileListOptions {
   initialParentId?: string
 }
 
+/** 文件列表排序偏好存储 key（全局单一 key，值结构为 {sortField, sortOrder}） */
+const FILE_LIST_SORT_KEY = 'file-list-sort'
+/** 合法排序字段集合 */
+const SORT_FIELDS: readonly FileSortField[] = ['name', 'size', 'createTime']
+/** 合法排序方向集合 */
+const SORT_ORDERS: readonly FileSortOrder[] = ['asc', 'desc']
+
 function hasMixedSource(nodes: FileNodeVo[]): boolean {
   if (nodes.length < 2) return false
   const firstSource = nodes[0].sourceType || 'local'
@@ -69,8 +76,9 @@ export function useFileList(options: UseFileListOptions = {}) {
     { id: initialParentId, name: rootName },
   ])
 
-  const sortField = ref<FileSortField>('createTime')
-  const sortOrder = ref<FileSortOrder>('desc')
+  const sorted = restoreSort()
+  const sortField = ref<FileSortField>(sorted.field)
+  const sortOrder = ref<FileSortOrder>(sorted.order)
 
   const previewOpen = ref(false)
   const previewTarget = ref<FileNodeVo | null>(null)
@@ -107,6 +115,33 @@ export function useFileList(options: UseFileListOptions = {}) {
     loadFiles()
   })
 
+  /**
+   * 从 localStorage 恢复排序偏好，逐项校验字段与方向，任一非法或异常即回退默认。
+   */
+  function restoreSort(): { field: FileSortField; order: FileSortOrder } {
+    try {
+      const saved = JSON.parse(localStorage.getItem(FILE_LIST_SORT_KEY) || 'null') as {
+        sortField?: FileSortField
+        sortOrder?: FileSortOrder
+      } | null
+      const field = saved?.sortField
+      const order = saved?.sortOrder
+      return {
+        field: SORT_FIELDS.includes(field as FileSortField) ? (field as FileSortField) : 'createTime',
+        order: SORT_ORDERS.includes(order as FileSortOrder) ? (order as FileSortOrder) : 'desc',
+      }
+    } catch {
+      return { field: 'createTime', order: 'desc' }
+    }
+  }
+
+  function persistSort() {
+    localStorage.setItem(
+      FILE_LIST_SORT_KEY,
+      JSON.stringify({ sortField: sortField.value, sortOrder: sortOrder.value }),
+    )
+  }
+
   async function loadFiles() {
     loading.value = true
     try {
@@ -127,11 +162,13 @@ export function useFileList(options: UseFileListOptions = {}) {
 
   function setSortField(field: FileSortField) {
     sortField.value = field
+    persistSort()
     return loadFiles()
   }
 
   function toggleSortOrder() {
     sortOrder.value = sortOrder.value === 'asc' ? 'desc' : 'asc'
+    persistSort()
     return loadFiles()
   }
 
@@ -146,6 +183,18 @@ export function useFileList(options: UseFileListOptions = {}) {
       sortField.value = field
       sortOrder.value = 'asc'
     }
+    persistSort()
+    return loadFiles()
+  }
+
+  /**
+   * 同时设置排序字段与方向，仅触发一次列表加载。
+   * 供排序弹窗确认回调等一次决定字段与方向的场景使用。
+   */
+  function setSort(field: FileSortField, order: FileSortOrder) {
+    sortField.value = field
+    sortOrder.value = order
+    persistSort()
     return loadFiles()
   }
 
@@ -388,6 +437,7 @@ export function useFileList(options: UseFileListOptions = {}) {
     setSortField,
     toggleSortOrder,
     toggleSort,
+    setSort,
     handleSearch,
     clearSearch,
     enterFolder,

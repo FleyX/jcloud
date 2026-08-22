@@ -180,6 +180,7 @@ public class MediaFavoriteQuerySupport {
             vo.setReleaseDate(metadata == null ? null : metadata.getReleaseDate());
             vo.setVoteAverage(metadata == null ? null : metadata.getVoteAverage());
             vo.setMatchStatus(movie.getMatchStatus());
+            vo.setWatched(movie.getWatched());
             result.add(vo);
         }
         return result;
@@ -205,6 +206,7 @@ public class MediaFavoriteQuerySupport {
             vo.setReleaseDate(metadata == null ? null : metadata.getReleaseDate());
             vo.setVoteAverage(metadata == null ? null : metadata.getVoteAverage());
             vo.setMatchStatus(series.getMatchStatus());
+            vo.setWatched(series.getWatched());
             result.add(vo);
         }
         return result;
@@ -237,6 +239,7 @@ public class MediaFavoriteQuerySupport {
             vo.setSeriesName(series.getSeriesName());
             vo.setSeasonNo(season.getSeasonNo());
             vo.setMatchStatus(series.getMatchStatus());
+            vo.setWatched(season.getWatched());
             result.add(vo);
         }
         return result;
@@ -278,6 +281,7 @@ public class MediaFavoriteQuerySupport {
             vo.setSeasonNo(season == null ? null : season.getSeasonNo());
             vo.setEpisodeNo(episode.getEpisodeNo());
             vo.setMatchStatus(series.getMatchStatus());
+            vo.setWatched(episode.getWatched());
             result.add(vo);
         }
         return result;
@@ -297,6 +301,7 @@ public class MediaFavoriteQuerySupport {
             vo.setFileName(other.getName());
             vo.setFileNodeId(other.getFileNodeId());
             vo.setDurationMs(other.getDurationMs());
+            vo.setWatched(other.getWatched());
             result.add(vo);
         }
         return result;

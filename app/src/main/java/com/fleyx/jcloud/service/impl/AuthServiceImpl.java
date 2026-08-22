@@ -1,6 +1,5 @@
 package com.fleyx.jcloud.service.impl;
 
-import cn.hutool.core.util.StrUtil;
 import cn.hutool.crypto.digest.BCrypt;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fleyx.jcloud.common.enums.ResultCode;
@@ -11,17 +10,23 @@ import com.fleyx.jcloud.common.permission.PermissionResolver;
 import com.fleyx.jcloud.mapper.RoleMapper;
 import com.fleyx.jcloud.mapper.UserMapper;
 import com.fleyx.jcloud.mapper.UserRoleMapper;
+import com.fleyx.jcloud.model.bo.RefreshResult;
 import com.fleyx.jcloud.model.convert.RoleConvert;
 import com.fleyx.jcloud.model.convert.UserConvert;
+import com.fleyx.jcloud.model.dto.TokenRefreshDto;
 import com.fleyx.jcloud.model.dto.UserLoginDto;
 import com.fleyx.jcloud.model.dto.UserRegisterDto;
 import com.fleyx.jcloud.model.po.Role;
 import com.fleyx.jcloud.model.po.User;
 import com.fleyx.jcloud.model.po.UserRole;
+import com.fleyx.jcloud.model.vo.DeviceSessionVo;
 import com.fleyx.jcloud.model.vo.LoginVo;
+import com.fleyx.jcloud.model.vo.TokenPairVo;
 import com.fleyx.jcloud.model.vo.UserVo;
 import com.fleyx.jcloud.service.AuthService;
 import com.fleyx.jcloud.service.SystemInitService;
+import com.fleyx.jcloud.service.support.AuthSessionSupport;
+import com.fleyx.jcloud.util.DeviceNameUtil;
 import com.fleyx.jcloud.util.JwtUtil;
 import com.fleyx.jcloud.util.UsernameUtil;
 import lombok.RequiredArgsConstructor;
@@ -47,6 +52,7 @@ public class AuthServiceImpl implements AuthService {
     private final PermissionResolver permissionResolver;
     private final PermissionRegistry permissionRegistry;
     private final SystemInitService systemInitService;
+    private final AuthSessionSupport authSessionSupport;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -82,12 +88,20 @@ public class AuthServiceImpl implements AuthService {
     }
 
     @Override
-    public LoginVo login(UserLoginDto dto) {
+    public LoginVo login(UserLoginDto dto, String userAgent) {
         User user = findActiveUserByUsername(dto.getUsername());
         if (!matchPassword(dto.getPassword(), user.getPassword())) {
             throw new BusinessException(ResultCode.UNAUTHORIZED, "用户名或密码错误");
         }
-        return buildLoginVo(user);
+        String deviceName = DeviceNameUtil.resolveDeviceName(dto.getDeviceName(), userAgent);
+        String resolvedDeviceId = authSessionSupport.resolveDeviceId(dto.getDeviceId());
+        String refreshToken = authSessionSupport.createSession(user.getId(), user.getUsername(), resolvedDeviceId, deviceName);
+        LoginVo vo = buildBaseLoginVo(user);
+        // 登录令牌携带设备标识，供黑名单按设备隔离
+        vo.setToken(jwtUtil.generateToken(user.getId(), user.getUsername(), resolvedDeviceId));
+        vo.setRefreshToken(refreshToken);
+        vo.setDeviceId(resolvedDeviceId);
+        return vo;
     }
 
     @Override
@@ -96,10 +110,45 @@ public class AuthServiceImpl implements AuthService {
         if (user == null) {
             throw new BusinessException(ResultCode.NOT_FOUND, "用户不存在");
         }
-        return buildLoginVo(user);
+        return buildBaseLoginVo(user);
     }
 
-    private LoginVo buildLoginVo(User user) {
+    @Override
+    public TokenPairVo refresh(TokenRefreshDto dto) {
+        RefreshResult result = authSessionSupport.refresh(dto.getRefreshToken());
+        return new TokenPairVo(result.getAccessToken(), result.getRefreshToken());
+    }
+
+    @Override
+    public void logout(String refreshToken) {
+        authSessionSupport.revokeByRefreshToken(refreshToken);
+    }
+
+    @Override
+    public void logoutAll(String userId) {
+        authSessionSupport.revokeAllSessions(userId);
+    }
+
+    @Override
+    public List<DeviceSessionVo> listDevices(String userId, String currentDeviceId) {
+        return authSessionSupport.listSessions(userId).stream()
+                .map(session -> {
+                    DeviceSessionVo vo = new DeviceSessionVo();
+                    vo.setDeviceId(session.getDeviceId());
+                    vo.setDeviceName(session.getDeviceName());
+                    vo.setLastActiveTime(session.getLastActiveTime());
+                    vo.setCurrent(session.getDeviceId().equals(currentDeviceId));
+                    return vo;
+                })
+                .toList();
+    }
+
+    @Override
+    public void revokeDevice(String userId, String deviceId) {
+        authSessionSupport.revokeSession(userId, deviceId);
+    }
+
+    private LoginVo buildBaseLoginVo(User user) {
         List<String> roleIds = userRoleMapper.selectRoleIdsByUserId(user.getId());
         List<String> resources = user.isSuperAdmin()
                 ? permissionRegistry.allResourceCodes()

@@ -22,9 +22,9 @@ import com.fleyx.jcloud.service.support.MediaGenreSupport;
 import com.fleyx.jcloud.service.support.MediaMovieQuerySupport;
 import com.fleyx.jcloud.service.support.MediaMovieScrapeSupport;
 import com.fleyx.jcloud.service.support.MediaOtherQuerySupport;
-import com.fleyx.jcloud.service.support.MediaPlaybackResolveSupport;
 import com.fleyx.jcloud.service.support.MediaTvQuerySupport;
 import com.fleyx.jcloud.service.support.MediaTvScrapeSupport;
+import com.fleyx.jcloud.service.support.MediaWatchedWriteSupport;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -51,16 +51,17 @@ class MediaItemServiceImplTest {
     private final MediaTvQuerySupport mediaTvQuerySupport = mock(MediaTvQuerySupport.class);
     private final MediaMovieQuerySupport mediaMovieQuerySupport = mock(MediaMovieQuerySupport.class);
     private final MediaOtherQuerySupport mediaOtherQuerySupport = mock(MediaOtherQuerySupport.class);
-    private final MediaPlaybackResolveSupport mediaPlaybackResolveSupport = mock(MediaPlaybackResolveSupport.class);
     private final MediaTvScrapeSupport mediaTvScrapeSupport = mock(MediaTvScrapeSupport.class);
     private final MediaMovieScrapeSupport mediaMovieScrapeSupport = mock(MediaMovieScrapeSupport.class);
     private final MediaGenreSupport mediaGenreSupport = mock(MediaGenreSupport.class);
+    private final MediaWatchedWriteSupport mediaWatchedWriteSupport = mock(MediaWatchedWriteSupport.class);
 
     private final MediaItemServiceImpl mediaItemService = new MediaItemServiceImpl(
             mediaSeriesMapper, mediaMovieMapper, mediaMovieFileMapper,
             mediaEpisodeMapper, mediaEpisodeFileMapper, mediaOtherMapper,
             tmdbService, mediaTvQuerySupport, mediaMovieQuerySupport, mediaOtherQuerySupport,
-            mediaPlaybackResolveSupport, mediaTvScrapeSupport, mediaMovieScrapeSupport, mediaGenreSupport);
+            mediaTvScrapeSupport, mediaMovieScrapeSupport, mediaGenreSupport,
+            mediaWatchedWriteSupport);
 
     /**
      * 按文件节点 ID 反查：其他库文件命中 other 行时返回 other 行 ID。

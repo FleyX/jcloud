@@ -1,7 +1,10 @@
 <script setup lang="ts">
 /**
- * 媒体详情页头部（Jellyfin 风格：背景横幅 + 海报 + 元信息 + 操作按钮）
- * PC/移动端共用
+ * 媒体详情页头部（Jellyfin 风格沉浸两栏）
+ * 顶部为加高的 backdrop 背景图，底部渐变融入页面底色（明暗主题各自自然）；
+ * 下方主体桌面端（≥md）为 1:2 两栏：左栏仅海报（撑满栏宽、2:3 比例、上探量为背景横幅高度的 1/4），
+ * 右栏依次为标题/元信息/操作按钮/简介，并在简介之下开放默认插槽承载页面级内容；
+ * <md 时纵向堆叠（整页统一滚动、左栏不吸顶）。
  */
 import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
@@ -12,8 +15,7 @@ import {
   DropdownMenuRoot,
   DropdownMenuTrigger,
 } from 'radix-vue'
-import { ArrowLeft, Film, Heart, Pencil, Play, RefreshCcw, RefreshCw, RotateCcw, Star } from '@lucide/vue'
-import { withToken } from '@/api/media'
+import { ArrowLeft, Check, Film, Heart, Pencil, Play, RefreshCcw, RefreshCw, RotateCcw, Star } from '@lucide/vue'
 import { formatDurationText, formatPosition } from './format'
 import { cn } from '@/utils/cn'
 
@@ -36,6 +38,8 @@ interface Props {
   showRefresh?: boolean
   /** 是否已收藏（显示收藏按钮） */
   favorited?: boolean
+  /** 是否已观看（显示标记已观看/未观看按钮） */
+  watched?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -43,6 +47,7 @@ const props = withDefaults(defineProps<Props>(), {
   fileInfoChips: () => [],
   continueMs: 0,
   favorited: false,
+  watched: false,
 })
 
 const emit = defineEmits<{
@@ -50,6 +55,7 @@ const emit = defineEmits<{
   rematch: []
   refresh: [mode: 'missing' | 'force']
   'toggle-favorite': []
+  'toggle-watched': []
 }>()
 
 /** 刷新菜单是否展开（radix-vue DropdownMenu 受控） */
@@ -102,18 +108,16 @@ function goBack() {
 
 <template>
   <div>
-    <!-- 背景横幅 -->
-    <div class="relative">
-      <div class="absolute inset-0 overflow-hidden bg-surface-900">
-        <img
-          v-if="backdropUrl && !backdropError"
-          :src="withToken(backdropUrl)"
-          :alt="title"
-          class="h-full w-full object-cover opacity-60"
-          @error="backdropError = true"
-        >
-        <div class="absolute inset-0 bg-gradient-to-t from-surface-950 via-surface-950/60 to-surface-950/20" />
-      </div>
+    <!-- 背景横幅（纯视觉：backdrop 加高，底部渐变融入页面底色 + 返回按钮，无海报与文字） -->
+    <div class="relative h-64 overflow-hidden bg-surface-900 md:h-96 lg:h-[26rem]">
+      <img
+        v-if="backdropUrl && !backdropError"
+        :src="backdropUrl"
+        :alt="title"
+        class="h-full w-full object-cover"
+        @error="backdropError = true"
+      >
+      <div class="absolute inset-0 bg-gradient-to-t from-pagebg via-pagebg/30 to-black/20" />
 
       <!-- 返回按钮 -->
       <button
@@ -123,154 +127,175 @@ function goBack() {
       >
         <ArrowLeft class="h-5 w-5" />
       </button>
+    </div>
 
-      <div class="relative flex flex-col gap-4 px-4 pb-6 pt-16 md:flex-row md:items-end md:gap-8 md:px-10 md:pt-32">
-        <!-- 海报 -->
-        <div class="aspect-[2/3] w-32 shrink-0 overflow-hidden rounded-2xl bg-surface-800 shadow-lg md:w-48">
-          <img
-            v-if="posterUrl && !posterError"
-            :src="withToken(posterUrl)"
-            :alt="title"
-            class="h-full w-full object-cover"
-            @error="posterError = true"
+    <!-- 主体：桌面端 1:2 两栏（左海报右内容，grid-cols-[1fr_2fr]），<md 纵向堆叠；整行上探量 = 背景横幅高度的 1/4（横幅 h-64/md:h-96/lg:h-[26rem] → -mt-16/md:-mt-24/lg:-mt-[6.5rem]），与屏宽脱钩、各断点侵入比例一致；relative 使上探部分压在背景渐变遮罩之上 -->
+    <div class="relative -mt-16 flex flex-col items-start gap-5 px-4 pb-10 md:grid md:grid-cols-[1fr_2fr] md:items-start md:gap-10 md:px-10 md:-mt-24 lg:-mt-[6.5rem]">
+      <!-- 左栏：大海报（桌面端宽占左栏 80%，水平居中） -->
+      <div class="aspect-[2/3] w-32 shrink-0 self-center overflow-hidden rounded-2xl bg-surface-200 shadow-xl ring-1 ring-white/20 md:w-4/5 md:self-auto md:justify-self-center">
+        <img
+          v-if="posterUrl && !posterError"
+          :src="posterUrl"
+          :alt="title"
+          class="h-full w-full object-cover"
+          @error="posterError = true"
+        >
+        <div
+          v-else
+          class="flex h-full w-full items-center justify-center text-surface-400"
+        >
+          <Film class="h-12 w-12" />
+        </div>
+      </div>
+
+      <!-- 右栏：内容（grid 列内无需 flex-1，min-w-0 保证长内容不撑破 2fr 列；md 起顶部留约 3 行空白，与海报顶部错开） -->
+      <div class="min-w-0 md:pt-20">
+        <div class="flex items-center gap-2">
+          <h1 class="truncate text-2xl font-bold text-surface-900 md:text-3xl">
+            {{ title }}
+          </h1>
+          <span
+            v-if="unmatched"
+            class="shrink-0 rounded-lg bg-amber-500/90 px-1.5 py-0.5 text-xs font-medium text-white"
           >
-          <div
-            v-else
-            class="flex h-full w-full items-center justify-center text-surface-600"
+            未识别
+          </span>
+        </div>
+        <p
+          v-if="originalTitle && originalTitle !== title"
+          class="mt-0.5 truncate text-sm text-surface-500"
+        >
+          {{ originalTitle }}
+        </p>
+
+        <!-- 元信息行 -->
+        <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-surface-600">
+          <span
+            v-if="ratingText"
+            class="flex items-center gap-1 font-semibold text-amber-500"
           >
-            <Film class="h-12 w-12" />
-          </div>
+            <Star class="h-4 w-4 fill-amber-500" />{{ ratingText }}
+          </span>
+          <span v-if="yearText">{{ yearText }}</span>
+          <span v-if="durationText">{{ durationText }}</span>
+          <span
+            v-for="genre in genres"
+            :key="genre"
+            class="rounded-lg bg-surface-100 px-2 py-0.5 text-xs text-surface-600"
+          >
+            {{ genre }}
+          </span>
+          <span
+            v-for="chip in fileInfoChips"
+            :key="chip"
+            class="rounded-lg bg-surface-100 px-2 py-0.5 text-xs text-surface-600"
+          >
+            {{ chip }}
+          </span>
         </div>
 
-        <!-- 元信息 -->
-        <div class="min-w-0 flex-1 text-white">
-          <div class="flex items-center gap-2">
-            <h1 class="truncate text-2xl font-bold md:text-3xl">
-              {{ title }}
-            </h1>
-            <span
-              v-if="unmatched"
-              class="shrink-0 rounded-lg bg-amber-500/90 px-1.5 py-0.5 text-xs font-medium text-white"
-            >
-              未识别
-            </span>
-          </div>
-          <p
-            v-if="originalTitle && originalTitle !== title"
-            class="mt-0.5 truncate text-sm text-surface-300"
+        <!-- 操作按钮组：主播放键保留文字，其余仅图标 + 悬浮提示 -->
+        <div class="mt-4 flex flex-wrap items-center gap-2">
+          <button
+            class="flex items-center gap-1.5 rounded-xl bg-primary-600 px-5 py-2 text-sm font-semibold text-white hover:bg-primary-700"
+            @click="emit('play', continueMs > 0 ? continueMs : 0)"
           >
-            {{ originalTitle }}
-          </p>
-
-          <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-surface-200">
-            <span
-              v-if="ratingText"
-              class="flex items-center gap-1 font-semibold text-amber-300"
-            >
-              <Star class="h-4 w-4 fill-amber-300" />{{ ratingText }}
-            </span>
-            <span v-if="yearText">{{ yearText }}</span>
-            <span v-if="durationText">{{ durationText }}</span>
-            <span
-              v-for="genre in genres"
-              :key="genre"
-              class="rounded-lg bg-white/10 px-2 py-0.5 text-xs"
-            >
-              {{ genre }}
-            </span>
-            <span
-              v-for="chip in fileInfoChips"
-              :key="chip"
-              class="rounded-lg bg-white/10 px-2 py-0.5 text-xs"
-            >
-              {{ chip }}
-            </span>
-          </div>
-
-          <!-- 操作按钮 -->
-          <div class="mt-4 flex flex-wrap items-center gap-2">
-            <button
-              class="flex items-center gap-1.5 rounded-xl bg-primary-600 px-5 py-2 text-sm font-semibold text-white hover:bg-primary-700"
-              @click="emit('play', continueMs > 0 ? continueMs : 0)"
-            >
-              <Play class="h-4 w-4 fill-white" />
-              {{ continueMs > 0 ? `继续播放 (${formatPosition(continueMs)})` : '播放' }}
-            </button>
-            <button
-              v-if="continueMs > 0"
-              class="flex items-center gap-1.5 rounded-xl bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/20"
-              @click="emit('play', 0)"
-            >
-              <RotateCcw class="h-4 w-4" />
-              从头播放
-            </button>
-            <button
-              class="flex items-center gap-1.5 rounded-xl bg-white/10 px-3 py-2 text-sm text-white hover:bg-white/20"
-              title="修正匹配"
-              @click="emit('rematch')"
-            >
-              <Pencil class="h-4 w-4" />
-            </button>
-            <button
-              class="flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm text-white transition-colors"
-              :class="cn(
-                favorited
-                  ? 'bg-rose-500/20 text-rose-300 hover:bg-rose-500/30'
-                  : 'bg-white/10 hover:bg-white/20'
-              )"
-              :title="favorited ? '取消收藏' : '收藏'"
-              @click="emit('toggle-favorite')"
-            >
-              <Heart
-                class="h-4 w-4"
-                :class="favorited && 'fill-rose-400'"
-              />
-              {{ favorited ? '已收藏' : '收藏' }}
-            </button>
-            <DropdownMenuRoot
-              v-if="showRefresh"
-              v-model:open="refreshOpen"
-            >
-              <DropdownMenuTrigger as-child>
-                <button
-                  class="flex items-center gap-1.5 rounded-xl bg-white/10 px-3 py-2 text-sm text-white hover:bg-white/20"
-                  title="刷新元数据"
+            <Play class="h-4 w-4 fill-white" />
+            {{ continueMs > 0 ? `继续播放 (${formatPosition(continueMs)})` : '播放' }}
+          </button>
+          <button
+            v-if="continueMs > 0"
+            class="flex items-center rounded-xl bg-surface-100 px-3 py-2 text-sm text-surface-700 hover:bg-surface-200"
+            title="从头播放"
+            @click="emit('play', 0)"
+          >
+            <RotateCcw class="h-4 w-4" />
+          </button>
+          <button
+            class="flex items-center rounded-xl bg-surface-100 px-3 py-2 text-sm text-surface-700 hover:bg-surface-200"
+            title="修正匹配"
+            @click="emit('rematch')"
+          >
+            <Pencil class="h-4 w-4" />
+          </button>
+          <button
+            class="flex items-center rounded-xl px-3 py-2 text-sm transition-colors"
+            :class="cn(
+              favorited
+                ? 'bg-rose-100 text-rose-600 hover:bg-rose-200'
+                : 'bg-surface-100 text-surface-700 hover:bg-surface-200'
+            )"
+            :title="favorited ? '取消收藏' : '收藏'"
+            @click="emit('toggle-favorite')"
+          >
+            <Heart
+              class="h-4 w-4"
+              :class="favorited && 'fill-rose-500'"
+            />
+          </button>
+          <button
+            class="flex items-center rounded-xl px-3 py-2 text-sm transition-colors"
+            :class="cn(
+              watched
+                ? 'bg-emerald-100 text-emerald-600 hover:bg-emerald-200'
+                : 'bg-surface-100 text-surface-700 hover:bg-surface-200'
+            )"
+            :title="watched ? '标记未观看' : '标记已观看'"
+            @click="emit('toggle-watched')"
+          >
+            <Check
+              class="h-4 w-4"
+              :class="watched && 'fill-emerald-600'"
+            />
+          </button>
+          <DropdownMenuRoot
+            v-if="showRefresh"
+            v-model:open="refreshOpen"
+          >
+            <DropdownMenuTrigger as-child>
+              <button
+                class="flex items-center gap-1.5 rounded-xl bg-surface-100 px-3 py-2 text-sm text-surface-700 hover:bg-surface-200"
+                title="刷新元数据"
+              >
+                <RefreshCw class="h-4 w-4" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuPortal>
+              <DropdownMenuContent
+                align="end"
+                :side-offset="6"
+                class="z-50 min-w-[160px] overflow-hidden rounded-xl border border-white/20 bg-white p-1.5 shadow-soft outline-none"
+              >
+                <DropdownMenuItem
+                  v-for="action in refreshActions"
+                  :key="action.mode"
+                  class="flex cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-surface-700 outline-none transition-colors duration-150 hover:bg-primary-50 hover:text-primary-700 focus:bg-primary-50"
+                  @click="handleRefresh(action.mode)"
                 >
-                  <RefreshCw class="h-4 w-4" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuPortal>
-                <DropdownMenuContent
-                  align="end"
-                  :side-offset="6"
-                  class="z-50 min-w-[160px] overflow-hidden rounded-xl border border-white/20 bg-white p-1.5 shadow-soft outline-none"
-                >
-                  <DropdownMenuItem
-                    v-for="action in refreshActions"
-                    :key="action.mode"
-                    class="flex cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-surface-700 outline-none transition-colors duration-150 hover:bg-primary-50 hover:text-primary-700 focus:bg-primary-50"
-                    @click="handleRefresh(action.mode)"
-                  >
-                    <component
-                      :is="action.icon"
-                      class="h-4 w-4 shrink-0 text-primary-500"
-                    />
-                    {{ action.label }}
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenuPortal>
-            </DropdownMenuRoot>
-          </div>
+                  <component
+                    :is="action.icon"
+                    class="h-4 w-4 shrink-0 text-primary-500"
+                  />
+                  {{ action.label }}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenuPortal>
+          </DropdownMenuRoot>
+        </div>
+
+        <!-- 简介（右栏内） -->
+        <p
+          v-if="overview"
+          class="mt-5 text-sm leading-6 text-surface-600"
+        >
+          {{ overview }}
+        </p>
+
+        <!-- 插槽：简介之下的页面级扩展位。用 v-if 包裹，调用方不传时不产生多余 DOM/间距；间距统一由本容器 mt-5 提供 -->
+        <div v-if="$slots.default" class="mt-5">
+          <slot />
         </div>
       </div>
     </div>
-
-    <!-- 简介 -->
-    <p
-      v-if="overview"
-      class="mt-4 px-4 text-sm leading-6 text-surface-600 md:px-10"
-    >
-      {{ overview }}
-    </p>
   </div>
 </template>

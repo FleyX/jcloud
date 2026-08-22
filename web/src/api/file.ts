@@ -1,5 +1,4 @@
 import { useNotificationStore } from '@/store/notification'
-import { useUserStore } from '@/store/user'
 import { fullHash } from '@/utils/fileHash'
 import { get, post } from './request'
 import type { PageResult } from '@/types/auth'
@@ -70,12 +69,7 @@ export async function tryInstantUpload(
 }
 
 export function downloadFile(id: string): void {
-  const userStore = useUserStore()
-  fetch(`/jcloud/api/files/${id}/download`, {
-    headers: {
-      Authorization: `Bearer ${userStore.token}`,
-    },
-  })
+  fetch(`/jcloud/api/files/${id}/download`)
     .then(async (response) => {
       if (!response.ok) {
         const json = await response.json().catch(() => ({}))
@@ -176,7 +170,6 @@ export function uploadChunk(
   onProgress?: (loaded: number) => void,
   signal?: AbortSignal,
 ): Promise<ChunkedUploadChunkResponse> {
-  const userStore = useUserStore()
   const formData = new FormData()
   formData.append('index', String(index))
   formData.append('chunk', chunk, 'chunk')
@@ -184,7 +177,6 @@ export function uploadChunk(
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
     xhr.open('POST', `/jcloud/api/files/chunked-upload/${uploadId}/chunks`)
-    xhr.setRequestHeader('Authorization', `Bearer ${userStore.token}`)
 
     if (onProgress) {
       xhr.upload.addEventListener('progress', (event) => {
@@ -252,12 +244,10 @@ export async function downloadBatchFiles(
   fileName = 'archive.zip',
   onProgress?: (progress: DownloadProgress) => void,
 ): Promise<void> {
-  const userStore = useUserStore()
   const response = await fetch('/jcloud/api/files/batch-download', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${userStore.token}`,
     },
     body: JSON.stringify({ ids } satisfies FileBatchDownloadRequest),
   })
@@ -285,15 +275,12 @@ async function pollAndDownloadTask(
   fileName: string,
   onProgress?: (progress: DownloadProgress) => void,
 ): Promise<void> {
-  const userStore = useUserStore()
   const maxAttempts = 120
   const intervalMs = 1000
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     await sleep(intervalMs)
-    const response = await fetch(`/jcloud/api/files/batch-download/${taskId}/status`, {
-      headers: { Authorization: `Bearer ${userStore.token}` },
-    })
+    const response = await fetch(`/jcloud/api/files/batch-download/${taskId}/status`)
     const json = (await response.json()) as { code: number; msg: string; data: FileZipTaskVo }
     if (json.code !== 200) {
       throw new Error(json.msg || '查询下载任务失败')
@@ -303,9 +290,7 @@ async function pollAndDownloadTask(
       throw new Error(task.message || '下载任务失败')
     }
     if (task.status === 'completed') {
-      const downloadResponse = await fetch(`/jcloud/api/files/batch-download/${taskId}`, {
-        headers: { Authorization: `Bearer ${userStore.token}` },
-      })
+      const downloadResponse = await fetch(`/jcloud/api/files/batch-download/${taskId}`)
       if (!downloadResponse.ok) {
         throw new Error('下载 ZIP 失败')
       }

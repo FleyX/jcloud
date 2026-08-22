@@ -44,6 +44,11 @@ public class MediaEpisode extends BaseEntity {
     private Long progressMs;
 
     /**
+     * 已观看标记：手动标记或播放进度达看完阈值自动置位，置位时进度清零。
+     */
+    private Boolean watched;
+
+    /**
      * 最近播放时间。
      */
     private LocalDateTime lastPlayTime;

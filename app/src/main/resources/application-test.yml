@@ -18,6 +18,9 @@ logging:
     com.fleyx.jcloud.mapper: info
 
 jcloud:
+  media:
+    # 测试环境关闭启动硬解探测，避免触发真实 ffmpeg 编码（无 GPU 的 CI 可跑）
+    hwaccel-probe-enabled: false
   preview:
     # 测试环境缩小转换上限，便于验证大小闸门
     office-max-convert-size: 2048

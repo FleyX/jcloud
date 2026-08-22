@@ -66,6 +66,7 @@ describe('useFileList', () => {
     setActivePinia(createPinia())
     vi.clearAllMocks()
     mockFetchFilePage.mockResolvedValue({ records: [] })
+    localStorage.clear()
   })
 
   it('loads files', async () => {
@@ -199,6 +200,85 @@ describe('useFileList', () => {
     expect(list.sortOrder.value).toBe('asc')
   })
 
+  it('persists sort to localStorage with correct JSON', async () => {
+    const list = await createList([])
+
+    await list.setSortField('size')
+    expect(list.sortOrder.value).toBe('desc')
+    expect(JSON.parse(localStorage.getItem('file-list-sort')!)).toEqual({
+      sortField: 'size',
+      sortOrder: 'desc',
+    })
+
+    await list.toggleSortOrder()
+    expect(JSON.parse(localStorage.getItem('file-list-sort')!)).toEqual({
+      sortField: 'size',
+      sortOrder: 'asc',
+    })
+  })
+
+  it('restores sort from localStorage on init and applies to first load', async () => {
+    localStorage.setItem('file-list-sort', JSON.stringify({ sortField: 'name', sortOrder: 'asc' }))
+    mockFetchFilePage.mockResolvedValue({ records: [] })
+
+    const list = useFileList()
+    await list.loadFiles()
+
+    expect(list.sortField.value).toBe('name')
+    expect(list.sortOrder.value).toBe('asc')
+    expect(mockFetchFilePage).toHaveBeenCalledWith(
+      expect.objectContaining({ sortField: 'name', sortOrder: 'asc' }),
+    )
+  })
+
+  it('falls back to default sort on corrupted JSON without throwing', async () => {
+    localStorage.setItem('file-list-sort', '{not-json')
+
+    const list = useFileList()
+    await list.loadFiles()
+
+    expect(list.sortField.value).toBe('createTime')
+    expect(list.sortOrder.value).toBe('desc')
+    expect(mockFetchFilePage).toHaveBeenCalledWith(
+      expect.objectContaining({ sortField: 'createTime', sortOrder: 'desc' }),
+    )
+  })
+
+  it('falls back invalid field to default, keeps valid order', async () => {
+    localStorage.setItem('file-list-sort', JSON.stringify({ sortField: 'unknown', sortOrder: 'asc' }))
+
+    const list = useFileList()
+    await list.loadFiles()
+
+    expect(list.sortField.value).toBe('createTime')
+    expect(list.sortOrder.value).toBe('asc')
+  })
+
+  it('falls back invalid order to default, keeps valid field', async () => {
+    localStorage.setItem('file-list-sort', JSON.stringify({ sortField: 'name', sortOrder: 'sideways' }))
+
+    const list = useFileList()
+    await list.loadFiles()
+
+    expect(list.sortField.value).toBe('name')
+    expect(list.sortOrder.value).toBe('desc')
+  })
+
+  it('setSort sets field and order and triggers a single load', async () => {
+    const list = await createList([])
+    const initialCalls = mockFetchFilePage.mock.calls.length
+
+    await list.setSort('size', 'asc')
+
+    expect(list.sortField.value).toBe('size')
+    expect(list.sortOrder.value).toBe('asc')
+    expect(mockFetchFilePage).toHaveBeenCalledTimes(initialCalls + 1)
+    expect(JSON.parse(localStorage.getItem('file-list-sort')!)).toEqual({
+      sortField: 'size',
+      sortOrder: 'asc',
+    })
+  })
+
   it('deletes single file after confirm', async () => {
     const node = buildFileNode({ id: 'a', name: 'x.txt' })
     mockDeleteToTrash.mockResolvedValue([])
@@ -214,6 +294,8 @@ describe('useFileList', () => {
     mockDeleteToTrash.mockResolvedValue([])
     mockGetCurrentUser.mockResolvedValue({
       token: 't',
+      refreshToken: 'r',
+      deviceId: 'd',
       userInfo: { id: '1', username: 'u', status: 1, isAdmin: false, roles: [] },
       resources: [],
       initialized: true,

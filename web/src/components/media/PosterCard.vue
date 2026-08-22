@@ -4,12 +4,15 @@
  * - 展示海报图、标题、评分、进度条
  * - 未识别条目显示角标，可触发手动匹配
  * - 传入 ownerType/ownerId 时右上角显示收藏心形（已收藏实心高亮；未收藏 PC 端悬浮显现、移动端常显淡色）
+ * - 传入 ownerId 时心形下方显示已观看 ✓ 角标（已观看常驻实心高亮；未观看 PC 端悬浮显现、移动端常显淡色），点击切换
+ * - 已观看的卡片不显示观看进度条
  */
 import { computed, ref, watch } from 'vue'
-import { Film, Heart } from '@lucide/vue'
-import { toggleFavorite, withToken } from '@/api/media'
+import { Check, Film, Heart } from '@lucide/vue'
+import { toggleFavorite, updateMediaWatched } from '@/api/media'
 import type { MediaFavoriteOwnerType } from '@/types/media'
 import { cn } from '@/utils/cn'
+import { useOptimisticToggle } from '@/composables/useOptimisticToggle'
 
 interface Props {
   title: string
@@ -25,6 +28,8 @@ interface Props {
   ownerId?: string
   /** 初始收藏状态 */
   favorited?: boolean
+  /** 初始已观看状态 */
+  watched?: boolean
 }
 
 const props = defineProps<Props>()
@@ -35,6 +40,7 @@ const emit = defineEmits<{
 }>()
 
 const progressPercent = computed(() => {
+  if (watched.value) return 0
   if (!props.progressMs || !props.durationMs || props.durationMs <= 0) return 0
   return Math.min(100, Math.round((props.progressMs / props.durationMs) * 100))
 })
@@ -57,6 +63,26 @@ watch(
 )
 
 const toggling = ref(false)
+
+/** 是否启用已观看 ✓ 角标（有 ownerId 即启用，按 id 探测，ownerType 无需判断） */
+const watchedEnabled = computed(() => !!props.ownerId)
+
+const watched = ref(props.watched ?? false)
+watch(
+  () => props.watched,
+  (value) => {
+    watched.value = value ?? false
+  },
+)
+
+/** 已观看切换（乐观 toggle）：本地先翻转、调 update 成功保留、失败回滚（异常提示由统一请求层处理） */
+const { toggle: performWatchToggle, toggling: watchedToggling } = useOptimisticToggle({
+  isWatched: () => watched.value,
+  setWatched: (value) => {
+    watched.value = value
+  },
+  toggle: (value) => updateMediaWatched(props.ownerId ?? '', value),
+})
 
 /** 海报加载失败标志：加载失败视同无图走 v-else 占位（URL 变化时复位） */
 const imgError = ref(false)
@@ -82,6 +108,12 @@ async function toggle() {
     toggling.value = false
   }
 }
+
+/** 点击 ✓：ownerId 缺失或切换进行中则不触发 */
+async function toggleWatched() {
+  if (!props.ownerId || watchedToggling.value) return
+  await performWatchToggle()
+}
 </script>
 
 <template>
@@ -92,7 +124,7 @@ async function toggle() {
     >
       <img
         v-if="posterUrl && !imgError"
-        :src="withToken(posterUrl)"
+        :src="posterUrl"
         :alt="title"
         loading="lazy"
         class="h-full w-full object-cover"
@@ -126,6 +158,23 @@ async function toggle() {
         <Heart
           class="h-4 w-4"
           :class="favorited && 'fill-rose-500'"
+        />
+      </button>
+      <!-- 已观看 ✓ 角标：已观看常显实心高亮；未观看 PC 端悬浮显现、移动端常显淡色 -->
+      <button
+        v-if="watchedEnabled"
+        class="absolute right-2 top-16 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-sm transition-all hover:bg-black/70"
+        :class="cn(
+          watched
+            ? 'text-emerald-400'
+            : 'max-sm:opacity-70 sm:opacity-0 sm:group-hover:opacity-100'
+        )"
+        :title="watched ? '标记未观看' : '标记已观看'"
+        @click.stop="toggleWatched"
+      >
+        <Check
+          class="h-4 w-4"
+          :class="watched && 'fill-emerald-400'"
         />
       </button>
       <div class="absolute left-2 top-2 flex flex-col items-start gap-1">

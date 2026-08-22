@@ -41,6 +41,7 @@ public class MediaTvCascadeSupport {
     private final MediaEpisodeFileMapper mediaEpisodeFileMapper;
     private final MediaFavoriteService mediaFavoriteService;
     private final MediaCascadeDriverSupport mediaCascadeDriverSupport;
+    private final MediaWatchedLinkageSupport mediaWatchedLinkageSupport;
 
     /**
      * 级联删除若干部剧：集文件 → 集 → 季 → 剧行，各级连带其 owner 指向的 t_media_metadata 行；
@@ -146,9 +147,15 @@ public class MediaTvCascadeSupport {
             if (remaining != null && remaining > 0) {
                 continue;
             }
+            MediaEpisode episode = existingEpisodes.stream()
+                    .filter(e -> e.getId().equals(episodeId)).findFirst().orElse(null);
             mediaCascadeDriverSupport.deleteMetadata(MediaMetadataOwnerType.EPISODE.getCode(), episodeId);
             mediaEpisodeMapper.deleteById(episodeId);
             deletedEpisodeIds.add(episodeId);
+            // 集删除后重算其父级标记（工单 02）
+            if (episode != null) {
+                mediaWatchedLinkageSupport.recomputeParentsOf(episode);
+            }
             log.info("即时删除消失的集: {}", episodeId);
         }
         mediaFavoriteService.deleteByOwners(MediaFavoriteOwnerType.EPISODE, deletedEpisodeIds);
@@ -165,9 +172,15 @@ public class MediaTvCascadeSupport {
             if (remaining != null && remaining > 0) {
                 continue;
             }
+            MediaSeason season = existingSeasons.stream()
+                    .filter(s -> s.getId().equals(seasonId)).findFirst().orElse(null);
             mediaCascadeDriverSupport.deleteMetadata(MediaMetadataOwnerType.SEASON.getCode(), seasonId);
             mediaSeasonMapper.deleteById(seasonId);
             deletedSeasonIds.add(seasonId);
+            // 季删除后重算所属剧标记（工单 02）
+            if (season != null) {
+                mediaWatchedLinkageSupport.recomputeSeries(season.getSeriesId());
+            }
             log.info("即时删除消失的季: {}", seasonId);
         }
         mediaFavoriteService.deleteByOwners(MediaFavoriteOwnerType.SEASON, deletedSeasonIds);

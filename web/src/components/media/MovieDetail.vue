@@ -10,10 +10,11 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Clapperboard, Play } from '@lucide/vue'
 import type { MediaItemDetailVo, MediaMovieVersionVo, TmdbSearchResultVo } from '@/types/media'
-import { fetchItemDetail, refreshMetadata, toggleFavorite, updateMediaMatch, type MediaRefreshMode } from '@/api/media'
+import { fetchItemDetail, refreshMetadata, toggleFavorite, updateMediaMatch, updateMediaWatched, type MediaRefreshMode } from '@/api/media'
 import { formatSize } from '@/utils/fileDisplay'
 import { cn } from '@/utils/cn'
 import { useNotificationStore } from '@/store/notification'
+import { useOptimisticToggle } from '@/composables/useOptimisticToggle'
 import { formatDurationText } from './format'
 import MediaDetailHero from './MediaDetailHero.vue'
 import TmdbMatchModal from './TmdbMatchModal.vue'
@@ -53,11 +54,17 @@ const fileInfoChips = computed(() => {
   return chips
 })
 
-/** 版本文件事实标签：分辨率/封装/编码/大小/时长 */
+/** 版本行主标题：分辨率优先，无分辨率用容器格式（如 MKV），皆无用「版本 N」 */
+function versionTitle(version: MediaMovieVersionVo, index: number): string {
+  if (version.width && version.height) return `${version.width}×${version.height}`
+  if (version.container) return version.container.toUpperCase()
+  return `版本 ${index + 1}`
+}
+
+/** 版本文件事实副行标签：编码/大小/时长；分辨率已作主标题不重复，容器格式仅在未作主标题时展示 */
 function versionChips(version: MediaMovieVersionVo): string {
   const parts: string[] = []
-  if (version.width && version.height) parts.push(`${version.width}×${version.height}`)
-  if (version.container) parts.push(version.container.toUpperCase())
+  if (version.width && version.height && version.container) parts.push(version.container.toUpperCase())
   if (version.videoCodec) parts.push(version.videoCodec.toUpperCase())
   if (version.audioCodec) parts.push(version.audioCodec.toUpperCase())
   if (version.fileSize) parts.push(formatSize(version.fileSize))
@@ -104,6 +111,21 @@ async function toggleMovieFavorite() {
     detail.value.favorited = previous
   }
 }
+
+/** 标记/取消已观看：本地先翻转，成功后保留、失败回滚；标记已观看时同步清零进度（使播放按钮文案回退为「播放」） */
+const toggleMovieWatched = useOptimisticToggle({
+  isWatched: () => !!detail.value?.watched,
+  setWatched: (watched) => {
+    if (detail.value) detail.value.watched = watched
+  },
+  progress: {
+    get: () => detail.value?.progressMs ?? null,
+    set: (value) => {
+      if (detail.value) detail.value.progressMs = value ?? 0
+    },
+  },
+  toggle: (watched) => updateMediaWatched(itemId, watched),
+}).toggle
 </script>
 
 <template>
@@ -130,62 +152,53 @@ async function toggleMovieFavorite() {
         :file-info-chips="fileInfoChips"
         :show-refresh="!!detail.metadataId"
         :favorited="detail.favorited"
+        :watched="detail.watched"
         @play="handlePlay"
         @rematch="matchOpen = true"
         @refresh="handleRefresh"
         @toggle-favorite="toggleMovieFavorite"
-      />
-
-      <!-- 单版本或无版本时展示文件名；单版本由播放按钮直接播默认版本 -->
-      <p
-        v-if="versions.length <= 1"
-        class="mt-2 px-4 text-xs text-surface-400 md:px-10"
+        @toggle-watched="toggleMovieWatched"
       >
-        {{ detail.fileName }}
-      </p>
-
-      <!-- 版本列表（电影多版本）：点击播放该版本，默认版本按后端 defaultVersionId 标记 -->
-      <div
-        v-else
-        class="mt-4 px-4 pb-2 md:px-10"
-      >
-        <h2 class="text-base font-semibold text-surface-900">
-          版本（{{ versions.length }}）
-        </h2>
-        <div class="mt-3 divide-y divide-surface-100 rounded-2xl border border-surface-100">
-          <button
-            v-for="version in versions"
-            :key="version.id"
-            :class="cn(
-              'group flex w-full items-center gap-3 px-3 py-3 text-left transition-colors hover:bg-surface-50 md:gap-4 md:px-4',
-              isDefaultVersion(version) && 'bg-primary-50/60'
-            )"
-            @click="playVersion(version)"
-          >
-            <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-surface-100 text-surface-400">
-              <Clapperboard class="h-5 w-5" />
-            </div>
-            <div class="min-w-0 flex-1">
-              <p class="flex items-center gap-1.5 truncate text-sm font-medium text-surface-800">
-                <span class="truncate">{{ version.fileName }}</span>
-                <span
-                  v-if="isDefaultVersion(version)"
-                  class="shrink-0 rounded-md bg-primary-500/10 px-1.5 py-0.5 text-[10px] font-medium text-primary-600"
+        <!-- 版本列表（电影多版本）：点击播放该版本，默认版本按后端 defaultVersionId 标记 -->
+        <div v-if="versions.length > 1">
+          <h2 class="text-base font-semibold text-surface-900">
+            版本（{{ versions.length }}）
+          </h2>
+          <div class="mt-3 divide-y divide-surface-100 rounded-2xl border border-surface-100">
+            <button
+              v-for="(version, index) in versions"
+              :key="version.id"
+              :class="cn(
+                'group flex w-full items-center gap-3 px-3 py-3 text-left transition-colors hover:bg-surface-50 md:gap-4 md:px-4',
+                isDefaultVersion(version) && 'bg-primary-50/60'
+              )"
+              @click="playVersion(version)"
+            >
+              <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-surface-100 text-surface-400">
+                <Clapperboard class="h-5 w-5" />
+              </div>
+              <div class="min-w-0 flex-1">
+                <p class="flex items-center gap-1.5 text-sm font-medium text-surface-800">
+                  <span>{{ versionTitle(version, index) }}</span>
+                  <span
+                    v-if="isDefaultVersion(version)"
+                    class="shrink-0 rounded-md bg-primary-500/10 px-1.5 py-0.5 text-[10px] font-medium text-primary-600"
+                  >
+                    默认
+                  </span>
+                </p>
+                <p
+                  v-if="versionChips(version)"
+                  class="mt-0.5 truncate text-xs text-surface-400"
                 >
-                  默认
-                </span>
-              </p>
-              <p
-                v-if="versionChips(version)"
-                class="mt-0.5 truncate text-xs text-surface-400"
-              >
-                {{ versionChips(version) }}
-              </p>
-            </div>
-            <Play class="h-4 w-4 shrink-0 text-surface-800/40 group-hover:text-primary-500" />
-          </button>
+                  {{ versionChips(version) }}
+                </p>
+              </div>
+              <Play class="h-4 w-4 shrink-0 text-surface-800/40 group-hover:text-primary-500" />
+            </button>
+          </div>
         </div>
-      </div>
+      </MediaDetailHero>
     </template>
 
     <TmdbMatchModal

@@ -23,9 +23,15 @@ public class MediaProperties {
     private String ffprobePath = "ffprobe";
 
     /**
-     * 硬件加速类型：auto 自动探测 / vaapi / qsv / nvenc / amf / none。
+     * 硬件加速类型：vaapi / qsv / nvenc / none 软解（无 auto 档）。
+     * yml 默认值保留为 auto，仅作为首次启动探测完成前的兜底，探测落库后以系统配置表为准。
      */
     private String hwaccel = "auto";
+
+    /**
+     * 是否在应用启动时执行硬解方式真实编码探测（首次探测落库后不再自动探测）。
+     */
+    private boolean hwaccelProbeEnabled = true;
 
     /**
      * 全局最大并发转码进程数，默认等于 CPU 核心数。

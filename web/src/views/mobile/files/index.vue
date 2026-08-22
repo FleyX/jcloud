@@ -12,14 +12,14 @@ import {
   Download,
   Check,
   ChevronRight,
-  ArrowUp,
-  ArrowDown,
+  ArrowUpDown,
   Globe,
 } from '@lucide/vue'
 import { cn } from '@/utils/cn'
 import { downloadFile } from '@/api/file'
 import { fileIconMap, formatDate, getTypeStyle } from '@/utils/fileDisplay'
 import { useFileList } from '@/views/files/composables/useFileList'
+import SortDialog from '@/components/SortDialog.vue'
 import CreateShareModal from '@/views/files/components/CreateShareModal.vue'
 import MoveCopyModal from '@/views/files/components/MoveCopyModal.vue'
 import MobileBatchActionBar from './components/MobileBatchActionBar.vue'
@@ -32,6 +32,7 @@ const list = reactive(useFileList())
 
 const fileInput = ref<HTMLInputElement | null>(null)
 const selectionMode = ref(false)
+const sortDialogOpen = ref(false)
 
 const sortFieldOptions: { label: string; value: FileSortField }[] = [
   { label: '上传时间', value: 'createTime' },
@@ -74,9 +75,8 @@ async function handleFileChange(event: Event) {
   }
 }
 
-function handleSortFieldChange(event: Event) {
-  const value = (event.target as HTMLSelectElement).value as FileSortField
-  list.setSortField(value)
+function handleSortConfirm(field: FileSortField, order: 'asc' | 'desc') {
+  list.setSort(field, order)
 }
 
 async function handleBatchDelete() {
@@ -123,6 +123,14 @@ onMounted(list.loadFiles)
         </div>
         <button
           v-if="!selectionMode"
+          class="flex h-10 w-10 items-center justify-center rounded-xl bg-surface-100 text-surface-700 active:scale-95"
+          title="排序"
+          @click="sortDialogOpen = true"
+        >
+          <ArrowUpDown class="h-5 w-5" />
+        </button>
+        <button
+          v-if="!selectionMode"
           class="flex h-10 items-center justify-center rounded-xl bg-surface-100 px-3 text-sm font-medium text-surface-700 active:scale-95"
           @click="enterSelectionMode"
         >
@@ -149,39 +157,6 @@ onMounted(list.loadFiles)
           class="hidden"
           @change="handleFileChange"
         >
-      </div>
-    </div>
-
-    <!-- 排序栏 -->
-    <div class="flex items-center justify-between border-b border-surface-200 bg-white px-4 py-2">
-      <span class="text-xs text-surface-500">排序</span>
-      <div class="flex items-center gap-2">
-        <select
-          :value="list.sortField"
-          class="rounded-lg border border-surface-200 bg-surface-50 px-2 py-1 text-xs outline-none"
-          @change="handleSortFieldChange"
-        >
-          <option
-            v-for="option in sortFieldOptions"
-            :key="option.value"
-            :value="option.value"
-          >
-            {{ option.label }}
-          </option>
-        </select>
-        <button
-          class="flex h-7 w-7 items-center justify-center rounded-lg border border-surface-200 bg-surface-50 text-surface-600 active:bg-surface-100"
-          @click="list.toggleSortOrder"
-        >
-          <ArrowUp
-            v-if="list.sortOrder === 'asc'"
-            class="h-3.5 w-3.5"
-          />
-          <ArrowDown
-            v-else
-            class="h-3.5 w-3.5"
-          />
-        </button>
       </div>
     </div>
 
@@ -295,6 +270,15 @@ onMounted(list.loadFiles)
       :folders="list.folders"
       @close="list.moveCopyOpen = false"
       @confirm="handleMoveCopyResult"
+    />
+
+    <SortDialog
+      :open="sortDialogOpen"
+      :fields="sortFieldOptions"
+      :sort-field="list.sortField"
+      :sort-order="list.sortOrder"
+      @close="sortDialogOpen = false"
+      @confirm="handleSortConfirm"
     />
 
     <MobileBatchActionBar

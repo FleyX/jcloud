@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
+import { createMemoryHistory, createRouter } from 'vue-router'
 import ProfilePage from './profile.vue'
 import { getCurrentUserProfile, changePassword } from '@/api/user'
 import type { UserProfileVo } from '@/types/auth'
@@ -10,6 +11,16 @@ vi.mock('@/api/user', () => ({
   updateCurrentUserProfile: vi.fn(),
   changePassword: vi.fn(),
 }))
+
+async function createTestRouter() {
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [{ path: '/', component: { template: '<div />' } }],
+  })
+  await router.push('/')
+  await router.isReady()
+  return router
+}
 
 function buildProfile(): UserProfileVo {
   return {
@@ -22,8 +33,9 @@ function buildProfile(): UserProfileVo {
 }
 
 async function mountPage() {
+  const router = await createTestRouter()
   const wrapper = mount(ProfilePage, {
-    global: { plugins: [createPinia()] },
+    global: { plugins: [createPinia(), router] },
   })
   await flushPromises()
   return wrapper

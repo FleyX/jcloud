@@ -17,9 +17,8 @@ describe('路由登录态恢复', () => {
     vi.resetModules()
   })
 
-  it('恢复用户信息暂时失败时不应清除已持久化的 token', async () => {
+  it('恢复用户信息暂时失败时不应清除登录态（cookie 语义），也不跳转受保护页', async () => {
     const store = {
-      token: 'persisted-token',
       userInfo: null,
       dynamicRoutesAdded: false,
       initialized: true,
@@ -35,6 +34,9 @@ describe('路由登录态恢复', () => {
     await router.push('/files')
 
     expect(store.logoutAction).not.toHaveBeenCalled()
-    expect(store.token).toBe('persisted-token')
+    expect(store.userInfo).toBeNull()
+    // 后端未启动时停滞在守卫（next(false)），不进入 /files，也未跳转登录页
+    expect(router.currentRoute.value.path).not.toBe('/files')
+    expect(router.currentRoute.value.path).not.toBe('/login')
   })
 })

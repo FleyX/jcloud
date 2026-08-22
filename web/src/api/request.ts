@@ -3,11 +3,12 @@ import { useUserStore } from '@/store/user'
 import router from '@/router'
 import type { ApiResponse } from '@/types/auth'
 
-const BASE_URL = '/jcloud/api'
+export const BASE_URL = '/jcloud/api'
 
 async function handleResponse<T>(response: Response): Promise<T> {
   const json = (await response.json()) as ApiResponse<T>
   if (json.code === 401) {
+    // 登录态经 cookie 承载，静默续期由后端过滤器接管；401 直接清登录态并跳登录页
     const userStore = useUserStore()
     userStore.logoutAction()
     router.push('/login')
@@ -22,15 +23,22 @@ async function handleResponse<T>(response: Response): Promise<T> {
   return json.data
 }
 
-function getHeaders(): HeadersInit {
-  const userStore = useUserStore()
-  const headers: HeadersInit = {
-    'Content-Type': 'application/json',
-  }
-  if (userStore.token) {
-    headers.Authorization = `Bearer ${userStore.token}`
-  }
-  return headers
+/**
+ * 内部统一请求入口。同源请求带 credentials 自动携带 cookie 鉴权，不再设置 Authorization 头。
+ */
+async function request<T>(
+  method: string,
+  url: string,
+  body?: unknown,
+  params?: Record<string, unknown>,
+): Promise<T> {
+  const response = await fetch(buildUrl(url, params), {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'same-origin',
+    body: body === undefined ? undefined : JSON.stringify(body),
+  })
+  return handleResponse<T>(response)
 }
 
 function buildQueryString(params?: Record<string, unknown>): string {
@@ -56,45 +64,21 @@ function buildUrl(url: string, params?: Record<string, unknown>): string {
 }
 
 export async function get<T>(url: string, params?: Record<string, unknown>): Promise<T> {
-  const response = await fetch(buildUrl(url, params), {
-    method: 'GET',
-    headers: getHeaders(),
-  })
-  return handleResponse<T>(response)
+  return request<T>('GET', url, undefined, params)
 }
 
 export async function post<T>(url: string, body?: unknown, params?: Record<string, unknown>): Promise<T> {
-  const response = await fetch(buildUrl(url, params), {
-    method: 'POST',
-    headers: getHeaders(),
-    body: body ? JSON.stringify(body) : undefined,
-  })
-  return handleResponse<T>(response)
+  return request<T>('POST', url, body, params)
 }
 
 export async function put<T>(url: string, body?: unknown, params?: Record<string, unknown>): Promise<T> {
-  const response = await fetch(buildUrl(url, params), {
-    method: 'PUT',
-    headers: getHeaders(),
-    body: body ? JSON.stringify(body) : undefined,
-  })
-  return handleResponse<T>(response)
+  return request<T>('PUT', url, body, params)
 }
 
 export async function del<T>(url: string, body?: unknown, params?: Record<string, unknown>): Promise<T> {
-  const response = await fetch(buildUrl(url, params), {
-    method: 'DELETE',
-    headers: getHeaders(),
-    body: body ? JSON.stringify(body) : undefined,
-  })
-  return handleResponse<T>(response)
+  return request<T>('DELETE', url, body, params)
 }
 
 export async function patch<T>(url: string, body?: unknown, params?: Record<string, unknown>): Promise<T> {
-  const response = await fetch(buildUrl(url, params), {
-    method: 'PATCH',
-    headers: getHeaders(),
-    body: body ? JSON.stringify(body) : undefined,
-  })
-  return handleResponse<T>(response)
+  return request<T>('PATCH', url, body, params)
 }

@@ -10,14 +10,13 @@ import { useNotificationStore } from '@/store/notification'
 const notificationStore = useNotificationStore()
 
 const hwaccelOptions: { value: TranscodeHwaccel; label: string }[] = [
-  { value: 'auto', label: '自动（按可用性探测）' },
   { value: 'vaapi', label: 'VA-API（Intel/AMD Linux）' },
   { value: 'qsv', label: 'Intel Quick Sync' },
   { value: 'nvenc', label: 'NVIDIA NVENC' },
   { value: 'none', label: '软解（CPU）' },
 ]
 
-const hwaccel = ref<TranscodeHwaccel>('auto')
+const hwaccel = ref<TranscodeHwaccel>('none')
 const device = ref('')
 const threads = ref(0)
 const saving = ref(false)
@@ -52,7 +51,7 @@ async function handleSave() {
       转码配置
     </h3>
     <p class="mb-4 text-xs text-surface-400">
-      网页端无法直接播放的视频由后端 ffmpeg 转码，显式指定的硬解方式启动失败时播放会报错
+      网页端无法直接播放的视频由后端 ffmpeg 转码；系统首次启动已自动探测最优硬解方式，手动修改后以修改为准，硬解启动失败时播放会报错
     </p>
     <div class="flex flex-wrap items-end gap-4">
       <label class="w-64">

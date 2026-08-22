@@ -10,7 +10,7 @@ import { useRouter } from 'vue-router'
 import type { MediaSeriesVo } from '@/types/media'
 import { fetchMediaSeries } from '@/api/media'
 import PosterCard from './PosterCard.vue'
-import MediaSortDialog from './MediaSortDialog.vue'
+import SortDialog from '@/components/SortDialog.vue'
 import MediaSearchModal from './MediaSearchModal.vue'
 import MediaSearchResultRow from './MediaSearchResultRow.vue'
 import { useMediaWall, type MediaWallFetcher, type MediaWallSortField } from './useMediaWall'
@@ -122,6 +122,7 @@ function resultSubtitle(series: MediaSeriesVo): string {
           owner-type="series"
           :owner-id="series.id"
           :favorited="series.favorited"
+          :watched="series.watched"
           @play="openDetail(series)"
         />
       </div>
@@ -159,7 +160,7 @@ function resultSubtitle(series: MediaSeriesVo): string {
       </template>
     </MediaSearchModal>
 
-    <MediaSortDialog
+    <SortDialog
       :open="sortOpen"
       :fields="sortFields"
       :sort-field="sortField"

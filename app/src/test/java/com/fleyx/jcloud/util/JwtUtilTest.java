@@ -12,6 +12,7 @@ import java.util.Base64;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
@@ -42,6 +43,22 @@ class JwtUtilTest {
         Claims claims = util.parseToken(token);
         assertEquals("123", util.getUserId(claims));
         assertEquals("testUser", util.getUserCode(claims));
+    }
+
+    @Test
+    void tokenWithDeviceIdShouldCarrySidClaim() {
+        JwtUtil util = buildJwtUtil();
+        String token = util.generateToken("123", "testUser", "dev-1");
+        Claims claims = util.parseToken(token);
+        assertEquals("dev-1", util.getDeviceId(claims));
+    }
+
+    @Test
+    void tokenWithoutDeviceIdShouldHaveNullSid() {
+        JwtUtil util = buildJwtUtil();
+        String token = util.generateToken("123", "testUser");
+        Claims claims = util.parseToken(token);
+        assertNull(util.getDeviceId(claims));
     }
 
     @Test

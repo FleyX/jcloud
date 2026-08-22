@@ -55,13 +55,27 @@ export interface UserWebDavToggleDto {
 }
 
 /**
- * 登录成功返回对象
+ * 登录成功返回对象。
+ * token/refreshToken 已由后端 cookie 承载，前端不再读取，仅保留类型占位（可选）。
  */
 export interface LoginVo {
-  token: string
+  token?: string
+  refreshToken?: string
+  deviceId: string
   userInfo: UserVo
   resources: string[]
   initialized: boolean
+}
+
+/**
+ * 设备会话视图对象（登录设备列表项）
+ */
+export interface DeviceSessionVo {
+  deviceId: string
+  deviceName: string
+  /** 最近活跃时间（epoch 毫秒，后端 Long 统一序列化为字符串） */
+  lastActiveTime?: string
+  current?: boolean
 }
 
 /**

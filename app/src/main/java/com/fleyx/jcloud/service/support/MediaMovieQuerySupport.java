@@ -121,6 +121,7 @@ public class MediaMovieQuerySupport implements MediaItemQueryStrategy<MediaMovie
         vo.setMetadataId(movie.getMetadataId());
         vo.setDurationMs(file == null ? null : file.getDurationMs());
         vo.setProgressMs(movie.getProgressMs());
+        vo.setWatched(movie.getWatched());
         vo.setLastPlayTime(movie.getLastPlayTime());
         if (metadata != null) {
             vo.setTitle(metadata.getTitle());
@@ -168,6 +169,7 @@ public class MediaMovieQuerySupport implements MediaItemQueryStrategy<MediaMovie
         vo.setMetadataId(movie.getMetadataId());
         vo.setDurationMs(representative == null ? null : representative.getDurationMs());
         vo.setProgressMs(movie.getProgressMs());
+        vo.setWatched(movie.getWatched());
         if (representative != null) {
             vo.setWidth(representative.getWidth());
             vo.setHeight(representative.getHeight());

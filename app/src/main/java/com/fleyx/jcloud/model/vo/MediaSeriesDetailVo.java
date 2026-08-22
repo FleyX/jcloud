@@ -66,6 +66,11 @@ public class MediaSeriesDetailVo {
     private Integer seasonCount;
 
     /**
+     * 已观看标记：整剧是否全部集已观看（工单 02 三级联动聚合）。
+     */
+    private Boolean watched;
+
+    /**
      * 海报图 URL。
      */
     private String posterUrl;

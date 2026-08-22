@@ -96,6 +96,11 @@ public class MediaItemVo {
     private Long progressMs;
 
     /**
+     * 已观看标记：电影/集/其他标题级行由后端进度驱动或手动置位。
+     */
+    private Boolean watched;
+
+    /**
      * 最近播放时间。
      */
     private LocalDateTime lastPlayTime;

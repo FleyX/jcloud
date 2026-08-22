@@ -1,7 +1,6 @@
 package com.fleyx.jcloud.service.support;
 
 import cn.hutool.core.util.StrUtil;
-import com.fleyx.jcloud.common.enums.MediaMetadataOwnerType;
 import com.fleyx.jcloud.model.po.MediaMetadata;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -12,11 +11,7 @@ import org.w3c.dom.NodeList;
 
 import javax.xml.XMLConstants;
 import javax.xml.parsers.DocumentBuilderFactory;
-import javax.xml.transform.TransformerFactory;
-import javax.xml.transform.dom.DOMSource;
-import javax.xml.transform.stream.StreamResult;
 import java.io.StringReader;
-import java.io.StringWriter;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -74,6 +69,8 @@ public class MediaNfoSupport {
     public static final String BACKDROP_WRITE_NAME = "backdrop.jpg";
 
     private static final String NFO_MIME = "application/xml";
+
+    private final MediaNfoMergeSupport mergeSupport;
 
     /**
      * NFO 解析结果。
@@ -191,6 +188,7 @@ public class MediaNfoSupport {
     /**
      * 从新模型元数据生成 Jellyfin/Kodi 兼容 NFO XML（issue #20/#21）。
      * 根元素按 owner_type 派生：series→tvshow / episode→episodedetails / 其余→movie。
+     * 实现下沉到 {@link MediaNfoMergeSupport}（生成与合并共用同一管理字段清单）。
      *
      * @param metadata 元数据行（已绑定 owner）
      * @param seasonNo 季号，仅集有效，可为空
@@ -198,68 +196,12 @@ public class MediaNfoSupport {
      * @return NFO XML 字符串
      */
     public String generate(MediaMetadata metadata, Integer seasonNo, Integer episodeNo) {
-        // owner_type 未知编码时回退 movie 根元素（of 空安全，issue #21 收尾）
-        MediaMetadataOwnerType ownerType = MediaMetadataOwnerType.of(metadata.getOwnerType());
-        String mediaType = ownerType == null ? "movie" : switch (ownerType) {
-            case SERIES -> "tv";
-            case EPISODE -> "episode";
-            default -> "movie";
-        };
-        return generateXml(mediaType, metadata.getTmdbId(), metadata.getTitle(),
-                metadata.getOriginalTitle(), metadata.getOverview(), metadata.getReleaseDate(),
-                metadata.getVoteAverage(), metadata.getGenres(), seasonNo, episodeNo);
+        return mergeSupport.generate(metadata, seasonNo, episodeNo);
     }
 
-    /**
-     * 按字段生成 Jellyfin/Kodi 兼容 NFO XML（movie/tvshow/episodedetails 根元素按 mediaType 派生）。
-     */
-    private String generateXml(String mediaType, Long tmdbId, String title, String originalTitle,
-                               String overview, String releaseDate, Double voteAverage, String genres,
-                               Integer seasonNo, Integer episodeNo) {
-        String rootTag = switch (mediaType) {
-            case "tv" -> "tvshow";
-            case "episode" -> "episodedetails";
-            default -> "movie";
-        };
-        try {
-            Document doc = DocumentBuilderFactory.newInstance().newDocumentBuilder().newDocument();
-            Element root = doc.createElement(rootTag);
-            doc.appendChild(root);
-            append(doc, root, "tmdbid", tmdbId);
-            append(doc, root, "title", title);
-            append(doc, root, "originaltitle", originalTitle);
-            append(doc, root, "plot", overview);
-            if (releaseDate != null) {
-                append(doc, root, "year", releaseDate.length() >= 4
-                        ? releaseDate.substring(0, 4) : releaseDate);
-                append(doc, root, "premiered", releaseDate);
-            }
-            append(doc, root, "rating", voteAverage);
-            if (genres != null && !genres.isBlank()) {
-                for (String genre : genres.split(",")) {
-                    append(doc, root, "genre", genre.isBlank() ? null : genre.trim());
-                }
-            }
-            if ("episode".equals(mediaType)) {
-                append(doc, root, "season", seasonNo);
-                append(doc, root, "episode", episodeNo);
-            }
-            StringWriter writer = new StringWriter();
-            TransformerFactory.newInstance().newTransformer()
-                    .transform(new DOMSource(doc), new StreamResult(writer));
-            return writer.toString();
-        } catch (Exception e) {
-            throw new IllegalStateException("NFO 生成失败", e);
-        }
-    }
-
-    private void append(Document doc, Element parent, String tag, Object value) {
-        if (value == null) {
-            return;
-        }
-        Element element = doc.createElement(tag);
-        element.setTextContent(String.valueOf(value));
-        parent.appendChild(element);
+    /** 合并写回 NFO（ADR 0033）：管理字段覆盖、genre 整体替换，其余元素保留；空/解析失败/根元素不符回退整体重写。实现下沉到 {@link MediaNfoMergeSupport}。 */
+    public String mergeNfo(String existingXml, MediaMetadata metadata, Integer seasonNo, Integer episodeNo) {
+        return mergeSupport.mergeNfo(existingXml, metadata, seasonNo, episodeNo);
     }
 
     private String text(Element root, String tag) {

@@ -61,6 +61,11 @@ public class MediaSeriesVo {
     private Boolean metadataComplete;
 
     /**
+     * 已观看标记：整剧是否全部集已观看（工单 02 三级联动聚合）。
+     */
+    private Boolean watched;
+
+    /**
      * 最近播放时间（用于排序）。
      */
     private LocalDateTime lastPlayTime;

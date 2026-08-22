@@ -245,9 +245,19 @@ const buttonClass = 'rounded-full p-2 text-white transition-colors hover:bg-whit
     <!-- 下排：操作按钮 -->
     <div class="mt-1 flex items-center gap-1 md:gap-2">
       <!-- 播放/暂停 -->
-      <button :class="buttonClass" :title="playing ? '暂停' : '播放'" @click="togglePlay">
-        <Pause v-if="playing" class="h-5 w-5" />
-        <Play v-else class="h-5 w-5" />
+      <button
+        :class="buttonClass"
+        :title="playing ? '暂停' : '播放'"
+        @click="togglePlay"
+      >
+        <Pause
+          v-if="playing"
+          class="h-5 w-5"
+        />
+        <Play
+          v-else
+          class="h-5 w-5"
+        />
       </button>
 
       <!-- 音量：静音切换 + hover 展开滑条（移动端隐藏） -->
@@ -257,8 +267,14 @@ const buttonClass = 'rounded-full p-2 text-white transition-colors hover:bg-whit
           :title="muted || volume === 0 ? '取消静音' : '静音'"
           @click="toggleMute"
         >
-          <VolumeX v-if="muted || volume === 0" class="h-5 w-5" />
-          <Volume2 v-else class="h-5 w-5" />
+          <VolumeX
+            v-if="muted || volume === 0"
+            class="h-5 w-5"
+          />
+          <Volume2
+            v-else
+            class="h-5 w-5"
+          />
         </button>
         <div class="w-0 overflow-hidden transition-[width] duration-200 group-hover/vol:w-20">
           <input
@@ -297,7 +313,10 @@ const buttonClass = 'rounded-full p-2 text-white transition-colors hover:bg-whit
         :options="subtitleOptions"
         @select="emit('selectSubtitle', $event === 'none' ? null : $event)"
       >
-        <button :class="buttonClass" title="字幕">
+        <button
+          :class="buttonClass"
+          title="字幕"
+        >
           <Captions class="h-5 w-5" />
         </button>
       </PlayerOptionMenu>
@@ -310,7 +329,10 @@ const buttonClass = 'rounded-full p-2 text-white transition-colors hover:bg-whit
         :options="bitrateOptions"
         @select="emit('selectBitrate', $event)"
       >
-        <button :class="buttonClass" title="码率">
+        <button
+          :class="buttonClass"
+          title="码率"
+        >
           <Gauge class="h-5 w-5" />
         </button>
       </PlayerOptionMenu>
@@ -323,7 +345,10 @@ const buttonClass = 'rounded-full p-2 text-white transition-colors hover:bg-whit
         :options="audioOptions"
         @select="emit('selectAudio', $event === 'default' ? null : Number($event))"
       >
-        <button :class="buttonClass" title="音轨">
+        <button
+          :class="buttonClass"
+          title="音轨"
+        >
           <AudioLines class="h-5 w-5" />
         </button>
       </PlayerOptionMenu>
@@ -336,7 +361,10 @@ const buttonClass = 'rounded-full p-2 text-white transition-colors hover:bg-whit
         :options="versionOptions"
         @select="emit('selectVersion', $event)"
       >
-        <button :class="buttonClass" title="版本">
+        <button
+          :class="buttonClass"
+          title="版本"
+        >
           <Layers class="h-5 w-5" />
         </button>
       </PlayerOptionMenu>
@@ -367,8 +395,14 @@ const buttonClass = 'rounded-full p-2 text-white transition-colors hover:bg-whit
         :title="isFullscreen ? '退出全屏' : '全屏'"
         @click="toggleFullscreen"
       >
-        <Minimize v-if="isFullscreen" class="h-5 w-5" />
-        <Maximize v-else class="h-5 w-5" />
+        <Minimize
+          v-if="isFullscreen"
+          class="h-5 w-5"
+        />
+        <Maximize
+          v-else
+          class="h-5 w-5"
+        />
       </button>
     </div>
   </div>

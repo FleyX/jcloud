@@ -9,7 +9,7 @@ import lombok.Data;
 public class TranscodeConfigDto {
 
     /**
-     * 硬件加速方式：auto 自动探测 / vaapi / qsv / nvenc / none 软解。
+     * 硬件加速方式：vaapi / qsv / nvenc / none 软解（无 auto 档）。
      */
     private String hwaccel;
 

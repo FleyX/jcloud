@@ -7,7 +7,7 @@
  */
 import { computed, ref, type Ref } from 'vue'
 import type { MediaPlaybackInfoVo } from '@/types/media'
-import { fetchPlaybackInfo, updateMediaProgress, withToken } from '@/api/media'
+import { fetchPlaybackInfo, updateMediaProgress } from '@/api/media'
 import { loadPlaybackConfig } from './usePlaybackConfig'
 import { useTranscodeSession } from './useTranscodeSession'
 import { useSubtitleSelection } from './useSubtitleSelection'
@@ -65,7 +65,7 @@ export function useMediaPlayback(videoRef: Ref<HTMLVideoElement | null>) {
     if (!video) return
     transcode.transcodeActive.value = false
     transcode.transcodeBaseMs.value = 0
-    video.src = withToken(url)
+    video.src = url
     video.currentTime = startMs / 1000
     sourceEpoch.value += 1
     video.play().catch(() => {})

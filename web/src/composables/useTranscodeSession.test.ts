@@ -9,7 +9,6 @@ const mocks = vi.hoisted(() => ({
   closeTranscodeSession: vi.fn(),
   transcodeHeartbeat: vi.fn(),
   transcodeCloseBeaconUrl: vi.fn(),
-  withToken: vi.fn((url: string) => url),
 }))
 
 vi.mock('@/api/media', () => mocks)

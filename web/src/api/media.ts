@@ -23,15 +23,6 @@ import type {
   TranscodeConfigDto,
 } from '@/types/media'
 
-/**
- * 拼接带 token 的媒体资源地址（video/img 标签无法携带 Authorization 头）
- */
-export function withToken(url: string): string {
-  const token = localStorage.getItem('jcloud_token') || ''
-  const separator = url.includes('?') ? '&' : '?'
-  return `${url}${separator}token=${encodeURIComponent(token)}`
-}
-
 // ---------- 目录管理 ----------
 
 export function fetchMediaDirectories(): Promise<MediaDirectoryVo[]> {
@@ -119,6 +110,20 @@ export function updateMediaProgress(id: string, progressMs: number, versionId?: 
   return put<void>(`/media/items/${id}/progress`, body)
 }
 
+/** 已观看标记更新入参 */
+export interface MediaWatchedUpdateDto {
+  watched: boolean
+}
+
+/**
+ * 标记/取消已观看（电影/集/其他）：标记已观看时后端清零播放进度，取消标记不动进度。
+ * 本工单仅提供 API 封装，前端交互入口在工单 03。
+ */
+export function updateMediaWatched(id: string, watched: boolean): Promise<void> {
+  const body: MediaWatchedUpdateDto = { watched }
+  return put<void>(`/media/items/${id}/watched`, body)
+}
+
 // ---------- 播放 ----------
 
 /**
@@ -167,28 +172,27 @@ export function createTranscodeSession(
 /**
  * 转码会话心跳：播放页打开期间每 5s 一次，超时未心跳后端自动回收会话。
  * 原生 fetch 静默失败（如服务重启会话已回收属正常），不走统一异常提示。
+ * 同源请求自动携带 cookie 鉴权。
  */
 export function transcodeHeartbeat(sessionId: string): void {
-  const token = localStorage.getItem('jcloud_token') || ''
   fetch(`/jcloud/api/media/transcode/${sessionId}/heartbeat`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${token}` },
+    credentials: 'same-origin',
   }).catch(() => {})
 }
 
 /** 主动关闭转码会话（播放页退出），即时回收 ffmpeg 与缓存。原生 fetch 静默失败。 */
 export function closeTranscodeSession(sessionId: string): void {
-  const token = localStorage.getItem('jcloud_token') || ''
   fetch(`/jcloud/api/media/transcode/${sessionId}/close`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${token}` },
+    credentials: 'same-origin',
     keepalive: true,
   }).catch(() => {})
 }
 
-/** sendBeacon 用关闭地址：页面卸载时无法带 Header，token 走查询参数（与分片请求一致） */
+/** sendBeacon 用关闭地址：页面卸载时无法带 Header，鉴权靠同源 cookie，无需拼 token */
 export function transcodeCloseBeaconUrl(sessionId: string): string {
-  return withToken(`/jcloud/api/media/transcode/${sessionId}/close`)
+  return `/jcloud/api/media/transcode/${sessionId}/close`
 }
 
 /**
@@ -206,7 +210,7 @@ function buildSubtitleQuery(versionId?: string, offsetMs?: number): string {
  */
 export function subtitleUrl(id: string, index: number, versionId?: string, offsetMs?: number): string {
   const base = `/jcloud/api/media/items/${id}/subtitles/${index}`
-  return withToken(`${base}${buildSubtitleQuery(versionId, offsetMs)}`)
+  return `${base}${buildSubtitleQuery(versionId, offsetMs)}`
 }
 
 /**
@@ -214,7 +218,7 @@ export function subtitleUrl(id: string, index: number, versionId?: string, offse
  */
 export function externalSubtitleUrl(id: string, subtitleId: string, versionId?: string, offsetMs?: number): string {
   const base = `/jcloud/api/media/items/${id}/subtitles/external/${subtitleId}`
-  return withToken(`${base}${buildSubtitleQuery(versionId, offsetMs)}`)
+  return `${base}${buildSubtitleQuery(versionId, offsetMs)}`
 }
 
 // ---------- 元数据 ----------

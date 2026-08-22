@@ -7,14 +7,14 @@
  */
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, Heart, LoaderCircle, Tv } from '@lucide/vue'
+import { ArrowLeft, Check, Heart, LoaderCircle } from '@lucide/vue'
 import type { MediaItemVo, MediaSeriesDetailVo, MediaSeriesSeasonVo, TmdbSearchResultVo } from '@/types/media'
-import { fetchSeasonEpisodes, fetchSeriesDetail, refreshMetadata, toggleFavorite, updateMediaMatch, withToken, type MediaRefreshMode } from '@/api/media'
-import { getPlaybackConfig, loadPlaybackConfig } from '@/composables/usePlaybackConfig'
+import { fetchSeasonEpisodes, fetchSeriesDetail, refreshMetadata, toggleFavorite, updateMediaMatch, updateMediaWatched, type MediaRefreshMode } from '@/api/media'
 import { useNotificationStore } from '@/store/notification'
 import { formatDurationText } from './format'
-import { cn } from '@/utils/cn'
+import { useOptimisticToggle } from '@/composables/useOptimisticToggle'
 import MediaDetailHero from './MediaDetailHero.vue'
+import SeasonCard from './SeasonCard.vue'
 import TmdbMatchModal from './TmdbMatchModal.vue'
 
 const route = useRoute()
@@ -34,13 +34,8 @@ const episodes = ref<MediaItemVo[]>([])
 const episodesLoading = ref(false)
 const heroPlaying = ref(false)
 
-/** 季海报/集剧照加载失败的 ID 集合：加载失败视同无图走 v-else 占位，刷新详情时清空 */
-const failedSeasonPosters = ref(new Set<string>())
+/** 集剧照加载失败的 ID 集合：加载失败视同无图走 v-else 占位，刷新详情时清空（季海报错误由 SeasonCard 内部自管） */
 const failedEpisodePosters = ref(new Set<string>())
-
-function markSeasonPosterError(seasonId: string) {
-  failedSeasonPosters.value.add(seasonId)
-}
 
 function markEpisodePosterError(episodeId: string) {
   failedEpisodePosters.value.add(episodeId)
@@ -48,14 +43,10 @@ function markEpisodePosterError(episodeId: string) {
 
 onMounted(load)
 
-// 提前拉取播放配置（finishedRatio 用于下一集待看判定），失败时回退默认值
-void loadPlaybackConfig().catch(() => undefined)
-
 async function load() {
   loading.value = true
   try {
     detail.value = await fetchSeriesDetail(seriesId)
-    failedSeasonPosters.value = new Set()
     failedEpisodePosters.value = new Set()
     episodesCache.clear()
     syncSeasonFromQuery()
@@ -140,17 +131,12 @@ function seasonTitle(season: MediaSeriesSeasonVo): string {
 }
 
 /**
- * 下一集待看：第一集未看到「看完阈值」的集，全部看完则为第一集。
- * 阈值来自全局播放配置（ADR 0024），配置未就绪时回退 0.95 保持原行为。
+ * 下一集待看：按标记为准，第一集未观看的集（watched=false），全部看完则为第一集。
+ * （不再按完播阈值自算，阈值计算收敛到后端进度上报自动置位。）
  */
 function findNextUp(list: MediaItemVo[]): MediaItemVo | null {
   if (list.length === 0) return null
-  const finishedRatio = getPlaybackConfig()?.finishedRatio ?? 0.95
-  return list.find((episode) => {
-    if (!episode.progressMs || episode.progressMs <= 0) return true
-    if (!episode.durationMs || episode.durationMs <= 0) return false
-    return episode.progressMs < episode.durationMs * finishedRatio
-  }) ?? list[0]
+  return list.find((episode) => !episode.watched) ?? list[0]
 }
 
 /** 季剧集态下的下一集待看（驱动 Hero 续播显示） */
@@ -227,16 +213,6 @@ async function toggleSeriesFavorite() {
   }
 }
 
-async function toggleSeasonFavorite(season: MediaSeriesSeasonVo) {
-  const previous = season.favorited
-  season.favorited = !previous
-  try {
-    season.favorited = await toggleFavorite('season', season.seasonId)
-  } catch {
-    season.favorited = previous
-  }
-}
-
 async function toggleEpisodeFavorite(episode: MediaItemVo) {
   const previous = episode.favorited
   episode.favorited = !previous
@@ -245,6 +221,40 @@ async function toggleEpisodeFavorite(episode: MediaItemVo) {
   } catch {
     episode.favorited = previous
   }
+}
+
+/** 静默重拉详情：季卡片（SeasonCard）收藏/已观看切换成功后调用，保持父级聚合一致 */
+async function refreshDetail() {
+  if (!detail.value) return
+  detail.value = await fetchSeriesDetail(seriesId)
+}
+
+/** 标记/取消整剧已观看：成功后重拉详情保持季卡片聚合一致（后端联动），失败回滚 */
+const toggleSeriesWatched = useOptimisticToggle({
+  isWatched: () => !!detail.value?.watched,
+  setWatched: (watched) => {
+    if (detail.value) detail.value.watched = watched
+  },
+  toggle: (watched) => updateMediaWatched(seriesId, watched),
+  onSuccess: refreshDetail,
+}).toggle
+
+/** 集行已观看切换：标记时本地清零进度，成功后重拉详情保持季/整剧聚合一致，失败回滚 */
+async function toggleEpisodeWatched(episode: MediaItemVo) {
+  await useOptimisticToggle({
+    isWatched: () => !!episode.watched,
+    setWatched: (watched) => {
+      episode.watched = watched
+    },
+    progress: {
+      get: () => episode.progressMs ?? null,
+      set: (value) => {
+        episode.progressMs = value ?? null
+      },
+    },
+    toggle: (watched) => updateMediaWatched(episode.id, watched),
+    onSuccess: refreshDetail,
+  }).toggle()
 }
 </script>
 
@@ -270,71 +280,26 @@ async function toggleEpisodeFavorite(episode: MediaItemVo) {
         :continue-ms="continueMs"
         :show-refresh="!!detail.metadataId"
         :favorited="detail.favorited"
+        :watched="detail.watched"
         @play="handleHeroPlay"
         @rematch="matchOpen = true"
         @refresh="handleRefresh"
         @toggle-favorite="toggleSeriesFavorite"
-      />
-
-      <div class="mt-6 px-4 pb-8 md:px-10">
+        @toggle-watched="toggleSeriesWatched"
+      >
         <!-- 季卡片网格 -->
         <template v-if="!activeSeason">
           <h2 class="mb-3 text-base font-semibold text-surface-900">
             季（{{ detail.seasons.length }}）
           </h2>
-          <div class="grid grid-cols-3 gap-3 sm:grid-cols-4 md:gap-4 lg:grid-cols-7 xl:grid-cols-9">
-            <div
+          <div class="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-3 md:gap-4 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
+            <SeasonCard
               v-for="season in detail.seasons"
               :key="season.seasonId"
-              class="group cursor-pointer text-left"
-              @click="openSeason(season)"
-            >
-              <div class="relative aspect-[2/3] w-full overflow-hidden rounded-2xl bg-surface-100 shadow-soft transition-transform group-hover:scale-[1.02]">
-                <img
-                  v-if="season.posterUrl && !failedSeasonPosters.has(season.seasonId)"
-                  :src="withToken(season.posterUrl)"
-                  :alt="seasonTitle(season)"
-                  loading="lazy"
-                  class="h-full w-full object-cover"
-                  @error="markSeasonPosterError(season.seasonId)"
-                >
-                <div
-                  v-else
-                  class="flex h-full w-full flex-col items-center justify-center gap-1 text-surface-300"
-                >
-                  <Tv class="h-10 w-10" />
-                  <span class="text-xs text-surface-400">{{ seasonTitle(season) }}</span>
-                </div>
-                <span
-                  v-if="season.hasProgress"
-                  class="absolute left-2 top-2 rounded-lg bg-primary-600/90 px-1.5 py-0.5 text-xs font-medium text-white"
-                >
-                  在看
-                </span>
-                <!-- 季卡片收藏心形：已收藏常显实心高亮；未收藏 PC 端悬浮显现、移动端常显淡色 -->
-                <button
-                  class="absolute right-2 top-2 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-sm transition-all hover:bg-black/70"
-                  :class="cn(
-                    season.favorited
-                      ? 'text-rose-500'
-                      : 'max-sm:opacity-70 sm:opacity-0 sm:group-hover:opacity-100'
-                  )"
-                  :title="season.favorited ? '取消收藏' : '收藏'"
-                  @click.stop="toggleSeasonFavorite(season)"
-                >
-                  <Heart
-                    class="h-4 w-4"
-                    :class="season.favorited && 'fill-rose-500'"
-                  />
-                </button>
-              </div>
-              <p class="mt-2 px-0.5 text-sm font-medium text-surface-800">
-                {{ seasonTitle(season) }}
-              </p>
-              <p class="px-0.5 text-xs text-surface-400">
-                共 {{ season.episodeCount }} 集
-              </p>
-            </div>
+              :season="season"
+              @open="openSeason(season)"
+              @updated="refreshDetail"
+            />
           </div>
         </template>
 
@@ -372,7 +337,7 @@ async function toggleEpisodeFavorite(episode: MediaItemVo) {
               <div class="relative aspect-video w-24 shrink-0 overflow-hidden rounded-xl bg-surface-100 md:w-32">
                 <img
                   v-if="episode.posterUrl && !failedEpisodePosters.has(episode.id)"
-                  :src="withToken(episode.posterUrl)"
+                  :src="episode.posterUrl"
                   :alt="episode.title"
                   loading="lazy"
                   class="h-full w-full object-cover"
@@ -423,10 +388,22 @@ async function toggleEpisodeFavorite(episode: MediaItemVo) {
                   :class="episode.favorited && 'fill-rose-500'"
                 />
               </button>
+              <!-- 集行已观看切换按钮：已观看实心高亮，未观看淡色 -->
+              <button
+                class="shrink-0 rounded-full p-2 transition-colors hover:bg-surface-100"
+                :class="episode.watched ? 'text-emerald-500' : 'text-surface-300'"
+                :title="episode.watched ? '标记未观看' : '标记已观看'"
+                @click.stop="toggleEpisodeWatched(episode)"
+              >
+                <Check
+                  class="h-4 w-4"
+                  :class="episode.watched && 'fill-emerald-500'"
+                />
+              </button>
             </div>
           </div>
         </template>
-      </div>
+      </MediaDetailHero>
     </template>
 
     <TmdbMatchModal
