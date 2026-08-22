@@ -131,8 +131,8 @@ function goBack() {
 
     <!-- 主体：桌面端 1:2 两栏（左海报右内容，grid-cols-[1fr_2fr]），<md 纵向堆叠；整行上探量 = 背景横幅高度的 1/4（横幅 h-64/md:h-96/lg:h-[26rem] → -mt-16/md:-mt-24/lg:-mt-[6.5rem]），与屏宽脱钩、各断点侵入比例一致；relative 使上探部分压在背景渐变遮罩之上 -->
     <div class="relative -mt-16 flex flex-col items-start gap-5 px-4 pb-10 md:grid md:grid-cols-[1fr_2fr] md:items-start md:gap-10 md:px-10 md:-mt-24 lg:-mt-[6.5rem]">
-      <!-- 左栏：大海报 -->
-      <div class="aspect-[2/3] w-32 shrink-0 self-center overflow-hidden rounded-2xl bg-surface-200 shadow-xl ring-1 ring-white/20 md:w-full md:self-auto">
+      <!-- 左栏：大海报（桌面端宽占左栏 80%，水平居中） -->
+      <div class="aspect-[2/3] w-32 shrink-0 self-center overflow-hidden rounded-2xl bg-surface-200 shadow-xl ring-1 ring-white/20 md:w-4/5 md:self-auto md:justify-self-center">
         <img
           v-if="posterUrl && !posterError"
           :src="posterUrl"
@@ -148,8 +148,8 @@ function goBack() {
         </div>
       </div>
 
-      <!-- 右栏：内容（grid 列内无需 flex-1，min-w-0 保证长内容不撑破 2fr 列） -->
-      <div class="min-w-0">
+      <!-- 右栏：内容（grid 列内无需 flex-1，min-w-0 保证长内容不撑破 2fr 列；md 起顶部留约 3 行空白，与海报顶部错开） -->
+      <div class="min-w-0 md:pt-20">
         <div class="flex items-center gap-2">
           <h1 class="truncate text-2xl font-bold text-surface-900 md:text-3xl">
             {{ title }}
