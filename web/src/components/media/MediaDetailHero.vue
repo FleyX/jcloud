@@ -2,7 +2,7 @@
 /**
  * 媒体详情页头部（Jellyfin 风格沉浸两栏）
  * 顶部为加高的 backdrop 背景图，底部渐变融入页面底色（明暗主题各自自然）；
- * 下方主体桌面端（≥md）为 1:2 两栏：左栏仅海报（撑满栏宽、2:3 比例、约一半压入背景图），
+ * 下方主体桌面端（≥md）为 1:2 两栏：左栏仅海报（撑满栏宽、2:3 比例、约 1/4 压入背景图），
  * 右栏依次为标题/元信息/操作按钮/简介，并在简介之下开放默认插槽承载页面级内容；
  * <md 时纵向堆叠（整页统一滚动、左栏不吸顶）。
  */
@@ -129,8 +129,8 @@ function goBack() {
       </button>
     </div>
 
-    <!-- 主体：桌面端 1:2 两栏（左海报右内容，grid-cols-[1fr_2fr]），<md 纵向堆叠；整行上探使海报约一半压入背景图（md:-mt-44 / lg:-mt-60 / xl:-mt-72 按海报高度校准，顶部不超出横幅）；relative 使上探部分压在背景渐变遮罩之上 -->
-    <div class="relative -mt-24 flex flex-col items-start gap-5 px-4 pb-10 md:grid md:grid-cols-[1fr_2fr] md:items-start md:gap-10 md:px-10 md:-mt-44 lg:-mt-60 xl:-mt-72">
+    <!-- 主体：桌面端 1:2 两栏（左海报右内容，grid-cols-[1fr_2fr]），<md 纵向堆叠；整行上探使海报约 1/4 压入背景图（海报高 ≈（内容宽-120)×0.5，其 1/4 ≈ 内容宽×11%，故桌面端用 -mt-[11%] 比例式上探，随屏宽自适应且顶部不超出横幅；移动端海报 w-32 高 192px，-mt-12 即 1/4）；relative 使上探部分压在背景渐变遮罩之上 -->
+    <div class="relative -mt-12 flex flex-col items-start gap-5 px-4 pb-10 md:grid md:grid-cols-[1fr_2fr] md:items-start md:gap-10 md:px-10 md:-mt-[11%]">
       <!-- 左栏：大海报 -->
       <div class="aspect-[2/3] w-32 shrink-0 self-center overflow-hidden rounded-2xl bg-surface-200 shadow-xl ring-1 ring-white/20 md:w-full md:self-auto">
         <img
