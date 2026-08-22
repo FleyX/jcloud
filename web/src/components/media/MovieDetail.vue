@@ -158,50 +158,47 @@ const toggleMovieWatched = useOptimisticToggle({
         @refresh="handleRefresh"
         @toggle-favorite="toggleMovieFavorite"
         @toggle-watched="toggleMovieWatched"
-      />
-
-      <!-- 版本列表（电影多版本）：点击播放该版本，默认版本按后端 defaultVersionId 标记 -->
-      <div
-        v-if="versions.length > 1"
-        class="mt-4 px-4 pb-2 md:px-10"
       >
-        <h2 class="text-base font-semibold text-surface-900">
-          版本（{{ versions.length }}）
-        </h2>
-        <div class="mt-3 divide-y divide-surface-100 rounded-2xl border border-surface-100">
-          <button
-            v-for="(version, index) in versions"
-            :key="version.id"
-            :class="cn(
-              'group flex w-full items-center gap-3 px-3 py-3 text-left transition-colors hover:bg-surface-50 md:gap-4 md:px-4',
-              isDefaultVersion(version) && 'bg-primary-50/60'
-            )"
-            @click="playVersion(version)"
-          >
-            <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-surface-100 text-surface-400">
-              <Clapperboard class="h-5 w-5" />
-            </div>
-            <div class="min-w-0 flex-1">
-              <p class="flex items-center gap-1.5 text-sm font-medium text-surface-800">
-                <span>{{ versionTitle(version, index) }}</span>
-                <span
-                  v-if="isDefaultVersion(version)"
-                  class="shrink-0 rounded-md bg-primary-500/10 px-1.5 py-0.5 text-[10px] font-medium text-primary-600"
+        <!-- 版本列表（电影多版本）：点击播放该版本，默认版本按后端 defaultVersionId 标记 -->
+        <div v-if="versions.length > 1">
+          <h2 class="text-base font-semibold text-surface-900">
+            版本（{{ versions.length }}）
+          </h2>
+          <div class="mt-3 divide-y divide-surface-100 rounded-2xl border border-surface-100">
+            <button
+              v-for="(version, index) in versions"
+              :key="version.id"
+              :class="cn(
+                'group flex w-full items-center gap-3 px-3 py-3 text-left transition-colors hover:bg-surface-50 md:gap-4 md:px-4',
+                isDefaultVersion(version) && 'bg-primary-50/60'
+              )"
+              @click="playVersion(version)"
+            >
+              <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-surface-100 text-surface-400">
+                <Clapperboard class="h-5 w-5" />
+              </div>
+              <div class="min-w-0 flex-1">
+                <p class="flex items-center gap-1.5 text-sm font-medium text-surface-800">
+                  <span>{{ versionTitle(version, index) }}</span>
+                  <span
+                    v-if="isDefaultVersion(version)"
+                    class="shrink-0 rounded-md bg-primary-500/10 px-1.5 py-0.5 text-[10px] font-medium text-primary-600"
+                  >
+                    默认
+                  </span>
+                </p>
+                <p
+                  v-if="versionChips(version)"
+                  class="mt-0.5 truncate text-xs text-surface-400"
                 >
-                  默认
-                </span>
-              </p>
-              <p
-                v-if="versionChips(version)"
-                class="mt-0.5 truncate text-xs text-surface-400"
-              >
-                {{ versionChips(version) }}
-              </p>
-            </div>
-            <Play class="h-4 w-4 shrink-0 text-surface-800/40 group-hover:text-primary-500" />
-          </button>
+                  {{ versionChips(version) }}
+                </p>
+              </div>
+              <Play class="h-4 w-4 shrink-0 text-surface-800/40 group-hover:text-primary-500" />
+            </button>
+          </div>
         </div>
-      </div>
+      </MediaDetailHero>
     </template>
 
     <TmdbMatchModal

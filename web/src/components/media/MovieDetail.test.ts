@@ -131,3 +131,47 @@ describe('MovieDetail 源文件名移除（Jellyfin 改版）', () => {
     wrapper.unmount()
   })
 })
+
+/**
+ * 定位 Hero 右栏：h1 固定渲染于右栏（标题行内），其祖父节点即右栏容器（复用 MediaDetailHero 测试思路）。
+ * 返回右栏元素用于断言版本列表渲染在插槽内，不断言 Tailwind 类名。
+ */
+function rightColumn(wrapper: Awaited<ReturnType<typeof mountDetail>>): HTMLElement {
+  const h1 = wrapper.get('h1').element
+  return h1.parentElement!.parentElement!
+}
+
+describe('MovieDetail 多版本列表迁入右栏（工单 03）', () => {
+  afterEach(() => {
+    document.body.innerHTML = ''
+    vi.clearAllMocks()
+  })
+
+  it('多版本时「版本（N）」标题与版本行渲染在右栏内、简介之后', async () => {
+    const wrapper = await mountDetail(
+      buildDetail({
+        overview: '一段简介',
+        versions: [
+          buildVersion(),
+          buildVersion({ id: 'v2', fileNodeId: 'fn2', width: 3840, height: 2160 }),
+        ],
+      }),
+    )
+    const right = rightColumn(wrapper)
+    expect(right.textContent).toContain('一段简介')
+    // 标题与版本行在右栏内、简介之后（简介在前、版本列表在后）
+    expect(right.textContent).toContain('版本（2）')
+    expect(right.textContent).toContain('1920×1080')
+    expect(right.textContent).toContain('3840×2160')
+    expect(right.textContent!.indexOf('一段简介')).toBeLessThan(right.textContent!.indexOf('版本（2）'))
+    wrapper.unmount()
+  })
+
+  it('单版本时不渲染版本列表', async () => {
+    const wrapper = await mountDetail(buildDetail({ versions: [buildVersion()] }))
+    const right = rightColumn(wrapper)
+    expect(right.textContent).not.toContain('版本（1）')
+    expect(right.textContent).not.toContain('1920×1080')
+    wrapper.unmount()
+  })
+})
