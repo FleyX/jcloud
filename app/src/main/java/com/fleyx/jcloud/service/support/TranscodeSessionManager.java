@@ -17,6 +17,8 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * HLS 实时转码会话管理器：每个会话一个 ffmpeg 进程，空闲/未完成时回收，支持 Jellyfin 式节流。
@@ -24,6 +26,8 @@ import java.util.concurrent.TimeUnit;
  * 会话生命周期（创建/心跳/空闲回收/清理）在本类，转码调度（节流）与早期失败监控（失败标记）、
  * 配置解析、播放列表 token 重写分别在 {@link TranscodeProcessLauncher}、
  * {@link TranscodeConfigResolver}、{@link TranscodePlaylistSupport}。
+ * 播放列表预热（m3u8 请求等待攒够起始切片再响应）也由本类承载，见
+ * {@link #awaitPlaylistWarmup(String, String)}。
  */
 @Slf4j
 @Component
@@ -46,6 +50,21 @@ public class TranscodeSessionManager {
         this.processLauncher = processLauncher;
         this.concurrencyPermits = new Semaphore(Math.max(1, mediaProperties.getTranscodeConcurrency()));
     }
+
+    /**
+     * 播放列表预热轮询间隔（毫秒）。
+     */
+    private static final long PLAYLIST_WARMUP_POLL_INTERVAL_MS = 300;
+
+    /**
+     * HLS 播放列表结束标记。
+     */
+    private static final String HLS_ENDLIST_MARK = "#EXT-X-ENDLIST";
+
+    /**
+     * 播放列表切片条目标记（每个 #EXTINF 行对应一个切片）。
+     */
+    private static final Pattern EXTINF_ENTRY_PATTERN = Pattern.compile("#EXTINF", Pattern.CASE_INSENSITIVE);
 
     final Map<String, TranscodeSession> sessions = new ConcurrentHashMap<>();
 
@@ -124,6 +143,84 @@ public class TranscodeSessionManager {
             return Files.size(path) == 0;
         } catch (IOException e) {
             return true;
+        }
+    }
+
+    /**
+     * 播放列表预热等待：未完成的转码会话 m3u8 请求轮询等待 playlist 攒够起始切片数再响应，
+     * 避免 hls.js 起播时切片不足贴直播边缘卡顿（hls.js 仅在 playlist 重载时发现新切片，
+     * 重载间隔约等于切片时长，起播切片不足会开播即卡）。
+     * <p>
+     * 轮询中满足以下任一条件即按当前内容返回：切片数 ≥ 阈值；playlist 含
+     * #EXT-X-ENDLIST（转码完成）；ffmpeg 进程已退出；累计等待超过预算
+     * （预算 = hlsSegmentSeconds × 2 秒，轮询间隔 300ms）。
+     * 读取失败或文件短暂不存在（ffmpeg 重写窗口）时继续轮询直到预算耗尽。
+     * <p>
+     * 鉴权与活跃时间刷新复用 {@link #touchAndResolve(String, String, String)}。
+     *
+     * @param sessionId 会话 ID
+     * @param userId    用户 ID
+     * @return 播放列表路径；预算耗尽时文件仍不存在或不可读则为 null
+     */
+    public Path awaitPlaylistWarmup(String sessionId, String userId) {
+        int threshold = Math.max(0, mediaProperties.getPlaylistWarmupSegments());
+        long budgetMs = mediaProperties.getHlsSegmentSeconds() * 1000L * 2;
+        return awaitPlaylistWarmup(sessionId, userId, threshold, budgetMs);
+    }
+
+    /**
+     * 预热等待的参数化实现：阈值与等待预算由调用方指定。
+     * 生产入口使用配置默认值；测试注入最小阈值与短预算以避免用例变慢。
+     */
+    Path awaitPlaylistWarmup(String sessionId, String userId, int threshold, long budgetMs) {
+        TranscodeSession session = sessions.get(sessionId);
+        if (session == null || !session.userId().equals(userId)) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "转码会话不存在");
+        }
+        if (session.failed()) {
+            throw new BusinessException(ResultCode.BUSINESS_ERROR,
+                    "硬件转码启动失败，请检查「系统-影视」中的硬解配置或改用软解");
+        }
+        long deadline = System.currentTimeMillis() + Math.max(0, budgetMs);
+        while (true) {
+            Path playlist = touchAndResolve(sessionId, userId, "index.m3u8");
+            if (playlist != null) {
+                String content = throttleSupport.readM3u8Content(playlist);
+                if (content != null && countExtinfEntries(content) >= threshold) {
+                    return playlist;
+                }
+                if (content != null && content.contains(HLS_ENDLIST_MARK)) {
+                    return playlist;
+                }
+            }
+            if (!session.process().isAlive()) {
+                return playlist;
+            }
+            if (System.currentTimeMillis() >= deadline) {
+                return playlist;
+            }
+            if (!sleepQuietly(PLAYLIST_WARMUP_POLL_INTERVAL_MS)) {
+                return playlist;
+            }
+        }
+    }
+
+    private static int countExtinfEntries(String content) {
+        int count = 0;
+        Matcher matcher = EXTINF_ENTRY_PATTERN.matcher(content);
+        while (matcher.find()) {
+            count++;
+        }
+        return count;
+    }
+
+    private static boolean sleepQuietly(long millis) {
+        try {
+            Thread.sleep(millis);
+            return true;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
         }
     }
 

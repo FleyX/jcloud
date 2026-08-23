@@ -55,6 +55,14 @@ public class MediaProperties {
     private int hlsSegmentSeconds = 4;
 
     /**
+     * 转码播放列表预热起始切片数阈值：未完成的转码会话 m3u8 请求轮询等待 playlist
+     * 攒够该数量的切片（#EXTINF 条目）再响应。hls.js 依赖 playlist 重载发现新切片，
+     * 起播切片不足会贴直播边缘卡顿；等待预算固定为 hlsSegmentSeconds × 2 秒，
+     * 攒够前若转码完成（ENDLIST）/ ffmpeg 进程退出则按当前内容立即返回。
+     */
+    private int playlistWarmupSegments = 8;
+
+    /**
      * ffprobe 探测超时时间（秒）。
      */
     private long probeTimeoutSeconds = 60;
