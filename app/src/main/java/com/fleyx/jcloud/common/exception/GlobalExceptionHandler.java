@@ -15,6 +15,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 import java.util.stream.Collectors;
@@ -113,6 +114,15 @@ public class GlobalExceptionHandler {
     public R<Void> handleMethodArgumentTypeMismatchException(MethodArgumentTypeMismatchException e, HttpServletRequest request) {
         log.warn("参数类型不匹配：traceId={}, msg={}", request.getAttribute(CommonConstant.TRACE_ID_MDC_KEY), e.getMessage());
         return buildFailResult(ResultCode.PARAM_ERROR, "参数类型不匹配：" + e.getName(), request);
+    }
+
+    /**
+     * 处理客户端主动断开连接异常（视频流拖拽进度、关闭页面等场景）。
+     * 连接已断开，响应不可再写，仅降级记录 WARN，不写统一响应体。
+     */
+    @ExceptionHandler(AsyncRequestNotUsableException.class)
+    public void handleAsyncRequestNotUsableException(AsyncRequestNotUsableException e, HttpServletRequest request) {
+        log.warn("客户端连接中断：traceId={}, msg={}", request.getAttribute(CommonConstant.TRACE_ID_MDC_KEY), e.getMessage());
     }
 
     /**

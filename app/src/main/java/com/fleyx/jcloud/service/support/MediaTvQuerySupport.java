@@ -30,6 +30,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
@@ -166,7 +167,7 @@ public class MediaTvQuerySupport implements MediaItemQueryStrategy<MediaSeries, 
         MediaMetadata metadata = series.getMetadataId() == null ? null
                 : mediaMetadataMapper.selectById(series.getMetadataId());
         Map<String, Long> nodeVersionMap = metadata == null ? Map.of() : mediaItemVoSupport.loadNodeVersionMap(
-                List.of(metadata.getPosterFileNodeId(), metadata.getBackdropFileNodeId()));
+                Arrays.asList(metadata.getPosterFileNodeId(), metadata.getBackdropFileNodeId()));
 
         MediaSeriesDetailVo vo = new MediaSeriesDetailVo();
         vo.setSeriesName(series.getSeriesName());
@@ -217,7 +218,7 @@ public class MediaTvQuerySupport implements MediaItemQueryStrategy<MediaSeries, 
         MediaMetadata metadata = episode.getMetadataId() == null ? null
                 : mediaMetadataMapper.selectById(episode.getMetadataId());
         Map<String, Long> nodeVersionMap = metadata == null ? Map.of() : mediaItemVoSupport.loadNodeVersionMap(
-                List.of(metadata.getPosterFileNodeId(), metadata.getBackdropFileNodeId()));
+                Arrays.asList(metadata.getPosterFileNodeId(), metadata.getBackdropFileNodeId()));
 
         MediaItemDetailVo vo = new MediaItemDetailVo();
         vo.setId(episode.getId());
