@@ -21,6 +21,10 @@ import java.util.function.Supplier;
  * 携带位图字幕（内嵌轨序号或外挂 .sup/.idx 第二输入）时强制视频转码并在 filter_complex 中 overlay 烧录
  * （见 {@link #buildBurnFilterChain}）。
  * 所选音轨编码为 aac/mp3 且（转封装或从头播放）时 -c:a copy，否则统一转 AAC 128k。
+ * 切片时长契约：-hls_time 只能决定切分目标，independent_segments 实际按关键帧边界切分；
+ * 视频转码路径由 -force_key_frames 按 hlsSegmentSeconds 强制时间对齐关键帧（nvenc/qsv 需 -forced-idr/-forced_idr
+ * 配套，见 appendVideoTranscodeArgs），保证实际切片时长与设计一致
+ * （转封装 -c:v copy 无法改关键帧，实际切片时长受限于源关键帧间隔，属固有约束）。
  * seek 对齐规则：视频转码时精确 seek 仅裁剪解码流，音频 copy 会停留在关键帧导致音画错位，故转码 + seek 音频必须重编码；
  * 转封装 + seek 时视频停留在关键帧，附加 -noaccurate_seek 保证重编码音频同样从关键帧起步。
  */
@@ -226,10 +230,18 @@ public class TranscodeCommandBuilder {
 
     /**
      * 视频转码参数：保持现有硬解路径与 crf 23 原质量，叠加码率上限与不放大 scale。
+     * 公共段按 hlsSegmentSeconds 强制关键帧时间对齐（切片时长契约，见类注释），确保 -hls_time 的切分目标实际可达；
+     * 硬解编码器（nvenc/qsv）默认把 ffmpeg 层强制关键帧转成非 IDR I 帧而不生效（实测 nvenc 下切片仍为
+     * 编码器默认 GOP≈10s），需各自 -forced-idr/-forced_idr 开关配合，见分支内注释；
      * 烧录路径（内嵌序号或外挂字幕任一非空）的 overlay/scale/hwupload 滤镜已在 filter_complex 内，不再输出 -vf。
      */
     private void appendVideoTranscodeArgs(List<String> command, TranscodeRequest request, String encoder, int threads) {
         command.addAll(List.of("-c:v", encoder));
+        // 关键帧按 hlsSegmentSeconds 时间对齐：编码器默认 GOP（约 10s）会导致 independent_segments 实际切片过长、
+        // 起播后首个切片边界缓冲耗尽（约 10 秒卡顿）；时间表达式与帧率无关且从 -ss 后的输出时间轴 0 起算。
+        // 表达式中的逗号仅需在 filtergraph 中转义，-force_key_frames 为普通选项，argv 元素可直接写。
+        int segmentSeconds = mediaProperties.getHlsSegmentSeconds();
+        command.addAll(List.of("-force_key_frames", "expr:gte(t,n_forced*" + segmentSeconds + ")"));
         boolean burnSubtitle = request.subtitleIndex() != null || request.externalSubtitlePath() != null
                 || request.externalSubtitleStream() != null;
         String scale = !burnSubtitle && request.maxHeight() != null ? scaleFilter(request.maxHeight()) : null;
@@ -244,13 +256,18 @@ public class TranscodeCommandBuilder {
                 if (!burnSubtitle) {
                     command.addAll(List.of("-vf", scale != null ? scale + ",format=nv12" : "format=nv12"));
                 }
-                command.addAll(List.of("-preset", "veryfast", "-global_quality", "23"));
+                // qsv 与 nvenc 同需 IDR 开关：默认忽略 ffmpeg 层强制关键帧的 IDR 形式（本机无 qsv 设备，
+                // 未实测，语义与 nvenc 一致：Forcing I frames as IDR frames）
+                command.addAll(List.of("-forced_idr", "1", "-preset", "veryfast", "-global_quality", "23"));
             }
             case "h264_nvenc" -> {
-                if (scale != null) {
-                    command.addAll(List.of("-vf", scale));
+                // nvenc 仅支持 8bit 输入，10bit 源（如 x265 10bit）不加格式转换会启动失败；
+                // 8bit 源时 format=nv12 为 no-op，故非烧录路径无条件附加；烧录路径由 filter_complex 承担
+                if (!burnSubtitle) {
+                    command.addAll(List.of("-vf", scale != null ? scale + ",format=nv12" : "format=nv12"));
                 }
-                command.addAll(List.of("-preset", "p4", "-cq", "23"));
+                // -forced-idr 1 实测必需：不经它时 -force_key_frames 不产生关键帧，切片仍为编码器默认 GOP≈10s
+                command.addAll(List.of("-forced-idr", "1", "-preset", "p4", "-cq", "23"));
             }
             default -> {
                 if (scale != null) {
@@ -288,9 +305,10 @@ public class TranscodeCommandBuilder {
         }
         switch (encoder) {
             case "h264_vaapi" -> chain.append(",format=nv12,hwupload");
-            case "h264_qsv" -> chain.append(",format=nv12");
+            // nvenc 与 qsv 同样仅支持 8bit 输入，10bit 源烧录也需转 nv12
+            case "h264_qsv", "h264_nvenc" -> chain.append(",format=nv12");
             default -> {
-                // nvenc 与软解无后缀，滤镜即止
+                // 软解无后缀，滤镜即止
             }
         }
         return chain.append("[v]").toString();

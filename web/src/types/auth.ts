@@ -65,6 +65,19 @@ export interface LoginVo {
   userInfo: UserVo
   resources: string[]
   initialized: boolean
+  /** access 令牌过期时间（epoch 毫秒，后端 Long 统一序列化为字符串）；预检刷新依赖 */
+  accessExpiresAt?: string
+}
+
+/**
+ * 刷新令牌对返回对象。
+ * 刷新接口经 cookie 下发新令牌对，前端不读取 token，仅需 access 过期时间用于预检。
+ */
+export interface TokenPairVo {
+  token: string
+  refreshToken: string
+  /** access 令牌过期时间（epoch 毫秒，后端 Long 统一序列化为字符串） */
+  accessExpiresAt: string
 }
 
 /**

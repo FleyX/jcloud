@@ -19,7 +19,11 @@ import { getPlaybackConfig } from './usePlaybackConfig'
 
 const BITRATE_TIER_STORAGE_KEY = 'jcloud.player.bitrateTier'
 
-/** hevc/vp9/av1 转封装（-c:v copy）时的 MSE 探测 MIME（浏览器侧知识，保留前端） */
+/**
+ * hevc/vp9/av1 转封装（-c:v copy）时的 MSE 探测 MIME（浏览器侧知识，保留前端）。
+ * 直放可行性的原生 <video> 探测见 utils/mediaCapability.ts 的 VIDEO_CODEC_TAG，
+ * 两表同源知识、各自保留避免跨层耦合。
+ */
 const REMUX_PROBE_MIME: Record<string, string> = {
   hevc: 'video/mp4; codecs="hvc1.1.6.L120.90"',
   vp9: 'video/mp4; codecs="vp09.00.10.08"',
@@ -144,8 +148,11 @@ export function useTranscodeSession(deps: TranscodeSessionDeps) {
     transcodeBaseMs.value = startMs
     const url = session.playlistUrl
     if (Hls.isSupported()) {
-      // 转码播放缓冲调大到 120s，吸收转码速度波动，避免播放追上分片产出导致卡顿
-      hls = new Hls({ maxBufferLength: 120 })
+      // 转码播放缓冲调大到 120s，吸收转码速度波动，避免播放追上分片产出导致卡顿；
+      // 转码流时间轴恒从 0 起（seek 重建会话同理），显式 startPosition: 0 避免 hls.js 直播同步点
+      // （liveSyncPosition，直播边缘前 3 个切片）跳过预热切片的开头；hls.js 1.6.16 中
+      // config.startPosition ≥ playlistStart 时优先于 liveSyncPosition（dist/hls.mjs StreamController 起始分片选择）
+      hls = new Hls({ maxBufferLength: 120, startPosition: 0 })
       hls.loadSource(url)
       hls.attachMedia(video)
       sourceEpoch.value += 1

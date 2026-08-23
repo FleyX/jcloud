@@ -26,6 +26,7 @@ import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import tools.jackson.databind.ObjectMapper;
 
 import java.util.List;
 
@@ -33,9 +34,11 @@ import static org.hamcrest.Matchers.containsString;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -163,7 +166,7 @@ class AuthControllerTest {
     void shouldRefresh() throws Exception {
         TokenRefreshDto dto = new TokenRefreshDto();
         dto.setRefreshToken("old-refresh");
-        when(authService.refresh(eq(dto))).thenReturn(new TokenPairVo("new-jwt", "new-refresh"));
+        when(authService.refresh(eq(dto))).thenReturn(new TokenPairVo("new-jwt", "new-refresh", null));
 
         MvcResult result = mockMvc.perform(post("/jcloud/api/auth/refresh")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -180,6 +183,94 @@ class AuthControllerTest {
         assertEquals(2, cookies.size());
         assertTrue(findCookie(cookies, "jcloud_access_token=new-jwt").contains("HttpOnly"));
         assertTrue(findCookie(cookies, "jcloud_refresh_token=new-refresh").contains("HttpOnly"));
+    }
+
+    /**
+     * POST /auth/login：refresh cookie Path 收窄为鉴权接口前缀、access cookie 保持 Path=/；
+     * body 下发 access 过期时间（epoch 毫秒）。
+     */
+    @Test
+    void shouldLoginWriteNarrowedRefreshCookiePathAndAccessExpiresAt() throws Exception {
+        long accessExpiresAt = System.currentTimeMillis() + 2 * 3600_000L;
+        UserLoginDto expected = new UserLoginDto();
+        expected.setUsername("admin");
+        expected.setPassword("admin123");
+
+        UserVo userInfo = new UserVo();
+        userInfo.setId("u1");
+        userInfo.setUsername("admin");
+        LoginVo vo = new LoginVo();
+        vo.setToken("jwt-token");
+        vo.setRefreshToken("refresh-token");
+        vo.setAccessExpiresAt(accessExpiresAt);
+        vo.setUserInfo(userInfo);
+        when(authService.login(eq(expected), isNull())).thenReturn(vo);
+
+        MvcResult result = mockMvc.perform(post("/jcloud/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"admin\",\"password\":\"admin123\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.accessExpiresAt").isNumber())
+                .andReturn();
+
+        long actual = new ObjectMapper()
+                .readTree(result.getResponse().getContentAsString())
+                .path("data").path("accessExpiresAt").asLong();
+        assertTrue(Math.abs(actual - accessExpiresAt) <= 60_000L, "accessExpiresAt 应约为当前时间+2h");
+
+        List<String> cookies = setCookieHeaders(result);
+        assertEquals(2, cookies.size());
+        String access = findCookie(cookies, "jcloud_access_token=jwt-token");
+        assertTrue(access.contains("Path=/;"), "access cookie 应保持全站 Path=/");
+        assertFalse(access.contains("Path=/jcloud/api/auth"));
+        String refresh = findCookie(cookies, "jcloud_refresh_token=refresh-token");
+        assertTrue(refresh.contains("Path=/jcloud/api/auth"), "refresh cookie Path 应收窄为鉴权接口前缀");
+        assertFalse(refresh.contains("Path=/;"), "refresh cookie 不应再使用全站 Path=/");
+    }
+
+    /**
+     * POST /auth/refresh body 为空：从刷新令牌 cookie 取令牌完成轮换（原生端 body 契约不变），
+     * 响应下发新令牌对与 accessExpiresAt，Set-Cookie 的 refresh cookie Path 同为收窄值。
+     */
+    @Test
+    void shouldRefreshFromCookieWhenBodyEmpty() throws Exception {
+        long accessExpiresAt = System.currentTimeMillis() + 2 * 3600_000L;
+        TokenRefreshDto cookieDto = new TokenRefreshDto();
+        cookieDto.setRefreshToken("refresh-from-cookie");
+        when(authService.refresh(eq(cookieDto)))
+                .thenReturn(new TokenPairVo("new-jwt", "new-refresh", accessExpiresAt));
+
+        MvcResult result = mockMvc.perform(post("/jcloud/api/auth/refresh")
+                        .cookie(new Cookie("jcloud_refresh_token", "refresh-from-cookie"))
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.token").value("new-jwt"))
+                .andExpect(jsonPath("$.data.refreshToken").value("new-refresh"))
+                .andExpect(jsonPath("$.data.accessExpiresAt").isNumber())
+                .andReturn();
+
+        verify(authService).refresh(eq(cookieDto));
+
+        List<String> cookies = setCookieHeaders(result);
+        assertEquals(2, cookies.size());
+        assertTrue(findCookie(cookies, "jcloud_access_token=new-jwt").contains("Path=/;"));
+        assertTrue(findCookie(cookies, "jcloud_refresh_token=new-refresh").contains("Path=/jcloud/api/auth"));
+    }
+
+    /**
+     * POST /auth/refresh body 为空且无刷新 cookie：业务码 401，不调用 service。
+     */
+    @Test
+    void shouldRejectRefreshWithoutTokenWhenNoBodyAndNoCookie() throws Exception {
+        mockMvc.perform(post("/jcloud/api/auth/refresh")
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(ResultCode.UNAUTHORIZED.getCode()))
+                .andExpect(jsonPath("$.msg").value("刷新令牌不能为空"));
+
+        verify(authService, never()).refresh(any(TokenRefreshDto.class));
     }
 
     /**
@@ -235,8 +326,12 @@ class AuthControllerTest {
     private void assertClearCookies(MockHttpServletResponse response) {
         List<String> cookies = response.getHeaders(HttpHeaders.SET_COOKIE);
         assertEquals(2, cookies.size());
-        assertTrue(findCookie(cookies, "jcloud_access_token=").contains("Max-Age=0"));
-        assertTrue(findCookie(cookies, "jcloud_refresh_token=").contains("Max-Age=0"));
+        String access = findCookie(cookies, "jcloud_access_token=");
+        assertTrue(access.contains("Max-Age=0"));
+        assertTrue(access.contains("Path=/;"), "access 清除 cookie 应保持全站 Path=/");
+        String refresh = findCookie(cookies, "jcloud_refresh_token=");
+        assertTrue(refresh.contains("Max-Age=0"));
+        assertTrue(refresh.contains("Path=/jcloud/api/auth"), "refresh 清除 cookie 必须与写入同 Path 才能生效");
     }
 
     /**

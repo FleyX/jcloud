@@ -11,6 +11,7 @@ import { fetchPlaybackInfo, updateMediaProgress } from '@/api/media'
 import { loadPlaybackConfig } from './usePlaybackConfig'
 import { useTranscodeSession } from './useTranscodeSession'
 import { useSubtitleSelection } from './useSubtitleSelection'
+import { canNativeDirectPlay } from '@/utils/mediaCapability'
 
 // 工具函数/类型保持原导出路径可用（PlayerControlBar 等直接导入）
 export { subtitleItemKey, type ActiveSubtitle } from './useSubtitleSelection'
@@ -86,10 +87,12 @@ export function useMediaPlayback(videoRef: Ref<HTMLVideoElement | null>) {
     const info = playbackInfo.value
     if (!info) return
     const currentMs = currentAbsoluteMs()
-    // 直放模式下选了非默认音轨时，必须转码（后端视频转封装）才能生效；位图字幕必须烧录转码
+    // 直放模式下选了非默认音轨时，必须转码（后端视频转封装）才能生效；位图字幕必须烧录转码；
+    // 直放但浏览器实际无法解码该 容器+编码（如 mov+hevc）时同样静默降级转码，避免黑屏只有声音
     const forceTranscode = transcode.resolveBitrateParams(info) !== null
       || (info.mode === 'direct' && audioIndex.value !== null)
       || subtitle.burnInSubtitle.value !== null
+      || (info.mode === 'direct' && !canNativeDirectPlay(info.container, info.videoCodec))
     if (info.mode === 'transcode' || forceTranscode) {
       await transcode.setupTranscode(currentMs)
     } else if (transcode.transcodeActive.value) {
@@ -123,7 +126,11 @@ export function useMediaPlayback(videoRef: Ref<HTMLVideoElement | null>) {
       if (durationMs > 0 && resumeMs >= durationMs * config.finishedRatio) {
         resumeMs = 0
       }
-      if (transcode.resolveBitrateParams(playbackInfo.value) !== null || playbackInfo.value.mode === 'transcode') {
+      if (transcode.resolveBitrateParams(playbackInfo.value) !== null
+        || playbackInfo.value.mode === 'transcode'
+        // 直放但浏览器实际无法解码该 容器+编码（如 mov+hevc）：静默降级走转码，档位/界面无变化
+        || (playbackInfo.value.mode === 'direct'
+          && !canNativeDirectPlay(playbackInfo.value.container, playbackInfo.value.videoCodec))) {
         await transcode.setupTranscode(resumeMs)
       } else {
         setupDirect(playbackInfo.value.directUrl!, resumeMs)

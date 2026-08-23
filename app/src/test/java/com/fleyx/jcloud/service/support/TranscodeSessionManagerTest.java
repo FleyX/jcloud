@@ -10,6 +10,8 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -173,5 +175,82 @@ class TranscodeSessionManagerTest {
 
         // 会话不存在（可能已被回收）：静默返回
         manager.closeSession("missing", "u1");
+    }
+
+    // ---------- 播放列表预热 ----------
+
+    private String playlistWithSegments(int count, boolean endlist) {
+        StringBuilder sb = new StringBuilder("#EXTM3U\n");
+        for (int i = 0; i < count; i++) {
+            sb.append("#EXTINF:4.000000,\nseg_").append(String.format("%05d", i)).append(".m4s\n");
+        }
+        if (endlist) {
+            sb.append("#EXT-X-ENDLIST\n");
+        }
+        return sb.toString();
+    }
+
+    @Test
+    void shouldReturnImmediatelyWhenPlaylistReachesWarmupThreshold(@TempDir Path tempDir) throws Exception {
+        TranscodeSessionManager manager = newManager(new MediaProperties(), new TranscodeThrottleSupport());
+        Path playlist = tempDir.resolve("index.m3u8");
+        Files.writeString(playlist, playlistWithSegments(8, false));
+        sessionsOf(manager).put("s1", newSession("s1", tempDir));
+
+        assertEquals(playlist, manager.awaitPlaylistWarmup("s1", "u1"), "切片数已达阈值（默认 8）应立即返回");
+    }
+
+    @Test
+    void shouldReturnImmediatelyWhenPlaylistHasEndlist(@TempDir Path tempDir) throws Exception {
+        TranscodeSessionManager manager = newManager(new MediaProperties(), new TranscodeThrottleSupport());
+        Path playlist = tempDir.resolve("index.m3u8");
+        Files.writeString(playlist, playlistWithSegments(2, true));
+        sessionsOf(manager).put("s1", newSession("s1", tempDir));
+
+        assertEquals(playlist, manager.awaitPlaylistWarmup("s1", "u1"), "未达标但含 ENDLIST 应立即返回");
+    }
+
+    @Test
+    void shouldReturnImmediatelyWhenProcessExited(@TempDir Path tempDir) throws Exception {
+        TranscodeSessionManager manager = newManager(new MediaProperties(), new TranscodeThrottleSupport());
+        Path playlist = tempDir.resolve("index.m3u8");
+        Files.writeString(playlist, playlistWithSegments(2, false));
+        // mock Process 默认 isAlive()=false，模拟 ffmpeg 进程已退出
+        sessionsOf(manager).put("s1", newSession("s1", tempDir));
+
+        assertEquals(playlist, manager.awaitPlaylistWarmup("s1", "u1"), "未达标且进程已退出应按当前内容返回");
+    }
+
+    @Test
+    void shouldWaitUntilSegmentCountGrowsToThreshold(@TempDir Path tempDir) throws Exception {
+        TranscodeSessionManager manager = newManager(new MediaProperties(), new TranscodeThrottleSupport());
+        Path playlist = tempDir.resolve("index.m3u8");
+        Files.writeString(playlist, playlistWithSegments(2, false));
+        Process process = mock(Process.class);
+        when(process.isAlive()).thenReturn(true);
+        sessionsOf(manager).put("s1", new TranscodeSession("s1", "u1", tempDir, process, "copy", Instant.now()));
+
+        CompletableFuture<Path> future = CompletableFuture.supplyAsync(
+                () -> manager.awaitPlaylistWarmup("s1", "u1", 4, 10_000));
+        // 等待预热轮询读到首个写盘版本后再追加切片，模拟 ffmpeg 持续产出
+        Thread.sleep(600);
+        Files.writeString(playlist, playlistWithSegments(4, false));
+
+        assertEquals(playlist, future.get(5, TimeUnit.SECONDS), "等待中切片增长到达标应返回");
+        assertEquals(playlistWithSegments(4, false), Files.readString(playlist), "返回时应已读到达标版本");
+    }
+
+    @Test
+    void shouldReturnCurrentContentWhenWarmupBudgetExhausted(@TempDir Path tempDir) throws Exception {
+        TranscodeSessionManager manager = newManager(new MediaProperties(), new TranscodeThrottleSupport());
+        Path playlist = tempDir.resolve("index.m3u8");
+        Files.writeString(playlist, playlistWithSegments(2, false));
+        Process process = mock(Process.class);
+        when(process.isAlive()).thenReturn(true);
+        sessionsOf(manager).put("s1", new TranscodeSession("s1", "u1", tempDir, process, "copy", Instant.now()));
+
+        long start = System.currentTimeMillis();
+        assertEquals(playlist, manager.awaitPlaylistWarmup("s1", "u1", 4, 0), "预算耗尽应按当前内容返回");
+        assertTrue(System.currentTimeMillis() - start < 1000, "预算 0ms 不应产生阻塞等待");
     }
 }

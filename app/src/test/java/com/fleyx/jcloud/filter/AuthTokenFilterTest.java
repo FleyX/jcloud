@@ -4,19 +4,12 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import com.fleyx.jcloud.common.cache.UserPermissionCache;
 import com.fleyx.jcloud.common.constant.AuthConstant;
-import com.fleyx.jcloud.common.context.CurrentUser;
-import com.fleyx.jcloud.common.exception.BusinessException;
-import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.permission.PermissionRegistry;
 import com.fleyx.jcloud.common.permission.PermissionResolver;
-import com.fleyx.jcloud.config.AuthProperties;
-import com.fleyx.jcloud.config.JwtProperties;
 import com.fleyx.jcloud.mapper.UserMapper;
 import com.fleyx.jcloud.mapper.UserRoleMapper;
-import com.fleyx.jcloud.model.bo.RefreshResult;
 import com.fleyx.jcloud.model.po.User;
 import com.fleyx.jcloud.service.support.AuthBlacklistSupport;
-import com.fleyx.jcloud.service.support.AuthCookieSupport;
 import com.fleyx.jcloud.service.support.AuthSessionSupport;
 import com.fleyx.jcloud.util.JwtUtil;
 import io.jsonwebtoken.Claims;
@@ -63,7 +56,6 @@ class AuthTokenFilterTest {
     private UserPermissionCache userPermissionCache;
     private PermissionResolver permissionResolver;
     private AuthSessionSupport authSessionSupport;
-    private AuthCookieSupport authCookieSupport;
     private AuthBlacklistSupport authBlacklistSupport;
 
     private AuthTokenFilter filter;
@@ -78,11 +70,7 @@ class AuthTokenFilterTest {
         userPermissionCache = new UserPermissionCache();
         permissionResolver = mock(PermissionResolver.class);
 
-        AuthProperties authProperties = new AuthProperties();
-        JwtProperties jwtProperties = new JwtProperties();
-        jwtProperties.setExpireHours(24);
         authSessionSupport = mock(AuthSessionSupport.class);
-        authCookieSupport = new AuthCookieSupport(authProperties, jwtProperties);
         authBlacklistSupport = mock(AuthBlacklistSupport.class);
 
         List<PermissionRegistry.FilterResourceEntry> entries = List.of(
@@ -93,7 +81,7 @@ class AuthTokenFilterTest {
 
         filter = new AuthTokenFilter(jwtUtil, objectMapper, permissionRegistry,
                 userMapper, userRoleMapper, userPermissionCache, permissionResolver,
-                authSessionSupport, authCookieSupport, authBlacklistSupport);
+                authBlacklistSupport);
     }
 
     @Test
@@ -336,41 +324,26 @@ class AuthTokenFilterTest {
     }
 
     /**
-     * 过期 access cookie + 有效 refresh cookie → 放行，响应下发新令牌对的 Set-Cookie，UserContext 正确。
+     * 过期 access cookie + 有效 refresh cookie → 401「登录凭证已过期」，不再静默续期、响应无任何 Set-Cookie。
      */
     @Test
-    void expiredAccessCookieWithValidRefreshCookieShouldRenewAndPass() throws ServletException, IOException {
+    void expiredAccessCookieWithValidRefreshCookieShouldReturn401WithoutSetCookie() throws ServletException, IOException {
         when(jwtUtil.parseToken("expired-access")).thenThrow(
                 new ExpiredJwtException(Jwts.header().build(), Jwts.claims().build(), "expired"));
-        when(authSessionSupport.refresh("valid-refresh"))
-                .thenReturn(new RefreshResult("new-access", "new-refresh"));
-        Claims newClaims = mock(Claims.class);
-        when(jwtUtil.parseToken("new-access")).thenReturn(newClaims);
-        when(jwtUtil.getUserId(newClaims)).thenReturn("1");
-        when(jwtUtil.getUserCode(newClaims)).thenReturn("user");
-
-        User user = new User();
-        user.setId("1");
-        user.setIsAdmin(1);
-        when(userMapper.selectById("1")).thenReturn(user);
 
         MockHttpServletRequest request = new MockHttpServletRequest("GET", API_PATH);
         request.setCookies(new Cookie(AuthConstant.ACCESS_TOKEN_COOKIE, "expired-access"),
                 new Cookie(AuthConstant.REFRESH_TOKEN_COOKIE, "valid-refresh"));
         MockHttpServletResponse response = new MockHttpServletResponse();
-        MockFilterChain chain = new MockFilterChain();
 
-        filter.doFilter(request, response, chain);
+        filter.doFilter(request, response, new MockFilterChain());
 
-        assertEquals(200, response.getStatus());
-        assertTrue(chain.getRequest() != null);
-        List<String> setCookies = response.getHeaders("Set-Cookie");
-        assertEquals(2, setCookies.size());
-        assertTrue(setCookies.stream().anyMatch(c -> c.contains("jcloud_access_token=new-access")));
-        assertTrue(setCookies.stream().anyMatch(c -> c.contains("jcloud_refresh_token=new-refresh")));
-        CurrentUser currentUser = (CurrentUser) request.getAttribute(CurrentUser.class.getName());
-        assertEquals("1", currentUser.id());
-        assertEquals("user", currentUser.userCode());
+        assertEquals(401, response.getStatus());
+        JsonNode body = objectMapper.readTree(response.getContentAsString());
+        assertEquals(401, body.get("code").asInt());
+        assertEquals("登录凭证已过期", body.get("msg").asText());
+        assertEquals(0, response.getHeaders("Set-Cookie").size());
+        verify(authSessionSupport, never()).refresh(any());
     }
 
     /**
@@ -393,27 +366,26 @@ class AuthTokenFilterTest {
     }
 
     /**
-     * 过期 access cookie + 无效 refresh cookie（refresh 抛业务异常）→ 401。
+     * 过期 access cookie + 无效 refresh cookie → 401「登录凭证已过期」，过滤器不再读取 refresh、无 Set-Cookie。
      */
     @Test
     void expiredAccessCookieWithInvalidRefreshCookieShouldReturn401() throws ServletException, IOException {
         when(jwtUtil.parseToken("expired-access")).thenThrow(
                 new ExpiredJwtException(Jwts.header().build(), Jwts.claims().build(), "expired"));
-        when(authSessionSupport.refresh("bad-refresh"))
-                .thenThrow(new BusinessException(ResultCode.UNAUTHORIZED, "登录状态已失效"));
 
         MockHttpServletRequest request = new MockHttpServletRequest("GET", LOGIN_PATH);
         request.setCookies(new Cookie(AuthConstant.ACCESS_TOKEN_COOKIE, "expired-access"),
                 new Cookie(AuthConstant.REFRESH_TOKEN_COOKIE, "bad-refresh"));
         MockHttpServletResponse response = new MockHttpServletResponse();
-        MockFilterChain chain = new MockFilterChain();
 
-        filter.doFilter(request, response, chain);
+        filter.doFilter(request, response, new MockFilterChain());
 
         assertEquals(401, response.getStatus());
         JsonNode body = objectMapper.readTree(response.getContentAsString());
         assertEquals(401, body.get("code").asInt());
-        assertEquals("登录状态已失效", body.get("msg").asText());
+        assertEquals("登录凭证已过期", body.get("msg").asText());
+        assertEquals(0, response.getHeaders("Set-Cookie").size());
+        verify(authSessionSupport, never()).refresh(any());
     }
 
     /**
@@ -465,34 +437,23 @@ class AuthTokenFilterTest {
     }
 
     /**
-     * 两个串行过期请求（宽限期重放）应拿到同一新令牌对。
+     * 两个串行过期请求（cookie 通道）均应 401 且无 Set-Cookie，不触发任何刷新。
      */
     @Test
-    void twoSerialExpiredRequestsShouldReturnSameNewPair() throws ServletException, IOException {
+    void twoSerialExpiredRequestsShouldBothReturn401WithoutSetCookie() throws ServletException, IOException {
         when(jwtUtil.parseToken("expired-access")).thenThrow(
                 new ExpiredJwtException(Jwts.header().build(), Jwts.claims().build(), "expired"));
-        // 模拟宽限期重放：多次 refresh 返回同一新令牌对
-        when(authSessionSupport.refresh("valid-refresh"))
-                .thenReturn(new RefreshResult("new-access", "new-refresh"));
-        Claims newClaims = mock(Claims.class);
-        when(jwtUtil.parseToken("new-access")).thenReturn(newClaims);
-        when(jwtUtil.getUserId(newClaims)).thenReturn("1");
-        when(jwtUtil.getUserCode(newClaims)).thenReturn("user");
-
-        User user = new User();
-        user.setId("1");
-        user.setIsAdmin(1);
-        when(userMapper.selectById("1")).thenReturn(user);
 
         MockHttpServletResponse resp1 = new MockHttpServletResponse();
         filter.doFilter(requestWithExpiredCookies(), resp1, new MockFilterChain());
         MockHttpServletResponse resp2 = new MockHttpServletResponse();
         filter.doFilter(requestWithExpiredCookies(), resp2, new MockFilterChain());
 
-        assertEquals(200, resp1.getStatus());
-        assertEquals(200, resp2.getStatus());
-        assertEquals(2, resp1.getHeaders("Set-Cookie").size());
-        assertEquals(resp1.getHeaders("Set-Cookie"), resp2.getHeaders("Set-Cookie"));
+        assertEquals(401, resp1.getStatus());
+        assertEquals(401, resp2.getStatus());
+        assertEquals(0, resp1.getHeaders("Set-Cookie").size());
+        assertEquals(0, resp2.getHeaders("Set-Cookie").size());
+        verify(authSessionSupport, never()).refresh(any());
     }
 
     /**

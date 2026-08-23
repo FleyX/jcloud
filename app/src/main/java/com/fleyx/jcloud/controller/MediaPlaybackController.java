@@ -168,6 +168,13 @@ public class MediaPlaybackController {
         if (path == null) {
             throw new BusinessException(ResultCode.NOT_FOUND, "转码文件尚未生成");
         }
+        if (fileName.endsWith(".m3u8")) {
+            // 预热：等待 playlist 攒够起始切片数再响应，避免 hls.js 起播贴直播边缘卡顿
+            path = transcodeSessionManager.awaitPlaylistWarmup(sessionId, userId);
+            if (path == null) {
+                throw new BusinessException(ResultCode.NOT_FOUND, "转码文件尚未生成");
+            }
+        }
         MediaType contentType = fileName.endsWith(".m3u8")
                 ? MediaType.parseMediaType("application/vnd.apple.mpegurl")
                 : MediaType.parseMediaType("video/mp4");

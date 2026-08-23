@@ -24,6 +24,8 @@ export const useUserStore = defineStore('user', () => {
   const resources = ref<string[]>([])
   const dynamicRoutesAdded = ref(false)
   const initialized = ref<boolean>(true)
+  /** access 令牌过期时间（epoch 毫秒，仅存内存不持久化）；预检刷新依赖，登录写入、登出重置 */
+  const accessExpiresAt = ref<number | null>(null)
 
   const isLoggedIn = computed(() => !!userInfo.value)
   const isAdmin = computed(() => userInfo.value?.isAdmin === true)
@@ -36,6 +38,8 @@ export const useUserStore = defineStore('user', () => {
     resources.value = data.resources ?? []
     initialized.value = data.initialized ?? true
     dynamicRoutesAdded.value = false
+    // 后端 Long 序列化为字符串，需转 Number 后存内存（不持久化）
+    accessExpiresAt.value = data.accessExpiresAt ? Number(data.accessExpiresAt) : null
   }
 
   /**
@@ -86,6 +90,7 @@ export const useUserStore = defineStore('user', () => {
     resources.value = []
     initialized.value = true
     dynamicRoutesAdded.value = false
+    accessExpiresAt.value = null
   }
 
   /**
@@ -116,6 +121,7 @@ export const useUserStore = defineStore('user', () => {
     resources,
     dynamicRoutesAdded,
     initialized,
+    accessExpiresAt,
     isLoggedIn,
     isAdmin,
     loginAction,

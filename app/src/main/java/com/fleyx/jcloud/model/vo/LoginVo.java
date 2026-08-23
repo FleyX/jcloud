@@ -26,6 +26,11 @@ public class LoginVo implements Serializable {
     private String refreshToken;
 
     /**
+     * 访问令牌过期时间，epoch 毫秒。
+     */
+    private Long accessExpiresAt;
+
+    /**
      * 设备标识。
      */
     private String deviceId;

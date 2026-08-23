@@ -27,4 +27,9 @@ public class TokenPairVo implements Serializable {
      * 刷新令牌。
      */
     private String refreshToken;
+
+    /**
+     * 访问令牌过期时间，epoch 毫秒。
+     */
+    private Long accessExpiresAt;
 }

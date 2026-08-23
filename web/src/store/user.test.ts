@@ -150,3 +150,42 @@ describe('user store 登录态与设备标识', () => {
     expect(store.isLoggedIn).toBe(false)
   })
 })
+
+describe('user store access 过期时间内存状态', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    localStorage.clear()
+    vi.clearAllMocks()
+  })
+
+  it('登录响应携带 accessExpiresAt 时写入内存（字符串转 Number，不持久化）', async () => {
+    const store = useUserStore()
+    vi.mocked(login).mockResolvedValue({ ...buildLoginVo(), accessExpiresAt: '1724400000000' })
+
+    await store.loginAction('admin', 'admin')
+
+    expect(store.accessExpiresAt).toBe(1724400000000)
+    // 仅内存态，不落 localStorage
+    expect(localStorage.getItem('jcloud_access_expires_at')).toBeNull()
+  })
+
+  it('登录响应无 accessExpiresAt 时过期时间为 null', async () => {
+    const store = useUserStore()
+    vi.mocked(login).mockResolvedValue(buildLoginVo())
+
+    await store.loginAction('admin', 'admin')
+
+    expect(store.accessExpiresAt).toBeNull()
+  })
+
+  it('logoutAction 重置过期时间为 null', async () => {
+    const store = useUserStore()
+    vi.mocked(login).mockResolvedValue({ ...buildLoginVo(), accessExpiresAt: '1724400000000' })
+    await store.loginAction('admin', 'admin')
+    expect(store.accessExpiresAt).toBe(1724400000000)
+
+    store.logoutAction()
+
+    expect(store.accessExpiresAt).toBeNull()
+  })
+})

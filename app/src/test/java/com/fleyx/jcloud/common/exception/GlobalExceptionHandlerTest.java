@@ -10,7 +10,10 @@ import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -124,6 +127,15 @@ class GlobalExceptionHandlerTest {
         assertEquals(ResultCode.SYSTEM_ERROR.getMsg(), result.getMsg());
         assertEquals("test-trace-id", result.getTraceId());
         assertNotNull(ex.getCause());
+    }
+
+    @Test
+    void handleAsyncRequestNotUsableExceptionShouldNotWriteResponseBody() {
+        AsyncRequestNotUsableException ex = new AsyncRequestNotUsableException(
+                "ServletOutputStream failed to write", new java.io.IOException("连接被对方重置"));
+
+        // 客户端已断连，处理器只记录日志、返回 void，不应再尝试写统一响应体
+        assertDoesNotThrow(() -> handler.handleAsyncRequestNotUsableException(ex, request));
     }
 
     @Test

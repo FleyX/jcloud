@@ -24,6 +24,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
@@ -157,7 +158,7 @@ public class MediaMovieQuerySupport implements MediaItemQueryStrategy<MediaMovie
         MediaMetadata metadata = movie.getMetadataId() == null ? null
                 : mediaMetadataMapper.selectById(movie.getMetadataId());
         Map<String, Long> nodeVersionMap = metadata == null ? Map.of() : mediaItemVoSupport.loadNodeVersionMap(
-                List.of(metadata.getPosterFileNodeId(), metadata.getBackdropFileNodeId()));
+                Arrays.asList(metadata.getPosterFileNodeId(), metadata.getBackdropFileNodeId()));
 
         MediaItemDetailVo vo = new MediaItemDetailVo();
         vo.setId(movie.getId());

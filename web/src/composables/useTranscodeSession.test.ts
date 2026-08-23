@@ -15,6 +15,7 @@ vi.mock('@/api/media', () => mocks)
 
 const hlsMock = vi.hoisted(() => ({
   instances: [] as Array<{ destroy: () => void }>,
+  constructorOptions: [] as Array<Record<string, unknown>>,
   isSupported: vi.fn(() => true),
 }))
 
@@ -26,8 +27,9 @@ vi.mock('hls.js', () => {
     attachMedia = vi.fn()
     on = vi.fn()
     destroy = vi.fn()
-    constructor() {
+    constructor(options?: Record<string, unknown>) {
       hlsMock.instances.push(this)
+      hlsMock.constructorOptions.push(options ?? {})
     }
   }
   return { default: MockHls }
@@ -100,6 +102,7 @@ function createSession(overrides: Partial<MediaPlaybackInfoVo> = {}) {
 beforeEach(() => {
   vi.clearAllMocks()
   hlsMock.instances.length = 0
+  hlsMock.constructorOptions.length = 0
   localStorage.clear()
   resetPlaybackConfigCache()
   mocks.createTranscodeSession.mockResolvedValue({ sessionId: 's1', playlistUrl: '/hls/p.m3u8' })
@@ -129,6 +132,17 @@ describe('useTranscodeSession 心跳与会话生命周期', () => {
     expect(mocks.closeTranscodeSession).toHaveBeenCalledWith('s1')
     vi.advanceTimersByTime(10_000)
     expect(mocks.transcodeHeartbeat).toHaveBeenCalledTimes(3)
+    session.dispose()
+  })
+
+  it('Hls 构造配置固定 startPosition: 0（转码流时间轴恒从 0 起），maxBufferLength 仍为 120', async () => {
+    const { session } = createSession()
+
+    await session.setupTranscode(0)
+
+    expect(hlsMock.constructorOptions[0]).toEqual(
+      expect.objectContaining({ startPosition: 0, maxBufferLength: 120 }),
+    )
     session.dispose()
   })
 
