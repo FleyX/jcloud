@@ -222,6 +222,7 @@ class TranscodeCommandBuilderTest {
                 "-i", "/data/movie.mkv",
                 "-map", "0:v:0", "-map", "0:a:0?",
                 "-c:v", "libx264",
+                "-force_key_frames", "expr:gte(t,n_forced*4)",
                 "-vf", "scale=-2:min(720\\,ih)",
                 "-preset", "veryfast", "-crf", "23",
                 "-b:v", "2000k", "-maxrate", "2000k", "-bufsize", "4000k",
@@ -247,6 +248,7 @@ class TranscodeCommandBuilderTest {
                 "-i", "/data/movie.mp4",
                 "-map", "0:v:0", "-map", "0:a:0?",
                 "-c:v", "libx264",
+                "-force_key_frames", "expr:gte(t,n_forced*4)",
                 "-vf", "scale=-2:min(480\\,ih)",
                 "-preset", "veryfast", "-crf", "23",
                 "-b:v", "1000k", "-maxrate", "1000k", "-bufsize", "2000k",
@@ -295,6 +297,7 @@ class TranscodeCommandBuilderTest {
                 "-i", "/data/movie.mkv",
                 "-map", "0:v:0", "-map", "0:a:0?",
                 "-c:v", "h264_vaapi",
+                "-force_key_frames", "expr:gte(t,n_forced*4)",
                 "-vf", "scale=-2:min(1080\\,ih),format=nv12,hwupload",
                 "-b:v", "8000k", "-maxrate", "8000k", "-bufsize", "16000k",
                 "-c:a", "aac", "-b:a", "128k", "-ac", "2",
@@ -354,6 +357,7 @@ class TranscodeCommandBuilderTest {
         String joined = String.join(" ", command);
 
         assertTrue(joined.contains("-filter_complex [0:v:0][0:s:1]overlay,format=nv12[v]"));
+        assertTrue(joined.contains("-forced_idr 1"));
         assertTrue(joined.contains("-preset veryfast -global_quality 23"));
         assertFalse(joined.contains("-vf"));
     }
@@ -408,6 +412,7 @@ class TranscodeCommandBuilderTest {
                 "-filter_complex", "[0:v:0][0:s:2]overlay,scale=-2:min(720\\,ih)[v]",
                 "-map", "[v]", "-map", "0:a:0?",
                 "-c:v", "libx264",
+                "-force_key_frames", "expr:gte(t,n_forced*4)",
                 "-preset", "veryfast", "-crf", "23",
                 "-b:v", "2000k", "-maxrate", "2000k", "-bufsize", "4000k",
                 "-threads", "4",
@@ -436,6 +441,7 @@ class TranscodeCommandBuilderTest {
                 "-filter_complex", "[0:v:0][1:s:0]overlay[v]",
                 "-map", "[v]", "-map", "0:a:0?",
                 "-c:v", "libx264",
+                "-force_key_frames", "expr:gte(t,n_forced*4)",
                 "-preset", "veryfast", "-crf", "23",
                 "-c:a", "aac", "-b:a", "128k", "-ac", "2",
                 "-f", "hls", "-hls_time", "4", "-hls_list_size", "0",
@@ -504,5 +510,47 @@ class TranscodeCommandBuilderTest {
         assertEquals("h264_vaapi", builder.selectEncoder("VAAPI"));
         assertEquals("h264_qsv", builder.selectEncoder("qsv"));
         assertEquals("h264_nvenc", builder.selectEncoder("nvenc"));
+    }
+
+    @Test
+    void shouldForceKeyFramesOnDefaultTranscodePath() {
+        // 视频转码（软解默认路径）：公共段按 hlsSegmentSeconds（默认 4）强制关键帧时间对齐，
+        // 防止编码器默认 GOP≈10s 导致 independent_segments 实际切片远超设计时长
+        List<String> command = builder.buildCommand(request("hevc", "ac3", null, null, true),
+                "libx264", "/dev/dri/renderD128", 0, Path.of("/out/kf1"));
+        String joined = String.join(" ", command);
+
+        assertTrue(joined.contains("-c:v libx264 -force_key_frames expr:gte(t,n_forced*4)"));
+    }
+
+    @Test
+    void shouldForceKeyFramesOnNvencPath() {
+        // 硬解 nvenc 分支同样经过公共段，防分支遗漏；-forced-idr 1 实测必需，否则 -force_key_frames 不生效
+        List<String> command = builder.buildCommand(request("hevc", "aac", null, null, true),
+                "h264_nvenc", "/dev/dri/renderD128", 0, Path.of("/out/kf2"));
+        String joined = String.join(" ", command);
+
+        assertTrue(joined.contains("-c:v h264_nvenc -force_key_frames expr:gte(t,n_forced*4)"));
+        assertTrue(joined.contains("-forced-idr 1"));
+    }
+
+    @Test
+    void shouldNotForceKeyFramesOnRemuxPath() {
+        // 转封装不经过 appendVideoTranscodeArgs，不出现该参数；copy 无法改关键帧，属固有约束
+        List<String> command = builder.buildCommand(request("h264", "aac", null, null, false),
+                TranscodeCommandBuilder.ENCODER_COPY, "/dev/dri/renderD128", 0, Path.of("/out/kf3"));
+        assertFalse(String.join(" ", command).contains("-force_key_frames"));
+    }
+
+    @Test
+    void shouldApplyCustomHlsSegmentSecondsToKeyFrameExpression() {
+        // 自定义 hlsSegmentSeconds=6 时关键帧表达式随之变为 n_forced*6
+        MediaProperties custom = new MediaProperties();
+        custom.setHlsSegmentSeconds(6);
+        TranscodeCommandBuilder customBuilder = new TranscodeCommandBuilder(custom);
+        List<String> command = customBuilder.buildCommand(request("hevc", "ac3", null, null, true),
+                "libx264", "/dev/dri/renderD128", 0, Path.of("/out/kf4"));
+
+        assertTrue(String.join(" ", command).contains("-force_key_frames expr:gte(t,n_forced*6)"));
     }
 }
