@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ref } from 'vue'
 import { useMediaPlayback } from './useMediaPlayback'
 import { resetPlaybackConfigCache } from './usePlaybackConfig'
@@ -340,6 +340,54 @@ describe('useMediaPlayback 位图字幕模式切换', () => {
     expect(mocks.createTranscodeSession).not.toHaveBeenCalled()
     expect(pb.sourceEpoch.value).toBe(epoch)
     expect(pb.activeSubtitle.value?.key).toBe('embedded:1')
+    pb.stop()
+  })
+})
+
+describe('useMediaPlayback 直放前解码能力探测降级', () => {
+  let canPlayTypeSpy: ReturnType<typeof vi.spyOn> | null = null
+
+  beforeEach(() => {
+    // 探测走 document.createElement('video')，需 mock 原型方法；jsdom 默认返回 ''（探测不通过）
+    canPlayTypeSpy = vi.spyOn(HTMLVideoElement.prototype, 'canPlayType').mockReturnValue('')
+    // hevc 转码会话会触发 needsForceVideoTranscode 的 MSE 探测，jsdom 无 MediaSource，需桩替
+    vi.stubGlobal('MediaSource', { isTypeSupported: vi.fn(() => true) })
+  })
+
+  afterEach(() => {
+    canPlayTypeSpy?.mockRestore()
+    vi.unstubAllGlobals()
+  })
+
+  it('探测不通过（canPlayType 为空串）：mov+hevc 静默降级走转码会话', async () => {
+    mocks.fetchPlaybackInfo.mockResolvedValue(buildPlaybackInfo({
+      mode: 'direct',
+      container: 'mov',
+      videoCodec: 'hevc',
+    }))
+    mocks.createTranscodeSession.mockResolvedValue({ sessionId: 's1', playlistUrl: '/hls/p.m3u8' })
+    const { pb } = createPlayback()
+
+    await pb.start('item-1')
+
+    expect(mocks.createTranscodeSession).toHaveBeenCalledWith('item-1', 0, expect.anything(), undefined)
+    expect(pb.transcodeActive.value).toBe(true)
+    pb.stop()
+  })
+
+  it('探测通过（canPlayType 返回 maybe）：hevc+mp4 保持直放', async () => {
+    canPlayTypeSpy?.mockReturnValue('maybe')
+    mocks.fetchPlaybackInfo.mockResolvedValue(buildPlaybackInfo({
+      mode: 'direct',
+      container: 'mp4',
+      videoCodec: 'hevc',
+    }))
+    const { video, pb } = createPlayback()
+
+    await pb.start('item-1')
+
+    expect(mocks.createTranscodeSession).not.toHaveBeenCalled()
+    expect(video.src).toBe('https://cdn.test/movie.mkv')
     pb.stop()
   })
 })
