@@ -77,6 +77,56 @@ get_latest_github_tag() {
     echo "${tag}"
 }
 
+# 准备 jellyfin-ffmpeg deb 缓存：版本与下载源从 Dockerfile 的 ARG 解析（单一事实来源），
+# 同名环境变量可覆盖；按目标架构检查 deploy/jellyfin-ffmpeg7_<版本>-bookworm_<arch>.deb，
+# 缺失才从官方源下载到该目录作为宿主机缓存（多架构构建时 amd64/arm64 各缓存一份）
+prepare_jellyfin_ffmpeg_debs() {
+    local version base_url archs arch deb_file tmp_file
+
+    version="${JELLYFIN_FFMPEG_VERSION:-$(grep -oP 'ARG JELLYFIN_FFMPEG_VERSION=\K.*' deploy/Dockerfile | head -n1 || true)}"
+    base_url="${JELLYFIN_FFMPEG_BASE_URL:-$(grep -oP 'ARG JELLYFIN_FFMPEG_BASE_URL=\K.*' deploy/Dockerfile | head -n1 || true)}"
+
+    if [ -z "${version}" ] || [ -z "${base_url}" ]; then
+        echo "错误：无法从 deploy/Dockerfile 解析 JELLYFIN_FFMPEG_VERSION / JELLYFIN_FFMPEG_BASE_URL"
+        exit 1
+    fi
+
+    # 目标架构：本地构建模式取宿主机架构；--push/--test 多架构构建为 amd64 + arm64
+    if [ "${PUSH}" = true ] || [ "${TEST}" = true ]; then
+        archs="amd64 arm64"
+    else
+        case "$(uname -m)" in
+            x86_64) archs="amd64" ;;
+            aarch64) archs="arm64" ;;
+            *)
+                echo "错误：不支持的宿主机架构 $(uname -m)，仅支持 x86_64/aarch64"
+                exit 1
+                ;;
+        esac
+    fi
+
+    for arch in ${archs}; do
+        deb_file="deploy/jellyfin-ffmpeg7_${version}-bookworm_${arch}.deb"
+        if [ -s "${deb_file}" ]; then
+            echo "jellyfin-ffmpeg deb 命中缓存: ${deb_file}"
+            continue
+        fi
+
+        echo "jellyfin-ffmpeg deb 缺失，开始下载: ${base_url}/${arch}/jellyfin-ffmpeg7_${version}-bookworm_${arch}.deb"
+        tmp_file="${deb_file}.tmp"
+        if command -v curl >/dev/null 2>&1; then
+            curl -fsSL -o "${tmp_file}" "${base_url}/${arch}/jellyfin-ffmpeg7_${version}-bookworm_${arch}.deb"
+        elif command -v wget >/dev/null 2>&1; then
+            wget -q -O "${tmp_file}" "${base_url}/${arch}/jellyfin-ffmpeg7_${version}-bookworm_${arch}.deb"
+        else
+            echo "错误：需要 curl 或 wget 下载 jellyfin-ffmpeg deb"
+            exit 1
+        fi
+        mv "${tmp_file}" "${deb_file}"
+        echo "jellyfin-ffmpeg deb 下载完成: ${deb_file}"
+    done
+}
+
 # 版本标签：仅 --push 时需要从 GitHub 获取最新 tag；--test 使用 test 标签；本地构建使用 dev 标签
 if [ "${PUSH}" = true ]; then
     # 推断 GitHub 仓库名
@@ -114,6 +164,9 @@ if ! docker info >/dev/null 2>&1; then
     echo "错误：Docker 守护进程未运行或当前用户无权限访问"
     exit 1
 fi
+
+# 构建前准备 jellyfin-ffmpeg deb 本地缓存（命中缓存/缺失下载均会打印日志）
+prepare_jellyfin_ffmpeg_debs
 
 # buildx 构造器仅在多架构构建（--push/--test）时需要
 if [ "${PUSH}" = true ] || [ "${TEST}" = true ]; then

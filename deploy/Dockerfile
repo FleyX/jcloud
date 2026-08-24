@@ -82,18 +82,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         fonts-noto-cjk \
         mesa-va-drivers \
         vainfo \
-        curl \
         ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 # 安装 jellyfin-ffmpeg（自带 Intel iHD 驱动、oneVPL GPU 运行时、NVENC 支持），版本由 ARG 固定；
-# 官方源在国内直连极慢，可用 --build-arg JELLYFIN_FFMPEG_BASE_URL 指向镜像/本地源覆盖；
+# deb 由 release.sh 在构建前下载到 deploy/ 作为本地缓存（缺失时自动补下），此处直接 COPY 安装，不再在容器内 curl 下载；
 # 上一层已清理 apt lists，安装 deb 前需重新 update 才能解析系统依赖
 ARG JELLYFIN_FFMPEG_BASE_URL=https://repo.jellyfin.org/files/ffmpeg/debian/latest-7.x
-RUN curl -fsSL -o /tmp/jellyfin-ffmpeg.deb "${JELLYFIN_FFMPEG_BASE_URL}/${TARGETARCH}/jellyfin-ffmpeg7_${JELLYFIN_FFMPEG_VERSION}-bookworm_${TARGETARCH}.deb" \
-    && apt-get update && apt-get install -y --no-install-recommends /tmp/jellyfin-ffmpeg.deb \
+COPY deploy/jellyfin-ffmpeg7_${JELLYFIN_FFMPEG_VERSION}-bookworm_${TARGETARCH}.deb /tmp/jellyfin-ffmpeg.deb
+RUN apt-get update && apt-get install -y --no-install-recommends /tmp/jellyfin-ffmpeg.deb \
     && rm -f /tmp/jellyfin-ffmpeg.deb \
-    && apt-get purge -y curl && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
