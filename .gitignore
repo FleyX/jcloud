@@ -45,3 +45,4 @@ dist
 .env
 deploy/data
 .scratch/
+deploy/jellyfin-ffmpeg*.deb
