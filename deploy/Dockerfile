@@ -65,6 +65,10 @@ ARG JELLYFIN_FFMPEG_VERSION=7.1.4-3
 COPY --from=jre-base /opt/java /opt/java
 ENV JAVA_HOME=/opt/java/openjdk
 ENV PATH="${JAVA_HOME}/bin:${PATH}"
+# UTF-8 locale（bookworm-slim 自带 C.UTF-8，无需装 locales 包）：JVM 的 sun.jnu.encoding 依赖 locale，
+# 缺失时退化为 ASCII，中文文件名经 Java 文件系统 API 落盘会被替换为 ?
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
 # jellyfin-ffmpeg 二进制不进 PATH，通过 Spring 宽松绑定注入 ffmpeg/ffprobe 路径（jcloud.media.ffmpeg-path/ffprobe-path）
 ENV JCLOUD_MEDIA_FFMPEG_PATH=/usr/lib/jellyfin-ffmpeg/ffmpeg
 ENV JCLOUD_MEDIA_FFPROBE_PATH=/usr/lib/jellyfin-ffmpeg/ffprobe
