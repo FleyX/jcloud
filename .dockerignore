@@ -1,0 +1,34 @@
+# 版本控制与 IDE 配置
+.git
+.gitignore
+.idea
+.vscode
+
+# 后端构建产物与 Eclipse 文件
+app/target
+app/.classpath
+app/.project
+app/.settings
+
+# 前端依赖与构建产物
+web/node_modules
+web/dist
+
+# 日志与 pid 文件（含根目录 app.log/web.log/app.pid/web.pid）
+*.log
+*.pid
+*.pid.lock
+
+.DS_Store
+
+# 数据与文档
+node_modules
+data
+deploy/data
+deploy.md
+docs
+
+# 本地工作区与素材，构建不需要（deploy/*.deb 默认放行，勿用 deploy/** 排除）
+.scratch
+.venv-webdav
+images
