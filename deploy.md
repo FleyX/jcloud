@@ -10,6 +10,7 @@
   - [使用外部 PostgreSQL / Redis](#使用外部-postgresql--redis)
   - [自定义端口](#自定义端口)
   - [数据持久化](#数据持久化)
+  - [NVIDIA 硬件加速（可选）](#nvidia-硬件加速可选)
   - [升级与维护](#升级与维护)
     - [升级版本](#升级版本)
     - [查看日志](#查看日志)
@@ -124,6 +125,42 @@ deploy/data/
 ```bash
 JCLOUD_DATA_PATH=../data docker compose -f deploy/docker-compose.yml --profile db --profile cache up -d
 ```
+
+---
+
+## NVIDIA 硬件加速（可选）
+
+jcloud 实时转码支持 NVENC/NVDEC 硬解（镜像内 ffmpeg 已内置支持，镜像无需改动），只需将宿主机 NVIDIA GPU 注入容器。
+
+### 通用 Linux 宿主
+
+1. 宿主机安装 NVIDIA 驱动与 [nvidia-container-toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)，按官方文档配置 Docker 运行时后重启 docker 服务。
+2. 编辑 `deploy/docker-compose.yml`，取消 jcloud 服务中两处 NVIDIA 注释（`NVIDIA_DRIVER_CAPABILITIES` 环境变量与 `deploy` 资源块）。
+3. 重启服务：
+
+```bash
+docker compose -f deploy/docker-compose.yml --profile db --profile cache up -d
+```
+
+4. 验证注入成功（能看到 GPU 列表即可）：
+
+```bash
+docker exec jcloud nvidia-smi
+```
+
+5. 登录 jcloud，在 系统 → 影视设置 中将硬解方式改为 NVENC。
+
+> 硬解方式由系统首次启动时按 NVENC > QSV > VAAPI 优先级自动探测并持久化；部署完成后才启用 GPU 的，需在影视设置中手动修改。
+
+### TrueNAS SCALE
+
+24.10（Electric Eel）起无需手动安装 toolkit：在 Apps → Configure → Settings 勾选 **Install NVIDIA Drivers**，系统会自动安装 NVIDIA 驱动与容器工具包，然后按上文第 2~5 步操作即可。
+
+### 无法安装 nvidia-container-toolkit 的受限系统
+
+老版本 TrueNAS、部分锁死宿主环境的 NAS 系统无法安装 toolkit 时，可改为手动挂载驱动库与设备节点（等效 toolkit 的注入）：在 jcloud 服务中映射 `/dev/nvidia0`、`/dev/nvidiactl`、`/dev/nvidia-uvm`、`/dev/nvidia-uvm-tools` 设备节点，并将宿主机的 `libcuda.so.1`、`libnvidia-encode.so.1`、`libnvcuvid.so.1` 以只读方式挂载到容器 `/usr/lib/x86_64-linux-gnu/` 目录下。参考实现见仓库根目录 `start-docker.sh` 中的 NVIDIA 注入段。
+
+局限：驱动库路径因发行版而异（先用 `readlink -f` 定位真实路径）；宿主机驱动升级后需确认库路径未变化；容器内无 `nvidia-smi`，需通过实际转码验证。
 
 ---
 
