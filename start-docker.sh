@@ -50,6 +50,25 @@ if [[ -e /dev/dri ]]; then
   DEVICE_ARGS+=(--device /dev/dri:/dev/dri)
 fi
 
+# 4.1 NVIDIA 硬解（NVENC/NVDEC）：libcuda 等驱动用户态库必须与宿主机内核驱动版本一致，
+# 无法打包进镜像；此处从宿主机只读挂载驱动库与设备节点（等效 nvidia-container-toolkit 的注入），
+# 宿主机构架/路径不同或装了 nvidia-container-toolkit 时可改用 --gpus all
+NVIDIA_ARGS=()
+if [[ -e /dev/nvidia0 ]]; then
+  echo "检测到 NVIDIA GPU，注入驱动库与设备节点"
+  for dev in /dev/nvidia0 /dev/nvidiactl /dev/nvidia-uvm /dev/nvidia-uvm-tools; do
+    [[ -e "$dev" ]] && NVIDIA_ARGS+=(--device "$dev")
+  done
+  for lib in libcuda.so.1 libnvidia-encode.so.1 libnvcuvid.so.1; do
+    host_lib=$(readlink -f "/usr/lib/$lib" 2>/dev/null || true)
+    if [[ -n "$host_lib" && -f "$host_lib" ]]; then
+      NVIDIA_ARGS+=(-v "$host_lib:/usr/lib/x86_64-linux-gnu/$lib:ro")
+    else
+      echo "警告：未找到宿主机 $lib，NVENC/NVDEC 可能不可用" >&2
+    fi
+  done
+fi
+
 # 5. 启动容器：--network host 直连本机 postgres/redis，prod profile
 # --user 1000:1000 与宿主机当前用户一致，写入存储空间/NFS 的文件归属正确；
 # 容器内无 uid 1000 的 passwd 条目，HOME=/tmp 供 caddy/LibreOffice 等写入；
@@ -73,6 +92,7 @@ docker run -d \
   -e mybatis-plus.configuration.log-impl=org.apache.ibatis.logging.nologging.NoLoggingImpl \
   --mount "type=bind,source=${STORAGE_PATH},target=${STORAGE_PATH},bind-propagation=rslave" \
   ${DEVICE_ARGS[@]+"${DEVICE_ARGS[@]}"} \
+  ${NVIDIA_ARGS[@]+"${NVIDIA_ARGS[@]}"} \
   fleyx/jcloud:dev
 
 # 6. 等待服务就绪（60s 超时），失败输出容器日志提示
