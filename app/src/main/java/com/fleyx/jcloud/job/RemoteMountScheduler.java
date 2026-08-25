@@ -1,7 +1,6 @@
 package com.fleyx.jcloud.job;
 
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
-import com.fleyx.jcloud.common.event.RemoteMountSubmittedEvent;
 import com.fleyx.jcloud.mapper.RemoteMountMapper;
 import com.fleyx.jcloud.mapper.RemoteSyncTaskMapper;
 import com.fleyx.jcloud.model.po.RemoteMount;
@@ -10,7 +9,6 @@ import com.fleyx.jcloud.service.RemoteMountSyncService;
 import com.fleyx.jcloud.service.support.SyncTaskSupport;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.scheduling.support.CronExpression;
 import org.springframework.stereotype.Component;
@@ -29,7 +27,6 @@ public class RemoteMountScheduler {
     private final RemoteMountMapper remoteMountMapper;
     private final RemoteSyncTaskMapper remoteSyncTaskMapper;
     private final RemoteMountSyncService remoteMountSyncService;
-    private final ApplicationEventPublisher eventPublisher;
     private final SyncTaskSupport syncTaskSupport;
 
     /**
@@ -70,7 +67,6 @@ public class RemoteMountScheduler {
         }
 
         RemoteSyncTask task = remoteMountSyncService.createScheduledTask(mountId);
-        eventPublisher.publishEvent(new RemoteMountSubmittedEvent(this, task.getId()));
         advanceNextSyncTime(mountId, nextSyncTime);
         log.info("已触发远程挂载定时同步，mountId={}, taskId={}", mountId, task.getId());
     }
