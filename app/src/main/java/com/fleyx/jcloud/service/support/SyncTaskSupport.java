@@ -44,6 +44,11 @@ public class SyncTaskSupport {
             List.of(SyncTaskStatus.PENDING.getValue(), SyncTaskStatus.RUNNING.getValue());
 
     /**
+     * 卡死 PENDING 任务自愈重发的滞留阈值（分钟）：超过该时长仍为 PENDING 的任务会被调度器重新投递。
+     */
+    public static final long STALE_PENDING_MINUTES = 5L;
+
+    /**
      * 构造 PENDING 状态的同步任务（计数清零）。
      *
      * @param supplier 任务 PO 构造器
