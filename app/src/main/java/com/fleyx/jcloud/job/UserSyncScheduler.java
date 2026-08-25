@@ -1,7 +1,6 @@
 package com.fleyx.jcloud.job;
 
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
-import com.fleyx.jcloud.common.event.UserSyncSubmittedEvent;
 import com.fleyx.jcloud.mapper.UserSyncConfigMapper;
 import com.fleyx.jcloud.mapper.UserSyncTaskMapper;
 import com.fleyx.jcloud.model.po.UserSyncConfig;
@@ -10,7 +9,6 @@ import com.fleyx.jcloud.service.UserSyncService;
 import com.fleyx.jcloud.service.support.SyncTaskSupport;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.scheduling.support.CronExpression;
 import org.springframework.stereotype.Component;
@@ -31,7 +29,6 @@ public class UserSyncScheduler {
     private final UserSyncConfigMapper userSyncConfigMapper;
     private final UserSyncTaskMapper userSyncTaskMapper;
     private final UserSyncService userSyncService;
-    private final ApplicationEventPublisher eventPublisher;
     private final SyncTaskSupport syncTaskSupport;
 
     /**
@@ -73,7 +70,6 @@ public class UserSyncScheduler {
         }
 
         UserSyncTask task = userSyncService.createScheduledTask(userId);
-        eventPublisher.publishEvent(new UserSyncSubmittedEvent(this, task.getId()));
         advanceNextSyncTime(userId, nextSyncTime);
         log.info("已触发用户定时同步，userId={}, taskId={}", userId, task.getId());
     }
