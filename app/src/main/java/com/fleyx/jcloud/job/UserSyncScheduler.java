@@ -1,16 +1,17 @@
 package com.fleyx.jcloud.job;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
-import com.fleyx.jcloud.common.event.UserSyncSubmittedEvent;
+import com.fleyx.jcloud.common.enums.SyncTaskStatus;
 import com.fleyx.jcloud.mapper.UserSyncConfigMapper;
 import com.fleyx.jcloud.mapper.UserSyncTaskMapper;
 import com.fleyx.jcloud.model.po.UserSyncConfig;
 import com.fleyx.jcloud.model.po.UserSyncTask;
 import com.fleyx.jcloud.service.UserSyncService;
+import com.fleyx.jcloud.service.impl.UserSyncExecutor;
 import com.fleyx.jcloud.service.support.SyncTaskSupport;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.scheduling.support.CronExpression;
 import org.springframework.stereotype.Component;
@@ -31,7 +32,7 @@ public class UserSyncScheduler {
     private final UserSyncConfigMapper userSyncConfigMapper;
     private final UserSyncTaskMapper userSyncTaskMapper;
     private final UserSyncService userSyncService;
-    private final ApplicationEventPublisher eventPublisher;
+    private final UserSyncExecutor userSyncExecutor;
     private final SyncTaskSupport syncTaskSupport;
 
     /**
@@ -73,9 +74,30 @@ public class UserSyncScheduler {
         }
 
         UserSyncTask task = userSyncService.createScheduledTask(userId);
-        eventPublisher.publishEvent(new UserSyncSubmittedEvent(this, task.getId()));
         advanceNextSyncTime(userId, nextSyncTime);
         log.info("已触发用户定时同步，userId={}, taskId={}", userId, task.getId());
+    }
+
+    /**
+     * 每分钟扫描滞留超过 {@link SyncTaskSupport#STALE_PENDING_MINUTES} 分钟的 PENDING 任务并重新异步投递，
+     * 自愈存量卡死任务；重发不创建新任务记录，仅重投既有任务（每次最多处理 50 条，防雪崩）。
+     */
+    @Scheduled(fixedRate = 60_000)
+    public void redispatchStalePendingTasks() {
+        LocalDateTime staleBefore = LocalDateTime.now().minusMinutes(SyncTaskSupport.STALE_PENDING_MINUTES);
+        List<UserSyncTask> staleTasks = userSyncTaskMapper.selectList(new LambdaQueryWrapper<UserSyncTask>()
+                .eq(UserSyncTask::getStatus, SyncTaskStatus.PENDING.getValue())
+                .lt(UserSyncTask::getCreateTime, staleBefore)
+                .last("LIMIT 50"));
+        if (staleTasks.isEmpty()) {
+            return;
+        }
+        log.info("扫描到 {} 条滞留超过 {} 分钟的 PENDING 同步任务，重新投递",
+                staleTasks.size(), SyncTaskSupport.STALE_PENDING_MINUTES);
+        for (UserSyncTask task : staleTasks) {
+            log.info("重新投递滞留的 PENDING 同步任务，taskId={}, userId={}", task.getId(), task.getUserId());
+            userSyncExecutor.executeAsync(task.getId());
+        }
     }
 
     private boolean hasRunningTask(String userId) {

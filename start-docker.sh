@@ -19,6 +19,7 @@ SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 CONTAINER_NAME=jcloud-docker-test
 PORT=8088
 JWT_SECRET="change-me-in-production-jcloud-secret-key-2026"
+JCLOUD_APP_PORT=8083
 
 # 1. 构建 dev 镜像（release.sh 本地模式，自动享受 ping 探测与 jellyfin-ffmpeg deb 缓存）
 "$SCRIPT_DIR/deploy/release.sh"
@@ -82,6 +83,7 @@ docker run -d \
   --group-add 987 \
   -e HOME=/tmp \
   -e JCLOUD_PORT="$PORT" \
+  -e JCLOUD_APP_PORT="$JCLOUD_APP_PORT" \
   -e SPRING_DATASOURCE_URL="jdbc:postgresql://localhost:5432/jcloud" \
   -e SPRING_DATASOURCE_USERNAME=postgres \
   -e SPRING_DATASOURCE_PASSWORD=postgres \
@@ -89,6 +91,7 @@ docker run -d \
   -e REDIS_PORT=6379 \
   -e JCLOUD_JWT_SECRET="$JWT_SECRET" \
   -e SPRING_PROFILES_ACTIVE=prod \
+  -e TZ=Asia/Shanghai \
   --mount "type=bind,source=${STORAGE_PATH},target=${STORAGE_PATH},bind-propagation=rslave" \
   ${DEVICE_ARGS[@]+"${DEVICE_ARGS[@]}"} \
   ${NVIDIA_ARGS[@]+"${NVIDIA_ARGS[@]}"} \

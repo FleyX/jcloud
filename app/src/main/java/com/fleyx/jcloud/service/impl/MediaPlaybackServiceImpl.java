@@ -174,8 +174,10 @@ public class MediaPlaybackServiceImpl implements MediaPlaybackService {
                 } else {
                     inputPath = resolveLocalPath(node, userId).toString();
                 }
-                Process process = new ProcessBuilder(mediaProperties.getFfmpegPath(), "-y", "-v", "error",
-                        "-i", inputPath, "-map", "0:s:" + index, "-f", "webvtt", canonical.toString()).start();
+                List<String> command = List.of(mediaProperties.getFfmpegPath(), "-y", "-v", "error",
+                        "-i", inputPath, "-map", "0:s:" + index, "-f", "webvtt", canonical.toString());
+                log.info("提取内嵌字幕轨: {}", String.join(" ", command));
+                Process process = new ProcessBuilder(command).start();
                 boolean finished = process.waitFor(120, TimeUnit.SECONDS);
                 if (!finished) {
                     process.destroyForcibly();

@@ -125,6 +125,8 @@ public class RemoteMountSyncServiceImpl implements RemoteMountSyncService {
     public RemoteSyncTask createScheduledTask(String remoteMountId) {
         RemoteSyncTask task = createTask(remoteMountId, SyncTaskType.SCHEDULED.getValue());
         remoteSyncTaskMapper.insert(task);
+        // 与 submitImmediate 模式一致：任务创建与事件发布处于同一事务，提交后才被异步执行器消费
+        eventPublisher.publishEvent(new RemoteMountSubmittedEvent(this, task.getId()));
         return task;
     }
 

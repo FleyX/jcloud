@@ -56,6 +56,7 @@ public class MediaProbeSupport {
                 "-show_format", "-show_streams",
                 path.toAbsolutePath().toString());
         builder.redirectErrorStream(false);
+        log.info("ffprobe 探测: {}", String.join(" ", builder.command()));
         try {
             Process process = builder.start();
             String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
@@ -88,6 +89,7 @@ public class MediaProbeSupport {
                 "-print_format", "json",
                 "-show_format", "-show_streams",
                 "pipe:0");
+        log.info("ffprobe 远程流探测: {}", String.join(" ", builder.command()));
         try {
             Process process = builder.start();
             Thread pump = Thread.startVirtualThread(() -> {

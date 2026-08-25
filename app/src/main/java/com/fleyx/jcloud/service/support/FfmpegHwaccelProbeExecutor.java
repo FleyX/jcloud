@@ -48,7 +48,9 @@ public class FfmpegHwaccelProbeExecutor implements HwaccelProbeExecutor {
                 ? transcodeConfigResolver.resolveDevice() : device;
         Process process = null;
         try {
-            process = new ProcessBuilder(buildCommand(hwaccel, resolvedDevice)).start();
+            List<String> command = buildCommand(hwaccel, resolvedDevice);
+            log.info("执行硬解探测: {}", String.join(" ", command));
+            process = new ProcessBuilder(command).start();
             // 先 waitFor 限时等待再读 stderr：先读流会在进程挂死时阻塞到 EOF，超时永不生效；
             // -loglevel error 输出极小，不存在管道缓冲撑满导致 ffmpeg 无法退出的风险
             boolean finished = process.waitFor(TIMEOUT_SECONDS, TimeUnit.SECONDS);

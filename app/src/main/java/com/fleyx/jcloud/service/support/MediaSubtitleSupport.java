@@ -382,8 +382,10 @@ public class MediaSubtitleSupport {
      */
     public void convertToVtt(Path input, Path target) {
         try {
-            Process process = new ProcessBuilder(mediaProperties.getFfmpegPath(), "-y", "-v", "error",
-                    "-i", input.toString(), "-f", "webvtt", target.toString()).start();
+            List<String> command = List.of(mediaProperties.getFfmpegPath(), "-y", "-v", "error",
+                    "-i", input.toString(), "-f", "webvtt", target.toString());
+            log.info("字幕转换 webvtt: {}", String.join(" ", command));
+            Process process = new ProcessBuilder(command).start();
             boolean finished = process.waitFor(120, TimeUnit.SECONDS);
             if (!finished) {
                 process.destroyForcibly();

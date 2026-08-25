@@ -115,6 +115,8 @@ public class UserSyncServiceImpl implements UserSyncService {
     public UserSyncTask createScheduledTask(String userId) {
         UserSyncTask task = buildTask(userId, SyncTaskType.SCHEDULED.getValue());
         userSyncTaskMapper.insert(task);
+        // 与 submitImmediate 模式一致：任务创建与事件发布处于同一事务，提交后才被异步执行器消费
+        eventPublisher.publishEvent(new UserSyncSubmittedEvent(this, task.getId()));
         return task;
     }
 

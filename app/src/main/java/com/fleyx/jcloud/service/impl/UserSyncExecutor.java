@@ -90,6 +90,16 @@ public class UserSyncExecutor extends AbstractTreeSyncExecutor<Path, Path> {
     }
 
     /**
+     * 异步重新投递指定任务（供调度器重发滞留 PENDING 任务使用，不阻塞调度线程）。
+     *
+     * @param taskId 任务 ID
+     */
+    @Async
+    public void executeAsync(String taskId) {
+        execute(taskId);
+    }
+
+    /**
      * 执行指定同步任务。
      *
      * @param taskId 任务 ID

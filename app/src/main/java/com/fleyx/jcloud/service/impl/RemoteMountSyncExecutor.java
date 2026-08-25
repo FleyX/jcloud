@@ -80,6 +80,16 @@ public class RemoteMountSyncExecutor extends AbstractTreeSyncExecutor<RemoteMoun
         execute(event.getTaskId());
     }
 
+    /**
+     * 异步重新投递指定任务（供调度器重发滞留 PENDING 任务使用，不阻塞调度线程）。
+     *
+     * @param taskId 任务 ID
+     */
+    @Async
+    public void executeAsync(String taskId) {
+        execute(taskId);
+    }
+
     public void execute(String taskId) {
         RemoteSyncTask task = remoteSyncTaskMapper.selectById(taskId);
         if (task == null || !SyncTaskStatus.PENDING.getValue().equals(task.getStatus())) {
