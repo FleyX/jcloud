@@ -7,3 +7,8 @@ spring:
     redis:
       host: localhost
       database: 0
+
+logging:
+  level:
+    # dev 下业务包 debug；mapper 作为子包继承 debug，MyBatis SQL 日志（Slf4jImpl，debug 级别）随之输出
+    com.fleyx.jcloud: debug

@@ -14,6 +14,8 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * ffmpeg 转码进程生命周期支撑：启动进程（含 stderr 排空与远程流管道）、
@@ -64,16 +66,18 @@ public class TranscodeProcessLauncher {
     /**
      * 启动 ffmpeg 进程并排空 stderr（尾部行存入 stderrTail 供失败诊断）；远程输入流在独立虚拟线程中管道喂给进程 stdin。
      * 远程外挂位图字幕先物化到会话输出目录（destroy 时递归删除即自动清理），命令以物化文件为第二输入。
+     *
+     * @param hwDecode 是否硬解码（透传给 {@link TranscodeCommandBuilder#buildCommand}；降级重试时为 false）
      */
     public Process startFfmpeg(Path outputDir, TranscodeCommandBuilder.TranscodeRequest request,
-                               String encoder, StderrTail stderrTail) throws IOException {
+                               String encoder, StderrTail stderrTail, boolean hwDecode) throws IOException {
         TranscodeCommandBuilder.TranscodeRequest effective = request;
         if (request.externalSubtitleStream() != null) {
             effective = request.withExternalSubtitlePath(
                     materializeExternalSubtitle(outputDir, request.externalSubtitleStream()));
         }
         List<String> command = commandBuilder.buildCommand(effective, encoder, configResolver.resolveDevice(),
-                configResolver.resolveThreads(), outputDir);
+                configResolver.resolveThreads(), outputDir, hwDecode);
         log.info("启动转码进程: encoder={}, outputDir={}, command={}", encoder, outputDir, String.join(" ", command));
         ProcessBuilder builder = new ProcessBuilder(command);
         builder.redirectErrorStream(false);
@@ -160,17 +164,46 @@ public class TranscodeProcessLauncher {
     }
 
     /**
-     * 监控 ffmpeg 早期失败：启动失败时标记会话失败并提示用户修改配置，不自动回退软解。
-     * 软解与转封装会话无硬解失败诉求，直接跳过监控。
+     * 早期失败监控默认窗口（毫秒）：启动后窗口内进程退出且无有效产出视为早期失败。
+     */
+    static final long EARLY_FAILURE_WINDOW_MS = 10_000;
+
+    /**
+     * 可触发降级软解重试的硬件编码器集合（三种纯硬解路径：cuda/qsv/vaapi；黑名单 key 的 encoder 段天然区分）。
+     */
+    private static final Set<String> FALLBACK_ELIGIBLE_ENCODERS =
+            Set.of("h264_nvenc", "h264_qsv", "h264_vaapi");
+
+    /**
+     * 有效产出文件判定：只认 m3u8 播放列表、fMP4 初始化段与 m4s 切片。
+     * 外挂字幕物化会向输出目录写入 .sup/.idx，不能据此误判转码已产出。
+     */
+    private static boolean isValidOutputName(Path file) {
+        String name = file.getFileName().toString();
+        return "index.m3u8".equals(name) || "init.mp4".equals(name) || name.endsWith(".m4s");
+    }
+
+    /**
+     * 监控 ffmpeg 早期失败：窗口内进程已退出且无有效产出时，硬件编码（cuda/qsv/vaapi）会话先降级软解
+     * （hwDecode=false）重建进程重试一次并记降级结论；其余情况标记会话失败。软解与转封装会话无硬解诉求，直接跳过。
      *
      * @param session  被监控会话
      * @param sessions 会话注册表（用于判断会话是否已被回收）
      */
     public void watchEarlyFailure(TranscodeSession session, Map<String, TranscodeSession> sessions,
                                   StderrTail stderrTail) {
+        watchEarlyFailure(session, sessions, stderrTail, EARLY_FAILURE_WINDOW_MS, new ConcurrentHashMap<>());
+    }
+
+    /**
+     * 早期失败监控的参数化实现：窗口与降级黑名单由调用方指定
+     * （测试注入短窗口与共享黑名单；生产入口由 {@link TranscodeSessionManager} 传入共享黑名单以复用降级结论）。
+     */
+    void watchEarlyFailure(TranscodeSession session, Map<String, TranscodeSession> sessions,
+                           StderrTail stderrTail, long windowMillis, Map<String, Boolean> blacklist) {
         Thread.startVirtualThread(() -> {
             try {
-                Thread.sleep(3000);
+                Thread.sleep(windowMillis);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 return;
@@ -178,7 +211,7 @@ public class TranscodeProcessLauncher {
             Process process = session.process();
             boolean producedOutput;
             try (var stream = Files.list(session.outputDir())) {
-                producedOutput = stream.findAny().isPresent();
+                producedOutput = stream.anyMatch(TranscodeProcessLauncher::isValidOutputName);
             } catch (IOException e) {
                 producedOutput = false;
             }
@@ -187,10 +220,34 @@ public class TranscodeProcessLauncher {
                     || TranscodeCommandBuilder.ENCODER_COPY.equals(session.encoder())) {
                 return;
             }
-            log.warn("显式指定的硬解方式启动失败: session={}, encoder={}, ffmpeg stderr: {}",
-                    session.id(), session.encoder(), stderrTail.tail());
-            session.failed(true);
-            process.destroy();
+            // 仅硬解编码器且未降级过且持有 request 才降级重试；否则维持现状标失败
+            TranscodeCommandBuilder.TranscodeRequest request = session.request();
+            if (!FALLBACK_ELIGIBLE_ENCODERS.contains(session.encoder())
+                    || session.decodeFallback() || request == null) {
+                log.warn("显式指定的硬解方式启动失败: session={}, encoder={}, ffmpeg stderr: {}",
+                        session.id(), session.encoder(), stderrTail.tail());
+                session.failed(true);
+                process.destroy();
+                return;
+            }
+            // 降级重试：以 hwDecode=false 重建命令（软解+硬编码）重启，替换会话进程、置降级标记、
+            // 对本地文件按 localPath|videoCodec|encoder 记黑名单，并对新进程递归挂同样监控
+            try {
+                StderrTail restartedTail = new StderrTail();
+                Process restarted = startFfmpeg(session.outputDir(), request, session.encoder(), restartedTail, false);
+                session.process(restarted);
+                session.decodeFallback(true);
+                if (request.localPath() != null) {
+                    blacklist.put(request.localPath() + "|" + request.videoCodec() + "|" + session.encoder(),
+                            Boolean.TRUE);
+                }
+                log.info("硬件转码早期失败，降级软解重试: session={}, encoder={}", session.id(), session.encoder());
+                watchEarlyFailure(session, sessions, restartedTail, windowMillis, blacklist);
+            } catch (IOException e) {
+                log.error("降级重试启动失败: session={}, encoder={}", session.id(), session.encoder(), e);
+                session.failed(true);
+                process.destroy();
+            }
         });
     }
 }

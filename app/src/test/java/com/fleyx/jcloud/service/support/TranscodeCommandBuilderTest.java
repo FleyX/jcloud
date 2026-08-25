@@ -71,7 +71,7 @@ class TranscodeCommandBuilderTest {
     @Test
     void shouldBuildRemuxCommandWhenVideoAndAudioCopy() {
         List<String> command = builder.buildCommand(request("h264", "aac", null, null, false),
-                TranscodeCommandBuilder.ENCODER_COPY, "/dev/dri/renderD128", 4, Path.of("/out/session1"));
+                TranscodeCommandBuilder.ENCODER_COPY, "/dev/dri/renderD128", 4, Path.of("/out/session1"), false);
         String joined = String.join(" ", command);
 
         assertTrue(joined.contains("-c:v copy"));
@@ -90,7 +90,7 @@ class TranscodeCommandBuilderTest {
     @Test
     void shouldBuildBitrateLimitedTranscodeCommand() {
         List<String> command = builder.buildCommand(request("hevc", "ac3", 2000L, 720, false),
-                "libx264", "/dev/dri/renderD128", 0, Path.of("/out/session2"));
+                "libx264", "/dev/dri/renderD128", 0, Path.of("/out/session2"), false);
         String joined = String.join(" ", command);
 
         assertTrue(joined.contains("-c:v libx264"));
@@ -106,7 +106,7 @@ class TranscodeCommandBuilderTest {
     void shouldApplyScaleWithoutBitrate() {
         // 仅有 maxHeight 无 targetBitrateKbps 时也应用 scale
         List<String> command = builder.buildCommand(request("vp8", "aac", null, 1080, false),
-                "libx264", "/dev/dri/renderD128", 0, Path.of("/out/session3"));
+                "libx264", "/dev/dri/renderD128", 0, Path.of("/out/session3"), false);
         String joined = String.join(" ", command);
 
         assertTrue(joined.contains("-vf scale=-2:min(1080\\,ih)"));
@@ -117,7 +117,7 @@ class TranscodeCommandBuilderTest {
     @Test
     void shouldForceTranscodeWhenRequested() {
         List<String> command = builder.buildCommand(request("h264", "aac", null, null, true),
-                "libx264", "/dev/dri/renderD128", 0, Path.of("/out/session4"));
+                "libx264", "/dev/dri/renderD128", 0, Path.of("/out/session4"), false);
         String joined = String.join(" ", command);
 
         assertTrue(joined.contains("-c:v libx264"));
@@ -128,7 +128,7 @@ class TranscodeCommandBuilderTest {
     @Test
     void shouldBuildVaapiCommandWithScaleBeforeHwupload() {
         List<String> command = builder.buildCommand(request("mpeg2video", "mp3", 8000L, 1080, false),
-                "h264_vaapi", "/dev/dri/renderD129", 0, Path.of("/out/session5"));
+                "h264_vaapi", "/dev/dri/renderD129", 0, Path.of("/out/session5"), false);
         String joined = String.join(" ", command);
 
         assertTrue(joined.contains("-vaapi_device /dev/dri/renderD129"));
@@ -143,7 +143,7 @@ class TranscodeCommandBuilderTest {
         TranscodeCommandBuilder.TranscodeRequest request = new TranscodeCommandBuilder.TranscodeRequest(
                 90_500, 1, null, () -> null, "h264", "aac", null, null, false, null, null, null);
         List<String> command = builder.buildCommand(request, TranscodeCommandBuilder.ENCODER_COPY,
-                "/dev/dri/renderD128", 0, Path.of("/out/session6"));
+                "/dev/dri/renderD128", 0, Path.of("/out/session6"), false);
         String joined = String.join(" ", command);
 
         assertTrue(joined.contains("-ss 90.500"));
@@ -159,7 +159,7 @@ class TranscodeCommandBuilderTest {
                 1_717_501, null, Path.of("/data/movie.mp4"), null, "hevc", "aac", 1000L, 480, false, null,
                 null, null);
         List<String> command = builder.buildCommand(request, "libx264",
-                "/dev/dri/renderD128", 0, Path.of("/out/session7"));
+                "/dev/dri/renderD128", 0, Path.of("/out/session7"), false);
         String joined = String.join(" ", command);
 
         assertTrue(joined.contains("-ss 1717.501"));
@@ -174,7 +174,7 @@ class TranscodeCommandBuilderTest {
                 1_717_501, null, Path.of("/data/movie.mkv"), null, "h264", "ac3", null, null, false, null,
                 null, null);
         List<String> command = builder.buildCommand(request, TranscodeCommandBuilder.ENCODER_COPY,
-                "/dev/dri/renderD128", 0, Path.of("/out/session8"));
+                "/dev/dri/renderD128", 0, Path.of("/out/session8"), false);
         String joined = String.join(" ", command);
 
         assertTrue(joined.contains("-ss 1717.501 -noaccurate_seek -i"));
@@ -189,7 +189,7 @@ class TranscodeCommandBuilderTest {
                 90_500, null, Path.of("/data/movie.mp4"), null, "h264", "aac", null, null, false, null,
                 null, null);
         List<String> command = builder.buildCommand(request, TranscodeCommandBuilder.ENCODER_COPY,
-                "/dev/dri/renderD128", 0, Path.of("/out/session9"));
+                "/dev/dri/renderD128", 0, Path.of("/out/session9"), false);
         String joined = String.join(" ", command);
 
         assertTrue(joined.contains("-c:a copy"));
@@ -200,13 +200,13 @@ class TranscodeCommandBuilderTest {
     void shouldNotTouchAudioCopyOrAccurateSeekWithoutSeek() {
         // 从头播放：无 seek 错位问题，音频照常 copy，也不加 -noaccurate_seek
         List<String> transcode = builder.buildCommand(request("hevc", "aac", 1000L, 480, false),
-                "libx264", "/dev/dri/renderD128", 0, Path.of("/out/session10"));
+                "libx264", "/dev/dri/renderD128", 0, Path.of("/out/session10"), false);
         String transcodeJoined = String.join(" ", transcode);
         assertTrue(transcodeJoined.contains("-c:a copy"));
         assertFalse(transcodeJoined.contains("-noaccurate_seek"));
 
         List<String> remux = builder.buildCommand(request("h264", "aac", null, null, false),
-                TranscodeCommandBuilder.ENCODER_COPY, "/dev/dri/renderD128", 0, Path.of("/out/session11"));
+                TranscodeCommandBuilder.ENCODER_COPY, "/dev/dri/renderD128", 0, Path.of("/out/session11"), false);
         assertFalse(String.join(" ", remux).contains("-noaccurate_seek"));
     }
 
@@ -215,7 +215,7 @@ class TranscodeCommandBuilderTest {
         // 视频转码主路径：完整 token 序列断言，锁定 -c:v/-vf/-preset/-crf/-b:v/-maxrate/-bufsize 的先后顺序，
         // 参数颠倒或重复会导致整体失配（子串断言无法捕获）
         List<String> command = builder.buildCommand(request("hevc", "ac3", 2000L, 720, false),
-                "libx264", "/dev/dri/renderD128", 0, Path.of("/out/session12"));
+                "libx264", "/dev/dri/renderD128", 0, Path.of("/out/session12"), false);
 
         assertEquals(List.of(
                 "ffmpeg", "-hide_banner", "-loglevel", "warning",
@@ -240,7 +240,7 @@ class TranscodeCommandBuilderTest {
                 1_717_501, null, Path.of("/data/movie.mp4"), null, "hevc", "aac", 1000L, 480, false, null,
                 null, null);
         List<String> command = builder.buildCommand(request, "libx264",
-                "/dev/dri/renderD128", 4, Path.of("/out/session13"));
+                "/dev/dri/renderD128", 4, Path.of("/out/session13"), false);
 
         assertEquals(List.of(
                 "ffmpeg", "-hide_banner", "-loglevel", "warning",
@@ -267,7 +267,7 @@ class TranscodeCommandBuilderTest {
                 90_500, null, Path.of("/data/movie.mkv"), null, "h264", "aac", null, null, false, null,
                 null, null);
         List<String> command = builder.buildCommand(request, TranscodeCommandBuilder.ENCODER_COPY,
-                "/dev/dri/renderD128", 0, Path.of("/out/session14"));
+                "/dev/dri/renderD128", 0, Path.of("/out/session14"), false);
 
         assertEquals(List.of(
                 "ffmpeg", "-hide_banner", "-loglevel", "warning",
@@ -288,7 +288,7 @@ class TranscodeCommandBuilderTest {
                 90_500, null, Path.of("/data/movie.mkv"), null, "mpeg2video", "ac3", 8000L, 1080, false, null,
                 null, null);
         List<String> command = builder.buildCommand(request, "h264_vaapi",
-                "/dev/dri/renderD129", 0, Path.of("/out/session15"));
+                "/dev/dri/renderD129", 0, Path.of("/out/session15"), false);
 
         assertEquals(List.of(
                 "ffmpeg", "-hide_banner", "-loglevel", "warning",
@@ -310,7 +310,7 @@ class TranscodeCommandBuilderTest {
     void shouldBurnSubtitleWithSoftEncode() {
         // 软解烧录：filter_complex 含 overlay，-map [v]，无 -vf、无 -map 0:v:0
         List<String> command = builder.buildCommand(request("h264", "aac", null, null, false, 2),
-                "libx264", "/dev/dri/renderD128", 0, Path.of("/out/burn1"));
+                "libx264", "/dev/dri/renderD128", 0, Path.of("/out/burn1"), false);
         String joined = String.join(" ", command);
 
         assertTrue(joined.contains("-filter_complex [0:v:0][0:s:2]overlay[v]"));
@@ -326,7 +326,7 @@ class TranscodeCommandBuilderTest {
     void shouldBurnSubtitleWithScaleAfterOverlay() {
         // 叠加 maxHeight：先叠加字幕再缩放（字幕随画面等比缩放），滤镜全部在 filter_complex，无 -vf
         List<String> command = builder.buildCommand(request("hevc", "ac3", 2000L, 720, false, 2),
-                "libx264", "/dev/dri/renderD128", 0, Path.of("/out/burn2"));
+                "libx264", "/dev/dri/renderD128", 0, Path.of("/out/burn2"), false);
         String joined = String.join(" ", command);
 
         assertTrue(joined.contains("-filter_complex [0:v:0][0:s:2]overlay,scale=-2:min(720\\,ih)[v]"));
@@ -339,7 +339,7 @@ class TranscodeCommandBuilderTest {
     void shouldBurnSubtitleWithVaapiHwuploadSuffix() {
         // vaapi 硬解：软件帧叠加后 format=nv12,hwupload 上传，与 scale 共存于同一滤镜链
         List<String> command = builder.buildCommand(request("mpeg2video", "mp3", 8000L, 1080, false, 1),
-                "h264_vaapi", "/dev/dri/renderD129", 0, Path.of("/out/burn3"));
+                "h264_vaapi", "/dev/dri/renderD129", 0, Path.of("/out/burn3"), false);
         String joined = String.join(" ", command);
 
         assertTrue(joined.contains("-vaapi_device /dev/dri/renderD129"));
@@ -353,7 +353,7 @@ class TranscodeCommandBuilderTest {
     void shouldBurnSubtitleWithQsvSuffix() {
         // qsv 硬解：软件帧叠加后 format=nv12
         List<String> command = builder.buildCommand(request("mpeg2video", "ac3", null, null, false, 1),
-                "h264_qsv", "/dev/dri/renderD128", 0, Path.of("/out/burn4"));
+                "h264_qsv", "/dev/dri/renderD128", 0, Path.of("/out/burn4"), false);
         String joined = String.join(" ", command);
 
         assertTrue(joined.contains("-filter_complex [0:v:0][0:s:1]overlay,format=nv12[v]"));
@@ -364,11 +364,15 @@ class TranscodeCommandBuilderTest {
 
     @Test
     void shouldBurnSubtitleWithNvencFormatSuffix() {
-        // nvenc 硬解：仅支持 8bit 输入，软件帧叠加后 format=nv12 兜底 10bit 源
+        // nvenc 烧录 + hwDecode：主输入前仅单个 -hwaccel cuda（无 -hwaccel_output_format），滤镜链旧形态不变
         List<String> command = builder.buildCommand(request("mpeg2video", "ac3", null, null, false, 1),
-                "h264_nvenc", "/dev/dri/renderD128", 0, Path.of("/out/burn5"));
+                "h264_nvenc", "/dev/dri/renderD128", 0, Path.of("/out/burn5"), true);
         String joined = String.join(" ", command);
 
+        int hwaccelIndex = command.indexOf("-hwaccel");
+        assertEquals(List.of("-hwaccel", "cuda"), command.subList(hwaccelIndex, hwaccelIndex + 2));
+        assertFalse(command.contains("-hwaccel_output_format"));
+        assertTrue(hwaccelIndex < command.indexOf("-i"));
         assertTrue(joined.contains("-filter_complex [0:v:0][0:s:1]overlay,format=nv12[v]"));
         assertTrue(joined.contains("-preset p4 -cq 23"));
         assertFalse(joined.contains("-vf"));
@@ -376,24 +380,24 @@ class TranscodeCommandBuilderTest {
 
     @Test
     void shouldAppendFormatNv12ForNvencWithoutScale() {
-        // nvenc 非烧录、无缩放：无条件带 format=nv12（8bit 源为 no-op，10bit 源兜底防启动失败）
+        // nvenc 非烧录硬解、无缩放：滤镜并入 scale_cuda=format=nv12，不再有独立的软件 format=nv12
         List<String> command = builder.buildCommand(request("hevc", "aac", null, null, true),
-                "h264_nvenc", "/dev/dri/renderD128", 0, Path.of("/out/nvenc1"));
+                "h264_nvenc", "/dev/dri/renderD128", 0, Path.of("/out/nvenc1"), true);
         String joined = String.join(" ", command);
 
         assertTrue(joined.contains("-c:v h264_nvenc"));
-        assertTrue(joined.contains("-vf format=nv12"));
+        assertTrue(joined.contains("-vf scale_cuda=format=nv12"));
         assertTrue(joined.contains("-preset p4 -cq 23"));
     }
 
     @Test
     void shouldAppendScaleBeforeFormatNv12ForNvenc() {
-        // nvenc 非烧录、有缩放：scale 在前 format=nv12 在后
+        // nvenc 非烧录硬解、有缩放：缩放并入 scale_cuda（含 format=nv12），不放大语义与旧 scale 一致
         List<String> command = builder.buildCommand(request("hevc", "aac", 2000L, 720, true),
-                "h264_nvenc", "/dev/dri/renderD128", 0, Path.of("/out/nvenc2"));
+                "h264_nvenc", "/dev/dri/renderD128", 0, Path.of("/out/nvenc2"), true);
         String joined = String.join(" ", command);
 
-        assertTrue(joined.contains("-vf scale=-2:min(720\\,ih),format=nv12"));
+        assertTrue(joined.contains("-vf scale_cuda=w=-2:h=min(720\\,ih):format=nv12"));
     }
 
     @Test
@@ -403,7 +407,7 @@ class TranscodeCommandBuilderTest {
         TranscodeCommandBuilder.TranscodeRequest request = new TranscodeCommandBuilder.TranscodeRequest(
                 90_500, null, null, () -> null, "h264", "aac", 2000L, 720, false, 2, null, null);
         List<String> command = builder.buildCommand(request, "libx264",
-                "/dev/dri/renderD128", 4, Path.of("/out/burn6"));
+                "/dev/dri/renderD128", 4, Path.of("/out/burn6"), false);
 
         assertEquals(List.of(
                 "ffmpeg", "-hide_banner", "-loglevel", "warning",
@@ -430,7 +434,7 @@ class TranscodeCommandBuilderTest {
                 90_500, null, Path.of("/data/movie.mkv"), null, "h264", "aac", null, null, false, null,
                 Path.of("/out/session-sub/sample.sup"), null);
         List<String> command = builder.buildCommand(request, "libx264",
-                "/dev/dri/renderD128", 0, Path.of("/out/session-sub"));
+                "/dev/dri/renderD128", 0, Path.of("/out/session-sub"), false);
 
         assertEquals(List.of(
                 "ffmpeg", "-hide_banner", "-loglevel", "warning",
@@ -456,7 +460,7 @@ class TranscodeCommandBuilderTest {
                 0, null, Path.of("/data/movie.mkv"), null, "h264", "aac", null, null, false, null,
                 Path.of("/out/sub/movie.sup"), null);
         List<String> command = builder.buildCommand(request, "libx264",
-                "/dev/dri/renderD128", 0, Path.of("/out/sub"));
+                "/dev/dri/renderD128", 0, Path.of("/out/sub"), false);
         String joined = String.join(" ", command);
 
         assertFalse(joined.contains("-ss"));
@@ -472,7 +476,7 @@ class TranscodeCommandBuilderTest {
                 0, null, Path.of("/data/movie.mkv"), null, "mpeg2video", "ac3", 8000L, 1080, false, null,
                 Path.of("/out/sub2/x.sup"), null);
         List<String> command = builder.buildCommand(request, "h264_vaapi",
-                "/dev/dri/renderD129", 0, Path.of("/out/sub2"));
+                "/dev/dri/renderD129", 0, Path.of("/out/sub2"), false);
         String joined = String.join(" ", command);
 
         assertTrue(joined.contains("-vaapi_device /dev/dri/renderD129"));
@@ -517,7 +521,7 @@ class TranscodeCommandBuilderTest {
         // 视频转码（软解默认路径）：公共段按 hlsSegmentSeconds（默认 4）强制关键帧时间对齐，
         // 防止编码器默认 GOP≈10s 导致 independent_segments 实际切片远超设计时长
         List<String> command = builder.buildCommand(request("hevc", "ac3", null, null, true),
-                "libx264", "/dev/dri/renderD128", 0, Path.of("/out/kf1"));
+                "libx264", "/dev/dri/renderD128", 0, Path.of("/out/kf1"), false);
         String joined = String.join(" ", command);
 
         assertTrue(joined.contains("-c:v libx264 -force_key_frames expr:gte(t,n_forced*4)"));
@@ -527,7 +531,7 @@ class TranscodeCommandBuilderTest {
     void shouldForceKeyFramesOnNvencPath() {
         // 硬解 nvenc 分支同样经过公共段，防分支遗漏；-forced-idr 1 实测必需，否则 -force_key_frames 不生效
         List<String> command = builder.buildCommand(request("hevc", "aac", null, null, true),
-                "h264_nvenc", "/dev/dri/renderD128", 0, Path.of("/out/kf2"));
+                "h264_nvenc", "/dev/dri/renderD128", 0, Path.of("/out/kf2"), true);
         String joined = String.join(" ", command);
 
         assertTrue(joined.contains("-c:v h264_nvenc -force_key_frames expr:gte(t,n_forced*4)"));
@@ -538,7 +542,7 @@ class TranscodeCommandBuilderTest {
     void shouldNotForceKeyFramesOnRemuxPath() {
         // 转封装不经过 appendVideoTranscodeArgs，不出现该参数；copy 无法改关键帧，属固有约束
         List<String> command = builder.buildCommand(request("h264", "aac", null, null, false),
-                TranscodeCommandBuilder.ENCODER_COPY, "/dev/dri/renderD128", 0, Path.of("/out/kf3"));
+                TranscodeCommandBuilder.ENCODER_COPY, "/dev/dri/renderD128", 0, Path.of("/out/kf3"), false);
         assertFalse(String.join(" ", command).contains("-force_key_frames"));
     }
 
@@ -549,8 +553,241 @@ class TranscodeCommandBuilderTest {
         custom.setHlsSegmentSeconds(6);
         TranscodeCommandBuilder customBuilder = new TranscodeCommandBuilder(custom);
         List<String> command = customBuilder.buildCommand(request("hevc", "ac3", null, null, true),
-                "libx264", "/dev/dri/renderD128", 0, Path.of("/out/kf4"));
+                "libx264", "/dev/dri/renderD128", 0, Path.of("/out/kf4"), false);
 
         assertTrue(String.join(" ", command).contains("-force_key_frames expr:gte(t,n_forced*6)"));
+    }
+
+    @Test
+    void shouldBuildNvencHardwareDecodePipelineWithoutSeekOrScale() {
+        // S1 非烧录硬解：-hwaccel cuda -hwaccel_output_format cuda 连续 token 位于 -i 之前，
+        // -vf 值为字面量 scale_cuda=format=nv12；仍含 -forced-idr 1/-preset p4/-cq 23；无裸 -vf format=nv12
+        List<String> command = builder.buildCommand(request("hevc", "aac", null, null, true),
+                "h264_nvenc", "/dev/dri/renderD128", 0, Path.of("/out/s1hw1"), true);
+        String joined = String.join(" ", command);
+
+        int hwaccelIndex = command.indexOf("-hwaccel");
+        assertTrue(hwaccelIndex >= 0);
+        assertEquals(List.of("-hwaccel", "cuda", "-hwaccel_output_format", "cuda"),
+                command.subList(hwaccelIndex, hwaccelIndex + 4));
+        assertTrue(hwaccelIndex < command.indexOf("-i"));
+        assertEquals("scale_cuda=format=nv12", command.get(command.indexOf("-vf") + 1));
+        assertTrue(joined.contains("-forced-idr 1"));
+        assertTrue(joined.contains("-preset p4 -cq 23"));
+        assertFalse(joined.contains("-vf format=nv12"));
+    }
+
+    @Test
+    void shouldBuildNvencHardwareDecodePipelineWithMaxHeight() {
+        // S1 非烧录硬解 + maxHeight=720：-vf 值为字面量 scale_cuda=w=-2:h=min(720\,ih):format=nv12
+        List<String> command = builder.buildCommand(request("hevc", "aac", null, 720, true),
+                "h264_nvenc", "/dev/dri/renderD128", 0, Path.of("/out/s1hw2"), true);
+
+        assertEquals("scale_cuda=w=-2:h=min(720\\,ih):format=nv12",
+                command.get(command.indexOf("-vf") + 1));
+    }
+
+    @Test
+    void shouldPlaceHardwareDecodeArgsBeforeSeek() {
+        // S1 非烧录硬解 + startMs>0：-hwaccel cuda -hwaccel_output_format cuda 位于 -ss 之前
+        TranscodeCommandBuilder.TranscodeRequest request = new TranscodeCommandBuilder.TranscodeRequest(
+                90_500, null, Path.of("/data/movie.mkv"), null, "hevc", "aac", null, null, true,
+                null, null, null);
+        List<String> command = builder.buildCommand(request, "h264_nvenc",
+                "/dev/dri/renderD128", 0, Path.of("/out/s1hw3"), true);
+
+        int hwaccelIndex = command.indexOf("-hwaccel");
+        assertEquals(List.of("-hwaccel", "cuda", "-hwaccel_output_format", "cuda"),
+                command.subList(hwaccelIndex, hwaccelIndex + 4));
+        assertTrue(hwaccelIndex < command.indexOf("-ss"));
+        assertTrue(command.indexOf("-ss") < command.indexOf("-i"));
+    }
+
+    @Test
+    void shouldKeepSoftwareDecodeFormWhenHwDecodeFalse() {
+        // hwDecode=false：命令与改动前完全一致（无 -hwaccel，-vf format=nv12）
+        List<String> command = builder.buildCommand(request("hevc", "aac", null, null, true),
+                "h264_nvenc", "/dev/dri/renderD128", 0, Path.of("/out/s1sw1"), false);
+        String joined = String.join(" ", command);
+
+        assertTrue(joined.contains("-vf format=nv12"));
+        assertTrue(joined.contains("-preset p4 -cq 23"));
+        assertFalse(joined.contains("-hwaccel"));
+    }
+
+    @Test
+    void shouldBurnSubtitleWithNvencSingleHwaccelCuda() {
+        // S2 内嵌烧录 + hwDecode=true：主输入 -i 前仅单个 -hwaccel cuda（无 -hwaccel_output_format），
+        // -filter_complex 与改动前完全一致，-map [v] 不变
+        List<String> command = builder.buildCommand(request("mpeg2video", "ac3", null, null, false, 0),
+                "h264_nvenc", "/dev/dri/renderD128", 0, Path.of("/out/s2burn1"), true);
+        String joined = String.join(" ", command);
+
+        int hwaccelIndex = command.indexOf("-hwaccel");
+        assertTrue(hwaccelIndex >= 0);
+        assertEquals(List.of("-hwaccel", "cuda"), command.subList(hwaccelIndex, hwaccelIndex + 2));
+        assertFalse(command.contains("-hwaccel_output_format"));
+        assertTrue(hwaccelIndex < command.indexOf("-i"));
+        assertTrue(joined.contains("-filter_complex [0:v:0][0:s:0]overlay,format=nv12[v]"));
+        assertTrue(joined.contains("-map [v]"));
+        assertFalse(joined.contains("-vf"));
+    }
+
+    @Test
+    void shouldPlaceSingleHwaccelCudaBeforeMainInputOnlyForExternalSubtitleBurn() {
+        // S2 外挂烧录 + hwDecode=true：-hwaccel cuda 只出现在第一个 -i 前，第二个 -i（字幕输入）前无 hwaccel token
+        TranscodeCommandBuilder.TranscodeRequest request = new TranscodeCommandBuilder.TranscodeRequest(
+                0, null, Path.of("/data/movie.mkv"), null, "mpeg2video", "ac3", null, null, false, null,
+                Path.of("/out/sub2/x.sup"), null);
+        List<String> command = builder.buildCommand(request, "h264_nvenc",
+                "/dev/dri/renderD128", 0, Path.of("/out/s2burn2"), true);
+
+        int firstInput = command.indexOf("-i");
+        int secondInput = firstInput + 1 + command.subList(firstInput + 1, command.size()).indexOf("-i");
+        assertTrue(firstInput > 0);
+        assertTrue(secondInput > firstInput);
+        int hwaccelIndex = command.indexOf("-hwaccel");
+        assertEquals(List.of("-hwaccel", "cuda"), command.subList(hwaccelIndex, hwaccelIndex + 2));
+        assertTrue(hwaccelIndex < firstInput);
+        assertEquals(hwaccelIndex, command.lastIndexOf("-hwaccel"));
+        assertFalse(command.subList(firstInput, secondInput).contains("-hwaccel"));
+        assertFalse(command.contains("-hwaccel_output_format"));
+    }
+
+    @Test
+    void shouldKeepOldBurnFormWhenHwDecodeFalse() {
+        // S2 烧录 + hwDecode=false：与改动前完全一致（无 -hwaccel，滤镜链旧形态）
+        List<String> command = builder.buildCommand(request("mpeg2video", "ac3", null, null, false, 0),
+                "h264_nvenc", "/dev/dri/renderD128", 0, Path.of("/out/s2sw1"), false);
+        String joined = String.join(" ", command);
+
+        assertFalse(joined.contains("-hwaccel"));
+        assertTrue(joined.contains("-filter_complex [0:v:0][0:s:0]overlay,format=nv12[v]"));
+        assertTrue(joined.contains("-map [v]"));
+    }
+
+    @Test
+    void shouldBuildQsvHardwareDecodePipelineWithoutSeekOrScale() {
+        // 票02 S1 qsv 非烧录硬解：-hwaccel qsv -hwaccel_output_format qsv 连续 token 位于 -i 之前，
+        // -vf 值为字面量 scale_qsv=format=nv12，编码器参数不变
+        List<String> command = builder.buildCommand(request("hevc", "aac", null, null, true),
+                "h264_qsv", "/dev/dri/renderD128", 0, Path.of("/out/q1hw1"), true);
+        String joined = String.join(" ", command);
+
+        int hwaccelIndex = command.indexOf("-hwaccel");
+        assertTrue(hwaccelIndex >= 0);
+        assertEquals(List.of("-hwaccel", "qsv", "-hwaccel_output_format", "qsv"),
+                command.subList(hwaccelIndex, hwaccelIndex + 4));
+        assertTrue(hwaccelIndex < command.indexOf("-i"));
+        assertEquals("scale_qsv=format=nv12", command.get(command.indexOf("-vf") + 1));
+        assertTrue(joined.contains("-forced_idr 1"));
+        assertTrue(joined.contains("-preset veryfast -global_quality 23"));
+        assertFalse(joined.contains("-vf format=nv12"));
+    }
+
+    @Test
+    void shouldBuildQsvHardwareDecodePipelineWithMaxHeight() {
+        // 票02 S1 qsv 非烧录硬解 + maxHeight=720：-vf 值为字面量 scale_qsv=w=-2:h=min(720\,ih):format=nv12
+        List<String> command = builder.buildCommand(request("hevc", "aac", null, 720, true),
+                "h264_qsv", "/dev/dri/renderD128", 0, Path.of("/out/q1hw2"), true);
+
+        assertEquals("scale_qsv=w=-2:h=min(720\\,ih):format=nv12",
+                command.get(command.indexOf("-vf") + 1));
+    }
+
+    @Test
+    void shouldBurnSubtitleWithQsvSingleHwaccelQsv() {
+        // 票02 S1 qsv 内嵌烧录 + hwDecode=true：主输入前仅单个 -hwaccel qsv（无 -hwaccel_output_format），
+        // -filter_complex 与旧形态完全一致
+        List<String> command = builder.buildCommand(request("mpeg2video", "ac3", null, null, false, 1),
+                "h264_qsv", "/dev/dri/renderD128", 0, Path.of("/out/q1burn1"), true);
+        String joined = String.join(" ", command);
+
+        int hwaccelIndex = command.indexOf("-hwaccel");
+        assertTrue(hwaccelIndex >= 0);
+        assertEquals(List.of("-hwaccel", "qsv"), command.subList(hwaccelIndex, hwaccelIndex + 2));
+        assertFalse(command.contains("-hwaccel_output_format"));
+        assertTrue(hwaccelIndex < command.indexOf("-i"));
+        assertTrue(joined.contains("-filter_complex [0:v:0][0:s:1]overlay,format=nv12[v]"));
+        assertFalse(joined.contains("-vf"));
+    }
+
+    @Test
+    void shouldKeepOldQsvFormWhenHwDecodeFalse() {
+        // 票02 S1 qsv + hwDecode=false：与旧形态完全一致（无 -hwaccel，-vf format=nv12，编码器参数不变）
+        List<String> command = builder.buildCommand(request("hevc", "aac", null, null, true),
+                "h264_qsv", "/dev/dri/renderD128", 0, Path.of("/out/q1sw1"), false);
+        String joined = String.join(" ", command);
+
+        assertTrue(joined.contains("-vf format=nv12"));
+        assertTrue(joined.contains("-forced_idr 1 -preset veryfast -global_quality 23"));
+        assertFalse(joined.contains("-hwaccel"));
+    }
+
+    @Test
+    void shouldBuildVaapiHardwareDecodePipelineWithoutSeekOrScale() {
+        // 票02 S2 vaapi 非烧录硬解：前段含完整 init_hw_device 形态（决策 4），无 -vaapi_device，
+        // -vf 值为字面量 scale_vaapi=format=nv12，无 format=nv12,hwupload
+        List<String> command = builder.buildCommand(request("hevc", "aac", null, null, true),
+                "h264_vaapi", "/dev/dri/renderD129", 0, Path.of("/out/v2hw1"), true);
+        String joined = String.join(" ", command);
+
+        int initIndex = command.indexOf("-init_hw_device");
+        assertTrue(initIndex >= 0);
+        assertEquals(List.of(
+                "-init_hw_device", "vaapi=hw:/dev/dri/renderD129",
+                "-hwaccel", "vaapi",
+                "-hwaccel_device", "hw",
+                "-hwaccel_output_format", "vaapi",
+                "-filter_hw_device", "hw"), command.subList(initIndex, initIndex + 10));
+        assertTrue(initIndex < command.indexOf("-i"));
+        assertFalse(joined.contains("-vaapi_device"));
+        assertEquals("scale_vaapi=format=nv12", command.get(command.indexOf("-vf") + 1));
+        assertFalse(joined.contains("format=nv12,hwupload"));
+    }
+
+    @Test
+    void shouldBuildVaapiHardwareDecodePipelineWithMaxHeight() {
+        // 票02 S2 vaapi 非烧录硬解 + maxHeight=720：-vf 值为字面量 scale_vaapi=w=-2:h=min(720\,ih):format=nv12
+        List<String> command = builder.buildCommand(request("hevc", "aac", null, 720, true),
+                "h264_vaapi", "/dev/dri/renderD129", 0, Path.of("/out/v2hw2"), true);
+        String joined = String.join(" ", command);
+
+        assertEquals("scale_vaapi=w=-2:h=min(720\\,ih):format=nv12",
+                command.get(command.indexOf("-vf") + 1));
+        assertFalse(joined.contains("format=nv12,hwupload"));
+    }
+
+    @Test
+    void shouldBurnSubtitleWithVaapiHwDecode() {
+        // 票02 S2 vaapi 烧录 + hwDecode=true：-vaapi_device 保留，主输入前有 -hwaccel vaapi -hwaccel_device <device>，
+        // filter_complex 旧形态（overlay,format=nv12,hwupload）不变
+        List<String> command = builder.buildCommand(request("mpeg2video", "ac3", null, null, false, 1),
+                "h264_vaapi", "/dev/dri/renderD129", 0, Path.of("/out/v2burn1"), true);
+        String joined = String.join(" ", command);
+
+        assertTrue(joined.contains("-vaapi_device /dev/dri/renderD129"));
+        int hwaccelIndex = command.indexOf("-hwaccel");
+        assertTrue(hwaccelIndex >= 0);
+        assertEquals(List.of("-hwaccel", "vaapi", "-hwaccel_device", "/dev/dri/renderD129"),
+                command.subList(hwaccelIndex, hwaccelIndex + 4));
+        assertTrue(hwaccelIndex < command.indexOf("-i"));
+        assertFalse(command.contains("-hwaccel_output_format"));
+        assertFalse(command.contains("-init_hw_device"));
+        assertTrue(joined.contains("-filter_complex [0:v:0][0:s:1]overlay,format=nv12,hwupload[v]"));
+        assertFalse(joined.contains("-vf"));
+    }
+
+    @Test
+    void shouldKeepOldVaapiFormWhenHwDecodeFalse() {
+        // 票02 S2 vaapi + hwDecode=false：与旧形态完全一致（-vaapi_device + format=nv12,hwupload，无 hwaccel）
+        List<String> command = builder.buildCommand(request("hevc", "aac", null, null, true),
+                "h264_vaapi", "/dev/dri/renderD129", 0, Path.of("/out/v2sw1"), false);
+        String joined = String.join(" ", command);
+
+        assertTrue(joined.contains("-vaapi_device /dev/dri/renderD129"));
+        assertTrue(joined.contains("-vf format=nv12,hwupload"));
+        assertFalse(joined.contains("-hwaccel"));
+        assertFalse(joined.contains("-init_hw_device"));
     }
 }

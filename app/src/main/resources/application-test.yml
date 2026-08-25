@@ -12,11 +12,6 @@ spring:
       host: localhost
       database: 1
 
-logging:
-  level:
-    # 测试不输出 mapper SQL 调试日志（全量约 6.9 万行，拖慢控制台 I/O）
-    com.fleyx.jcloud.mapper: info
-
 jcloud:
   media:
     # 测试环境关闭启动硬解探测，避免触发真实 ffmpeg 编码（无 GPU 的 CI 可跑）
