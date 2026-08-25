@@ -85,6 +85,4 @@ logging:
     console: "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%X{traceId:-}] %-40.40logger{39}:%L [%15.15thread] : %msg%n"
   level:
     com.fleyx.jcloud: info
-    # MyBatis SQL 日志由 Slf4jImpl 以 debug 级别输出，mapper 包需单独开启
-    com.fleyx.jcloud.mapper: debug
     org.flywaydb: info

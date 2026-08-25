@@ -89,7 +89,6 @@ docker run -d \
   -e REDIS_PORT=6379 \
   -e JCLOUD_JWT_SECRET="$JWT_SECRET" \
   -e SPRING_PROFILES_ACTIVE=prod \
-  -e mybatis-plus.configuration.log-impl=org.apache.ibatis.logging.nologging.NoLoggingImpl \
   --mount "type=bind,source=${STORAGE_PATH},target=${STORAGE_PATH},bind-propagation=rslave" \
   ${DEVICE_ARGS[@]+"${DEVICE_ARGS[@]}"} \
   ${NVIDIA_ARGS[@]+"${NVIDIA_ARGS[@]}"} \
