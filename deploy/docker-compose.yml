@@ -2,9 +2,15 @@ services:
   jcloud:
     image: ${JCLOUD_IMAGE:-fleyx/jcloud:latest}
     container_name: jcloud
+    # 指定运行用户：PUID/PGID 设为宿主机用户的 uid/gid，使数据目录落盘文件归属该用户；
+    # 默认 0:0（root）保持向后兼容。从 root 切换到非 root 前，需先在宿主机
+    # chown -R PUID:PGID 数据目录（详见 deploy.md「指定运行用户」）
+    user: "${PUID:-0}:${PGID:-0}"
     ports:
       - "${JCLOUD_PORT:-80}:${JCLOUD_PORT:-80}"
     environment:
+      # 容器内无 PUID 对应的 passwd 条目，caddy/LibreOffice 需要可写 HOME
+      - HOME=/tmp
       - JCLOUD_PORT=${JCLOUD_PORT:-80}
       - SPRING_DATASOURCE_URL=${SPRING_DATASOURCE_URL:-jdbc:postgresql://postgres:5432/jcloud}
       - SPRING_DATASOURCE_USERNAME=${SPRING_DATASOURCE_USERNAME:-postgres}
@@ -24,6 +30,11 @@ services:
     # 视频转码硬件加速（VAAPI/QSV）：映射 GPU 渲染节点；无核显/独显时可删除
     devices:
       - /dev/dri:/dev/dri
+    # 非 root（PUID/PGID）运行时 GPU 硬解需要宿主机 video/render 组权限，gid 因宿主机而异；
+    # 用 stat -c '%g' /dev/dri/renderD128（及 /dev/dri/card0）查询后，取消注释并替换：
+    # group_add:
+    #   - "983"
+    #   - "987"
     # 视频转码硬件加速（NVIDIA NVENC/NVDEC）：与上方 NVIDIA_DRIVER_CAPABILITIES 一起取消注释启用
     # deploy:
     #   resources:

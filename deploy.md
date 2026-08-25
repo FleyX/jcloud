@@ -10,6 +10,7 @@
   - [使用外部 PostgreSQL / Redis](#使用外部-postgresql--redis)
   - [自定义端口](#自定义端口)
   - [数据持久化](#数据持久化)
+  - [指定运行用户（PUID/PGID）](#指定运行用户puidpgid)
   - [NVIDIA 硬件加速（可选）](#nvidia-硬件加速可选)
   - [升级与维护](#升级与维护)
     - [升级版本](#升级版本)
@@ -41,6 +42,8 @@
 | `REDIS_DB` | `0` | Redis 数据库索引 |
 | `JCLOUD_JWT_SECRET` | `change-me-in-production-jcloud-secret-key-2026` | JWT 签名密钥，至少36位字符**生产环境必须修改** |
 | `JCLOUD_DATA_PATH` | `./data` | 数据存放目录，默认位于 `deploy/data` |
+| `PUID` | `0` | 容器运行用户 uid，用于解决宿主机数据目录归属 root 的权限问题（详见下文「指定运行用户」） |
+| `PGID` | `0` | 容器运行用户组 gid，与 `PUID` 配合使用 |
 
 > 可通过 `.env` 文件、Shell 导出或 `docker compose` 命令行传入变量。`.env` 文件放在项目根目录即可。
 
@@ -125,6 +128,41 @@ deploy/data/
 ```bash
 JCLOUD_DATA_PATH=../data docker compose -f deploy/docker-compose.yml --profile db --profile cache up -d
 ```
+
+---
+
+## 指定运行用户（PUID/PGID）
+
+默认容器内进程以 root 运行，bind mount 数据目录中的文件在宿主机上归属 root。在 NAS（TrueNAS/群晖/UNRAID 等）或多用户宿主机上，可通过 `PUID`/`PGID` 让容器以指定用户运行，使落盘文件归属该用户：
+
+```bash
+cat >> .env <<EOF
+PUID=1000
+PGID=1000
+EOF
+```
+
+```bash
+docker compose -f deploy/docker-compose.yml --profile db --profile cache up -d
+```
+
+注意事项：
+
+- **存量数据需先改归属**：从默认 root 切换到非 root 用户前，先在宿主机执行（路径按 `JCLOUD_DATA_PATH` 调整），否则容器启动后读写数据目录会因权限不足失败：
+
+```bash
+sudo chown -R 1000:1000 deploy/data/jcloud
+```
+
+- **GPU 硬解**：非 root 运行时需把宿主机 `/dev/dri` 节点的 video/render 组加入容器。先查询 gid：
+
+```bash
+stat -c '%g' /dev/dri/renderD128 /dev/dri/card0
+```
+
+  然后取消 `deploy/docker-compose.yml` 中 jcloud 服务 `group_add` 注释段的注释，并替换为查到的 gid。
+
+> 该目录仅覆盖 jcloud 主服务；内置 postgres/redis 使用官方镜像自带的用户机制，无需指定。
 
 ---
 
