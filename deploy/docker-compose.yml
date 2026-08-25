@@ -16,11 +16,22 @@ services:
       - spring.profiles.active=prod
       # 关闭 MyBatis SQL 日志（application.yml 默认 StdOutImpl）
       - mybatis-plus.configuration.log-impl=org.apache.ibatis.logging.nologging.NoLoggingImpl
+      # 视频转码硬件加速（NVIDIA NVENC/NVDEC）：需宿主机已安装 nvidia-container-toolkit，
+      # 与下方 deploy 块一起取消注释启用（TrueNAS SCALE 24.10+ 先在 Apps → Configure → Settings 勾选 Install NVIDIA Drivers）
+      # - NVIDIA_DRIVER_CAPABILITIES=all
     volumes:
       - ${JCLOUD_DATA_PATH:-./data}/jcloud:/data/jcloud
     # 视频转码硬件加速（VAAPI/QSV）：映射 GPU 渲染节点；无核显/独显时可删除
     devices:
       - /dev/dri:/dev/dri
+    # 视频转码硬件加速（NVIDIA NVENC/NVDEC）：与上方 NVIDIA_DRIVER_CAPABILITIES 一起取消注释启用
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
     depends_on:
       postgres:
         condition: service_healthy
