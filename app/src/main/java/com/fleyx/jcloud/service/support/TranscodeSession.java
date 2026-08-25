@@ -19,8 +19,10 @@ public final class TranscodeSession {
     private final String id;
     private final String userId;
     private final Path outputDir;
-    private final Process process;
+    private volatile Process process;
     private final String encoder;
+    private volatile TranscodeCommandBuilder.TranscodeRequest request;
+    private volatile boolean decodeFallback;
     private volatile Instant lastAccess;
     private volatile Instant lastHeartbeatAt;
     private volatile boolean failed;
@@ -53,8 +55,37 @@ public final class TranscodeSession {
         return process;
     }
 
+    /**
+     * 替换会话进程：降级重试时会话进程被软解重启的新进程替换（原进程已退出）。
+     */
+    public void process(Process process) {
+        this.process = process;
+    }
+
     public String encoder() {
         return encoder;
+    }
+
+    /**
+     * 会话创建时装配的请求（降级重试据此重建命令；远程文件经 supplier 重新拉取）。
+     */
+    public TranscodeCommandBuilder.TranscodeRequest request() {
+        return request;
+    }
+
+    public void setRequest(TranscodeCommandBuilder.TranscodeRequest request) {
+        this.request = request;
+    }
+
+    /**
+     * 是否已降级软解（hwDecode=false 重建一次后置位，后续 seek 重启直接沿用软解命令）。
+     */
+    public boolean decodeFallback() {
+        return decodeFallback;
+    }
+
+    public void decodeFallback(boolean decodeFallback) {
+        this.decodeFallback = decodeFallback;
     }
 
     public Instant lastAccess() {

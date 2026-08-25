@@ -5,6 +5,8 @@ import com.fleyx.jcloud.config.MediaProperties;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.lang.reflect.Field;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -20,6 +22,8 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -252,5 +256,69 @@ class TranscodeSessionManagerTest {
         long start = System.currentTimeMillis();
         assertEquals(playlist, manager.awaitPlaylistWarmup("s1", "u1", 4, 0), "预算耗尽应按当前内容返回");
         assertTrue(System.currentTimeMillis() - start < 1000, "预算 0ms 不应产生阻塞等待");
+    }
+
+    // ---------- S4：黑名单命中直启降级命令 ----------
+
+    private Map<String, Boolean> blacklistOf(TranscodeSessionManager manager) throws Exception {
+        // decodeFallbackBlacklist 为私有，反射仅取引用并修改其内容，不替换字段
+        Field field = TranscodeSessionManager.class.getDeclaredField("decodeFallbackBlacklist");
+        field.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        Map<String, Boolean> blacklist = (Map<String, Boolean>) field.get(manager);
+        return blacklist;
+    }
+
+    private TranscodeSessionManager decoderManager(TranscodeProcessLauncher launcher, Path outputDir) throws IOException {
+        // encoder 由 configResolver.resolveHwaccel()="nvenc" 经 selectEncoder 映射为 h264_nvenc
+        TranscodeConfigResolver resolver = mock(TranscodeConfigResolver.class);
+        when(resolver.resolveHwaccel()).thenReturn("nvenc");
+        MediaProperties properties = new MediaProperties();
+        when(launcher.resolveSessionRoot()).thenReturn(outputDir);
+        when(launcher.startFfmpeg(any(), any(), any(), any(), anyBoolean())).thenReturn(mock(Process.class));
+        return new TranscodeSessionManager(properties, new TranscodeCommandBuilder(properties),
+                mock(TranscodeThrottleSupport.class), resolver, launcher);
+    }
+
+    private TranscodeCommandBuilder.TranscodeRequest localHwRequest() {
+        return new TranscodeCommandBuilder.TranscodeRequest(
+                0, null, Path.of("/data/movie.mkv"), null, "hevc", "aac", null, null, true, null, null, null);
+    }
+
+    @Test
+    void shouldStartWithHwDecodeFalseWhenBlacklisted(@TempDir Path tempDir) throws Exception {
+        // 黑名单已含 localPath|videoCodec|h264_nvenc → createSession 直接以 hwDecode=false 启动
+        TranscodeProcessLauncher launcher = mock(TranscodeProcessLauncher.class);
+        TranscodeSessionManager manager = decoderManager(launcher, tempDir);
+        blacklistOf(manager).put("/data/movie.mkv|hevc|h264_nvenc", true);
+
+        manager.createSession("s1", localHwRequest());
+
+        verify(launcher).startFfmpeg(any(), any(), any(), any(), eq(false));
+    }
+
+    @Test
+    void shouldStartWithHwDecodeTrueWhenNotBlacklisted(@TempDir Path tempDir) throws Exception {
+        // 黑名单未命中 → createSession 以 hwDecode=true 启动
+        TranscodeProcessLauncher launcher = mock(TranscodeProcessLauncher.class);
+        TranscodeSessionManager manager = decoderManager(launcher, tempDir);
+
+        manager.createSession("s1", localHwRequest());
+
+        verify(launcher).startFfmpeg(any(), any(), any(), any(), eq(true));
+    }
+
+    @Test
+    void shouldStartRemoteRequestWithHwDecodeTrueRegardlessOfBlacklist(@TempDir Path tempDir) throws Exception {
+        // 远程请求 localPath=null：不查黑名单不缓存，恒 hwDecode=true（即使黑名单里已有本地 key）
+        TranscodeProcessLauncher launcher = mock(TranscodeProcessLauncher.class);
+        TranscodeSessionManager manager = decoderManager(launcher, tempDir);
+        blacklistOf(manager).put("/data/movie.mkv|hevc|h264_nvenc", true);
+
+        TranscodeCommandBuilder.TranscodeRequest request = new TranscodeCommandBuilder.TranscodeRequest(
+                0, null, null, () -> null, "hevc", "aac", null, null, true, null, null, null);
+        manager.createSession("s1", request);
+
+        verify(launcher).startFfmpeg(any(), any(), any(), any(), eq(true));
     }
 }

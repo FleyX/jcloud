@@ -40,6 +40,13 @@ public class TranscodeSessionManager {
     private final TranscodeProcessLauncher processLauncher;
     private final Semaphore concurrencyPermits;
 
+    /**
+     * 已降级软解的会话黑名单：key = localPath|videoCodec|encoder，记录 launcher 早期失败降级结论，
+     * 供后续同源 seek 重启直接沿用（S4 在 {@link #createSession} 命中时以 hwDecode=false 启动）。
+     * 远程文件 localPath 为 null 不缓存；服务重启自然清空，不做持久化。
+     */
+    private final Map<String, Boolean> decodeFallbackBlacklist = new ConcurrentHashMap<>();
+
     public TranscodeSessionManager(MediaProperties mediaProperties, TranscodeCommandBuilder commandBuilder,
                                    TranscodeThrottleSupport throttleSupport, TranscodeConfigResolver configResolver,
                                    TranscodeProcessLauncher processLauncher) {
@@ -92,10 +99,16 @@ public class TranscodeSessionManager {
             String hwaccel = configResolver.resolveHwaccel();
             String encoder = videoCopy ? TranscodeCommandBuilder.ENCODER_COPY : commandBuilder.selectEncoder(hwaccel);
             TranscodeProcessLauncher.StderrTail stderrTail = new TranscodeProcessLauncher.StderrTail();
-            Process process = processLauncher.startFfmpeg(outputDir, request, encoder, stderrTail);
+            // 黑名单命中（本地文件 + 编码器一致）直启降级软解命令；远程文件 localPath=null 不查表，恒硬解
+            boolean hwDecode = request.localPath() == null
+                    || !Boolean.TRUE.equals(decodeFallbackBlacklist.get(
+                            request.localPath() + "|" + request.videoCodec() + "|" + encoder));
+            Process process = processLauncher.startFfmpeg(outputDir, request, encoder, stderrTail, hwDecode);
             TranscodeSession session = new TranscodeSession(sessionId, userId, outputDir, process, encoder, Instant.now());
+            session.setRequest(request);
             sessions.put(sessionId, session);
-            processLauncher.watchEarlyFailure(session, sessions, stderrTail);
+            processLauncher.watchEarlyFailure(session, sessions, stderrTail,
+                    TranscodeProcessLauncher.EARLY_FAILURE_WINDOW_MS, decodeFallbackBlacklist);
             started = true;
             return session;
         } catch (IOException e) {
