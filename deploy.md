@@ -44,6 +44,7 @@
 | `JCLOUD_DATA_PATH` | `./data` | 数据存放目录，默认位于 `deploy/data` |
 | `PUID` | `0` | 容器运行用户 uid，用于解决宿主机数据目录归属 root 的权限问题（详见下文「指定运行用户」） |
 | `PGID` | `0` | 容器运行用户组 gid，与 `PUID` 配合使用 |
+| `TZ` | `Asia/Shanghai` | 容器时区，默认透传宿主机 `TZ` 环境变量 |
 
 > 可通过 `.env` 文件、Shell 导出或 `docker compose` 命令行传入变量。`.env` 文件放在项目根目录即可。
 
