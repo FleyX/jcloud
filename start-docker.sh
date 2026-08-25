@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 #
 # 一键本地 Docker 测试：构建 dev 镜像并启动测试容器，直连本机 postgres/redis（与 application-dev.yml 一致）。
-# 数据落盘在 dev 库主存储空间路径（t_storage_space.path）对应的宿主机目录，1:1 挂入容器。
+# 数据落盘在 dev 库主存储空间路径（t_storage_space.path）对应的宿主机目录，以 rslave 传播挂入容器：
+# 该目录下的子挂载（如 files/admin/动漫 的 NFS 挂载，含容器启动后新出现的）自动传入容器。
+# 容器进程以 uid:gid 1000:1000 运行（与宿主机当前用户一致），写入存储空间/NFS 的文件归属正确。
 #
 # 环境变量：
 #   STORAGE_PATH  主存储空间路径（宿主机目录，1:1 挂载进容器）。已设置时直接使用，
@@ -49,10 +51,17 @@ if [[ -e /dev/dri ]]; then
 fi
 
 # 5. 启动容器：--network host 直连本机 postgres/redis，prod profile
+# --user 1000:1000 与宿主机当前用户一致，写入存储空间/NFS 的文件归属正确；
+# 容器内无 uid 1000 的 passwd 条目，HOME=/tmp 供 caddy/LibreOffice 等写入；
+# --group-add 983/987 为宿主机 /dev/dri 的 video/render 组 gid，保证非 root 下 GPU 可访问
 echo "启动容器 $CONTAINER_NAME ..."
 docker run -d \
   --name "$CONTAINER_NAME" \
   --network host \
+  --user 1000:1000 \
+  --group-add 983 \
+  --group-add 987 \
+  -e HOME=/tmp \
   -e JCLOUD_PORT="$PORT" \
   -e SPRING_DATASOURCE_URL="jdbc:postgresql://localhost:5432/jcloud" \
   -e SPRING_DATASOURCE_USERNAME=postgres \
@@ -62,7 +71,7 @@ docker run -d \
   -e JCLOUD_JWT_SECRET="$JWT_SECRET" \
   -e SPRING_PROFILES_ACTIVE=prod \
   -e mybatis-plus.configuration.log-impl=org.apache.ibatis.logging.nologging.NoLoggingImpl \
-  -v "$STORAGE_PATH:$STORAGE_PATH" \
+  --mount "type=bind,source=${STORAGE_PATH},target=${STORAGE_PATH},bind-propagation=rslave" \
   ${DEVICE_ARGS[@]+"${DEVICE_ARGS[@]}"} \
   fleyx/jcloud:dev
 
