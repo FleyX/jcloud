@@ -154,6 +154,67 @@ public class TranscodeCommandBuilder {
     }
 
     /**
+     * 编码器 → 硬解码后端映射：cuda（nvenc）与 qsv 形态一致（非烧录 scale_<backend>、烧录单 -hwaccel <backend>）。
+     * vaapi 后端形态特殊（init_hw_device 系列/烧录带设备路径，见 {@link #appendHwDecodeArgs}），同样参与映射，
+     * 但其 hwaccel 参数由 appendHwDecodeArgs 单独拼装。libx264/copy 无后端恒不附加。
+     */
+    private static String hardwareDecodeBackend(String encoder) {
+        return switch (encoder) {
+            case "h264_nvenc" -> "cuda";
+            case "h264_qsv" -> "qsv";
+            case "h264_vaapi" -> "vaapi";
+            default -> null;
+        };
+    }
+
+    /**
+     * 非烧录路径的 -vf 值：hwDecode=true 时缩放并入 scale_<backend>（含 format=nv12，无缩放时即仅格式转换）；
+     * hwDecode=false 时保持旧软件帧形态（scale + format=nv12）。
+     */
+    private static String videoFilterFor(TranscodeRequest request, String backend, boolean hwDecode, String scale) {
+        if (hwDecode) {
+            return request.maxHeight() != null
+                    ? "scale_" + backend + "=w=-2:h=min(" + request.maxHeight() + "\\,ih):format=nv12"
+                    : "scale_" + backend + "=format=nv12";
+        }
+        return scale != null ? scale + ",format=nv12" : "format=nv12";
+    }
+
+    /**
+     * 主输入前附加解码参数（决策 2/3/4/5，插入点位于 -ss/-i 之前）：
+     * nvenc/qsv 形态一致（烧录单 -hwaccel <backend>、非烧录加 output_format）；vaapi 烧录保留
+     * -vaapi_device 之上只加 -hwaccel vaapi -hwaccel_device <device>，非烧录走 init_hw_device 完整形态。
+     */
+    static void appendHwDecodeArgs(List<String> command, String encoder, String device, boolean burnSubtitle) {
+        if ("h264_vaapi".equals(encoder)) {
+            if (burnSubtitle) {
+                // 烧录 vaapi 硬解：保留 -vaapi_device 之上，主输入前加 -hwaccel vaapi -hwaccel_device <device>（设备路径，非 hw 别名，决策 5）
+                command.addAll(List.of("-hwaccel", "vaapi", "-hwaccel_device", device));
+            } else {
+                // 非烧录 vaapi 硬解：init_hw_device 初始化 hw 别名供 hwaccel/filter 引用，解码帧留显存（决策 4）
+                command.addAll(List.of(
+                        "-init_hw_device", "vaapi=hw:" + device,
+                        "-hwaccel", "vaapi",
+                        "-hwaccel_device", "hw",
+                        "-hwaccel_output_format", "vaapi",
+                        "-filter_hw_device", "hw"));
+            }
+            return;
+        }
+        String backend = hardwareDecodeBackend(encoder);
+        if (backend == null) {
+            return;
+        }
+        if (burnSubtitle) {
+            // 烧录硬解：仅挂单个 -hwaccel <backend>（不带 output_format，解码帧自动下载为软件帧供 overlay 使用，决策 3）
+            command.addAll(List.of("-hwaccel", backend));
+        } else {
+            // 非烧录硬解：解码帧留显存直喂 scale_<backend>/对应编码器
+            command.addAll(List.of("-hwaccel", backend, "-hwaccel_output_format", backend));
+        }
+    }
+
+    /**
      * 构建完整 ffmpeg 命令（含输出参数），远程文件输入为 pipe:0。
      *
      * @param request   会话请求
@@ -170,20 +231,14 @@ public class TranscodeCommandBuilder {
         command.add(mediaProperties.getFfmpegPath());
         command.addAll(List.of("-hide_banner", "-loglevel", "warning"));
         boolean videoCopy = ENCODER_COPY.equals(encoder);
-        if (!videoCopy && "h264_vaapi".equals(encoder)) {
-            command.addAll(List.of("-vaapi_device", device));
-        }
         boolean burnSubtitle = request.subtitleIndex() != null || request.externalSubtitlePath() != null
                 || request.externalSubtitleStream() != null;
-        if (hwDecode && "h264_nvenc".equals(encoder)) {
-            if (burnSubtitle) {
-                // 烧录 NVENC 硬解：仅挂 -hwaccel cuda（不带 output_format，解码帧自动下载为软件帧供 overlay 使用，决策 3）；
-                // 插入点与 -vaapi_device 同级（主输入 -ss/-i 之前），外挂字幕第二输入前不加任何 hwaccel 参数
-                command.addAll(List.of("-hwaccel", "cuda"));
-            } else {
-                // 非烧录 NVENC 硬解：解码帧留显存直喂 scale_cuda/nvenc 编码器
-                command.addAll(List.of("-hwaccel", "cuda", "-hwaccel_output_format", "cuda"));
-            }
+        // vaapi 软解/烧录仍需 -vaapi_device；仅非烧录 hwDecode=true 改走 init_hw_device（不含 -vaapi_device）
+        if (!videoCopy && "h264_vaapi".equals(encoder) && (!hwDecode || burnSubtitle)) {
+            command.addAll(List.of("-vaapi_device", device));
+        }
+        if (hwDecode && !videoCopy) {
+            appendHwDecodeArgs(command, encoder, device, burnSubtitle);
         }
         String seek = request.startMs() > 0 ? String.format(Locale.ROOT, "%.3f", request.startMs() / 1000.0) : null;
         if (seek != null) {
@@ -262,13 +317,16 @@ public class TranscodeCommandBuilder {
         switch (encoder) {
             case "h264_vaapi" -> {
                 if (!burnSubtitle) {
-                    command.addAll(List.of("-vf",
-                            scale != null ? scale + ",format=nv12,hwupload" : "format=nv12,hwupload"));
+                    // 非烧录 hwDecode=true 硬解帧留显存走 scale_vaapi；hwDecode=false 保持旧 format=nv12,hwupload
+                    command.addAll(List.of("-vf", hwDecode
+                            ? videoFilterFor(request, "vaapi", true, scale)
+                            : (scale != null ? scale + ",format=nv12,hwupload" : "format=nv12,hwupload")));
                 }
             }
             case "h264_qsv" -> {
                 if (!burnSubtitle) {
-                    command.addAll(List.of("-vf", scale != null ? scale + ",format=nv12" : "format=nv12"));
+                    command.addAll(List.of("-vf",
+                            videoFilterFor(request, "qsv", hwDecode, scale)));
                 }
                 // qsv 与 nvenc 同需 IDR 开关：默认忽略 ffmpeg 层强制关键帧的 IDR 形式（本机无 qsv 设备，
                 // 未实测，语义与 nvenc 一致：Forcing I frames as IDR frames）
@@ -280,12 +338,8 @@ public class TranscodeCommandBuilder {
                 if (!burnSubtitle) {
                     // 硬解帧留显存：缩放并入 scale_cuda（含 format=nv12，无缩放时即仅格式转换），
                     // 不再出现独立的软件 format=nv12；hwDecode=false 时保持旧软件帧形态
-                    String vf = hwDecode
-                            ? (request.maxHeight() != null
-                                    ? "scale_cuda=w=-2:h=min(" + request.maxHeight() + "\\,ih):format=nv12"
-                                    : "scale_cuda=format=nv12")
-                            : (scale != null ? scale + ",format=nv12" : "format=nv12");
-                    command.addAll(List.of("-vf", vf));
+                    command.addAll(List.of("-vf",
+                            videoFilterFor(request, "cuda", hwDecode, scale)));
                 }
                 // -forced-idr 1 实测必需：不经它时 -force_key_frames 不产生关键帧，切片仍为编码器默认 GOP≈10s
                 command.addAll(List.of("-forced-idr", "1", "-preset", "p4", "-cq", "23"));

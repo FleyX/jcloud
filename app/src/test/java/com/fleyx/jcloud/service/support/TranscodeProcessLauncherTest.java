@@ -241,4 +241,62 @@ class TranscodeProcessLauncherTest {
         }
         fail(message);
     }
+
+    @Test
+    void shouldFallbackToSoftwareDecodeOnEarlyFailureForQsv(@TempDir Path tempDir) throws Exception {
+        // 票02 S3 降级条件扩展到 h264_qsv：早期失败以 hwDecode=false 重试一次，黑名单 encoder 段为 h264_qsv
+        TranscodeCommandBuilder.TranscodeRequest request = new TranscodeCommandBuilder.TranscodeRequest(
+                0, null, Path.of("/data/movie.mkv"), null, "hevc", "aac", null, null, true, null, null, null);
+        TranscodeSession session = new TranscodeSession("s-qsv", "u1", tempDir, exitedProcess(), "h264_qsv", Instant.now());
+        session.setRequest(request);
+        Map<String, TranscodeSession> sessions = new ConcurrentHashMap<>();
+        sessions.put("s-qsv", session);
+        Map<String, Boolean> blacklist = new ConcurrentHashMap<>();
+        List<Boolean> startHwDecodeFlags = new ArrayList<>();
+
+        TranscodeProcessLauncher launcher = new TranscodeProcessLauncher(null, null, null) {
+            @Override
+            public Process startFfmpeg(Path outputDir, TranscodeCommandBuilder.TranscodeRequest req, String encoder,
+                                       TranscodeProcessLauncher.StderrTail tail, boolean hwDecode) throws IOException {
+                startHwDecodeFlags.add(hwDecode);
+                return new ProcessBuilder("sleep", "10").start();
+            }
+        };
+        launcher.watchEarlyFailure(session, sessions, new TranscodeProcessLauncher.StderrTail(), 300L, blacklist);
+
+        await(() -> session.decodeFallback(), "qsv 早期失败应触发降级");
+        assertFalse(session.failed(), "降级重启后不应标记失败");
+        assertEquals(1, startHwDecodeFlags.size(), "应恰好重启一次");
+        assertFalse(startHwDecodeFlags.get(0), "重启应以 hwDecode=false 调用 startFfmpeg");
+        assertTrue(blacklist.containsKey("/data/movie.mkv|hevc|h264_qsv"), "黑名单应记录 localPath|videoCodec|h264_qsv");
+    }
+
+    @Test
+    void shouldFallbackToSoftwareDecodeOnEarlyFailureForVaapi(@TempDir Path tempDir) throws Exception {
+        // 票02 S3 降级条件扩展到 h264_vaapi：早期失败以 hwDecode=false 重试一次，黑名单 encoder 段为 h264_vaapi
+        TranscodeCommandBuilder.TranscodeRequest request = new TranscodeCommandBuilder.TranscodeRequest(
+                0, null, Path.of("/data/movie.mkv"), null, "hevc", "aac", null, null, true, null, null, null);
+        TranscodeSession session = new TranscodeSession("s-vaapi", "u1", tempDir, exitedProcess(), "h264_vaapi", Instant.now());
+        session.setRequest(request);
+        Map<String, TranscodeSession> sessions = new ConcurrentHashMap<>();
+        sessions.put("s-vaapi", session);
+        Map<String, Boolean> blacklist = new ConcurrentHashMap<>();
+        List<Boolean> startHwDecodeFlags = new ArrayList<>();
+
+        TranscodeProcessLauncher launcher = new TranscodeProcessLauncher(null, null, null) {
+            @Override
+            public Process startFfmpeg(Path outputDir, TranscodeCommandBuilder.TranscodeRequest req, String encoder,
+                                       TranscodeProcessLauncher.StderrTail tail, boolean hwDecode) throws IOException {
+                startHwDecodeFlags.add(hwDecode);
+                return new ProcessBuilder("sleep", "10").start();
+            }
+        };
+        launcher.watchEarlyFailure(session, sessions, new TranscodeProcessLauncher.StderrTail(), 300L, blacklist);
+
+        await(() -> session.decodeFallback(), "vaapi 早期失败应触发降级");
+        assertFalse(session.failed(), "降级重启后不应标记失败");
+        assertEquals(1, startHwDecodeFlags.size(), "应恰好重启一次");
+        assertFalse(startHwDecodeFlags.get(0), "重启应以 hwDecode=false 调用 startFfmpeg");
+        assertTrue(blacklist.containsKey("/data/movie.mkv|hevc|h264_vaapi"), "黑名单应记录 localPath|videoCodec|h264_vaapi");
+    }
 }

@@ -14,6 +14,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -168,6 +169,12 @@ public class TranscodeProcessLauncher {
     static final long EARLY_FAILURE_WINDOW_MS = 10_000;
 
     /**
+     * 可触发降级软解重试的硬件编码器集合（三种纯硬解路径：cuda/qsv/vaapi；黑名单 key 的 encoder 段天然区分）。
+     */
+    private static final Set<String> FALLBACK_ELIGIBLE_ENCODERS =
+            Set.of("h264_nvenc", "h264_qsv", "h264_vaapi");
+
+    /**
      * 有效产出文件判定：只认 m3u8 播放列表、fMP4 初始化段与 m4s 切片。
      * 外挂字幕物化会向输出目录写入 .sup/.idx，不能据此误判转码已产出。
      */
@@ -177,8 +184,8 @@ public class TranscodeProcessLauncher {
     }
 
     /**
-     * 监控 ffmpeg 早期失败：窗口内进程已退出且无有效产出时，h264_nvenc 会话先降级软解（hwDecode=false）
-     * 重建进程重试一次并记降级结论；其余情况标记会话失败。软解与转封装会话无硬解诉求，直接跳过。
+     * 监控 ffmpeg 早期失败：窗口内进程已退出且无有效产出时，硬件编码（cuda/qsv/vaapi）会话先降级软解
+     * （hwDecode=false）重建进程重试一次并记降级结论；其余情况标记会话失败。软解与转封装会话无硬解诉求，直接跳过。
      *
      * @param session  被监控会话
      * @param sessions 会话注册表（用于判断会话是否已被回收）
@@ -213,9 +220,10 @@ public class TranscodeProcessLauncher {
                     || TranscodeCommandBuilder.ENCODER_COPY.equals(session.encoder())) {
                 return;
             }
-            // 仅 h264_nvenc 且未降级过且持有 request 才降级重试；否则维持现状标失败
+            // 仅硬解编码器且未降级过且持有 request 才降级重试；否则维持现状标失败
             TranscodeCommandBuilder.TranscodeRequest request = session.request();
-            if (!"h264_nvenc".equals(session.encoder()) || session.decodeFallback() || request == null) {
+            if (!FALLBACK_ELIGIBLE_ENCODERS.contains(session.encoder())
+                    || session.decodeFallback() || request == null) {
                 log.warn("显式指定的硬解方式启动失败: session={}, encoder={}, ffmpeg stderr: {}",
                         session.id(), session.encoder(), stderrTail.tail());
                 session.failed(true);

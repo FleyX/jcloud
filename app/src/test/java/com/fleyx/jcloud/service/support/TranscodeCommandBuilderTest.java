@@ -665,4 +665,129 @@ class TranscodeCommandBuilderTest {
         assertTrue(joined.contains("-filter_complex [0:v:0][0:s:0]overlay,format=nv12[v]"));
         assertTrue(joined.contains("-map [v]"));
     }
+
+    @Test
+    void shouldBuildQsvHardwareDecodePipelineWithoutSeekOrScale() {
+        // 票02 S1 qsv 非烧录硬解：-hwaccel qsv -hwaccel_output_format qsv 连续 token 位于 -i 之前，
+        // -vf 值为字面量 scale_qsv=format=nv12，编码器参数不变
+        List<String> command = builder.buildCommand(request("hevc", "aac", null, null, true),
+                "h264_qsv", "/dev/dri/renderD128", 0, Path.of("/out/q1hw1"), true);
+        String joined = String.join(" ", command);
+
+        int hwaccelIndex = command.indexOf("-hwaccel");
+        assertTrue(hwaccelIndex >= 0);
+        assertEquals(List.of("-hwaccel", "qsv", "-hwaccel_output_format", "qsv"),
+                command.subList(hwaccelIndex, hwaccelIndex + 4));
+        assertTrue(hwaccelIndex < command.indexOf("-i"));
+        assertEquals("scale_qsv=format=nv12", command.get(command.indexOf("-vf") + 1));
+        assertTrue(joined.contains("-forced_idr 1"));
+        assertTrue(joined.contains("-preset veryfast -global_quality 23"));
+        assertFalse(joined.contains("-vf format=nv12"));
+    }
+
+    @Test
+    void shouldBuildQsvHardwareDecodePipelineWithMaxHeight() {
+        // 票02 S1 qsv 非烧录硬解 + maxHeight=720：-vf 值为字面量 scale_qsv=w=-2:h=min(720\,ih):format=nv12
+        List<String> command = builder.buildCommand(request("hevc", "aac", null, 720, true),
+                "h264_qsv", "/dev/dri/renderD128", 0, Path.of("/out/q1hw2"), true);
+
+        assertEquals("scale_qsv=w=-2:h=min(720\\,ih):format=nv12",
+                command.get(command.indexOf("-vf") + 1));
+    }
+
+    @Test
+    void shouldBurnSubtitleWithQsvSingleHwaccelQsv() {
+        // 票02 S1 qsv 内嵌烧录 + hwDecode=true：主输入前仅单个 -hwaccel qsv（无 -hwaccel_output_format），
+        // -filter_complex 与旧形态完全一致
+        List<String> command = builder.buildCommand(request("mpeg2video", "ac3", null, null, false, 1),
+                "h264_qsv", "/dev/dri/renderD128", 0, Path.of("/out/q1burn1"), true);
+        String joined = String.join(" ", command);
+
+        int hwaccelIndex = command.indexOf("-hwaccel");
+        assertTrue(hwaccelIndex >= 0);
+        assertEquals(List.of("-hwaccel", "qsv"), command.subList(hwaccelIndex, hwaccelIndex + 2));
+        assertFalse(command.contains("-hwaccel_output_format"));
+        assertTrue(hwaccelIndex < command.indexOf("-i"));
+        assertTrue(joined.contains("-filter_complex [0:v:0][0:s:1]overlay,format=nv12[v]"));
+        assertFalse(joined.contains("-vf"));
+    }
+
+    @Test
+    void shouldKeepOldQsvFormWhenHwDecodeFalse() {
+        // 票02 S1 qsv + hwDecode=false：与旧形态完全一致（无 -hwaccel，-vf format=nv12，编码器参数不变）
+        List<String> command = builder.buildCommand(request("hevc", "aac", null, null, true),
+                "h264_qsv", "/dev/dri/renderD128", 0, Path.of("/out/q1sw1"), false);
+        String joined = String.join(" ", command);
+
+        assertTrue(joined.contains("-vf format=nv12"));
+        assertTrue(joined.contains("-forced_idr 1 -preset veryfast -global_quality 23"));
+        assertFalse(joined.contains("-hwaccel"));
+    }
+
+    @Test
+    void shouldBuildVaapiHardwareDecodePipelineWithoutSeekOrScale() {
+        // 票02 S2 vaapi 非烧录硬解：前段含完整 init_hw_device 形态（决策 4），无 -vaapi_device，
+        // -vf 值为字面量 scale_vaapi=format=nv12，无 format=nv12,hwupload
+        List<String> command = builder.buildCommand(request("hevc", "aac", null, null, true),
+                "h264_vaapi", "/dev/dri/renderD129", 0, Path.of("/out/v2hw1"), true);
+        String joined = String.join(" ", command);
+
+        int initIndex = command.indexOf("-init_hw_device");
+        assertTrue(initIndex >= 0);
+        assertEquals(List.of(
+                "-init_hw_device", "vaapi=hw:/dev/dri/renderD129",
+                "-hwaccel", "vaapi",
+                "-hwaccel_device", "hw",
+                "-hwaccel_output_format", "vaapi",
+                "-filter_hw_device", "hw"), command.subList(initIndex, initIndex + 10));
+        assertTrue(initIndex < command.indexOf("-i"));
+        assertFalse(joined.contains("-vaapi_device"));
+        assertEquals("scale_vaapi=format=nv12", command.get(command.indexOf("-vf") + 1));
+        assertFalse(joined.contains("format=nv12,hwupload"));
+    }
+
+    @Test
+    void shouldBuildVaapiHardwareDecodePipelineWithMaxHeight() {
+        // 票02 S2 vaapi 非烧录硬解 + maxHeight=720：-vf 值为字面量 scale_vaapi=w=-2:h=min(720\,ih):format=nv12
+        List<String> command = builder.buildCommand(request("hevc", "aac", null, 720, true),
+                "h264_vaapi", "/dev/dri/renderD129", 0, Path.of("/out/v2hw2"), true);
+        String joined = String.join(" ", command);
+
+        assertEquals("scale_vaapi=w=-2:h=min(720\\,ih):format=nv12",
+                command.get(command.indexOf("-vf") + 1));
+        assertFalse(joined.contains("format=nv12,hwupload"));
+    }
+
+    @Test
+    void shouldBurnSubtitleWithVaapiHwDecode() {
+        // 票02 S2 vaapi 烧录 + hwDecode=true：-vaapi_device 保留，主输入前有 -hwaccel vaapi -hwaccel_device <device>，
+        // filter_complex 旧形态（overlay,format=nv12,hwupload）不变
+        List<String> command = builder.buildCommand(request("mpeg2video", "ac3", null, null, false, 1),
+                "h264_vaapi", "/dev/dri/renderD129", 0, Path.of("/out/v2burn1"), true);
+        String joined = String.join(" ", command);
+
+        assertTrue(joined.contains("-vaapi_device /dev/dri/renderD129"));
+        int hwaccelIndex = command.indexOf("-hwaccel");
+        assertTrue(hwaccelIndex >= 0);
+        assertEquals(List.of("-hwaccel", "vaapi", "-hwaccel_device", "/dev/dri/renderD129"),
+                command.subList(hwaccelIndex, hwaccelIndex + 4));
+        assertTrue(hwaccelIndex < command.indexOf("-i"));
+        assertFalse(command.contains("-hwaccel_output_format"));
+        assertFalse(command.contains("-init_hw_device"));
+        assertTrue(joined.contains("-filter_complex [0:v:0][0:s:1]overlay,format=nv12,hwupload[v]"));
+        assertFalse(joined.contains("-vf"));
+    }
+
+    @Test
+    void shouldKeepOldVaapiFormWhenHwDecodeFalse() {
+        // 票02 S2 vaapi + hwDecode=false：与旧形态完全一致（-vaapi_device + format=nv12,hwupload，无 hwaccel）
+        List<String> command = builder.buildCommand(request("hevc", "aac", null, null, true),
+                "h264_vaapi", "/dev/dri/renderD129", 0, Path.of("/out/v2sw1"), false);
+        String joined = String.join(" ", command);
+
+        assertTrue(joined.contains("-vaapi_device /dev/dri/renderD129"));
+        assertTrue(joined.contains("-vf format=nv12,hwupload"));
+        assertFalse(joined.contains("-hwaccel"));
+        assertFalse(joined.contains("-init_hw_device"));
+    }
 }
