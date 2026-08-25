@@ -1,3 +1,8 @@
+{
+    # 关闭 admin API（默认监听 localhost:2019），本部署无需运行时改配置
+    admin off
+}
+
 :{$JCLOUD_PORT:80} {
     root * /srv/web
     encode gzip zstd
