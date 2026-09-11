@@ -20,6 +20,7 @@ import com.fleyx.jcloud.service.support.MediaFileStreamSupport;
 import com.fleyx.jcloud.service.support.MediaPlaybackResolveSupport;
 import com.fleyx.jcloud.service.support.MediaPlaybackResolveSupport.Playable;
 import com.fleyx.jcloud.service.support.MediaProbeSupport;
+import com.fleyx.jcloud.service.support.MediaSubtitleConvertSupport;
 import com.fleyx.jcloud.service.support.MediaSubtitleSupport;
 import com.fleyx.jcloud.service.support.PlaybackConfigConstants;
 import com.fleyx.jcloud.service.support.TranscodeCommandBuilder;
@@ -36,11 +37,8 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 /**
- * 媒体播放服务实现（issue #19 起播放链路切换到新模型）。
- * <p>
- * 播放入参 ID 为标题级行 ID：电影 → t_media_movie、集 → t_media_episode、其他 → t_media_other；
- * 播放进度记录到标题级行（一部电影多版本共享），续播通过 last_play_file_id 定位具体版本文件，
- * 直放/实时转码/字幕提取均从文件明细行取文件事实（ffprobe 结果、文件节点）。
+ * 媒体播放服务实现（issue #19 起播放链路切换到新模型）：播放入参 ID 为标题级行 ID
+ * （电影/集/其他），播放进度记录到标题级行，续播通过 last_play_file_id 定位具体版本文件；
  * 纯播放模式（by-file-node 变体）以文件节点开播，文件事实全部来自实时探测，进度恒为 0。
  */
 @Slf4j
@@ -55,6 +53,7 @@ public class MediaPlaybackServiceImpl implements MediaPlaybackService {
     private final RemoteFileService remoteFileService;
     private final MediaProbeSupport mediaProbeSupport;
     private final MediaSubtitleSupport mediaSubtitleSupport;
+    private final MediaSubtitleConvertSupport mediaSubtitleConvertSupport;
     private final MediaSubtitleMapper mediaSubtitleMapper;
     private final MediaBurnInSubtitleSupport mediaBurnInSubtitleSupport;
     private final TranscodeSessionManager transcodeSessionManager;
@@ -119,7 +118,10 @@ public class MediaPlaybackServiceImpl implements MediaPlaybackService {
         vo.setHeight(firstNonNull(probe.height(), playable.height()));
         vo.setAudioTracks(probe.audioTracks());
         vo.setSubtitleTracks(probe.subtitleTracks());
-        vo.setSubtitles(mediaSubtitleSupport.buildSubtitleList(probe.subtitleTracks(), playable.fileRowId()));
+        // 纯播放外挂字幕走实时探测（不读扫描关联表）；已收录按明细行关联
+        vo.setSubtitles(strict
+                ? mediaSubtitleSupport.buildPureSubtitleList(probe.subtitleTracks(), node)
+                : mediaSubtitleSupport.buildSubtitleList(probe.subtitleTracks(), playable.fileRowId()));
         vo.setEffectiveBitRate(resolveEffectiveBitRate(probe, playable, vo.getDurationMs()));
         vo.setProgressMs(playable.progressMs());
         // 本次解析使用的文件明细行 ID：前端播放/进度上报以此定位版本（续播定位语义不变）；纯播放为 null
@@ -134,9 +136,7 @@ public class MediaPlaybackServiceImpl implements MediaPlaybackService {
         return vo;
     }
 
-    /**
-     * 纯播放可播放事实：文件事实字段全部为空（以实时探测为准），进度恒为 0。
-     */
+    /** 纯播放可播放事实：文件事实字段全部为空（以实时探测为准），进度恒为 0。 */
     private Playable resolvePurePlayable(FileNode node) {
         return new Playable(node.getId(), node.getId(), node.getSize(),
                 null, null, null, null, null, null, 0L);
@@ -146,8 +146,23 @@ public class MediaPlaybackServiceImpl implements MediaPlaybackService {
     public Path extractSubtitle(String id, int index, long offsetMs, String userId, String versionId) {
         validateOffset(offsetMs);
         Playable playable = mediaPlaybackResolveSupport.resolve(id, userId, versionId);
+        return extractSubtitleCore(playable, index, offsetMs, userId);
+    }
+
+    @Override
+    public Path extractSubtitleByFileNode(String fileNodeId, int index, long offsetMs, String userId) {
+        validateOffset(offsetMs);
+        Playable playable = resolvePurePlayable(requireFileNode(fileNodeId, userId));
+        return extractSubtitleCore(playable, index, offsetMs, userId);
+    }
+
+    /**
+     * 内嵌字幕提取核心（影视/纯播放共用）：缓存 fileRowId_index.vtt 命中直接返回，
+     * 否则 ffmpeg 提取（远程先落地临时文件）；offsetMs>0 时生成独立偏移结果。
+     */
+    private Path extractSubtitleCore(Playable playable, int index, long offsetMs, String userId) {
         Path canonical = Path.of(systemStorageSpaceProvider.getSystemSpace().getPath(),
-                "system", MediaSubtitleSupport.SUBTITLE_CACHE_DIR,
+                "system", MediaSubtitleConvertSupport.SUBTITLE_CACHE_DIR,
                 playable.fileRowId() + "_" + index + ".vtt");
         if (!Files.exists(canonical)) {
             FileNode node = requireFileNode(playable.fileNodeId(), userId);
@@ -193,7 +208,7 @@ public class MediaPlaybackServiceImpl implements MediaPlaybackService {
         if (offsetMs == 0) {
             return canonical;
         }
-        return mediaSubtitleSupport.resolveOffsetVtt(
+        return mediaSubtitleConvertSupport.resolveOffsetVtt(
                 canonical, playable.fileRowId() + "_" + index, offsetMs);
     }
 
@@ -211,11 +226,31 @@ public class MediaPlaybackServiceImpl implements MediaPlaybackService {
         }
         Path localPath = FileNodeConstants.SOURCE_REMOTE.equals(node.getSourceType())
                 ? null : mediaFileStreamSupport.resolveLocalPath(node, userId);
-        Path canonical = mediaSubtitleSupport.resolveExternalVtt(subtitle, node, localPath, userId);
+        Path canonical = mediaSubtitleConvertSupport.resolveExternalVtt(subtitle, node, localPath, userId);
         if (offsetMs == 0) {
             return canonical;
         }
-        return mediaSubtitleSupport.resolveOffsetVtt(node, canonical, offsetMs);
+        return mediaSubtitleConvertSupport.resolveOffsetVtt(node, canonical, offsetMs);
+    }
+
+    @Override
+    public Path extractExternalSubtitleByFileNode(String fileNodeId, String subtitleFileNodeId,
+                                                  long offsetMs, String userId) {
+        validateOffset(offsetMs);
+        FileNode video = requireFileNode(fileNodeId, userId);
+        FileNode node = requireFileNode(subtitleFileNodeId, userId);
+        // 归属校验等价于已收录链路的「记录归属当前明细行」：必须在实时探测命中集合内，否则 404
+        MediaSubtitle subtitle = mediaSubtitleSupport.detectExternalSubtitles(video).stream()
+                .filter(s -> subtitleFileNodeId.equals(s.getFileNodeId()))
+                .findFirst()
+                .orElseThrow(() -> new BusinessException(ResultCode.NOT_FOUND, "字幕不存在"));
+        Path localPath = FileNodeConstants.SOURCE_REMOTE.equals(node.getSourceType())
+                ? null : mediaFileStreamSupport.resolveLocalPath(node, userId);
+        Path canonical = mediaSubtitleConvertSupport.resolveExternalVtt(subtitle, node, localPath, userId);
+        if (offsetMs == 0) {
+            return canonical;
+        }
+        return mediaSubtitleConvertSupport.resolveOffsetVtt(node, canonical, offsetMs);
     }
 
     private void validateOffset(long offsetMs) {
@@ -250,35 +285,43 @@ public class MediaPlaybackServiceImpl implements MediaPlaybackService {
         Playable playable = mediaPlaybackResolveSupport.resolve(id, userId, versionId);
         FileNode node = requireFileNode(playable.fileNodeId(), userId);
         MediaProbeResult probe = probePlayableFile(node, playable, userId);
-        return createTranscodeSessionCore(playable, node, probe, startMs, audioIndex, subtitleIndex,
-                externalSubtitleId, targetBitrateKbps, maxHeight, forceVideoTranscode, userId);
+        // 已收录链路：外挂字幕按 t_media_subtitle 记录 ID 装配
+        var external = mediaBurnInSubtitleSupport.resolveExternalSubtitleBurn(
+                playable, externalSubtitleId, userId, subNode -> mediaFileStreamSupport.resolveLocalPath(subNode, userId));
+        return createTranscodeSessionCore(playable, node, probe, startMs, audioIndex, subtitleIndex, external,
+                targetBitrateKbps, maxHeight, forceVideoTranscode, userId);
     }
 
     @Override
     public TranscodeSession createTranscodeSessionByFileNode(String fileNodeId, long startMs, Integer audioIndex,
-                                                             Integer subtitleIndex, Long targetBitrateKbps,
-                                                             Integer maxHeight, boolean forceVideoTranscode,
-                                                             String userId) {
+                                                             Integer subtitleIndex, String externalSubtitleId,
+                                                             Long targetBitrateKbps, Integer maxHeight,
+                                                             boolean forceVideoTranscode, String userId) {
         TranscodeCommandBuilder.validateParams(targetBitrateKbps, maxHeight);
+        if (subtitleIndex != null && externalSubtitleId != null) {
+            throw new BusinessException(ResultCode.PARAM_ERROR, "内嵌与外部字幕只能二选一");
+        }
         FileNode node = requireFileNode(fileNodeId, userId);
         Playable playable = resolvePurePlayable(node);
-        // strict 探测：纯播放无存档字段兜底；外挂烧录传 null，resolveExternalSubtitleBurn 返回空结果
+        // strict 探测：纯播放无存档字段兜底
         MediaProbeResult probe = probePlayableFileStrict(node, userId);
-        return createTranscodeSessionCore(playable, node, probe, startMs, audioIndex, subtitleIndex,
-                null, targetBitrateKbps, maxHeight, forceVideoTranscode, userId);
+        // 纯播放链路：外挂字幕按字幕文件节点 ID 实时探测装配（不读关联表）
+        var external = mediaBurnInSubtitleSupport.resolveExternalSubtitleBurnByFileNode(
+                node, externalSubtitleId, userId, subNode -> mediaFileStreamSupport.resolveLocalPath(subNode, userId));
+        return createTranscodeSessionCore(playable, node, probe, startMs, audioIndex, subtitleIndex, external,
+                targetBitrateKbps, maxHeight, forceVideoTranscode, userId);
     }
 
     /**
-     * 转码会话创建核心（影视/纯播放共用）：装配外挂烧录（externalSubtitleId 为 null 时返回空结果）、
+     * 转码会话创建核心（影视/纯播放共用）：外挂烧录由调用方按模式装配（null 时为 empty）、
      * 校验内嵌位图轨序号、编码取 firstNonNull(probe, playable) 兜底（纯播放 playable 全 null 天然只取 probe）、
      * 本地装物理路径/远程装下载流后创建会话。
      */
     private TranscodeSession createTranscodeSessionCore(Playable playable, FileNode node, MediaProbeResult probe,
                                                         long startMs, Integer audioIndex, Integer subtitleIndex,
-                                                        String externalSubtitleId, Long targetBitrateKbps,
-                                                        Integer maxHeight, boolean forceVideoTranscode, String userId) {
-        var external = mediaBurnInSubtitleSupport.resolveExternalSubtitleBurn(
-                playable, externalSubtitleId, userId, subNode -> mediaFileStreamSupport.resolveLocalPath(subNode, userId));
+                                                        MediaBurnInSubtitleSupport.ExternalSubtitleBurn external,
+                                                        Long targetBitrateKbps, Integer maxHeight,
+                                                        boolean forceVideoTranscode, String userId) {
         mediaBurnInSubtitleSupport.validateSubtitleIndex(probe, subtitleIndex);
         String videoCodec = firstNonNull(probe.videoCodec(), playable.videoCodec());
         String audioCodec = resolveSelectedAudioCodec(probe, audioIndex, playable);

@@ -189,17 +189,15 @@ export function createTranscodeSession(
 
 /**
  * 纯播放模式创建转码会话（未收录文件）：POST /media/files/{fileNodeId}/transcode。
- * 参数子集：只取 audioIndex/subtitleIndex/targetBitrateKbps/maxHeight/forceVideoTranscode，
- * 不带 versionId 与 externalSubtitleId（外挂字幕链路工单 04 补齐，后端端点不暴露该参数）。
+ * 不带 versionId；externalSubtitleId 为外挂字幕文件节点 ID（须实时探测命中且为位图格式，工单 04 起支持），
+ * 其余参数语义与 createTranscodeSession 一致。
  */
 export function createTranscodeSessionByFileNode(
   fileNodeId: string,
   startMs: number,
   options: TranscodeSessionOptions = {},
 ): Promise<MediaTranscodeSessionVo> {
-  const { audioIndex, subtitleIndex, targetBitrateKbps, maxHeight, forceVideoTranscode } = options
-  return post<MediaTranscodeSessionVo>(`/media/files/${fileNodeId}/transcode`, undefined,
-    { startMs, audioIndex, subtitleIndex, targetBitrateKbps, maxHeight, forceVideoTranscode })
+  return post<MediaTranscodeSessionVo>(`/media/files/${fileNodeId}/transcode`, undefined, { startMs, ...options })
 }
 
 /**
@@ -239,7 +237,7 @@ function buildSubtitleQuery(versionId?: string, offsetMs?: number): string {
 }
 
 /**
- * 内嵌字幕 URL。offsetMs 为转码会话起点（毫秒），直放时不传（0）。
+ * 内嵌字幕 URL（items 形态）。offsetMs 为转码会话起点（毫秒），直放时不传（0）。
  */
 export function subtitleUrl(id: string, index: number, versionId?: string, offsetMs?: number): string {
   const base = `/jcloud/api/media/items/${id}/subtitles/${index}`
@@ -247,11 +245,28 @@ export function subtitleUrl(id: string, index: number, versionId?: string, offse
 }
 
 /**
- * 外置字幕 URL。offsetMs 为转码会话起点（毫秒），直放时不传（0）。
+ * 外置字幕 URL（items 形态）。offsetMs 为转码会话起点（毫秒），直放时不传（0）。
  */
 export function externalSubtitleUrl(id: string, subtitleId: string, versionId?: string, offsetMs?: number): string {
   const base = `/jcloud/api/media/items/${id}/subtitles/external/${subtitleId}`
   return `${base}${buildSubtitleQuery(versionId, offsetMs)}`
+}
+
+/**
+ * 纯播放内嵌字幕 URL（files 形态，工单 04）。offsetMs 为转码会话起点（毫秒），直放时不传（0）。
+ */
+export function pureSubtitleUrl(fileNodeId: string, index: number, offsetMs?: number): string {
+  const base = `/jcloud/api/media/files/${fileNodeId}/subtitles/${index}`
+  return `${base}${buildSubtitleQuery(undefined, offsetMs)}`
+}
+
+/**
+ * 纯播放外置字幕 URL（files 形态，工单 04）：subtitleFileNodeId 为外挂字幕文件节点 ID
+ * （播放信息外挂字幕项的 subtitleId）。offsetMs 为转码会话起点（毫秒），直放时不传（0）。
+ */
+export function pureExternalSubtitleUrl(fileNodeId: string, subtitleFileNodeId: string, offsetMs?: number): string {
+  const base = `/jcloud/api/media/files/${fileNodeId}/subtitles/external/${subtitleFileNodeId}`
+  return `${base}${buildSubtitleQuery(undefined, offsetMs)}`
 }
 
 // ---------- 元数据 ----------

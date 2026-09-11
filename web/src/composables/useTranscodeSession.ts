@@ -58,7 +58,7 @@ export interface TranscodeSessionDeps {
   sourceEpoch: Ref<number>
   /** 播放生命周期标记：stop 后置真，异步建会话返回后不再挂载 */
   destroyed: Ref<boolean>
-  /** 纯播放模式标记（未收录文件）：建会话走 by-file-node 端点（无 versionId/外挂字幕） */
+  /** 纯播放模式标记（未收录文件）：建会话走 by-file-node 端点（无 versionId，外挂字幕按文件节点 ID） */
   pure: Ref<boolean>
   /** 位图字幕烧录参数 getter（延迟求值，避免与 useSubtitleSelection 构造顺序循环依赖） */
   getBurnInParams: () => BurnInParams | null
@@ -143,12 +143,9 @@ export function useTranscodeSession(deps: TranscodeSessionDeps) {
     if (!info || !id) return
     destroyHls()
     const options = buildTranscodeOptions(info)
-    // 纯播放走 by-file-node 端点：不传 versionId；外挂字幕链路未打通（工单 04），烧录参数只保留内嵌位图轨
+    // 纯播放走 by-file-node 端点：不传 versionId；外挂位图烧录参数（externalSubtitleId）正常透传（工单 04）
     const session = pure.value
-      ? await createTranscodeSessionByFileNode(id, Math.floor(startMs), {
-          ...options,
-          externalSubtitleId: undefined,
-        })
+      ? await createTranscodeSessionByFileNode(id, Math.floor(startMs), options)
       : await createTranscodeSession(id, Math.floor(startMs), options, currentVersionId.value ?? undefined)
     const video = videoRef.value
     if (!video || destroyed.value) return

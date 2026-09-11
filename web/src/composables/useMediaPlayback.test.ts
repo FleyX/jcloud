@@ -428,6 +428,72 @@ describe('useMediaPlayback 位图字幕模式切换', () => {
     expect(pb.activeSubtitle.value?.key).toBe('embedded:1')
     pb.stop()
   })
+
+  it('纯播放直放中选中位图字幕：by-file-node 强制转码并携带烧录参数（工单 04）', async () => {
+    mocks.fetchPlaybackInfoByFileNode.mockResolvedValue(buildPlaybackInfo({
+      mode: 'direct',
+      subtitles: [bitmapEmbedded],
+    }))
+    mocks.createTranscodeSessionByFileNode.mockResolvedValue({ sessionId: 's1', playlistUrl: '/hls/p.m3u8' })
+    const { video, pb } = createPlayback()
+
+    await pb.start('fn-1', undefined, undefined, { pure: true })
+    video.currentTime = 60
+    pb.selectSubtitle('embedded:2')
+
+    expect(mocks.createTranscodeSession).not.toHaveBeenCalled()
+    expect(mocks.createTranscodeSessionByFileNode).toHaveBeenCalledWith(
+      'fn-1', 60_000,
+      expect.objectContaining({ subtitleIndex: 2 }),
+    )
+    pb.stop()
+  })
+
+  it('纯播放选中外部位图字幕：by-file-node 建会话带 externalSubtitleId（字幕文件节点 ID）', async () => {
+    mocks.fetchPlaybackInfoByFileNode.mockResolvedValue(buildPlaybackInfo({
+      mode: 'direct',
+      subtitles: [bitmapExternal],
+    }))
+    mocks.createTranscodeSessionByFileNode.mockResolvedValue({ sessionId: 's1', playlistUrl: '/hls/p.m3u8' })
+    const { pb } = createPlayback()
+
+    await pb.start('fn-1', undefined, undefined, { pure: true })
+    pb.selectSubtitle('external:ext-bmp')
+
+    expect(mocks.createTranscodeSession).not.toHaveBeenCalled()
+    expect(mocks.createTranscodeSessionByFileNode).toHaveBeenCalledWith(
+      'fn-1', 0,
+      expect.objectContaining({ externalSubtitleId: 'ext-bmp' }),
+    )
+    pb.stop()
+  })
+
+  it('纯播放位图字幕切回「无」：恢复直放并从当前位置继续（工单 04）', async () => {
+    mocks.fetchPlaybackInfoByFileNode.mockResolvedValue(buildPlaybackInfo({
+      mode: 'direct',
+      subtitles: [bitmapEmbedded],
+    }))
+    mocks.createTranscodeSessionByFileNode.mockResolvedValue({ sessionId: 's1', playlistUrl: '/hls/p.m3u8' })
+    const { video, pb } = createPlayback()
+
+    await pb.start('fn-1', undefined, undefined, { pure: true })
+    video.currentTime = 30
+    pb.selectSubtitle('embedded:2')
+    await flushPromises()
+    expect(pb.transcodeActive.value).toBe(true)
+    // 烧录会话从 30s 起点重新起播（流内时间归零），绝对位置 = base(30s) + 流内时间
+    video.currentTime = 15 // 从 30s 继续播放 15s → 绝对 45s
+
+    pb.selectSubtitle(null)
+    await flushPromises()
+
+    expect(pb.transcodeActive.value).toBe(false)
+    expect(pb.transcodeBaseMs.value).toBe(0)
+    expect(video.src).toBe('https://cdn.test/movie.mkv')
+    expect(video.currentTime).toBe(45)
+    expect(mocks.closeTranscodeSession).toHaveBeenCalled()
+    pb.stop()
+  })
 })
 
 describe('useMediaPlayback 直放前解码能力探测降级', () => {

@@ -274,12 +274,12 @@ describe('useTranscodeSession seek 重建与码率档位', () => {
 })
 
 describe('useTranscodeSession 纯播放建会话分流', () => {
-  it('pure=true 走 by-file-node API：不带 versionId/externalSubtitleId，档位参数透传一致', async () => {
+  it('pure=true 走 by-file-node API：不带 versionId，档位参数透传一致；外挂位图烧录参数正常透传（工单 04）', async () => {
     localStorage.setItem('jcloud.player.bitrateTier', '2000-720')
     await loadPlaybackConfig()
     const { session, itemId } = createSession(
       { effectiveBitRate: '5000000' },
-      // 纯播放下即使烧录参数携带 externalSubtitleId 也不下发（外挂字幕链路工单 04 补齐）
+      // 纯播放选中外挂位图字幕：烧录参数（字幕文件节点 ID）原样下发到 by-file-node 端点
       { pure: true, getBurnInParams: () => ({ externalSubtitleId: 'ext-1' }) },
     )
     itemId.value = 'fn-1'
@@ -293,7 +293,7 @@ describe('useTranscodeSession 纯播放建会话分流', () => {
     expect(mocks.createTranscodeSessionByFileNode).toHaveBeenCalledWith('fn-1', 30_000,
       expect.objectContaining({ targetBitrateKbps: 2000, maxHeight: 720 }))
     const optionsArg = mocks.createTranscodeSessionByFileNode.mock.calls[0][2] as Record<string, unknown>
-    expect(optionsArg.externalSubtitleId).toBeUndefined()
+    expect(optionsArg.externalSubtitleId).toBe('ext-1')
     // 会话生命周期不受影响：心跳照常、转码激活、基线为起点
     expect(mocks.transcodeHeartbeat).not.toHaveBeenCalled()
     expect(session.transcodeActive.value).toBe(true)

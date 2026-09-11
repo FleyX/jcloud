@@ -1,32 +1,17 @@
 package com.fleyx.jcloud.service.support;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.fleyx.jcloud.common.constant.FileNodeConstants;
-import com.fleyx.jcloud.common.enums.ResultCode;
-import com.fleyx.jcloud.common.exception.BusinessException;
-import com.fleyx.jcloud.common.exception.SystemException;
-import com.fleyx.jcloud.config.MediaProperties;
 import com.fleyx.jcloud.mapper.FileMapper;
 import com.fleyx.jcloud.mapper.MediaSubtitleMapper;
 import com.fleyx.jcloud.model.bo.MediaProbeResult;
 import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.po.MediaSubtitle;
 import com.fleyx.jcloud.model.vo.MediaSubtitleItemVo;
-import com.fleyx.jcloud.service.RemoteFileService;
-import com.fleyx.jcloud.service.SystemStorageSpaceProvider;
 import com.fleyx.jcloud.util.MediaSubtitleNameParser;
-import com.fleyx.jcloud.util.SubtitleCharsetUtil;
-import com.fleyx.jcloud.util.WebVttOffsetUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -35,30 +20,21 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.TimeUnit;
 
 /**
- * 外部字幕支撑组件：扫描关联重建、播放字幕列表组装、字幕读取与转 webvtt。
+ * 外部字幕支撑组件：扫描关联重建、播放字幕列表组装（含纯播放实时探测外挂字幕）。
  * <p>
  * issue #19 起字幕关联对象从旧媒体条目改到文件明细行：file_id 指向
  * t_media_movie_file / t_media_episode_file 明细行或 t_media_other 行（其他库无明细表）。
+ * 字幕读取/转 webvtt/偏移缓存见 {@link MediaSubtitleConvertSupport}。
  */
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class MediaSubtitleSupport {
 
-    /**
-     * 字幕缓存目录（系统空间下），播放链路字幕提取/转换与外部字幕缓存共用（票据 10 起单一定义）。
-     */
-    public static final String SUBTITLE_CACHE_DIR = "media/subtitles";
-    private static final String FORMAT_VTT = "vtt";
-
     private final MediaSubtitleMapper mediaSubtitleMapper;
     private final FileMapper fileMapper;
-    private final MediaProperties mediaProperties;
-    private final RemoteFileService remoteFileService;
-    private final SystemStorageSpaceProvider systemStorageSpaceProvider;
 
     /**
      * 文件明细行引用（扫描重建字幕关联的入参）：明细行 ID + 锚定的视频文件节点 ID。
@@ -145,27 +121,74 @@ public class MediaSubtitleSupport {
             }
             String videoMainName = MediaSubtitleNameParser.mainNameOf(video.getName());
             for (FileNode sub : subtitlesByParent.getOrDefault(video.getParentId(), List.of())) {
-                if ("idx".equals(MediaSubtitleNameParser.extensionOf(sub.getName()))
-                        && !subMainsByParent.getOrDefault(video.getParentId(), Set.of())
-                                .contains(MediaSubtitleNameParser.mainNameOf(sub.getName()))) {
-                    // .idx 缺同目录同主名的 .sub 时跳过（.sub 永远不产生关联，亦回避 MicroDVD 同名嗅探）
-                    continue;
+                MediaSubtitle record = matchExternalSubtitle(videoMainName, ref.fileRowId(), sub,
+                        subMainsByParent.getOrDefault(video.getParentId(), Set.of()));
+                if (record != null) {
+                    desired.put(associationKey(ref.fileRowId(), sub.getId()), record);
                 }
-                MediaSubtitleNameParser.SubtitleNameMatch match =
-                        MediaSubtitleNameParser.parse(videoMainName, sub.getName());
-                if (match == null) {
-                    continue;
-                }
-                MediaSubtitle record = new MediaSubtitle();
-                record.setFileId(ref.fileRowId());
-                record.setFileNodeId(sub.getId());
-                record.setFormat(match.format());
-                record.setLabel(match.label());
-                record.setIsDefault(match.defaulted());
-                desired.put(associationKey(ref.fileRowId(), sub.getId()), record);
             }
         }
         return desired;
+    }
+
+    /**
+     * 单视频 × 同目录候选字幕的匹配（扫描重建与纯播放实时探测共用的唯一规则实现）：
+     * .idx 必须同目录同主名 .sub 成对（缺则跳过），主名/前缀匹配与 format/label/default 解析走
+     * MediaSubtitleNameParser.parse。命中返回合成记录（fileId/fileNodeId/format/label/isDefault），
+     * 未命中返回 null。
+     */
+    private MediaSubtitle matchExternalSubtitle(String videoMainName, String fileRowId, FileNode sub,
+                                                Set<String> subMainsInParent) {
+        if ("idx".equals(MediaSubtitleNameParser.extensionOf(sub.getName()))
+                && !subMainsInParent.contains(MediaSubtitleNameParser.mainNameOf(sub.getName()))) {
+            // .idx 缺同目录同主名的 .sub 时跳过（.sub 永远不产生关联，亦回避 MicroDVD 同名嗅探）
+            return null;
+        }
+        MediaSubtitleNameParser.SubtitleNameMatch match =
+                MediaSubtitleNameParser.parse(videoMainName, sub.getName());
+        if (match == null) {
+            return null;
+        }
+        MediaSubtitle record = new MediaSubtitle();
+        record.setFileId(fileRowId);
+        record.setFileNodeId(sub.getId());
+        record.setFormat(match.format());
+        record.setLabel(match.label());
+        record.setIsDefault(match.defaulted());
+        return record;
+    }
+
+    /**
+     * 纯播放实时探测外挂字幕（工单 04）：不依赖扫描入库的关联数据，查视频同父目录全部文件节点，
+     * 套用与扫描重建同款的前缀匹配规则，返回合成记录（不持久化）。
+     * 纯播放语义下 fileRowId=fileNodeId（与 resolvePurePlayable 约定一致）。
+     *
+     * @param video 视频文件节点
+     * @return 命中外挂字幕的合成记录列表
+     */
+    public List<MediaSubtitle> detectExternalSubtitles(FileNode video) {
+        List<FileNode> siblings = fileMapper.selectList(new LambdaQueryWrapper<FileNode>()
+                .eq(FileNode::getParentId, video.getParentId())
+                .eq(FileNode::getType, "file"));
+        List<FileNode> candidates = new ArrayList<>();
+        Set<String> subMains = new HashSet<>();
+        for (FileNode node : siblings) {
+            if (MediaSubtitleNameParser.isSubtitleFile(node.getName())
+                    || MediaSubtitleNameParser.isBitmapSubtitleFile(node.getName())) {
+                candidates.add(node);
+            } else if ("sub".equals(MediaSubtitleNameParser.extensionOf(node.getName()))) {
+                subMains.add(MediaSubtitleNameParser.mainNameOf(node.getName()));
+            }
+        }
+        List<MediaSubtitle> detected = new ArrayList<>();
+        String videoMainName = MediaSubtitleNameParser.mainNameOf(video.getName());
+        for (FileNode sub : candidates) {
+            MediaSubtitle record = matchExternalSubtitle(videoMainName, video.getId(), sub, subMains);
+            if (record != null) {
+                detected.add(record);
+            }
+        }
+        return detected;
     }
 
     /**
@@ -186,17 +209,7 @@ public class MediaSubtitleSupport {
      * @return 统一字幕列表
      */
     public List<MediaSubtitleItemVo> buildSubtitleList(List<MediaProbeResult.Track> subtitleTracks, String fileRowId) {
-        List<MediaSubtitleItemVo> result = new ArrayList<>();
-        for (MediaProbeResult.Track track : subtitleTracks) {
-            MediaSubtitleItemVo vo = new MediaSubtitleItemVo();
-            vo.setType("embedded");
-            vo.setIndex(track.index());
-            vo.setLanguage(track.language());
-            vo.setDefaulted(track.defaulted());
-            vo.setBitmap(!MediaProbeSupport.isTextSubtitle(track.codec()));
-            vo.setLabel(embeddedLabel(track));
-            result.add(vo);
-        }
+        List<MediaSubtitleItemVo> result = buildEmbeddedSubtitleItems(subtitleTracks);
         List<MediaSubtitle> externals = mediaSubtitleMapper.selectList(
                 new LambdaQueryWrapper<MediaSubtitle>().eq(MediaSubtitle::getFileId, fileRowId));
         externals.sort(Comparator.comparing((MediaSubtitle s) -> !Boolean.TRUE.equals(s.getIsDefault()))
@@ -208,6 +221,52 @@ public class MediaSubtitleSupport {
             vo.setDefaulted(Boolean.TRUE.equals(sub.getIsDefault()));
             vo.setBitmap(MediaSubtitleNameParser.isBitmapFormat(sub.getFormat()));
             vo.setLabel(externalLabel(sub));
+            result.add(vo);
+        }
+        return result;
+    }
+
+    /**
+     * 组装纯播放（by-file-node）的统一字幕列表：内嵌部分与 {@link #buildSubtitleList} 相同，
+     * 外挂字幕来自 {@link #detectExternalSubtitles} 实时探测（不读扫描入库的关联数据），
+     * 排序规则一致（默认优先、再按标签）；外挂项 subtitleId=字幕文件节点 ID（纯播放语义）。
+     *
+     * @param subtitleTracks 实时探测的内嵌字幕轨
+     * @param video          视频文件节点
+     * @return 统一字幕列表
+     */
+    public List<MediaSubtitleItemVo> buildPureSubtitleList(List<MediaProbeResult.Track> subtitleTracks,
+                                                           FileNode video) {
+        List<MediaSubtitleItemVo> result = buildEmbeddedSubtitleItems(subtitleTracks);
+        List<MediaSubtitle> externals = detectExternalSubtitles(video);
+        externals.sort(Comparator.comparing((MediaSubtitle s) -> !Boolean.TRUE.equals(s.getIsDefault()))
+                .thenComparing(s -> s.getLabel() == null ? "" : s.getLabel()));
+        for (MediaSubtitle sub : externals) {
+            MediaSubtitleItemVo vo = new MediaSubtitleItemVo();
+            vo.setType("external");
+            vo.setSubtitleId(sub.getFileNodeId());
+            vo.setDefaulted(Boolean.TRUE.equals(sub.getIsDefault()));
+            vo.setBitmap(MediaSubtitleNameParser.isBitmapFormat(sub.getFormat()));
+            vo.setLabel(externalLabel(sub));
+            result.add(vo);
+        }
+        return result;
+    }
+
+    /**
+     * 内嵌字幕轨列表组装（已收录/纯播放共用）：按 index 排列，language/title 拼装展示名，
+     * 位图轨（PGS/DVD/DVB 等）标注 bitmap=true。
+     */
+    private List<MediaSubtitleItemVo> buildEmbeddedSubtitleItems(List<MediaProbeResult.Track> subtitleTracks) {
+        List<MediaSubtitleItemVo> result = new ArrayList<>();
+        for (MediaProbeResult.Track track : subtitleTracks) {
+            MediaSubtitleItemVo vo = new MediaSubtitleItemVo();
+            vo.setType("embedded");
+            vo.setIndex(track.index());
+            vo.setLanguage(track.language());
+            vo.setDefaulted(track.defaulted());
+            vo.setBitmap(!MediaProbeSupport.isTextSubtitle(track.codec()));
+            vo.setLabel(embeddedLabel(track));
             result.add(vo);
         }
         return result;
@@ -237,167 +296,5 @@ public class MediaSubtitleSupport {
         FileNode node = fileMapper.selectById(sub.getFileNodeId());
         String name = node == null ? null : MediaSubtitleNameParser.mainNameOf(node.getName());
         return name == null || name.isBlank() ? "外部字幕" : name;
-    }
-
-    /**
-     * 解析外部字幕的 webvtt 文件：vtt 原样返回（远程落地缓存），srt/ass/ssa 经 ffmpeg 转换并缓存。
-     * <p>
-     * 缓存位置 {存储空间}/system/media/subtitles/ext_{fileNodeId}_{内容版本}.vtt，
-     * 内容版本优先节点 hash，缺失时回退文件大小与最后修改时间；内容变化后生成新缓存，旧缓存遗留不复用。
-     *
-     * @param subtitle  外部字幕记录
-     * @param node      字幕文件节点
-     * @param localPath 本地文件物理路径，远程文件为 null
-     * @param userId    用户 ID
-     * @return vtt 文件路径
-     */
-    public Path resolveExternalVtt(MediaSubtitle subtitle, FileNode node, Path localPath, String userId) {
-        boolean remote = FileNodeConstants.SOURCE_REMOTE.equals(node.getSourceType());
-        if (!remote && FORMAT_VTT.equals(subtitle.getFormat())) {
-            // 本地 vtt 原样返回字节，无需转换与缓存
-            return localPath;
-        }
-        Path target = Path.of(systemStorageSpaceProvider.getSystemSpace().getPath(),
-                "system", SUBTITLE_CACHE_DIR, externalCacheName(node));
-        if (Files.exists(target)) {
-            return target;
-        }
-        Path tempInput = null;
-        Path tempUtf8 = null;
-        try {
-            Files.createDirectories(target.getParent());
-            Path input = localPath;
-            if (remote) {
-                // 远程文件先落地临时文件，保证 ffmpeg 可随机访问；保留格式扩展名便于探测
-                tempInput = Files.createTempFile("jcloud-sub-ext-", "." + subtitle.getFormat());
-                try (InputStream in = remoteFileService.download(node, userId).getInputStream()) {
-                    Files.copy(in, tempInput, StandardCopyOption.REPLACE_EXISTING);
-                }
-                input = tempInput;
-            }
-            if (FORMAT_VTT.equals(subtitle.getFormat())) {
-                Files.copy(input, target, StandardCopyOption.REPLACE_EXISTING);
-                return target;
-            }
-            // srt/ass/ssa：非 UTF-8 编码先回退 GBK 转 UTF-8 再喂 ffmpeg
-            Path utf8Input = SubtitleCharsetUtil.ensureUtf8(input);
-            if (!utf8Input.equals(input)) {
-                tempUtf8 = utf8Input;
-            }
-            convertToVtt(utf8Input, target);
-            return target;
-        } catch (BusinessException | SystemException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new SystemException(ResultCode.SYSTEM_ERROR, "外部字幕读取异常", e);
-        } finally {
-            deleteQuietly(tempInput);
-            deleteQuietly(tempUtf8);
-        }
-    }
-
-    /**
-     * 从规范 VTT 生成独立偏移结果（转码会话时间轴），不改写规范缓存。
-     * 偏移结果独立缓存：ext_{fileNodeId}_{内容版本}_off{offsetMs}.vtt。
-     *
-     * @param node      字幕文件节点
-     * @param canonical 规范 VTT 路径（resolveExternalVtt 结果，可能为用户空间本地 vtt）
-     * @param offsetMs  转码会话起点（毫秒），调用方已校验非负
-     * @return 偏移后的 vtt 文件路径
-     */
-    public Path resolveOffsetVtt(FileNode node, Path canonical, long offsetMs) {
-        String base = externalCacheName(node).replace(".vtt", "") + "_off" + offsetMs;
-        Path target = Path.of(systemStorageSpaceProvider.getSystemSpace().getPath(),
-                "system", SUBTITLE_CACHE_DIR, base + ".vtt");
-        return writeOffsetVtt(canonical, target, offsetMs);
-    }
-
-    /**
-     * 从内嵌字幕规范 VTT 生成独立偏移结果，不改写规范缓存。
-     */
-    public Path resolveOffsetVtt(Path canonical, String baseName, long offsetMs) {
-        Path target = canonical.getParent().resolve(baseName + "_off" + offsetMs + ".vtt");
-        return writeOffsetVtt(canonical, target, offsetMs);
-    }
-
-    private Path writeOffsetVtt(Path canonical, Path target, long offsetMs) {
-        if (Files.exists(target)) {
-            return target;
-        }
-        try {
-            Files.createDirectories(target.getParent());
-            String content = Files.readString(canonical, StandardCharsets.UTF_8);
-            Files.writeString(target, WebVttOffsetUtil.applyOffset(content, offsetMs), StandardCharsets.UTF_8);
-            return target;
-        } catch (IOException e) {
-            throw new SystemException(ResultCode.SYSTEM_ERROR, "字幕时间偏移失败", e);
-        }
-    }
-
-    /**
-     * 外部字幕缓存文件名：ext_{fileNodeId}_{内容版本}.vtt。
-     * 内容版本优先节点 hash，缺失时回退文件大小与最后修改时间；均缺失时仅按节点 ID（旧缓存命名）。
-     * 本地与远程字幕均适用。
-     */
-    private String externalCacheName(FileNode node) {
-        StringBuilder name = new StringBuilder("ext_").append(node.getId());
-        String version = contentVersion(node);
-        if (version != null) {
-            name.append('_').append(version);
-        }
-        return name.append(".vtt").toString();
-    }
-
-    /**
-     * 文件内容版本标识：优先节点 hash（特殊字符安全化），缺失时回退文件大小与最后修改时间。
-     */
-    private String contentVersion(FileNode node) {
-        if (node.getHash() != null && !node.getHash().isBlank()) {
-            return node.getHash().replaceAll("[^a-zA-Z0-9\\-_]", "_");
-        }
-        List<String> parts = new ArrayList<>();
-        if (node.getSize() != null) {
-            parts.add("size" + node.getSize());
-        }
-        if (node.getLastModified() != null) {
-            parts.add("mtime" + node.getLastModified());
-        }
-        return parts.isEmpty() ? null : String.join("_", parts);
-    }
-
-    private void deleteQuietly(Path path) {
-        if (path != null) {
-            try {
-                Files.deleteIfExists(path);
-            } catch (Exception ignored) {
-            }
-        }
-    }
-
-    /**
-     * 用 ffmpeg 将字幕文件转为 webvtt（参照内嵌字幕提取的 120s 超时）。
-     *
-     * @param input  输入字幕文件（需为 UTF-8 编码）
-     * @param target 输出 vtt 文件
-     */
-    public void convertToVtt(Path input, Path target) {
-        try {
-            List<String> command = List.of(mediaProperties.getFfmpegPath(), "-y", "-v", "error",
-                    "-i", input.toString(), "-f", "webvtt", target.toString());
-            log.info("字幕转换 webvtt: {}", String.join(" ", command));
-            Process process = new ProcessBuilder(command).start();
-            boolean finished = process.waitFor(120, TimeUnit.SECONDS);
-            if (!finished) {
-                process.destroyForcibly();
-                throw new SystemException(ResultCode.SYSTEM_ERROR, "字幕转换超时");
-            }
-            if (process.exitValue() != 0 || !Files.exists(target)) {
-                throw new BusinessException(ResultCode.BUSINESS_ERROR, "字幕转换失败，该字幕格式可能不受支持");
-            }
-        } catch (BusinessException | SystemException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new SystemException(ResultCode.SYSTEM_ERROR, "字幕转换异常", e);
-        }
     }
 }

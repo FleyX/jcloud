@@ -14,10 +14,13 @@ import com.fleyx.jcloud.service.support.TranscodeSessionManager;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import java.io.ByteArrayInputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Instant;
 
 import static org.hamcrest.Matchers.containsInAnyOrder;
@@ -27,6 +30,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -45,6 +49,9 @@ class MediaPlaybackControllerTest {
     private final MockMvc mockMvc = MockMvcBuilders.standaloneSetup(controller)
             .setControllerAdvice(new GlobalExceptionHandler())
             .build();
+
+    @TempDir
+    Path tempDir;
 
     @BeforeEach
     void setUp() {
@@ -194,18 +201,20 @@ class MediaPlaybackControllerTest {
 
     /**
      * 纯播放转码会话端点：200、sessionId/playlistUrl 装配与已收录端点一致、
-     * service 参数透传（startMs/audioIndex/subtitleIndex/targetBitrateKbps/maxHeight/forceVideoTranscode）。
+     * service 参数透传（startMs/audioIndex/subtitleIndex/externalSubtitleId/targetBitrateKbps/maxHeight/
+     * forceVideoTranscode，工单 04 起带外挂字幕节点 ID）。
      */
     @Test
     void shouldCreateTranscodeSessionByFileNode() throws Exception {
         TranscodeSession session = new TranscodeSession("s-1", "user-1", null, null, "copy", Instant.now());
         when(mediaPlaybackService.createTranscodeSessionByFileNode(
-                "fn-1", 30_000L, 1, 2, 2_000L, 720, true, "user-1")).thenReturn(session);
+                "fn-1", 30_000L, 1, 2, "sub-1", 2_000L, 720, true, "user-1")).thenReturn(session);
 
         mockMvc.perform(post("/jcloud/api/media/files/fn-1/transcode")
                         .param("startMs", "30000")
                         .param("audioIndex", "1")
                         .param("subtitleIndex", "2")
+                        .param("externalSubtitleId", "sub-1")
                         .param("targetBitrateKbps", "2000")
                         .param("maxHeight", "720")
                         .param("forceVideoTranscode", "true"))
@@ -216,7 +225,7 @@ class MediaPlaybackControllerTest {
                         .value("/jcloud/api/media/transcode/s-1/index.m3u8"));
 
         verify(mediaPlaybackService).createTranscodeSessionByFileNode(
-                "fn-1", 30_000L, 1, 2, 2_000L, 720, true, "user-1");
+                "fn-1", 30_000L, 1, 2, "sub-1", 2_000L, 720, true, "user-1");
     }
 
     /**
@@ -226,7 +235,7 @@ class MediaPlaybackControllerTest {
     @Test
     void shouldPassthroughNotFoundForTranscodeByFileNode() throws Exception {
         when(mediaPlaybackService.createTranscodeSessionByFileNode(
-                "fn-9", 0L, null, null, null, null, false, "user-1"))
+                "fn-9", 0L, null, null, null, null, null, false, "user-1"))
                 .thenThrow(new BusinessException(ResultCode.NOT_FOUND, "文件不存在"));
 
         mockMvc.perform(post("/jcloud/api/media/files/fn-9/transcode"))
@@ -235,6 +244,42 @@ class MediaPlaybackControllerTest {
                 .andExpect(jsonPath("$.msg").value("文件不存在"));
 
         verify(mediaPlaybackService).createTranscodeSessionByFileNode(
-                "fn-9", 0L, null, null, null, null, false, "user-1");
+                "fn-9", 0L, null, null, null, null, null, false, "user-1");
+    }
+
+    /**
+     * 纯播放内嵌字幕端点（工单 04）：text/vtt + 内容装配，service 参数为文件节点 ID + 轨序号 +
+     * offsetMs + 当前用户。
+     */
+    @Test
+    void shouldReturnSubtitleByFileNode() throws Exception {
+        Path vtt = tempDir.resolve("fn-1_0.vtt");
+        Files.writeString(vtt, "WEBVTT");
+        when(mediaPlaybackService.extractSubtitleByFileNode("fn-1", 0, 30_000, "user-1")).thenReturn(vtt);
+
+        mockMvc.perform(get("/jcloud/api/media/files/fn-1/subtitles/0").param("offsetMs", "30000"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Content-Type", "text/vtt"))
+                .andExpect(content().string("WEBVTT"));
+
+        verify(mediaPlaybackService).extractSubtitleByFileNode("fn-1", 0, 30_000, "user-1");
+    }
+
+    /**
+     * 纯播放外挂字幕端点（工单 04）：subtitleFileNodeId 为外挂字幕文件节点 ID，
+     * text/vtt + 内容装配 + service 透传。
+     */
+    @Test
+    void shouldReturnExternalSubtitleByFileNode() throws Exception {
+        Path vtt = tempDir.resolve("ext_sub-1.vtt");
+        Files.writeString(vtt, "WEBVTT");
+        when(mediaPlaybackService.extractExternalSubtitleByFileNode("fn-1", "sub-1", 0, "user-1")).thenReturn(vtt);
+
+        mockMvc.perform(get("/jcloud/api/media/files/fn-1/subtitles/external/sub-1"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Content-Type", "text/vtt"))
+                .andExpect(content().string("WEBVTT"));
+
+        verify(mediaPlaybackService).extractExternalSubtitleByFileNode("fn-1", "sub-1", 0, "user-1");
     }
 }

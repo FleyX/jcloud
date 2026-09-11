@@ -58,6 +58,8 @@ export function useMediaPlayback(videoRef: Ref<HTMLVideoElement | null>) {
     currentVersionId,
     transcodeActive: transcode.transcodeActive,
     transcodeBaseMs: transcode.transcodeBaseMs,
+    // deps 为延迟求值：start 中赋值 pure 后字幕 URL 分流才生效（纯播放走 files 形态）
+    pure,
   })
 
   const showAudioGroup = computed(() => (playbackInfo.value?.audioTracks.length ?? 0) > 1)

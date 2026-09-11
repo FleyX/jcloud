@@ -7,6 +7,8 @@ import type { MediaSubtitleItem } from '@/types/media'
 const mocks = vi.hoisted(() => ({
   subtitleUrl: vi.fn(),
   externalSubtitleUrl: vi.fn(),
+  pureSubtitleUrl: vi.fn(),
+  pureExternalSubtitleUrl: vi.fn(),
 }))
 
 vi.mock('@/api/media', () => mocks)
@@ -19,20 +21,22 @@ function buildSubtitles(): MediaSubtitleItem[] {
   ]
 }
 
-function createSelection() {
+function createSelection(options: { pure?: boolean } = {}) {
   const subtitles = ref<MediaSubtitleItem[]>(buildSubtitles())
   const itemId = ref<string | null>('item-1')
   const currentVersionId = ref<string | null>(null)
   const transcodeActive = ref(false)
   const transcodeBaseMs = ref(0)
+  const pure = ref(options.pure ?? false)
   const selection = useSubtitleSelection({
     subtitles,
     itemId,
     currentVersionId,
     transcodeActive,
     transcodeBaseMs,
+    pure,
   })
-  return { selection, subtitles, itemId, currentVersionId, transcodeActive, transcodeBaseMs }
+  return { selection, subtitles, itemId, currentVersionId, transcodeActive, transcodeBaseMs, pure }
 }
 
 beforeEach(() => {
@@ -41,6 +45,8 @@ beforeEach(() => {
   resetPlaybackConfigCache()
   mocks.subtitleUrl.mockReturnValue('/sub/embedded')
   mocks.externalSubtitleUrl.mockReturnValue('/sub/external')
+  mocks.pureSubtitleUrl.mockReturnValue('/sub/pure-embedded')
+  mocks.pureExternalSubtitleUrl.mockReturnValue('/sub/pure-external')
 })
 
 describe('useSubtitleSelection 默认字幕优先级', () => {
@@ -129,6 +135,41 @@ describe('useSubtitleSelection activeSubtitle URL 构造', () => {
     selection.selectSubtitle('external:ext-zh')
     expect(selection.activeSubtitle.value?.key).toBe('external:ext-zh')
     expect(mocks.externalSubtitleUrl).toHaveBeenCalledWith('item-1', 'ext-zh', 'ver-1', 30_000)
+  })
+
+  it('纯播放（pure）：内嵌/外挂字幕 URL 走 files 形态，不带版本参数，offsetMs 透传', () => {
+    const { selection, transcodeActive, transcodeBaseMs } = createSelection({ pure: true })
+    transcodeActive.value = true
+    transcodeBaseMs.value = 45_000
+
+    selection.selectSubtitle('embedded:0')
+    expect(selection.activeSubtitle.value?.key).toBe('embedded:0')
+    expect(mocks.pureSubtitleUrl).toHaveBeenCalledWith('item-1', 0, 45_000)
+    expect(mocks.subtitleUrl).not.toHaveBeenCalled()
+
+    selection.selectSubtitle('external:ext-zh')
+    expect(selection.activeSubtitle.value?.key).toBe('external:ext-zh')
+    expect(mocks.pureExternalSubtitleUrl).toHaveBeenCalledWith('item-1', 'ext-zh', 45_000)
+    expect(mocks.externalSubtitleUrl).not.toHaveBeenCalled()
+  })
+
+  it('纯播放（pure）：直放时 offsetMs 为 0', () => {
+    const { selection } = createSelection({ pure: true })
+
+    selection.selectSubtitle('external:ext-zh')
+
+    expect(selection.activeSubtitle.value).not.toBeNull()
+    expect(mocks.pureExternalSubtitleUrl).toHaveBeenCalledWith('item-1', 'ext-zh', 0)
+  })
+
+  it('非纯播放（pure=false）不触碰纯播放 URL 函数', () => {
+    const { selection } = createSelection()
+
+    selection.selectSubtitle('embedded:0')
+    expect(selection.activeSubtitle.value?.key).toBe('embedded:0')
+    expect(mocks.subtitleUrl).toHaveBeenCalledWith('item-1', 0, undefined, 0)
+    expect(mocks.pureSubtitleUrl).not.toHaveBeenCalled()
+    expect(mocks.pureExternalSubtitleUrl).not.toHaveBeenCalled()
   })
 
   it('无条目 id、未匹配 key 或无播放源时 activeSubtitle 为 null', () => {

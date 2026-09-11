@@ -122,10 +122,7 @@ public class MediaPlaybackController {
                                                         @RequestParam(required = false) String versionId)
             throws Exception {
         Path path = mediaPlaybackService.extractSubtitle(id, index, offsetMs, UserContext.get().id(), versionId);
-        return ResponseEntity.ok()
-                .contentType(MediaType.parseMediaType("text/vtt"))
-                .contentLength(Files.size(path))
-                .body(new InputStreamResource(Files.newInputStream(path)));
+        return buildSubtitleResponse(path);
     }
 
     @GetMapping("/items/{id}/subtitles/external/{subtitleId}")
@@ -136,6 +133,40 @@ public class MediaPlaybackController {
             throws Exception {
         Path path = mediaPlaybackService.extractExternalSubtitle(
                 id, subtitleId, offsetMs, UserContext.get().id(), versionId);
+        return buildSubtitleResponse(path);
+    }
+
+    /**
+     * 纯播放模式提取内嵌字幕轨（未收录文件）：校验文件归属当前用户，提取/缓存与 items 端点共用核心。
+     */
+    @GetMapping("/files/{fileNodeId}/subtitles/{index}")
+    public ResponseEntity<InputStreamResource> subtitleByFileNode(@PathVariable String fileNodeId,
+                                                                  @PathVariable int index,
+                                                                  @RequestParam(defaultValue = "0") long offsetMs)
+            throws Exception {
+        Path path = mediaPlaybackService.extractSubtitleByFileNode(
+                fileNodeId, index, offsetMs, UserContext.get().id());
+        return buildSubtitleResponse(path);
+    }
+
+    /**
+     * 纯播放模式读取外挂字幕（未收录文件）：字幕文件节点须命中实时探测（同目录前缀匹配）且归属当前用户。
+     */
+    @GetMapping("/files/{fileNodeId}/subtitles/external/{subtitleFileNodeId}")
+    public ResponseEntity<InputStreamResource> externalSubtitleByFileNode(@PathVariable String fileNodeId,
+                                                                          @PathVariable String subtitleFileNodeId,
+                                                                          @RequestParam(defaultValue = "0")
+                                                                          long offsetMs)
+            throws Exception {
+        Path path = mediaPlaybackService.extractExternalSubtitleByFileNode(
+                fileNodeId, subtitleFileNodeId, offsetMs, UserContext.get().id());
+        return buildSubtitleResponse(path);
+    }
+
+    /**
+     * 字幕响应装配：text/vtt + 文件大小 + 文件流（items/files 端点共用）。
+     */
+    private ResponseEntity<InputStreamResource> buildSubtitleResponse(Path path) throws Exception {
         return ResponseEntity.ok()
                 .contentType(MediaType.parseMediaType("text/vtt"))
                 .contentLength(Files.size(path))
@@ -159,20 +190,21 @@ public class MediaPlaybackController {
     }
 
     /**
-     * 纯播放模式创建转码会话（未收录文件）：参数子集（无外挂字幕与版本定位），
-     * 校验文件归属当前用户；会话心跳/关闭/分片拉取端点与已收录播放共用。
+     * 纯播放模式创建转码会话（未收录文件）：参数与已收录对齐（含外挂位图字幕 externalSubtitleId，
+     * 语义=外挂字幕文件节点 ID，须实时探测命中），无版本定位；会话心跳/关闭/分片拉取端点与已收录播放共用。
      */
     @PostMapping("/files/{fileNodeId}/transcode")
     public R<Map<String, String>> createTranscodeByFileNode(@PathVariable String fileNodeId,
                                                             @RequestParam(defaultValue = "0") long startMs,
                                                             @RequestParam(required = false) Integer audioIndex,
                                                             @RequestParam(required = false) Integer subtitleIndex,
+                                                            @RequestParam(required = false) String externalSubtitleId,
                                                             @RequestParam(required = false) Long targetBitrateKbps,
                                                             @RequestParam(required = false) Integer maxHeight,
                                                             @RequestParam(defaultValue = "false")
                                                             boolean forceVideoTranscode) {
         TranscodeSession session = mediaPlaybackService.createTranscodeSessionByFileNode(
-                fileNodeId, startMs, audioIndex, subtitleIndex, targetBitrateKbps, maxHeight,
+                fileNodeId, startMs, audioIndex, subtitleIndex, externalSubtitleId, targetBitrateKbps, maxHeight,
                 forceVideoTranscode, UserContext.get().id());
         return R.ok(buildTranscodeSessionResult(session));
     }
