@@ -88,4 +88,9 @@ public class MediaPlaybackInfoVo {
      * 进度上报时回传该值使 last_play_file_id 记为该版本（续播定位）。
      */
     private String versionId;
+
+    /**
+     * 文件节点名（纯播放模式作标题栏展示；影视模式前端忽略）。
+     */
+    private String fileName;
 }

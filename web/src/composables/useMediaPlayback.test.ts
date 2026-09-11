@@ -6,6 +6,7 @@ import type { MediaPlaybackConfigVo, MediaPlaybackInfoVo, MediaSubtitleItem } fr
 
 const mocks = vi.hoisted(() => ({
   fetchPlaybackInfo: vi.fn(),
+  fetchPlaybackInfoByFileNode: vi.fn(),
   fetchPlaybackConfig: vi.fn(),
   createTranscodeSession: vi.fn(),
   subtitleUrl: vi.fn(),
@@ -148,6 +149,51 @@ describe('useMediaPlayback 消费播放配置（ADR 0024）', () => {
 
     expect(video.currentTime).toBe(0)
     pb.stop()
+  })
+})
+
+describe('useMediaPlayback 纯播放模式（未收录文件，零写入）', () => {
+  it('拉取走 by-file-node 接口；定时器到点/stop 均不上报进度', async () => {
+    vi.useFakeTimers()
+    try {
+      mocks.fetchPlaybackInfoByFileNode.mockResolvedValue(buildPlaybackInfo({ mode: 'direct' }))
+      const { video, pb } = createPlayback()
+
+      await pb.start('fn-1', undefined, undefined, { pure: true })
+
+      expect(mocks.fetchPlaybackInfoByFileNode).toHaveBeenCalledWith('fn-1')
+      expect(mocks.fetchPlaybackInfo).not.toHaveBeenCalled()
+      // 直放开播不受影响
+      expect(video.src).toBe('https://cdn.test/movie.mkv')
+      // 模拟 10s 定时器到点：纯播放不启动定时器，手动 reportProgress/stop 也经同一 guard 跳过
+      vi.advanceTimersByTime(30_000)
+      pb.reportProgress()
+      pb.stop()
+
+      expect(mocks.updateMediaProgress).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('纯播放后切回影视模式：拉取与进度上报恢复正常', async () => {
+    vi.useFakeTimers()
+    try {
+      mocks.fetchPlaybackInfoByFileNode.mockResolvedValue(buildPlaybackInfo({ mode: 'direct' }))
+      mocks.fetchPlaybackInfo.mockResolvedValue(buildPlaybackInfo({ mode: 'direct' }))
+      const { video, pb } = createPlayback()
+
+      await pb.start('fn-1', undefined, undefined, { pure: true })
+      await pb.start('item-1')
+
+      expect(mocks.fetchPlaybackInfo).toHaveBeenCalledWith('item-1', undefined)
+      video.currentTime = 8
+      vi.advanceTimersByTime(10_000)
+
+      expect(mocks.updateMediaProgress).toHaveBeenCalledWith('item-1', 8000, undefined)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 

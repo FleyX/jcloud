@@ -32,6 +32,16 @@ public interface MediaPlaybackService {
     MediaPlaybackInfoVo getPlaybackInfo(String itemId, String userId, String versionId);
 
     /**
+     * 纯播放模式播放信息（未收录文件直放）：以文件节点开播，文件事实全部来自实时探测，
+     * 进度恒为 0、versionId 为 null；不可直放时 mode=transcode（转码端点由后续工单补齐）。
+     *
+     * @param fileNodeId 文件节点 ID
+     * @param userId     用户 ID
+     * @return 播放信息
+     */
+    MediaPlaybackInfoVo getPlaybackInfoByFileNode(String fileNodeId, String userId);
+
+    /**
      * 直放流式读取，支持 Range。
      *
      * @param itemId      条目 ID
@@ -41,6 +51,16 @@ public interface MediaPlaybackService {
      * @return 下载结果（含实际起始位置与总大小）
      */
     MediaStreamResult stream(String itemId, String userId, String rangeHeader, String versionId);
+
+    /**
+     * 纯播放模式直放流：按文件节点读取，行为与 {@link #stream} 一致（本地 Range / 远程整段）。
+     *
+     * @param fileNodeId  文件节点 ID
+     * @param rangeHeader Range 请求头，可为空
+     * @param userId      用户 ID
+     * @return 下载结果（含实际起始位置与总大小）
+     */
+    MediaStreamResult streamByFileNode(String fileNodeId, String rangeHeader, String userId);
 
     /**
      * 提取字幕轨为 WebVTT 文件。

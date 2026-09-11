@@ -448,27 +448,26 @@ describe('useFileList', () => {
       expect(list.previewOpen.value).toBe(false)
     })
 
-    it('未收录（ApiError 404）：不跳转路由，回落打开预览弹窗', async () => {
+    it('未收录（ApiError 404）：跳转纯播放路由以文件名直放，不开预览弹窗', async () => {
       mockLookupMediaItemByFileNode.mockRejectedValue(new ApiError(404, '媒体条目不存在'))
       const video = buildFileNode({ id: 'v3', name: 'movie.mkv', mimeType: 'video/x-matroska' })
       const list = await createList([video])
 
       await list.openPreview(video)
 
-      expect(mockRouterPush).not.toHaveBeenCalled()
-      expect(list.previewOpen.value).toBe(true)
-      expect(list.previewTarget.value).toEqual(video)
+      expect(mockRouterPush).toHaveBeenCalledWith({ name: 'MediaPlayFile', params: { fileNodeId: 'v3' } })
+      expect(list.previewOpen.value).toBe(false)
     })
 
-    it('反查网络异常：同样回落预览弹窗，不二次弹错', async () => {
+    it('反查网络异常：同样跳转纯播放路由，不开预览弹窗', async () => {
       mockLookupMediaItemByFileNode.mockRejectedValue(new Error('network error'))
       const video = buildFileNode({ id: 'v4', name: 'movie.mkv', mimeType: 'video/x-matroska' })
       const list = await createList([video])
 
       await list.openPreview(video)
 
-      expect(mockRouterPush).not.toHaveBeenCalled()
-      expect(list.previewOpen.value).toBe(true)
+      expect(mockRouterPush).toHaveBeenCalledWith({ name: 'MediaPlayFile', params: { fileNodeId: 'v4' } })
+      expect(list.previewOpen.value).toBe(false)
     })
 
     it('非视频文件：直接打开预览弹窗且不调用反查', async () => {

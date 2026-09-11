@@ -264,6 +264,8 @@ export interface MediaPlaybackInfoVo {
   progressMs: number
   /** 本次解析使用的文件明细行 ID（电影为版本 ID），播放/进度上报据此定位版本；续播缺省解析时也可能为 null */
   versionId?: string
+  /** 文件节点名（纯播放模式作标题栏展示；影视模式忽略） */
+  fileName?: string | null
 }
 
 export interface TmdbSearchResultVo {

@@ -154,6 +154,13 @@ export function fetchPlaybackInfo(id: string, versionId?: string): Promise<Media
 }
 
 /**
+ * 纯播放模式拉取播放信息（未收录文件）：以文件节点开播，进度恒为 0、对媒体数据零写入。
+ */
+export function fetchPlaybackInfoByFileNode(fileNodeId: string): Promise<MediaPlaybackInfoVo> {
+  return get<MediaPlaybackInfoVo>(`/media/files/${fileNodeId}/playback`)
+}
+
+/**
  * 转码会话可选参数
  */
 export interface TranscodeSessionOptions {

@@ -2,7 +2,11 @@ package com.fleyx.jcloud.controller;
 
 import com.fleyx.jcloud.common.context.CurrentUser;
 import com.fleyx.jcloud.common.context.UserContext;
+import com.fleyx.jcloud.common.enums.ResultCode;
+import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.common.exception.GlobalExceptionHandler;
+import com.fleyx.jcloud.model.bo.FileDownloadResult;
+import com.fleyx.jcloud.model.vo.MediaPlaybackInfoVo;
 import com.fleyx.jcloud.service.MediaPlaybackService;
 import com.fleyx.jcloud.service.support.PlaybackConfigConstants;
 import com.fleyx.jcloud.service.support.TranscodeSessionManager;
@@ -12,11 +16,15 @@ import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
+import java.io.ByteArrayInputStream;
+
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -96,5 +104,88 @@ class MediaPlaybackControllerTest {
                 .andExpect(jsonPath("$.data.remux.audioCopyCodecs",
                         containsInAnyOrder("aac", "mp3")))
                 .andExpect(jsonPath("$.data.finishedRatio").value(0.95));
+    }
+
+    /**
+     * 纯播放播放信息端点：200、字段透传、service 参数为文件节点 ID + 当前用户。
+     */
+    @Test
+    void shouldReturnPlaybackInfoByFileNode() throws Exception {
+        MediaPlaybackInfoVo vo = new MediaPlaybackInfoVo();
+        vo.setMode("direct");
+        vo.setDirectUrl("/jcloud/api/media/files/fn-1/stream");
+        vo.setDurationMs(3_600_000L);
+        vo.setProgressMs(0L);
+        vo.setFileName("movie.mp4");
+        when(mediaPlaybackService.getPlaybackInfoByFileNode("fn-1", "user-1")).thenReturn(vo);
+
+        mockMvc.perform(get("/jcloud/api/media/files/fn-1/playback"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.mode").value("direct"))
+                .andExpect(jsonPath("$.data.directUrl").value("/jcloud/api/media/files/fn-1/stream"))
+                .andExpect(jsonPath("$.data.fileName").value("movie.mp4"))
+                .andExpect(jsonPath("$.data.progressMs").value(0))
+                .andExpect(jsonPath("$.data.versionId").value(nullValue()));
+
+        verify(mediaPlaybackService).getPlaybackInfoByFileNode("fn-1", "user-1");
+    }
+
+    /**
+     * 纯播放播放信息端点：service 抛 BusinessException(404) 时透传到响应体 code。
+     */
+    @Test
+    void shouldPassthroughNotFoundForPlaybackInfoByFileNode() throws Exception {
+        when(mediaPlaybackService.getPlaybackInfoByFileNode("fn-9", "user-1"))
+                .thenThrow(new BusinessException(ResultCode.NOT_FOUND, "文件不存在"));
+
+        mockMvc.perform(get("/jcloud/api/media/files/fn-9/playback"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(404))
+                .andExpect(jsonPath("$.msg").value("文件不存在"));
+    }
+
+    /**
+     * 纯播放直放流端点：Range 请求装配 206/Content-Range/Accept-Ranges/inline 文件名，
+     * service 参数为文件节点 ID + Range 头 + 当前用户。
+     */
+    @Test
+    void shouldReturnPartialContentForStreamByFileNode() throws Exception {
+        FileDownloadResult download = new FileDownloadResult(
+                "movie.mp4", new ByteArrayInputStream(new byte[100]), "video/mp4", 100L);
+        MediaPlaybackService.MediaStreamResult result =
+                new MediaPlaybackService.MediaStreamResult(download, 0L, 99L, 100L, "movie.mp4");
+        when(mediaPlaybackService.streamByFileNode("fn-1", "bytes=0-99", "user-1")).thenReturn(result);
+
+        mockMvc.perform(get("/jcloud/api/media/files/fn-1/stream").header("Range", "bytes=0-99"))
+                .andExpect(status().isPartialContent())
+                .andExpect(header().string("Content-Range", "bytes 0-99/100"))
+                .andExpect(header().string("Accept-Ranges", "bytes"))
+                .andExpect(header().string("Content-Disposition", "inline; filename*=UTF-8''movie.mp4"))
+                .andExpect(header().longValue("Content-Length", 100));
+
+        verify(mediaPlaybackService).streamByFileNode("fn-1", "bytes=0-99", "user-1");
+    }
+
+    /**
+     * 纯播放直放流端点：无 Range 时整段 200 返回；service 抛 BusinessException(404) 透传响应体 code。
+     */
+    @Test
+    void shouldReturnOkStreamAndPassthroughNotFound() throws Exception {
+        FileDownloadResult download = new FileDownloadResult(
+                "movie.mp4", new ByteArrayInputStream(new byte[100]), "video/mp4", 100L);
+        MediaPlaybackService.MediaStreamResult result =
+                new MediaPlaybackService.MediaStreamResult(download, null, null, 100L, "movie.mp4");
+        when(mediaPlaybackService.streamByFileNode("fn-1", null, "user-1")).thenReturn(result);
+
+        mockMvc.perform(get("/jcloud/api/media/files/fn-1/stream"))
+                .andExpect(status().isOk())
+                .andExpect(header().longValue("Content-Length", 100));
+
+        when(mediaPlaybackService.streamByFileNode("fn-9", null, "user-1"))
+                .thenThrow(new BusinessException(ResultCode.NOT_FOUND, "文件不存在"));
+        mockMvc.perform(get("/jcloud/api/media/files/fn-9/stream"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(404));
     }
 }

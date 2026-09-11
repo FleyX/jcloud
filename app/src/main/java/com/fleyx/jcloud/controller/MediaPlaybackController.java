@@ -64,12 +64,40 @@ public class MediaPlaybackController {
         return R.ok(mediaPlaybackService.getPlaybackInfo(id, UserContext.get().id(), versionId));
     }
 
+    /**
+     * 纯播放模式播放信息（未收录文件）：以文件节点开播，进度恒为 0，对媒体数据零写入。
+     */
+    @GetMapping("/files/{fileNodeId}/playback")
+    public R<MediaPlaybackInfoVo> playbackInfoByFileNode(@PathVariable String fileNodeId) {
+        return R.ok(mediaPlaybackService.getPlaybackInfoByFileNode(fileNodeId, UserContext.get().id()));
+    }
+
     @GetMapping("/items/{id}/stream")
     public ResponseEntity<InputStreamResource> stream(@PathVariable String id,
                                                       @RequestHeader(value = "Range", required = false) String range,
                                                       @RequestParam(required = false) String versionId) {
         MediaPlaybackService.MediaStreamResult result =
                 mediaPlaybackService.stream(id, UserContext.get().id(), range, versionId);
+        return buildStreamResponse(result);
+    }
+
+    /**
+     * 纯播放模式直放流（未收录文件）：Range/Content-Range 装配与影视模式直放流一致。
+     */
+    @GetMapping("/files/{fileNodeId}/stream")
+    public ResponseEntity<InputStreamResource> streamByFileNode(@PathVariable String fileNodeId,
+                                                                @RequestHeader(value = "Range", required = false)
+                                                                String range) {
+        MediaPlaybackService.MediaStreamResult result =
+                mediaPlaybackService.streamByFileNode(fileNodeId, range, UserContext.get().id());
+        return buildStreamResponse(result);
+    }
+
+    /**
+     * 直放流响应装配：本地 Range → 206 + Content-Range，远程整段 → 200；
+     * 均带 Accept-Ranges 与 inline 文件名头。
+     */
+    private ResponseEntity<InputStreamResource> buildStreamResponse(MediaPlaybackService.MediaStreamResult result) {
         FileDownloadResult download = result.downloadResult();
         String encodedName = URLEncoder.encode(result.fileName(), StandardCharsets.UTF_8).replace("+", "%20");
         ResponseEntity.BodyBuilder builder;

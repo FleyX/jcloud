@@ -118,6 +118,8 @@ permissions:
       - { code: "GET:/jcloud/api/media/items/{id}/playback", name: "获取播放信息" }
       - { code: "GET:/jcloud/api/media/items/by-file-node/{fileNodeId}", name: "按文件节点反查媒体条目" }
       - { code: "GET:/jcloud/api/media/items/{id}/stream", name: "直放媒体流" }
+      - { code: "GET:/jcloud/api/media/files/{fileNodeId}/playback", name: "纯播放获取播放信息" }
+      - { code: "GET:/jcloud/api/media/files/{fileNodeId}/stream", name: "纯播放直放媒体流" }
       - { code: "GET:/jcloud/api/media/items/{id}/subtitles/{index}", name: "提取字幕" }
       - { code: "POST:/jcloud/api/media/items/{id}/transcode", name: "创建转码会话" }
       - { code: "GET:/jcloud/api/media/transcode/{sessionId}/{fileName}", name: "获取转码文件" }

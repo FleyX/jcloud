@@ -25,11 +25,11 @@ vi.mock('@/composables/usePlayerControls', () => ({
   usePlayerControls: mocks.usePlayerControls,
 }))
 
-function buildPlaybackMock() {
+function buildPlaybackMock(overrides: { playbackInfo?: unknown } = {}) {
   return {
     loading: ref(false),
     errorMsg: ref(''),
-    playbackInfo: ref(null),
+    playbackInfo: ref(overrides.playbackInfo ?? null),
     currentVersionId: ref(null),
     audioIndex: ref(null),
     subtitleKey: ref(null),
@@ -105,5 +105,43 @@ describe('MediaPlayPage 任意区域唤醒控制栏', () => {
     expect(wake).toHaveBeenCalled()
     expect(toggleControls).not.toHaveBeenCalled()
     expect(controlsVisible.value).toBe(true)
+  })
+})
+
+describe('MediaPlayPage 纯播放模式', () => {
+  it('纯播放路由：不拉详情/选集，以文件节点开播，标题显示 fileName', async () => {
+    vi.clearAllMocks()
+    const playbackMock = buildPlaybackMock({ playbackInfo: { fileName: 'home-video.mp4' } })
+    mocks.useMediaPlayback.mockReturnValue(playbackMock)
+    mocks.usePlayerControls.mockReturnValue({
+      controlsVisible: ref(false),
+      wake: vi.fn(),
+      toggleControls: vi.fn(),
+    })
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/media/play/file/:fileNodeId', name: 'MediaPlayFile', component: MediaPlayPage }],
+    })
+    await router.push('/media/play/file/fn-1')
+    await router.isReady()
+    const wrapper = mount(MediaPlayPage, {
+      global: {
+        plugins: [router],
+        stubs: { PlayerControlBar: true },
+      },
+    })
+    await flushPromises()
+
+    // 纯播放对媒体数据零写入：不发起详情/选集请求
+    expect(mocks.fetchItemDetail).not.toHaveBeenCalled()
+    expect(mocks.fetchMediaEpisodes).not.toHaveBeenCalled()
+    expect(playbackMock.start).toHaveBeenCalledWith('fn-1', undefined, undefined, { pure: true })
+    // 标题栏显示文件名
+    expect(wrapper.text()).toContain('home-video.mp4')
+    // 控制栏不展示选集/版本入口
+    const controlBar = wrapper.findComponent({ name: 'PlayerControlBar' })
+    expect(controlBar.props('isEpisode')).toBe(false)
+    expect(controlBar.props('versions')).toEqual([])
   })
 })

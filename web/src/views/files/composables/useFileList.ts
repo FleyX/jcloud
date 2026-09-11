@@ -267,7 +267,7 @@ export function useFileList(options: UseFileListOptions = {}) {
 
   /**
    * 打开文件：视频文件先反查媒体收录，已收录跳转影视独立播放页（携带 versionId 时从点击的文件起播）；
-   * 未收录（404）或反查失败回落现有预览弹窗；非视频类型维持原弹窗行为。
+   * 未收录或反查失败跳转纯播放页以文件名直放（对媒体数据零写入）；非视频类型维持原弹窗行为。
    */
   async function openPreview(file: FileNodeVo) {
     if (file.type !== 'file') return
@@ -281,7 +281,9 @@ export function useFileList(options: UseFileListOptions = {}) {
         })
         return
       } catch {
-        // 未收录或反查失败：回落现有预览弹窗
+        // 未收录或反查失败：统一进纯播放模式直放
+        router.push({ name: 'MediaPlayFile', params: { fileNodeId: file.id } })
+        return
       }
     }
     previewTarget.value = file
