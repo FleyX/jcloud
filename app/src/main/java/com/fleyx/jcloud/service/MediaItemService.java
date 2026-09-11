@@ -7,6 +7,7 @@ import com.fleyx.jcloud.model.dto.MediaProgressUpdateDto;
 import com.fleyx.jcloud.model.dto.MediaWatchedUpdateDto;
 import com.fleyx.jcloud.model.vo.MediaGenreVo;
 import com.fleyx.jcloud.model.vo.MediaItemDetailVo;
+import com.fleyx.jcloud.model.vo.MediaItemLookupVo;
 import com.fleyx.jcloud.model.vo.MediaItemVo;
 import com.fleyx.jcloud.model.vo.MediaSearchResultVo;
 import com.fleyx.jcloud.model.vo.MediaSeriesDetailVo;
@@ -125,14 +126,14 @@ public interface MediaItemService {
     List<MediaItemVo> listSeasonEpisodes(String seriesId, String seasonId, String userId);
 
     /**
-     * 按文件节点 ID 反查媒体条目 ID。
+     * 按文件节点 ID 反查媒体条目。
      *
      * @param fileNodeId 文件节点 ID
      * @param userId     用户 ID
-     * @return 媒体条目 ID
+     * @return 反查视图（条目 ID + 版本明细行 ID，命中其他行时版本 ID 为 null）
      * @throws BusinessException 未找到时抛出
      */
-    String getItemIdByFileNodeId(String fileNodeId, String userId);
+    MediaItemLookupVo getItemIdByFileNodeId(String fileNodeId, String userId);
 
     /**
      * 聚合媒体库类型列表（类型页）。

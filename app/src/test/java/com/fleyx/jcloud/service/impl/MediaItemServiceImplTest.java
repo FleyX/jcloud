@@ -17,6 +17,7 @@ import com.fleyx.jcloud.model.po.MediaMovie;
 import com.fleyx.jcloud.model.po.MediaMovieFile;
 import com.fleyx.jcloud.model.po.MediaOther;
 import com.fleyx.jcloud.model.po.MediaSeries;
+import com.fleyx.jcloud.model.vo.MediaItemLookupVo;
 import com.fleyx.jcloud.service.TmdbService;
 import com.fleyx.jcloud.service.support.MediaGenreSupport;
 import com.fleyx.jcloud.service.support.MediaMovieQuerySupport;
@@ -28,6 +29,7 @@ import com.fleyx.jcloud.service.support.MediaWatchedWriteSupport;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -64,7 +66,7 @@ class MediaItemServiceImplTest {
             mediaWatchedWriteSupport);
 
     /**
-     * 按文件节点 ID 反查：其他库文件命中 other 行时返回 other 行 ID。
+     * 按文件节点 ID 反查：其他库文件命中 other 行时返回 other 行 ID，无版本明细。
      */
     @Test
     void shouldReturnOtherIdByFileNodeId() {
@@ -74,13 +76,14 @@ class MediaItemServiceImplTest {
         other.setUserId("user-1");
         when(mediaOtherMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(other);
 
-        String id = mediaItemService.getItemIdByFileNodeId("fn-1", "user-1");
+        MediaItemLookupVo vo = mediaItemService.getItemIdByFileNodeId("fn-1", "user-1");
 
-        assertEquals("other-1", id);
+        assertEquals("other-1", vo.getItemId());
+        assertNull(vo.getVersionId());
     }
 
     /**
-     * 按文件节点 ID 反查：电影文件明细命中时返回电影标题级 ID（多版本共享）。
+     * 按文件节点 ID 反查：电影文件明细命中时返回电影标题级 ID（多版本共享）与电影文件明细行 ID。
      */
     @Test
     void shouldReturnMovieIdByFileNodeId() {
@@ -94,13 +97,14 @@ class MediaItemServiceImplTest {
         when(mediaMovieFileMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(movieFile);
         when(mediaMovieMapper.selectById("movie-1")).thenReturn(movie);
 
-        String id = mediaItemService.getItemIdByFileNodeId("fn-movie", "user-1");
+        MediaItemLookupVo vo = mediaItemService.getItemIdByFileNodeId("fn-movie", "user-1");
 
-        assertEquals("movie-1", id);
+        assertEquals("movie-1", vo.getItemId());
+        assertEquals("movie-file-1", vo.getVersionId());
     }
 
     /**
-     * 按文件节点 ID 反查：集文件明细命中时返回集标题级 ID。
+     * 按文件节点 ID 反查：集文件明细命中时返回集标题级 ID 与集文件明细行 ID。
      */
     @Test
     void shouldReturnEpisodeIdByFileNodeId() {
@@ -118,9 +122,10 @@ class MediaItemServiceImplTest {
         when(mediaEpisodeMapper.selectById("episode-1")).thenReturn(episode);
         when(mediaSeriesMapper.selectById("series-1")).thenReturn(series);
 
-        String id = mediaItemService.getItemIdByFileNodeId("fn-ep", "user-1");
+        MediaItemLookupVo vo = mediaItemService.getItemIdByFileNodeId("fn-ep", "user-1");
 
-        assertEquals("episode-1", id);
+        assertEquals("episode-1", vo.getItemId());
+        assertEquals("ep-file-1", vo.getVersionId());
     }
 
     /**

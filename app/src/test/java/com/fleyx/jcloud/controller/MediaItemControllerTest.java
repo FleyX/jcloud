@@ -11,6 +11,7 @@ import com.fleyx.jcloud.model.dto.MediaPageQueryDto;
 import com.fleyx.jcloud.model.dto.MediaProgressUpdateDto;
 import com.fleyx.jcloud.model.vo.MediaGenreVo;
 import com.fleyx.jcloud.model.vo.MediaItemDetailVo;
+import com.fleyx.jcloud.model.vo.MediaItemLookupVo;
 import com.fleyx.jcloud.model.vo.MediaItemVo;
 import com.fleyx.jcloud.model.vo.MediaSeriesDetailVo;
 import com.fleyx.jcloud.model.vo.MediaSeriesVo;
@@ -63,20 +64,24 @@ class MediaItemControllerTest {
     }
 
     /**
-     * 按文件节点 ID 反查媒体条目 ID：命中时返回条目 ID。
+     * 按文件节点 ID 反查媒体条目：命中时返回条目 ID 与版本明细行 ID。
      */
     @Test
     void shouldReturnItemIdByFileNodeId() throws Exception {
-        when(mediaItemService.getItemIdByFileNodeId(eq("fn-1"), eq("user-1"))).thenReturn("item-1");
+        MediaItemLookupVo vo = new MediaItemLookupVo();
+        vo.setItemId("item-1");
+        vo.setVersionId("version-1");
+        when(mediaItemService.getItemIdByFileNodeId(eq("fn-1"), eq("user-1"))).thenReturn(vo);
 
         mockMvc.perform(get("/jcloud/api/media/items/by-file-node/fn-1"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(200))
-                .andExpect(jsonPath("$.data").value("item-1"));
+                .andExpect(jsonPath("$.data.itemId").value("item-1"))
+                .andExpect(jsonPath("$.data.versionId").value("version-1"));
     }
 
     /**
-     * 按文件节点 ID 反查媒体条目 ID：未命中时透传业务异常。
+     * 按文件节点 ID 反查媒体条目：未命中时透传业务异常。
      */
     @Test
     void shouldReturnNotFoundWhenItemMissing() throws Exception {

@@ -387,3 +387,15 @@ export interface MediaTranscodeSessionVo {
   sessionId: string
   playlistUrl: string
 }
+
+/**
+ * 媒体收录反查视图（文件列表点击视频文件时反查是否已收录）。
+ * versionId 为命中的明细行 ID（电影文件 t_media_movie_file / 集文件 t_media_episode_file 行），
+ * 命中其他行为 null。
+ */
+export interface MediaItemLookupVo {
+  /** 条目 ID：其他行为其他行 ID，电影文件为电影行 ID，集文件为集行 ID */
+  itemId: string
+  /** 版本明细行 ID，仅电影/集文件命中时有值 */
+  versionId: string | null
+}

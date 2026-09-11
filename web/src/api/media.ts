@@ -10,6 +10,7 @@ import type {
   MediaGlobalSearchResult,
   MediaHomeVo,
   MediaItemDetailVo,
+  MediaItemLookupVo,
   MediaItemVo,
   MediaPageQuery,
   MediaPlaybackConfigVo,
@@ -78,6 +79,16 @@ export function fetchMediaOthers(query: MediaPageQuery): Promise<PageResult<Medi
  */
 export function fetchMediaGenres(directoryId: string): Promise<MediaGenreVo[]> {
   return get<MediaGenreVo[]>(`/media/libraries/${directoryId}/genres`)
+}
+
+// ---------- 收录反查 ----------
+
+/**
+ * 按文件节点 ID 反查媒体收录：已收录返回条目 ID 与版本明细行 ID（其他行 versionId 为 null），
+ * 未收录后端返回 404。silent 模式不弹全局通知，由调用方回落预览弹窗。
+ */
+export function lookupMediaItemByFileNode(fileNodeId: string): Promise<MediaItemLookupVo> {
+  return get<MediaItemLookupVo>(`/media/items/by-file-node/${fileNodeId}`, undefined, { silent: true })
 }
 
 // ---------- 全局搜索 ----------
