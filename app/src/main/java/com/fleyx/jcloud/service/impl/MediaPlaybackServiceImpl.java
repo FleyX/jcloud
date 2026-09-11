@@ -81,9 +81,10 @@ public class MediaPlaybackServiceImpl implements MediaPlaybackService {
     public MediaPlaybackInfoVo getPlaybackInfoByFileNode(String fileNodeId, String userId) {
         FileNode node = requireFileNode(fileNodeId, userId);
         Playable playable = resolvePurePlayable(node);
-        // 纯播放无存档字段兜底，探测失败直接报错（strict）；转码端点为后续工单补齐，此处恒空
+        // 纯播放无存档字段兜底，探测失败直接报错（strict）；不可直放时转码端点为 files 形态
         return buildPlaybackInfo(playable, node, userId, true,
-                "/jcloud/api/media/files/" + fileNodeId + "/stream", null);
+                "/jcloud/api/media/files/" + fileNodeId + "/stream",
+                "/jcloud/api/media/files/" + fileNodeId + "/transcode");
     }
 
     @Override
@@ -249,6 +250,33 @@ public class MediaPlaybackServiceImpl implements MediaPlaybackService {
         Playable playable = mediaPlaybackResolveSupport.resolve(id, userId, versionId);
         FileNode node = requireFileNode(playable.fileNodeId(), userId);
         MediaProbeResult probe = probePlayableFile(node, playable, userId);
+        return createTranscodeSessionCore(playable, node, probe, startMs, audioIndex, subtitleIndex,
+                externalSubtitleId, targetBitrateKbps, maxHeight, forceVideoTranscode, userId);
+    }
+
+    @Override
+    public TranscodeSession createTranscodeSessionByFileNode(String fileNodeId, long startMs, Integer audioIndex,
+                                                             Integer subtitleIndex, Long targetBitrateKbps,
+                                                             Integer maxHeight, boolean forceVideoTranscode,
+                                                             String userId) {
+        TranscodeCommandBuilder.validateParams(targetBitrateKbps, maxHeight);
+        FileNode node = requireFileNode(fileNodeId, userId);
+        Playable playable = resolvePurePlayable(node);
+        // strict 探测：纯播放无存档字段兜底；外挂烧录传 null，resolveExternalSubtitleBurn 返回空结果
+        MediaProbeResult probe = probePlayableFileStrict(node, userId);
+        return createTranscodeSessionCore(playable, node, probe, startMs, audioIndex, subtitleIndex,
+                null, targetBitrateKbps, maxHeight, forceVideoTranscode, userId);
+    }
+
+    /**
+     * 转码会话创建核心（影视/纯播放共用）：装配外挂烧录（externalSubtitleId 为 null 时返回空结果）、
+     * 校验内嵌位图轨序号、编码取 firstNonNull(probe, playable) 兜底（纯播放 playable 全 null 天然只取 probe）、
+     * 本地装物理路径/远程装下载流后创建会话。
+     */
+    private TranscodeSession createTranscodeSessionCore(Playable playable, FileNode node, MediaProbeResult probe,
+                                                        long startMs, Integer audioIndex, Integer subtitleIndex,
+                                                        String externalSubtitleId, Long targetBitrateKbps,
+                                                        Integer maxHeight, boolean forceVideoTranscode, String userId) {
         var external = mediaBurnInSubtitleSupport.resolveExternalSubtitleBurn(
                 playable, externalSubtitleId, userId, subNode -> mediaFileStreamSupport.resolveLocalPath(subNode, userId));
         mediaBurnInSubtitleSupport.validateSubtitleIndex(probe, subtitleIndex);

@@ -9,6 +9,7 @@ import com.fleyx.jcloud.model.bo.FileDownloadResult;
 import com.fleyx.jcloud.model.vo.MediaPlaybackInfoVo;
 import com.fleyx.jcloud.service.MediaPlaybackService;
 import com.fleyx.jcloud.service.support.PlaybackConfigConstants;
+import com.fleyx.jcloud.service.support.TranscodeSession;
 import com.fleyx.jcloud.service.support.TranscodeSessionManager;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -17,6 +18,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import java.io.ByteArrayInputStream;
+import java.time.Instant;
 
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.nullValue;
@@ -24,6 +26,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -187,5 +190,51 @@ class MediaPlaybackControllerTest {
         mockMvc.perform(get("/jcloud/api/media/files/fn-9/stream"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(404));
+    }
+
+    /**
+     * 纯播放转码会话端点：200、sessionId/playlistUrl 装配与已收录端点一致、
+     * service 参数透传（startMs/audioIndex/subtitleIndex/targetBitrateKbps/maxHeight/forceVideoTranscode）。
+     */
+    @Test
+    void shouldCreateTranscodeSessionByFileNode() throws Exception {
+        TranscodeSession session = new TranscodeSession("s-1", "user-1", null, null, "copy", Instant.now());
+        when(mediaPlaybackService.createTranscodeSessionByFileNode(
+                "fn-1", 30_000L, 1, 2, 2_000L, 720, true, "user-1")).thenReturn(session);
+
+        mockMvc.perform(post("/jcloud/api/media/files/fn-1/transcode")
+                        .param("startMs", "30000")
+                        .param("audioIndex", "1")
+                        .param("subtitleIndex", "2")
+                        .param("targetBitrateKbps", "2000")
+                        .param("maxHeight", "720")
+                        .param("forceVideoTranscode", "true"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.sessionId").value("s-1"))
+                .andExpect(jsonPath("$.data.playlistUrl")
+                        .value("/jcloud/api/media/transcode/s-1/index.m3u8"));
+
+        verify(mediaPlaybackService).createTranscodeSessionByFileNode(
+                "fn-1", 30_000L, 1, 2, 2_000L, 720, true, "user-1");
+    }
+
+    /**
+     * 纯播放转码会话端点：缺省参数（startMs=0、forceVideoTranscode=false、其余 null）透传；
+     * service 抛 BusinessException(404)（文件归属他人）时透传响应体 code。
+     */
+    @Test
+    void shouldPassthroughNotFoundForTranscodeByFileNode() throws Exception {
+        when(mediaPlaybackService.createTranscodeSessionByFileNode(
+                "fn-9", 0L, null, null, null, null, false, "user-1"))
+                .thenThrow(new BusinessException(ResultCode.NOT_FOUND, "文件不存在"));
+
+        mockMvc.perform(post("/jcloud/api/media/files/fn-9/transcode"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(404))
+                .andExpect(jsonPath("$.msg").value("文件不存在"));
+
+        verify(mediaPlaybackService).createTranscodeSessionByFileNode(
+                "fn-9", 0L, null, null, null, null, false, "user-1");
     }
 }

@@ -188,6 +188,21 @@ export function createTranscodeSession(
 }
 
 /**
+ * 纯播放模式创建转码会话（未收录文件）：POST /media/files/{fileNodeId}/transcode。
+ * 参数子集：只取 audioIndex/subtitleIndex/targetBitrateKbps/maxHeight/forceVideoTranscode，
+ * 不带 versionId 与 externalSubtitleId（外挂字幕链路工单 04 补齐，后端端点不暴露该参数）。
+ */
+export function createTranscodeSessionByFileNode(
+  fileNodeId: string,
+  startMs: number,
+  options: TranscodeSessionOptions = {},
+): Promise<MediaTranscodeSessionVo> {
+  const { audioIndex, subtitleIndex, targetBitrateKbps, maxHeight, forceVideoTranscode } = options
+  return post<MediaTranscodeSessionVo>(`/media/files/${fileNodeId}/transcode`, undefined,
+    { startMs, audioIndex, subtitleIndex, targetBitrateKbps, maxHeight, forceVideoTranscode })
+}
+
+/**
  * 转码会话心跳：播放页打开期间每 5s 一次，超时未心跳后端自动回收会话。
  * 原生 fetch 静默失败（如服务重启会话已回收属正常），不走统一异常提示。
  * 同源请求自动携带 cookie 鉴权。

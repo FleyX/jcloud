@@ -155,10 +155,36 @@ public class MediaPlaybackController {
         TranscodeSession session = mediaPlaybackService.createTranscodeSession(
                 id, startMs, audioIndex, subtitleIndex, externalSubtitleId, targetBitrateKbps, maxHeight,
                 forceVideoTranscode, UserContext.get().id(), versionId);
+        return R.ok(buildTranscodeSessionResult(session));
+    }
+
+    /**
+     * 纯播放模式创建转码会话（未收录文件）：参数子集（无外挂字幕与版本定位），
+     * 校验文件归属当前用户；会话心跳/关闭/分片拉取端点与已收录播放共用。
+     */
+    @PostMapping("/files/{fileNodeId}/transcode")
+    public R<Map<String, String>> createTranscodeByFileNode(@PathVariable String fileNodeId,
+                                                            @RequestParam(defaultValue = "0") long startMs,
+                                                            @RequestParam(required = false) Integer audioIndex,
+                                                            @RequestParam(required = false) Integer subtitleIndex,
+                                                            @RequestParam(required = false) Long targetBitrateKbps,
+                                                            @RequestParam(required = false) Integer maxHeight,
+                                                            @RequestParam(defaultValue = "false")
+                                                            boolean forceVideoTranscode) {
+        TranscodeSession session = mediaPlaybackService.createTranscodeSessionByFileNode(
+                fileNodeId, startMs, audioIndex, subtitleIndex, targetBitrateKbps, maxHeight,
+                forceVideoTranscode, UserContext.get().id());
+        return R.ok(buildTranscodeSessionResult(session));
+    }
+
+    /**
+     * 转码会话响应装配：sessionId + 播放列表地址（hls.js/Safari 原生 HLS 拉流共用）。
+     */
+    private Map<String, String> buildTranscodeSessionResult(TranscodeSession session) {
         Map<String, String> result = new HashMap<>();
         result.put("sessionId", session.id());
         result.put("playlistUrl", "/jcloud/api/media/transcode/" + session.id() + "/index.m3u8");
-        return R.ok(result);
+        return result;
     }
 
     /**

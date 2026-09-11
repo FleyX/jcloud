@@ -107,6 +107,25 @@ public interface MediaPlaybackService {
                                             boolean forceVideoTranscode, String userId, String versionId);
 
     /**
+     * 纯播放模式创建转码会话（未收录文件）：以文件节点开播，校验文件归属当前用户，
+     * 文件事实全部来自实时探测（strict，无存档字段可兜底）；参数语义与 {@link #createTranscodeSession} 一致，
+     * 但不支持外挂字幕（externalSubtitleId 固定为 null，工单 04 补齐）与版本定位。
+     *
+     * @param fileNodeId          文件节点 ID
+     * @param startMs             起始位置（毫秒）
+     * @param audioIndex          音轨序号，可为 null
+     * @param subtitleIndex       内嵌位图字幕轨序号，可为 null（携带时强制视频转码，烧录进画面；文本轨与非法序号拒绝）
+     * @param targetBitrateKbps   目标视频码率上限 kbps，可为 null（存在时视频强制转码并限码率）
+     * @param maxHeight           分辨率高度上限（2160/1080/720/480/360），可为 null
+     * @param forceVideoTranscode 前端 MSE 不支持转封装编码时传 true，视频强制转码
+     * @param userId              用户 ID
+     * @return 转码会话
+     */
+    TranscodeSession createTranscodeSessionByFileNode(String fileNodeId, long startMs, Integer audioIndex,
+                                                      Integer subtitleIndex, Long targetBitrateKbps, Integer maxHeight,
+                                                      boolean forceVideoTranscode, String userId);
+
+    /**
      * 媒体流结果。
      */
     record MediaStreamResult(FileDownloadResult downloadResult, Long rangeStart, Long rangeEnd, long totalSize,

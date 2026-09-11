@@ -45,6 +45,8 @@ export function useMediaPlayback(videoRef: Ref<HTMLVideoElement | null>) {
     errorMsg,
     sourceEpoch,
     destroyed,
+    // deps 为延迟求值：start 中赋值 pure 后建会话分流才生效（纯播放走 by-file-node 端点）
+    pure,
     // 位图烧录参数延迟求值：subtitle 在本函数稍后创建，闭包运行时才读取，无循环依赖
     getBurnInParams: () => subtitle.burnInSubtitle.value,
   })
