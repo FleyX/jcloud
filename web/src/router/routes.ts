@@ -24,6 +24,7 @@ export type RouteName =
   | 'MediaMovieDetail'
   | 'MediaSeriesDetail'
   | 'MediaPlay'
+  | 'MediaPlayFile'
 
 /**
  * 公开静态路由
@@ -161,6 +162,12 @@ export const dynamicRoutes: RouteRecordRaw[] = [
   {
     path: '/media/play/:id',
     name: 'MediaPlay' as RouteName,
+    component: deviceView('media/play'),
+    meta: { resource: 'VIEW:/media', title: '播放', standalone: true },
+  },
+  {
+    path: '/media/play/file/:fileNodeId',
+    name: 'MediaPlayFile' as RouteName,
     component: deviceView('media/play'),
     meta: { resource: 'VIEW:/media', title: '播放', standalone: true },
   },

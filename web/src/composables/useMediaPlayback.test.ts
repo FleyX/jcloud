@@ -6,8 +6,10 @@ import type { MediaPlaybackConfigVo, MediaPlaybackInfoVo, MediaSubtitleItem } fr
 
 const mocks = vi.hoisted(() => ({
   fetchPlaybackInfo: vi.fn(),
+  fetchPlaybackInfoByFileNode: vi.fn(),
   fetchPlaybackConfig: vi.fn(),
   createTranscodeSession: vi.fn(),
+  createTranscodeSessionByFileNode: vi.fn(),
   subtitleUrl: vi.fn(),
   externalSubtitleUrl: vi.fn(),
   updateMediaProgress: vi.fn().mockResolvedValue(undefined),
@@ -97,6 +99,7 @@ function createPlayback() {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  localStorage.clear()
   mocks.fetchPlaybackConfig.mockResolvedValue(buildPlaybackConfig())
   resetPlaybackConfigCache()
   mocks.subtitleUrl.mockReturnValue('/sub/embedded')
@@ -147,6 +150,89 @@ describe('useMediaPlayback 消费播放配置（ADR 0024）', () => {
     await pb.start('item-1')
 
     expect(video.currentTime).toBe(0)
+    pb.stop()
+  })
+})
+
+describe('useMediaPlayback 纯播放模式（未收录文件，零写入）', () => {
+  it('拉取走 by-file-node 接口；定时器到点/stop 均不上报进度', async () => {
+    vi.useFakeTimers()
+    try {
+      mocks.fetchPlaybackInfoByFileNode.mockResolvedValue(buildPlaybackInfo({ mode: 'direct' }))
+      const { video, pb } = createPlayback()
+
+      await pb.start('fn-1', undefined, undefined, { pure: true })
+
+      expect(mocks.fetchPlaybackInfoByFileNode).toHaveBeenCalledWith('fn-1')
+      expect(mocks.fetchPlaybackInfo).not.toHaveBeenCalled()
+      // 直放开播不受影响
+      expect(video.src).toBe('https://cdn.test/movie.mkv')
+      // 模拟 10s 定时器到点：纯播放不启动定时器，手动 reportProgress/stop 也经同一 guard 跳过
+      vi.advanceTimersByTime(30_000)
+      pb.reportProgress()
+      pb.stop()
+
+      expect(mocks.updateMediaProgress).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('纯播放后切回影视模式：拉取与进度上报恢复正常', async () => {
+    vi.useFakeTimers()
+    try {
+      mocks.fetchPlaybackInfoByFileNode.mockResolvedValue(buildPlaybackInfo({ mode: 'direct' }))
+      mocks.fetchPlaybackInfo.mockResolvedValue(buildPlaybackInfo({ mode: 'direct' }))
+      const { video, pb } = createPlayback()
+
+      await pb.start('fn-1', undefined, undefined, { pure: true })
+      await pb.start('item-1')
+
+      expect(mocks.fetchPlaybackInfo).toHaveBeenCalledWith('item-1', undefined)
+      video.currentTime = 8
+      vi.advanceTimersByTime(10_000)
+
+      expect(mocks.updateMediaProgress).toHaveBeenCalledWith('item-1', 8000, undefined)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('纯播放选中限码率档位：走 by-file-node 建会话（不带 versionId），档位参数透传', async () => {
+    mocks.fetchPlaybackInfoByFileNode.mockResolvedValue(buildPlaybackInfo({
+      mode: 'direct',
+      effectiveBitRate: '5000000',
+    }))
+    mocks.createTranscodeSessionByFileNode.mockResolvedValue({ sessionId: 's1', playlistUrl: '/hls/p.m3u8' })
+    const { pb } = createPlayback()
+
+    await pb.start('fn-1', undefined, undefined, { pure: true })
+    await pb.selectBitrateTier('2000-720')
+
+    expect(mocks.createTranscodeSession).not.toHaveBeenCalled()
+    expect(mocks.createTranscodeSessionByFileNode).toHaveBeenLastCalledWith('fn-1', 0,
+      expect.objectContaining({ targetBitrateKbps: 2000, maxHeight: 720 }))
+    expect(pb.transcodeActive.value).toBe(true)
+    pb.stop()
+  })
+
+  it('纯播放切音轨：重建转码会话带 audioIndex（by-file-node 端点）', async () => {
+    mocks.fetchPlaybackInfoByFileNode.mockResolvedValue(buildPlaybackInfo({
+      mode: 'transcode',
+      audioTracks: [
+        { index: 0, codec: 'aac', language: 'ja', title: null },
+        { index: 1, codec: 'ac3', language: 'en', title: null },
+      ],
+    }))
+    mocks.createTranscodeSessionByFileNode.mockResolvedValue({ sessionId: 's1', playlistUrl: '/hls/p.m3u8' })
+    const { pb } = createPlayback()
+
+    await pb.start('fn-1', undefined, undefined, { pure: true })
+    pb.selectAudioTrack(1)
+
+    expect(mocks.createTranscodeSession).not.toHaveBeenCalled()
+    expect(mocks.createTranscodeSessionByFileNode).toHaveBeenLastCalledWith('fn-1', 0,
+      expect.objectContaining({ audioIndex: 1 }))
     pb.stop()
   })
 })
@@ -342,6 +428,72 @@ describe('useMediaPlayback 位图字幕模式切换', () => {
     expect(pb.activeSubtitle.value?.key).toBe('embedded:1')
     pb.stop()
   })
+
+  it('纯播放直放中选中位图字幕：by-file-node 强制转码并携带烧录参数（工单 04）', async () => {
+    mocks.fetchPlaybackInfoByFileNode.mockResolvedValue(buildPlaybackInfo({
+      mode: 'direct',
+      subtitles: [bitmapEmbedded],
+    }))
+    mocks.createTranscodeSessionByFileNode.mockResolvedValue({ sessionId: 's1', playlistUrl: '/hls/p.m3u8' })
+    const { video, pb } = createPlayback()
+
+    await pb.start('fn-1', undefined, undefined, { pure: true })
+    video.currentTime = 60
+    pb.selectSubtitle('embedded:2')
+
+    expect(mocks.createTranscodeSession).not.toHaveBeenCalled()
+    expect(mocks.createTranscodeSessionByFileNode).toHaveBeenCalledWith(
+      'fn-1', 60_000,
+      expect.objectContaining({ subtitleIndex: 2 }),
+    )
+    pb.stop()
+  })
+
+  it('纯播放选中外部位图字幕：by-file-node 建会话带 externalSubtitleId（字幕文件节点 ID）', async () => {
+    mocks.fetchPlaybackInfoByFileNode.mockResolvedValue(buildPlaybackInfo({
+      mode: 'direct',
+      subtitles: [bitmapExternal],
+    }))
+    mocks.createTranscodeSessionByFileNode.mockResolvedValue({ sessionId: 's1', playlistUrl: '/hls/p.m3u8' })
+    const { pb } = createPlayback()
+
+    await pb.start('fn-1', undefined, undefined, { pure: true })
+    pb.selectSubtitle('external:ext-bmp')
+
+    expect(mocks.createTranscodeSession).not.toHaveBeenCalled()
+    expect(mocks.createTranscodeSessionByFileNode).toHaveBeenCalledWith(
+      'fn-1', 0,
+      expect.objectContaining({ externalSubtitleId: 'ext-bmp' }),
+    )
+    pb.stop()
+  })
+
+  it('纯播放位图字幕切回「无」：恢复直放并从当前位置继续（工单 04）', async () => {
+    mocks.fetchPlaybackInfoByFileNode.mockResolvedValue(buildPlaybackInfo({
+      mode: 'direct',
+      subtitles: [bitmapEmbedded],
+    }))
+    mocks.createTranscodeSessionByFileNode.mockResolvedValue({ sessionId: 's1', playlistUrl: '/hls/p.m3u8' })
+    const { video, pb } = createPlayback()
+
+    await pb.start('fn-1', undefined, undefined, { pure: true })
+    video.currentTime = 30
+    pb.selectSubtitle('embedded:2')
+    await flushPromises()
+    expect(pb.transcodeActive.value).toBe(true)
+    // 烧录会话从 30s 起点重新起播（流内时间归零），绝对位置 = base(30s) + 流内时间
+    video.currentTime = 15 // 从 30s 继续播放 15s → 绝对 45s
+
+    pb.selectSubtitle(null)
+    await flushPromises()
+
+    expect(pb.transcodeActive.value).toBe(false)
+    expect(pb.transcodeBaseMs.value).toBe(0)
+    expect(video.src).toBe('https://cdn.test/movie.mkv')
+    expect(video.currentTime).toBe(45)
+    expect(mocks.closeTranscodeSession).toHaveBeenCalled()
+    pb.stop()
+  })
 })
 
 describe('useMediaPlayback 直放前解码能力探测降级', () => {
@@ -388,6 +540,26 @@ describe('useMediaPlayback 直放前解码能力探测降级', () => {
 
     expect(mocks.createTranscodeSession).not.toHaveBeenCalled()
     expect(video.src).toBe('https://cdn.test/movie.mkv')
+    pb.stop()
+  })
+
+  it('纯播放下同样成立：探测不通过（canPlayType 为空串）静默降级走 by-file-node 转码会话', async () => {
+    mocks.fetchPlaybackInfoByFileNode.mockResolvedValue(buildPlaybackInfo({
+      mode: 'direct',
+      container: 'mov',
+      videoCodec: 'hevc',
+    }))
+    mocks.createTranscodeSessionByFileNode.mockResolvedValue({ sessionId: 's1', playlistUrl: '/hls/p.m3u8' })
+    const { pb } = createPlayback()
+
+    await pb.start('fn-1', undefined, undefined, { pure: true })
+
+    // 静默降级：无任何提示、档位显示不变（默认原画）
+    expect(pb.errorMsg.value).toBe('')
+    expect(pb.bitrateTierKey.value).toBe('original')
+    expect(mocks.createTranscodeSession).not.toHaveBeenCalled()
+    expect(mocks.createTranscodeSessionByFileNode).toHaveBeenCalledWith('fn-1', 0, expect.anything())
+    expect(pb.transcodeActive.value).toBe(true)
     pb.stop()
   })
 })

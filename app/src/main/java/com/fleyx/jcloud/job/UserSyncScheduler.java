@@ -1,8 +1,6 @@
 package com.fleyx.jcloud.job;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
-import com.fleyx.jcloud.common.enums.SyncTaskStatus;
 import com.fleyx.jcloud.mapper.UserSyncConfigMapper;
 import com.fleyx.jcloud.mapper.UserSyncTaskMapper;
 import com.fleyx.jcloud.model.po.UserSyncConfig;
@@ -80,24 +78,12 @@ public class UserSyncScheduler {
 
     /**
      * 每分钟扫描滞留超过 {@link SyncTaskSupport#STALE_PENDING_MINUTES} 分钟的 PENDING 任务并重新异步投递，
-     * 自愈存量卡死任务；重发不创建新任务记录，仅重投既有任务（每次最多处理 50 条，防雪崩）。
+     * 自愈存量卡死任务；重发不创建新任务记录，仅重投既有任务。
      */
     @Scheduled(fixedRate = 60_000)
     public void redispatchStalePendingTasks() {
-        LocalDateTime staleBefore = LocalDateTime.now().minusMinutes(SyncTaskSupport.STALE_PENDING_MINUTES);
-        List<UserSyncTask> staleTasks = userSyncTaskMapper.selectList(new LambdaQueryWrapper<UserSyncTask>()
-                .eq(UserSyncTask::getStatus, SyncTaskStatus.PENDING.getValue())
-                .lt(UserSyncTask::getCreateTime, staleBefore)
-                .last("LIMIT 50"));
-        if (staleTasks.isEmpty()) {
-            return;
-        }
-        log.info("扫描到 {} 条滞留超过 {} 分钟的 PENDING 同步任务，重新投递",
-                staleTasks.size(), SyncTaskSupport.STALE_PENDING_MINUTES);
-        for (UserSyncTask task : staleTasks) {
-            log.info("重新投递滞留的 PENDING 同步任务，taskId={}, userId={}", task.getId(), task.getUserId());
-            userSyncExecutor.executeAsync(task.getId());
-        }
+        syncTaskSupport.redispatchStalePendingTasks(userSyncTaskMapper, "同步任务",
+                UserSyncTask::getUserId, userSyncExecutor::executeAsync);
     }
 
     private boolean hasRunningTask(String userId) {

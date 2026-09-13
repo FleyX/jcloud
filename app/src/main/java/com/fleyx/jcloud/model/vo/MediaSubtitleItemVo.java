@@ -20,8 +20,9 @@ public class MediaSubtitleItemVo {
     private Integer index;
 
     /**
-     * 外部字幕记录 ID（type=external 有效，embedded 为 null），
-     * 对应 GET /media/items/{id}/subtitles/external/{subtitleId}。
+     * 外部字幕 ID（type=external 有效，embedded 为 null）：
+     * 已收录播放为 t_media_subtitle 记录 ID（对应 GET /media/items/{id}/subtitles/external/{subtitleId}），
+     * 纯播放为外挂字幕文件节点 ID（对应 GET /media/files/{fileNodeId}/subtitles/external/{subtitleFileNodeId}）。
      */
     private String subtitleId;
 

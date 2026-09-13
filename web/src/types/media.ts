@@ -264,6 +264,8 @@ export interface MediaPlaybackInfoVo {
   progressMs: number
   /** 本次解析使用的文件明细行 ID（电影为版本 ID），播放/进度上报据此定位版本；续播缺省解析时也可能为 null */
   versionId?: string
+  /** 文件节点名（纯播放模式作标题栏展示；影视模式忽略） */
+  fileName?: string | null
 }
 
 export interface TmdbSearchResultVo {
@@ -386,4 +388,16 @@ export interface MediaSeriesDetailVo {
 export interface MediaTranscodeSessionVo {
   sessionId: string
   playlistUrl: string
+}
+
+/**
+ * 媒体收录反查视图（文件列表点击视频文件时反查是否已收录）。
+ * versionId 为命中的明细行 ID（电影文件 t_media_movie_file / 集文件 t_media_episode_file 行），
+ * 命中其他行为 null。
+ */
+export interface MediaItemLookupVo {
+  /** 条目 ID：其他行为其他行 ID，电影文件为电影行 ID，集文件为集行 ID */
+  itemId: string
+  /** 版本明细行 ID，仅电影/集文件命中时有值 */
+  versionId: string | null
 }

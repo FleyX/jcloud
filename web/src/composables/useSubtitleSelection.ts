@@ -8,7 +8,7 @@
  */
 import { computed, ref, type Ref } from 'vue'
 import type { MediaSubtitleItem } from '@/types/media'
-import { externalSubtitleUrl, subtitleUrl } from '@/api/media'
+import { externalSubtitleUrl, pureExternalSubtitleUrl, pureSubtitleUrl, subtitleUrl } from '@/api/media'
 
 const SUBTITLE_LANG_STORAGE_KEY = 'jcloud.player.subtitlePref'
 
@@ -41,7 +41,7 @@ export interface BurnInParams {
 export interface SubtitleSelectionDeps {
   /** 字幕列表来源（响应式，如 playbackInfo 派生 computed） */
   subtitles: Ref<MediaSubtitleItem[]>
-  /** 已加载条目的 id（字幕 URL 构造必须使用它而非路由参数） */
+  /** 已加载条目的 id（字幕 URL 构造必须使用它而非路由参数；纯播放为文件节点 ID） */
   itemId: Ref<string | null>
   /** 当前播放版本（电影为文件明细行 ID；剧集/其他为 null） */
   currentVersionId: Ref<string | null>
@@ -49,10 +49,12 @@ export interface SubtitleSelectionDeps {
   transcodeActive: Ref<boolean>
   /** 当前转码会话起点偏移（毫秒），直放时为 0 */
   transcodeBaseMs: Ref<number>
+  /** 纯播放模式标记（未收录文件）：字幕 URL 走 files 形态（无版本参数） */
+  pure: Ref<boolean>
 }
 
 export function useSubtitleSelection(deps: SubtitleSelectionDeps) {
-  const { subtitles, itemId, currentVersionId, transcodeActive, transcodeBaseMs } = deps
+  const { subtitles, itemId, currentVersionId, transcodeActive, transcodeBaseMs, pure } = deps
 
   const subtitleKey = ref<string | null>(null)
 
@@ -68,10 +70,15 @@ export function useSubtitleSelection(deps: SubtitleSelectionDeps) {
     // 转码播放的字幕时间轴相对当前转码会话起点偏移，直放使用原片时间轴（offset 0）。
     // transcodeBaseMs 可能含小数（由 currentTime*1000 换算），后端 offsetMs 为整型，必须取整
     const offsetMs = transcodeActive.value ? Math.floor(transcodeBaseMs.value) : 0
+    // 纯播放（未收录文件）走 files 形态 URL（无版本参数），已收录走 items 形态
     const src = item.type === 'embedded' && item.index !== null
-      ? subtitleUrl(id, item.index, versionId, offsetMs)
+      ? pure.value
+        ? pureSubtitleUrl(id, item.index, offsetMs)
+        : subtitleUrl(id, item.index, versionId, offsetMs)
       : item.subtitleId
-        ? externalSubtitleUrl(id, item.subtitleId, versionId, offsetMs)
+        ? pure.value
+          ? pureExternalSubtitleUrl(id, item.subtitleId, offsetMs)
+          : externalSubtitleUrl(id, item.subtitleId, versionId, offsetMs)
         : null
     return src ? { key, label: item.label, src } : null
   })

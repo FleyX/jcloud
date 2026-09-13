@@ -1,14 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ref } from 'vue'
 import { useTranscodeSession } from './useTranscodeSession'
-import { resetPlaybackConfigCache } from './usePlaybackConfig'
-import type { MediaPlaybackInfoVo } from '@/types/media'
+import { loadPlaybackConfig, resetPlaybackConfigCache } from './usePlaybackConfig'
+import type { BurnInParams } from './useSubtitleSelection'
+import type { MediaPlaybackConfigVo, MediaPlaybackInfoVo } from '@/types/media'
 
 const mocks = vi.hoisted(() => ({
   createTranscodeSession: vi.fn(),
+  createTranscodeSessionByFileNode: vi.fn(),
   closeTranscodeSession: vi.fn(),
   transcodeHeartbeat: vi.fn(),
   transcodeCloseBeaconUrl: vi.fn(),
+  fetchPlaybackConfig: vi.fn(),
 }))
 
 vi.mock('@/api/media', () => mocks)
@@ -76,7 +79,10 @@ function setBuffered(video: HTMLVideoElement, buffered: { length: number; end: (
   ;(video as unknown as { buffered: { length: number; end: () => number } }).buffered = buffered
 }
 
-function createSession(overrides: Partial<MediaPlaybackInfoVo> = {}) {
+function createSession(
+  overrides: Partial<MediaPlaybackInfoVo> = {},
+  depsOverrides: { pure?: boolean; getBurnInParams?: () => BurnInParams | null } = {},
+) {
   const videoRef = ref<HTMLVideoElement | null>(createFakeVideo())
   const playbackInfo = ref<MediaPlaybackInfoVo | null>(buildPlaybackInfo(overrides))
   const itemId = ref<string | null>('item-1')
@@ -85,6 +91,7 @@ function createSession(overrides: Partial<MediaPlaybackInfoVo> = {}) {
   const errorMsg = ref('')
   const sourceEpoch = ref(0)
   const destroyed = ref(false)
+  const pure = ref(depsOverrides.pure ?? false)
   const session = useTranscodeSession({
     videoRef,
     playbackInfo,
@@ -94,9 +101,22 @@ function createSession(overrides: Partial<MediaPlaybackInfoVo> = {}) {
     errorMsg,
     sourceEpoch,
     destroyed,
-    getBurnInParams: () => null,
+    pure,
+    getBurnInParams: depsOverrides.getBurnInParams ?? (() => null),
   })
-  return { session, videoRef, playbackInfo, itemId, currentVersionId, audioIndex, errorMsg, sourceEpoch, destroyed }
+  return { session, videoRef, playbackInfo, itemId, currentVersionId, audioIndex, errorMsg, sourceEpoch, destroyed, pure }
+}
+
+function buildPlaybackConfig(): MediaPlaybackConfigVo {
+  return {
+    bitrateTiers: [
+      { key: 'original', label: '原画', kbps: null, maxHeight: null },
+      { key: '2000-720', label: '2M · 720p', kbps: 2000, maxHeight: 720 },
+    ],
+    directPlay: { containers: ['mp4'], videoCodecs: ['h264'], audioCodecs: ['aac'] },
+    remux: { videoCopyCodecs: ['h264', 'hevc'], audioCopyCodecs: ['aac', 'mp3'] },
+    finishedRatio: 0.95,
+  }
 }
 
 beforeEach(() => {
@@ -104,8 +124,10 @@ beforeEach(() => {
   hlsMock.instances.length = 0
   hlsMock.constructorOptions.length = 0
   localStorage.clear()
+  mocks.fetchPlaybackConfig.mockResolvedValue(buildPlaybackConfig())
   resetPlaybackConfigCache()
   mocks.createTranscodeSession.mockResolvedValue({ sessionId: 's1', playlistUrl: '/hls/p.m3u8' })
+  mocks.createTranscodeSessionByFileNode.mockResolvedValue({ sessionId: 's1', playlistUrl: '/hls/p.m3u8' })
   mocks.transcodeCloseBeaconUrl.mockReturnValue('/beacon/close')
 })
 
@@ -247,6 +269,46 @@ describe('useTranscodeSession seek 重建与码率档位', () => {
     // 无播放信息时拒绝切换
     playbackInfo.value = null
     expect(session.selectBitrateTier('original')).toBe(false)
+    session.dispose()
+  })
+})
+
+describe('useTranscodeSession 纯播放建会话分流', () => {
+  it('pure=true 走 by-file-node API：不带 versionId，档位参数透传一致；外挂位图烧录参数正常透传（工单 04）', async () => {
+    localStorage.setItem('jcloud.player.bitrateTier', '2000-720')
+    await loadPlaybackConfig()
+    const { session, itemId } = createSession(
+      { effectiveBitRate: '5000000' },
+      // 纯播放选中外挂位图字幕：烧录参数（字幕文件节点 ID）原样下发到 by-file-node 端点
+      { pure: true, getBurnInParams: () => ({ externalSubtitleId: 'ext-1' }) },
+    )
+    itemId.value = 'fn-1'
+
+    await session.setupTranscode(30_000)
+
+    expect(mocks.createTranscodeSession).not.toHaveBeenCalled()
+    // 恰好 3 个入参（无第 4 参 versionId），档位参数与已收录端点语义一致
+    expect(mocks.createTranscodeSessionByFileNode).toHaveBeenCalledTimes(1)
+    expect(mocks.createTranscodeSessionByFileNode.mock.calls[0]).toHaveLength(3)
+    expect(mocks.createTranscodeSessionByFileNode).toHaveBeenCalledWith('fn-1', 30_000,
+      expect.objectContaining({ targetBitrateKbps: 2000, maxHeight: 720 }))
+    const optionsArg = mocks.createTranscodeSessionByFileNode.mock.calls[0][2] as Record<string, unknown>
+    expect(optionsArg.externalSubtitleId).toBe('ext-1')
+    // 会话生命周期不受影响：心跳照常、转码激活、基线为起点
+    expect(mocks.transcodeHeartbeat).not.toHaveBeenCalled()
+    expect(session.transcodeActive.value).toBe(true)
+    expect(session.transcodeBaseMs.value).toBe(30_000)
+    session.dispose()
+  })
+
+  it('pure=false 维持已收录路径：createTranscodeSession 带 versionId', async () => {
+    const { session, currentVersionId } = createSession()
+    currentVersionId.value = 'ver-2'
+
+    await session.setupTranscode(0)
+
+    expect(mocks.createTranscodeSessionByFileNode).not.toHaveBeenCalled()
+    expect(mocks.createTranscodeSession).toHaveBeenCalledWith('item-1', 0, expect.anything(), 'ver-2')
     session.dispose()
   })
 })

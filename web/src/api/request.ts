@@ -1,10 +1,15 @@
 import { useNotificationStore } from '@/store/notification'
 import { useUserStore } from '@/store/user'
 import router, { isGuardInFlight } from '@/router'
-import { UnauthorizedError } from '@/api/errors'
+import { ApiError, UnauthorizedError } from '@/api/errors'
 import type { ApiResponse, TokenPairVo } from '@/types/auth'
 
 export const BASE_URL = '/jcloud/api'
+
+/** 请求级选项：silent 时业务错误不弹全局通知，改抛 ApiError 由调用方处理 */
+export interface RequestOptions {
+  silent?: boolean
+}
 
 /** access 剩余有效期低于该阈值时先刷新再发业务请求 */
 const REFRESH_THRESHOLD_MS = 10 * 60 * 1000
@@ -45,7 +50,7 @@ async function ensureFreshAccessToken(): Promise<void> {
   return refreshPromise
 }
 
-async function handleResponse<T>(response: Response): Promise<T> {
+async function handleResponse<T>(response: Response, options?: RequestOptions): Promise<T> {
   const json = (await response.json()) as ApiResponse<T>
   if (json.code === 401) {
     // 续期由前端请求前预检触发（见 ensureFreshAccessToken）；401 直接清登录态并跳登录页，不刷新不重试。
@@ -59,6 +64,9 @@ async function handleResponse<T>(response: Response): Promise<T> {
   }
   if (json.code !== 200) {
     const message = json.msg || '请求失败'
+    if (options?.silent) {
+      throw new ApiError(json.code, message)
+    }
     const notificationStore = useNotificationStore()
     notificationStore.error(message)
     throw new Error(message)
@@ -74,6 +82,7 @@ async function request<T>(
   url: string,
   body?: unknown,
   params?: Record<string, unknown>,
+  options?: RequestOptions,
 ): Promise<T> {
   // 预检刷新：非豁免路径先确保 access 剩余有效期充足（临期/未知时先单飞刷新）
   if (!isRefreshExempt(url)) {
@@ -85,7 +94,7 @@ async function request<T>(
     credentials: 'same-origin',
     body: body === undefined ? undefined : JSON.stringify(body),
   })
-  return handleResponse<T>(response)
+  return handleResponse<T>(response, options)
 }
 
 function buildQueryString(params?: Record<string, unknown>): string {
@@ -110,8 +119,8 @@ function buildUrl(url: string, params?: Record<string, unknown>): string {
   return fullUrl
 }
 
-export async function get<T>(url: string, params?: Record<string, unknown>): Promise<T> {
-  return request<T>('GET', url, undefined, params)
+export async function get<T>(url: string, params?: Record<string, unknown>, options?: RequestOptions): Promise<T> {
+  return request<T>('GET', url, undefined, params, options)
 }
 
 export async function post<T>(url: string, body?: unknown, params?: Record<string, unknown>): Promise<T> {

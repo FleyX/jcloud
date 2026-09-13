@@ -10,6 +10,10 @@ import java.time.LocalDateTime;
  */
 public interface SyncTaskFields {
 
+    String getId();
+
+    String getStatus();
+
     void setId(String id);
 
     void setType(String type);

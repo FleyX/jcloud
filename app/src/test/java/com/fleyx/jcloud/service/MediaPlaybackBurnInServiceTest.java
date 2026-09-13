@@ -11,6 +11,7 @@ import com.fleyx.jcloud.mapper.MediaMovieMapper;
 import com.fleyx.jcloud.mapper.MediaSubtitleMapper;
 import com.fleyx.jcloud.model.bo.FileDownloadResult;
 import com.fleyx.jcloud.model.bo.MediaProbeResult;
+import com.fleyx.jcloud.model.bo.TranscodeSessionParams;
 import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.po.MediaDirectory;
 import com.fleyx.jcloud.model.po.MediaDirectorySource;
@@ -109,8 +110,8 @@ class MediaPlaybackBurnInServiceTest extends MediaScanTestBase {
         MediaMovie movie = setupMovie(user);
         when(mediaProbeSupport.probe(any(Path.class))).thenReturn(probeResultWithBitmapTrack());
 
-        mediaPlaybackService.createTranscodeSession(movie.getId(), 0L, null, 1, null, null, null, false,
-                user.getId(), null);
+        mediaPlaybackService.createTranscodeSession(movie.getId(), user.getId(), null,
+                new TranscodeSessionParams(0L, null, 1, null, null, null, false));
 
         ArgumentCaptor<TranscodeCommandBuilder.TranscodeRequest> captor =
                 ArgumentCaptor.forClass(TranscodeCommandBuilder.TranscodeRequest.class);
@@ -129,8 +130,8 @@ class MediaPlaybackBurnInServiceTest extends MediaScanTestBase {
         when(mediaProbeSupport.probe(any(Path.class))).thenReturn(probeResultWithBitmapTrack());
 
         BusinessException e = assertThrows(BusinessException.class, () ->
-                mediaPlaybackService.createTranscodeSession(movie.getId(), 0L, null, 0, null, null, null, false,
-                        user.getId(), null));
+                mediaPlaybackService.createTranscodeSession(movie.getId(), user.getId(), null,
+                        new TranscodeSessionParams(0L, null, 0, null, null, null, false)));
         assertEquals("文本字幕无需烧录", e.getMessage());
         verify(transcodeSessionManager, never()).createSession(any(), any());
     }
@@ -145,8 +146,8 @@ class MediaPlaybackBurnInServiceTest extends MediaScanTestBase {
         when(mediaProbeSupport.probe(any(Path.class))).thenReturn(probeResultWithBitmapTrack());
 
         BusinessException e = assertThrows(BusinessException.class, () ->
-                mediaPlaybackService.createTranscodeSession(movie.getId(), 0L, null, 2, null, null, null, false,
-                        user.getId(), null));
+                mediaPlaybackService.createTranscodeSession(movie.getId(), user.getId(), null,
+                        new TranscodeSessionParams(0L, null, 2, null, null, null, false)));
         assertEquals("字幕轨不存在", e.getMessage());
     }
 
@@ -162,8 +163,8 @@ class MediaPlaybackBurnInServiceTest extends MediaScanTestBase {
                         com.fleyx.jcloud.common.enums.ResultCode.SYSTEM_ERROR, "probe 失败"));
 
         BusinessException e = assertThrows(BusinessException.class, () ->
-                mediaPlaybackService.createTranscodeSession(movie.getId(), 0L, null, 0, null, null, null, false,
-                        user.getId(), null));
+                mediaPlaybackService.createTranscodeSession(movie.getId(), user.getId(), null,
+                        new TranscodeSessionParams(0L, null, 0, null, null, null, false)));
         assertEquals("字幕轨不存在", e.getMessage());
     }
 
@@ -177,8 +178,8 @@ class MediaPlaybackBurnInServiceTest extends MediaScanTestBase {
         MediaSubtitle subtitle = querySubtitle(queryMovieFile(movie.getId()).getId());
         when(mediaProbeSupport.probe(any(Path.class))).thenReturn(probeResultWithBitmapTrack());
 
-        mediaPlaybackService.createTranscodeSession(movie.getId(), 0L, null, null, subtitle.getId(), null,
-                null, false, user.getId(), null);
+        mediaPlaybackService.createTranscodeSession(movie.getId(), user.getId(), null,
+                new TranscodeSessionParams(0L, null, null, subtitle.getId(), null, null, false));
 
         ArgumentCaptor<TranscodeCommandBuilder.TranscodeRequest> captor =
                 ArgumentCaptor.forClass(TranscodeCommandBuilder.TranscodeRequest.class);
@@ -199,8 +200,8 @@ class MediaPlaybackBurnInServiceTest extends MediaScanTestBase {
         when(mediaProbeSupport.probe(any(Path.class))).thenReturn(probeResultWithBitmapTrack());
 
         BusinessException e = assertThrows(BusinessException.class, () ->
-                mediaPlaybackService.createTranscodeSession(movie.getId(), 0L, null, null, subtitle.getId(),
-                        null, null, false, user.getId(), null));
+                mediaPlaybackService.createTranscodeSession(movie.getId(), user.getId(), null,
+                        new TranscodeSessionParams(0L, null, null, subtitle.getId(), null, null, false)));
         assertEquals("文本字幕无需烧录", e.getMessage());
         verify(transcodeSessionManager, never()).createSession(any(), any());
     }
@@ -227,8 +228,8 @@ class MediaPlaybackBurnInServiceTest extends MediaScanTestBase {
         when(mediaProbeSupport.probe(any(Path.class))).thenReturn(probeResultWithBitmapTrack());
 
         BusinessException e = assertThrows(BusinessException.class, () ->
-                mediaPlaybackService.createTranscodeSession(movieBrow.getId(), 0L, null, null, subtitle.getId(),
-                        null, null, false, user.getId(), null));
+                mediaPlaybackService.createTranscodeSession(movieBrow.getId(), user.getId(), null,
+                        new TranscodeSessionParams(0L, null, null, subtitle.getId(), null, null, false)));
         assertEquals("字幕不存在", e.getMessage());
         verify(transcodeSessionManager, never()).createSession(any(), any());
     }
@@ -244,8 +245,8 @@ class MediaPlaybackBurnInServiceTest extends MediaScanTestBase {
         when(mediaProbeSupport.probe(any(Path.class))).thenReturn(probeResultWithBitmapTrack());
 
         BusinessException e = assertThrows(BusinessException.class, () ->
-                mediaPlaybackService.createTranscodeSession(movie.getId(), 0L, null, 1, subtitle.getId(), null,
-                        null, false, user.getId(), null));
+                mediaPlaybackService.createTranscodeSession(movie.getId(), user.getId(), null,
+                        new TranscodeSessionParams(0L, null, 1, subtitle.getId(), null, null, false)));
         assertEquals("内嵌与外部字幕只能二选一", e.getMessage());
         verify(transcodeSessionManager, never()).createSession(any(), any());
     }
@@ -262,8 +263,8 @@ class MediaPlaybackBurnInServiceTest extends MediaScanTestBase {
         when(mediaProbeSupport.probe(any(Path.class))).thenReturn(probeResultWithBitmapTrack());
 
         BusinessException e = assertThrows(BusinessException.class, () ->
-                mediaPlaybackService.createTranscodeSession(movie.getId(), 0L, null, null, subtitle.getId(),
-                        null, null, false, user.getId(), null));
+                mediaPlaybackService.createTranscodeSession(movie.getId(), user.getId(), null,
+                        new TranscodeSessionParams(0L, null, null, subtitle.getId(), null, null, false)));
         assertEquals("VobSub 字幕缺少 .sub 文件", e.getMessage());
         verify(transcodeSessionManager, never()).createSession(any(), any());
     }
@@ -285,8 +286,8 @@ class MediaPlaybackBurnInServiceTest extends MediaScanTestBase {
                 .thenReturn(new FileDownloadResult("x", new ByteArrayInputStream(new byte[]{1}),
                         "application/octet-stream", 1L));
 
-        mediaPlaybackService.createTranscodeSession(movie.getId(), 0L, null, null, subtitle.getId(), null,
-                null, false, user.getId(), null);
+        mediaPlaybackService.createTranscodeSession(movie.getId(), user.getId(), null,
+                new TranscodeSessionParams(0L, null, null, subtitle.getId(), null, null, false));
 
         ArgumentCaptor<TranscodeCommandBuilder.TranscodeRequest> captor =
                 ArgumentCaptor.forClass(TranscodeCommandBuilder.TranscodeRequest.class);

@@ -6,6 +6,7 @@ import com.fleyx.jcloud.common.context.UserContext;
 import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.model.bo.FileDownloadResult;
+import com.fleyx.jcloud.model.bo.TranscodeSessionParams;
 import com.fleyx.jcloud.model.vo.MediaPlaybackConfigVo;
 import com.fleyx.jcloud.model.vo.MediaPlaybackInfoVo;
 import com.fleyx.jcloud.service.MediaPlaybackService;
@@ -64,12 +65,40 @@ public class MediaPlaybackController {
         return R.ok(mediaPlaybackService.getPlaybackInfo(id, UserContext.get().id(), versionId));
     }
 
+    /**
+     * 纯播放模式播放信息（未收录文件）：以文件节点开播，进度恒为 0，对媒体数据零写入。
+     */
+    @GetMapping("/files/{fileNodeId}/playback")
+    public R<MediaPlaybackInfoVo> playbackInfoByFileNode(@PathVariable String fileNodeId) {
+        return R.ok(mediaPlaybackService.getPlaybackInfoByFileNode(fileNodeId, UserContext.get().id()));
+    }
+
     @GetMapping("/items/{id}/stream")
     public ResponseEntity<InputStreamResource> stream(@PathVariable String id,
                                                       @RequestHeader(value = "Range", required = false) String range,
                                                       @RequestParam(required = false) String versionId) {
         MediaPlaybackService.MediaStreamResult result =
                 mediaPlaybackService.stream(id, UserContext.get().id(), range, versionId);
+        return buildStreamResponse(result);
+    }
+
+    /**
+     * 纯播放模式直放流（未收录文件）：Range/Content-Range 装配与影视模式直放流一致。
+     */
+    @GetMapping("/files/{fileNodeId}/stream")
+    public ResponseEntity<InputStreamResource> streamByFileNode(@PathVariable String fileNodeId,
+                                                                @RequestHeader(value = "Range", required = false)
+                                                                String range) {
+        MediaPlaybackService.MediaStreamResult result =
+                mediaPlaybackService.streamByFileNode(fileNodeId, range, UserContext.get().id());
+        return buildStreamResponse(result);
+    }
+
+    /**
+     * 直放流响应装配：本地 Range → 206 + Content-Range，远程整段 → 200；
+     * 均带 Accept-Ranges 与 inline 文件名头。
+     */
+    private ResponseEntity<InputStreamResource> buildStreamResponse(MediaPlaybackService.MediaStreamResult result) {
         FileDownloadResult download = result.downloadResult();
         String encodedName = URLEncoder.encode(result.fileName(), StandardCharsets.UTF_8).replace("+", "%20");
         ResponseEntity.BodyBuilder builder;
@@ -94,10 +123,7 @@ public class MediaPlaybackController {
                                                         @RequestParam(required = false) String versionId)
             throws Exception {
         Path path = mediaPlaybackService.extractSubtitle(id, index, offsetMs, UserContext.get().id(), versionId);
-        return ResponseEntity.ok()
-                .contentType(MediaType.parseMediaType("text/vtt"))
-                .contentLength(Files.size(path))
-                .body(new InputStreamResource(Files.newInputStream(path)));
+        return buildSubtitleResponse(path);
     }
 
     @GetMapping("/items/{id}/subtitles/external/{subtitleId}")
@@ -108,6 +134,40 @@ public class MediaPlaybackController {
             throws Exception {
         Path path = mediaPlaybackService.extractExternalSubtitle(
                 id, subtitleId, offsetMs, UserContext.get().id(), versionId);
+        return buildSubtitleResponse(path);
+    }
+
+    /**
+     * 纯播放模式提取内嵌字幕轨（未收录文件）：校验文件归属当前用户，提取/缓存与 items 端点共用核心。
+     */
+    @GetMapping("/files/{fileNodeId}/subtitles/{index}")
+    public ResponseEntity<InputStreamResource> subtitleByFileNode(@PathVariable String fileNodeId,
+                                                                  @PathVariable int index,
+                                                                  @RequestParam(defaultValue = "0") long offsetMs)
+            throws Exception {
+        Path path = mediaPlaybackService.extractSubtitleByFileNode(
+                fileNodeId, index, offsetMs, UserContext.get().id());
+        return buildSubtitleResponse(path);
+    }
+
+    /**
+     * 纯播放模式读取外挂字幕（未收录文件）：字幕文件节点须命中实时探测（同目录前缀匹配）且归属当前用户。
+     */
+    @GetMapping("/files/{fileNodeId}/subtitles/external/{subtitleFileNodeId}")
+    public ResponseEntity<InputStreamResource> externalSubtitleByFileNode(@PathVariable String fileNodeId,
+                                                                          @PathVariable String subtitleFileNodeId,
+                                                                          @RequestParam(defaultValue = "0")
+                                                                          long offsetMs)
+            throws Exception {
+        Path path = mediaPlaybackService.extractExternalSubtitleByFileNode(
+                fileNodeId, subtitleFileNodeId, offsetMs, UserContext.get().id());
+        return buildSubtitleResponse(path);
+    }
+
+    /**
+     * 字幕响应装配：text/vtt + 文件大小 + 文件流（items/files 端点共用）。
+     */
+    private ResponseEntity<InputStreamResource> buildSubtitleResponse(Path path) throws Exception {
         return ResponseEntity.ok()
                 .contentType(MediaType.parseMediaType("text/vtt"))
                 .contentLength(Files.size(path))
@@ -125,12 +185,41 @@ public class MediaPlaybackController {
                                                   @RequestParam(defaultValue = "false") boolean forceVideoTranscode,
                                                   @RequestParam(required = false) String versionId) {
         TranscodeSession session = mediaPlaybackService.createTranscodeSession(
-                id, startMs, audioIndex, subtitleIndex, externalSubtitleId, targetBitrateKbps, maxHeight,
-                forceVideoTranscode, UserContext.get().id(), versionId);
+                id, UserContext.get().id(), versionId,
+                new TranscodeSessionParams(startMs, audioIndex, subtitleIndex, externalSubtitleId,
+                        targetBitrateKbps, maxHeight, forceVideoTranscode));
+        return R.ok(buildTranscodeSessionResult(session));
+    }
+
+    /**
+     * 纯播放模式创建转码会话（未收录文件）：参数与已收录对齐（含外挂位图字幕 externalSubtitleId，
+     * 语义=外挂字幕文件节点 ID，须实时探测命中），无版本定位；会话心跳/关闭/分片拉取端点与已收录播放共用。
+     */
+    @PostMapping("/files/{fileNodeId}/transcode")
+    public R<Map<String, String>> createTranscodeByFileNode(@PathVariable String fileNodeId,
+                                                            @RequestParam(defaultValue = "0") long startMs,
+                                                            @RequestParam(required = false) Integer audioIndex,
+                                                            @RequestParam(required = false) Integer subtitleIndex,
+                                                            @RequestParam(required = false) String externalSubtitleId,
+                                                            @RequestParam(required = false) Long targetBitrateKbps,
+                                                            @RequestParam(required = false) Integer maxHeight,
+                                                            @RequestParam(defaultValue = "false")
+                                                            boolean forceVideoTranscode) {
+        TranscodeSession session = mediaPlaybackService.createTranscodeSessionByFileNode(
+                fileNodeId, UserContext.get().id(),
+                new TranscodeSessionParams(startMs, audioIndex, subtitleIndex, externalSubtitleId,
+                        targetBitrateKbps, maxHeight, forceVideoTranscode));
+        return R.ok(buildTranscodeSessionResult(session));
+    }
+
+    /**
+     * 转码会话响应装配：sessionId + 播放列表地址（hls.js/Safari 原生 HLS 拉流共用）。
+     */
+    private Map<String, String> buildTranscodeSessionResult(TranscodeSession session) {
         Map<String, String> result = new HashMap<>();
         result.put("sessionId", session.id());
         result.put("playlistUrl", "/jcloud/api/media/transcode/" + session.id() + "/index.m3u8");
-        return R.ok(result);
+        return result;
     }
 
     /**

@@ -76,8 +76,6 @@ async function loadPreview() {
   try {
     if (category.value === 'image') {
       mediaUrl.value = await fetchBlob(`/jcloud/api/files/${props.file.id}/preview?type=thumbnail`)
-    } else if (category.value === 'video') {
-      mediaUrl.value = await fetchBlob(`/jcloud/api/files/${props.file.id}/download`)
     } else if (category.value === 'office') {
       const response = await fetch(`/jcloud/api/files/${props.file.id}/preview?type=office`)
       if (!response.ok) throw await extractError(response, '预览加载失败')
@@ -183,12 +181,6 @@ function handleDownload() {
         :alt="file.name"
         class="max-h-full max-w-full rounded-lg object-contain shadow-lg"
       >
-      <video
-        v-else-if="category === 'video'"
-        :src="mediaUrl"
-        controls
-        class="max-h-full max-w-full rounded-lg shadow-lg"
-      />
       <div
         v-else-if="category === 'office'"
         class="flex h-full w-full items-center justify-center"

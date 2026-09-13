@@ -10,6 +10,7 @@ import com.fleyx.jcloud.model.dto.MediaProgressUpdateDto;
 import com.fleyx.jcloud.model.dto.MediaWatchedUpdateDto;
 import com.fleyx.jcloud.model.vo.MediaGenreVo;
 import com.fleyx.jcloud.model.vo.MediaItemDetailVo;
+import com.fleyx.jcloud.model.vo.MediaItemLookupVo;
 import com.fleyx.jcloud.model.vo.MediaItemVo;
 import com.fleyx.jcloud.model.vo.MediaSeriesDetailVo;
 import com.fleyx.jcloud.model.vo.MediaSeriesVo;
@@ -68,8 +69,8 @@ public class MediaItemController {
     }
 
     @GetMapping("/items/by-file-node/{fileNodeId}")
-    public R<String> getItemIdByFileNodeId(@PathVariable String fileNodeId) {
-        return R.ok(mediaItemService.getItemIdByFileNodeId(fileNodeId, UserContext.get().id()));
+    public R<MediaItemLookupVo> lookupByFileNode(@PathVariable String fileNodeId) {
+        return R.ok(mediaItemService.lookupByFileNode(fileNodeId, UserContext.get().id()));
     }
 
     @GetMapping("/items/{id}/detail")

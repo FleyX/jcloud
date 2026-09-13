@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
 import { useFileList } from './useFileList'
+import { ApiError } from '@/api/errors'
 import type { FileNodeVo } from '@/types/file'
 import type { ShareCreateRequest } from '@/types/share'
 
@@ -11,11 +12,21 @@ const mockUploadBatch = vi.fn()
 const mockCreateShare = vi.fn()
 const mockUpdateShare = vi.fn()
 const mockGetCurrentUser = vi.fn()
+const mockLookupMediaItemByFileNode = vi.fn()
+const mockRouterPush = vi.fn()
 
 vi.mock('@/api/file', () => ({
   fetchFilePage: (...args: unknown[]) => mockFetchFilePage(...args),
   deleteToTrash: (...args: unknown[]) => mockDeleteToTrash(...args),
   downloadBatchFiles: (...args: unknown[]) => mockDownloadBatchFiles(...args),
+}))
+
+vi.mock('@/api/media', () => ({
+  lookupMediaItemByFileNode: (...args: unknown[]) => mockLookupMediaItemByFileNode(...args),
+}))
+
+vi.mock('@/router', () => ({
+  default: { push: (...args: unknown[]) => mockRouterPush(...args) },
 }))
 
 vi.mock('@/api/auth', () => ({
@@ -403,5 +414,72 @@ describe('useFileList', () => {
 
     const result = await conflictPromise
     expect(result).toBeNull()
+  })
+
+  describe('openPreview 视频入口分流', () => {
+    it('视频已收录且 versionId 非空：跳转播放页并携带 versionId，不开预览弹窗', async () => {
+      mockLookupMediaItemByFileNode.mockResolvedValue({ itemId: 'item-1', versionId: 'ver-1' })
+      const video = buildFileNode({ id: 'v1', name: 'movie.mkv', mimeType: 'video/x-matroska' })
+      const list = await createList([video])
+
+      await list.openPreview(video)
+
+      expect(mockLookupMediaItemByFileNode).toHaveBeenCalledWith('v1')
+      expect(mockRouterPush).toHaveBeenCalledWith({
+        name: 'MediaPlay',
+        params: { id: 'item-1' },
+        query: { versionId: 'ver-1' },
+      })
+      expect(list.previewOpen.value).toBe(false)
+    })
+
+    it('视频已收录 versionId 为 null：跳转播放页且 query 不含 versionId', async () => {
+      mockLookupMediaItemByFileNode.mockResolvedValue({ itemId: 'other-1', versionId: null })
+      const video = buildFileNode({ id: 'v2', name: 'clip.mp4', mimeType: 'video/mp4' })
+      const list = await createList([video])
+
+      await list.openPreview(video)
+
+      expect(mockRouterPush).toHaveBeenCalledWith({
+        name: 'MediaPlay',
+        params: { id: 'other-1' },
+        query: {},
+      })
+      expect(list.previewOpen.value).toBe(false)
+    })
+
+    it('未收录（ApiError 404）：跳转纯播放路由以文件名直放，不开预览弹窗', async () => {
+      mockLookupMediaItemByFileNode.mockRejectedValue(new ApiError(404, '媒体条目不存在'))
+      const video = buildFileNode({ id: 'v3', name: 'movie.mkv', mimeType: 'video/x-matroska' })
+      const list = await createList([video])
+
+      await list.openPreview(video)
+
+      expect(mockRouterPush).toHaveBeenCalledWith({ name: 'MediaPlayFile', params: { fileNodeId: 'v3' } })
+      expect(list.previewOpen.value).toBe(false)
+    })
+
+    it('反查网络异常：同样跳转纯播放路由，不开预览弹窗', async () => {
+      mockLookupMediaItemByFileNode.mockRejectedValue(new Error('network error'))
+      const video = buildFileNode({ id: 'v4', name: 'movie.mkv', mimeType: 'video/x-matroska' })
+      const list = await createList([video])
+
+      await list.openPreview(video)
+
+      expect(mockRouterPush).toHaveBeenCalledWith({ name: 'MediaPlayFile', params: { fileNodeId: 'v4' } })
+      expect(list.previewOpen.value).toBe(false)
+    })
+
+    it('非视频文件：直接打开预览弹窗且不调用反查', async () => {
+      const image = buildFileNode({ id: 'p1', name: 'photo.png', mimeType: 'image/png' })
+      const list = await createList([image])
+
+      await list.openPreview(image)
+
+      expect(mockLookupMediaItemByFileNode).not.toHaveBeenCalled()
+      expect(mockRouterPush).not.toHaveBeenCalled()
+      expect(list.previewOpen.value).toBe(true)
+      expect(list.previewTarget.value).toEqual(image)
+    })
   })
 })

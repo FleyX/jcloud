@@ -19,7 +19,6 @@ import com.fleyx.jcloud.model.vo.UserVo;
 import com.fleyx.jcloud.service.StorageSpaceService;
 import com.fleyx.jcloud.service.UserService;
 import com.fleyx.jcloud.service.UserSyncService;
-import com.fleyx.jcloud.util.IdUtil;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -121,7 +120,8 @@ class UserSyncSchedulerExecutionTest {
     @Test
     void shouldRedispatchStalePendingTask() throws Exception {
         UserVo user = prepareUserWithStorageSpace();
-        UserSyncTask task = insertPendingTask(user.getId());
+        UserSyncTask task = SyncTaskTestSupport.insertPendingTask(
+                userSyncTaskMapper, UserSyncTask::new, t -> t.setUserId(user.getId()));
         // create_time 为 INSERT 自动填充，必须 insert 后显式改为 6 分钟前，模拟滞留超过 5 分钟
         userSyncTaskMapper.update(null, new LambdaUpdateWrapper<UserSyncTask>()
                 .eq(UserSyncTask::getId, task.getId())
@@ -129,7 +129,8 @@ class UserSyncSchedulerExecutionTest {
 
         userSyncScheduler.redispatchStalePendingTasks();
 
-        UserSyncTask finished = awaitTaskCompleted(task.getId());
+        UserSyncTask finished = SyncTaskTestSupport.awaitTaskStatus(
+                userSyncTaskMapper, task.getId(), SyncTaskStatus.COMPLETED.getValue());
         assertNotNull(finished, "重发后任务记录应仍存在");
         assertEquals(SyncTaskStatus.COMPLETED.getValue(), finished.getStatus(),
                 "滞留超过 5 分钟的 PENDING 任务应在 10s 内被重新投递并执行到终态 COMPLETED");
@@ -141,7 +142,8 @@ class UserSyncSchedulerExecutionTest {
     @Test
     void shouldNotRedispatchFreshPendingTask() throws Exception {
         UserVo user = prepareUserWithStorageSpace();
-        UserSyncTask task = insertPendingTask(user.getId());
+        UserSyncTask task = SyncTaskTestSupport.insertPendingTask(
+                userSyncTaskMapper, UserSyncTask::new, t -> t.setUserId(user.getId()));
 
         userSyncScheduler.redispatchStalePendingTasks();
 
@@ -150,40 +152,8 @@ class UserSyncSchedulerExecutionTest {
         assertNotNull(current, "任务记录应仍存在");
         assertEquals(SyncTaskStatus.PENDING.getValue(), current.getStatus(),
                 "滞留不足 5 分钟的 PENDING 任务不应被重发，应保持 PENDING");
-        assertEquals(1, countTasksByUserId(user.getId()), "重发仅重投既有任务，不应新建任务记录");
-    }
-
-    /**
-     * 轮询该任务直到 COMPLETED（100ms × 最多 100 次 = 10s 超时），超时返回最后一次观测值。
-     */
-    private UserSyncTask awaitTaskCompleted(String taskId) throws Exception {
-        UserSyncTask task = null;
-        for (int i = 0; i < 100; i++) {
-            task = userSyncTaskMapper.selectById(taskId);
-            if (task != null && SyncTaskStatus.COMPLETED.getValue().equals(task.getStatus())) {
-                return task;
-            }
-            Thread.sleep(100);
-        }
-        return task;
-    }
-
-    private UserSyncTask insertPendingTask(String userId) {
-        UserSyncTask task = new UserSyncTask();
-        task.setId(IdUtil.nextId());
-        task.setUserId(userId);
-        task.setType(SyncTaskType.SCHEDULED.getValue());
-        task.setStatus(SyncTaskStatus.PENDING.getValue());
-        task.setTotalCount(0L);
-        task.setSuccessCount(0L);
-        task.setFailCount(0L);
-        userSyncTaskMapper.insert(task);
-        return task;
-    }
-
-    private long countTasksByUserId(String userId) {
-        return userSyncTaskMapper.selectCount(new LambdaQueryWrapper<UserSyncTask>()
-                .eq(UserSyncTask::getUserId, userId));
+        assertEquals(1, SyncTaskTestSupport.countTasksByOwner(
+                userSyncTaskMapper, UserSyncTask::getUserId, user.getId()), "重发仅重投既有任务，不应新建任务记录");
     }
 
     /**

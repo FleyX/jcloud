@@ -4,14 +4,17 @@ import {
   downloadBatchFiles,
   fetchFilePage,
 } from '@/api/file'
+import { lookupMediaItemByFileNode } from '@/api/media'
 import { createShare, updateShare } from '@/api/share'
 import { useBatchUpload } from '@/composables/useBatchUpload'
+import router from '@/router'
 import { useConfirmStore } from '@/store/confirm'
 import { useNotificationStore } from '@/store/notification'
 import { useTransferStore } from '@/store/transfer'
 import { useTransferTaskStore } from '@/store/transferTask'
 import { useUserStore } from '@/store/user'
 import { formatSize, inferFileType } from '@/utils/fileDisplay'
+import { resolvePreviewCategory } from '@/utils/previewCategory'
 import type { FileDisplayType } from '@/utils/fileDisplay'
 import type {
   ConflictItemVo,
@@ -262,8 +265,27 @@ export function useFileList(options: UseFileListOptions = {}) {
     selectedIds.value.clear()
   }
 
-  function openPreview(file: FileNodeVo) {
+  /**
+   * 打开文件：视频文件先反查媒体收录，已收录跳转影视独立播放页（携带 versionId 时从点击的文件起播）；
+   * 未收录或反查失败跳转纯播放页以文件名直放（对媒体数据零写入）；非视频类型维持原弹窗行为。
+   */
+  async function openPreview(file: FileNodeVo) {
     if (file.type !== 'file') return
+    if (resolvePreviewCategory(file.mimeType, file.name) === 'video') {
+      try {
+        const { itemId, versionId } = await lookupMediaItemByFileNode(file.id)
+        router.push({
+          name: 'MediaPlay',
+          params: { id: itemId },
+          query: versionId ? { versionId } : {},
+        })
+        return
+      } catch {
+        // 未收录或反查失败：统一进纯播放模式直放
+        router.push({ name: 'MediaPlayFile', params: { fileNodeId: file.id } })
+        return
+      }
+    }
     previewTarget.value = file
     previewOpen.value = true
   }

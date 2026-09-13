@@ -10,6 +10,7 @@ import type {
   MediaGlobalSearchResult,
   MediaHomeVo,
   MediaItemDetailVo,
+  MediaItemLookupVo,
   MediaItemVo,
   MediaPageQuery,
   MediaPlaybackConfigVo,
@@ -80,6 +81,16 @@ export function fetchMediaGenres(directoryId: string): Promise<MediaGenreVo[]> {
   return get<MediaGenreVo[]>(`/media/libraries/${directoryId}/genres`)
 }
 
+// ---------- 收录反查 ----------
+
+/**
+ * 按文件节点 ID 反查媒体收录：已收录返回条目 ID 与版本明细行 ID（其他行 versionId 为 null），
+ * 未收录后端返回 404。silent 模式不弹全局通知，由调用方回落预览弹窗。
+ */
+export function lookupMediaItemByFileNode(fileNodeId: string): Promise<MediaItemLookupVo> {
+  return get<MediaItemLookupVo>(`/media/items/by-file-node/${fileNodeId}`, undefined, { silent: true })
+}
+
 // ---------- 全局搜索 ----------
 
 /**
@@ -143,6 +154,13 @@ export function fetchPlaybackInfo(id: string, versionId?: string): Promise<Media
 }
 
 /**
+ * 纯播放模式拉取播放信息（未收录文件）：以文件节点开播，进度恒为 0、对媒体数据零写入。
+ */
+export function fetchPlaybackInfoByFileNode(fileNodeId: string): Promise<MediaPlaybackInfoVo> {
+  return get<MediaPlaybackInfoVo>(`/media/files/${fileNodeId}/playback`)
+}
+
+/**
  * 转码会话可选参数
  */
 export interface TranscodeSessionOptions {
@@ -167,6 +185,19 @@ export function createTranscodeSession(
   versionId?: string,
 ): Promise<MediaTranscodeSessionVo> {
   return post<MediaTranscodeSessionVo>(`/media/items/${id}/transcode`, undefined, { startMs, ...options, versionId })
+}
+
+/**
+ * 纯播放模式创建转码会话（未收录文件）：POST /media/files/{fileNodeId}/transcode。
+ * 不带 versionId；externalSubtitleId 为外挂字幕文件节点 ID（须实时探测命中且为位图格式，工单 04 起支持），
+ * 其余参数语义与 createTranscodeSession 一致。
+ */
+export function createTranscodeSessionByFileNode(
+  fileNodeId: string,
+  startMs: number,
+  options: TranscodeSessionOptions = {},
+): Promise<MediaTranscodeSessionVo> {
+  return post<MediaTranscodeSessionVo>(`/media/files/${fileNodeId}/transcode`, undefined, { startMs, ...options })
 }
 
 /**
@@ -206,7 +237,7 @@ function buildSubtitleQuery(versionId?: string, offsetMs?: number): string {
 }
 
 /**
- * 内嵌字幕 URL。offsetMs 为转码会话起点（毫秒），直放时不传（0）。
+ * 内嵌字幕 URL（items 形态）。offsetMs 为转码会话起点（毫秒），直放时不传（0）。
  */
 export function subtitleUrl(id: string, index: number, versionId?: string, offsetMs?: number): string {
   const base = `/jcloud/api/media/items/${id}/subtitles/${index}`
@@ -214,11 +245,28 @@ export function subtitleUrl(id: string, index: number, versionId?: string, offse
 }
 
 /**
- * 外置字幕 URL。offsetMs 为转码会话起点（毫秒），直放时不传（0）。
+ * 外置字幕 URL（items 形态）。offsetMs 为转码会话起点（毫秒），直放时不传（0）。
  */
 export function externalSubtitleUrl(id: string, subtitleId: string, versionId?: string, offsetMs?: number): string {
   const base = `/jcloud/api/media/items/${id}/subtitles/external/${subtitleId}`
   return `${base}${buildSubtitleQuery(versionId, offsetMs)}`
+}
+
+/**
+ * 纯播放内嵌字幕 URL（files 形态，工单 04）。offsetMs 为转码会话起点（毫秒），直放时不传（0）。
+ */
+export function pureSubtitleUrl(fileNodeId: string, index: number, offsetMs?: number): string {
+  const base = `/jcloud/api/media/files/${fileNodeId}/subtitles/${index}`
+  return `${base}${buildSubtitleQuery(undefined, offsetMs)}`
+}
+
+/**
+ * 纯播放外置字幕 URL（files 形态，工单 04）：subtitleFileNodeId 为外挂字幕文件节点 ID
+ * （播放信息外挂字幕项的 subtitleId）。offsetMs 为转码会话起点（毫秒），直放时不传（0）。
+ */
+export function pureExternalSubtitleUrl(fileNodeId: string, subtitleFileNodeId: string, offsetMs?: number): string {
+  const base = `/jcloud/api/media/files/${fileNodeId}/subtitles/external/${subtitleFileNodeId}`
+  return `${base}${buildSubtitleQuery(undefined, offsetMs)}`
 }
 
 // ---------- 元数据 ----------

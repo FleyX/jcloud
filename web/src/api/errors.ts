@@ -8,3 +8,17 @@ export class UnauthorizedError extends Error {
     this.name = 'UnauthorizedError'
   }
 }
+
+/**
+ * 业务错误。request 层 silent 模式下不弹全局通知，
+ * 由调用方自行决定处理或回落（如收录反查未命中回落预览弹窗）。
+ */
+export class ApiError extends Error {
+  constructor(
+    public readonly code: number,
+    message: string,
+  ) {
+    super(message)
+    this.name = 'ApiError'
+  }
+}

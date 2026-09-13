@@ -15,6 +15,7 @@ import com.fleyx.jcloud.mapper.MediaOtherMapper;
 import com.fleyx.jcloud.mapper.MediaSubtitleMapper;
 import com.fleyx.jcloud.mapper.MediaSeriesMapper;
 import com.fleyx.jcloud.model.bo.MediaProbeResult;
+import com.fleyx.jcloud.model.bo.TranscodeSessionParams;
 import com.fleyx.jcloud.model.po.MediaDirectory;
 import com.fleyx.jcloud.model.po.MediaDirectorySource;
 import com.fleyx.jcloud.model.po.MediaEpisode;
@@ -527,8 +528,8 @@ class MediaPlaybackServiceTest extends MediaScanTestBase {
                 () -> mediaPlaybackService.stream(movieArow.getId(), user.getId(), null, fileB.getId()));
         // 转码路径同样在 ffmpeg 启动前完成版本校验
         assertThrows(BusinessException.class,
-                () -> mediaPlaybackService.createTranscodeSession(movieArow.getId(), 0L, null, null, null, null,
-                        null, false, user.getId(), "no-such-ver0"));
+                () -> mediaPlaybackService.createTranscodeSession(movieArow.getId(), user.getId(), "no-such-ver0",
+                        new TranscodeSessionParams(0L, null, null, null, null, null, false)));
 
         // 剧集传 versionId 忽略不报错
         FileNodeVo tvRoot = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "电视");

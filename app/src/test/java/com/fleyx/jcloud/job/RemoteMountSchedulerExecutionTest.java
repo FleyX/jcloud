@@ -103,7 +103,8 @@ class RemoteMountSchedulerExecutionTest extends IntegrationTestBase {
         createdUserIds.add(userWithSpace.user().getId());
         createdSpaceIds.add(userWithSpace.space().getId());
         RemoteMount mount = insertMount(userWithSpace.user().getId());
-        RemoteSyncTask task = insertPendingTask(mount.getId());
+        RemoteSyncTask task = SyncTaskTestSupport.insertPendingTask(
+                remoteSyncTaskMapper, RemoteSyncTask::new, t -> t.setRemoteMountId(mount.getId()));
         // create_time 为 INSERT 自动填充，必须 insert 后显式改为 6 分钟前，模拟滞留超过 5 分钟
         remoteSyncTaskMapper.update(null, new LambdaUpdateWrapper<RemoteSyncTask>()
                 .eq(RemoteSyncTask::getId, task.getId())
@@ -111,7 +112,8 @@ class RemoteMountSchedulerExecutionTest extends IntegrationTestBase {
 
         remoteMountScheduler.redispatchStalePendingTasks();
 
-        RemoteSyncTask finished = awaitTaskFailed(task.getId());
+        RemoteSyncTask finished = SyncTaskTestSupport.awaitTaskStatus(
+                remoteSyncTaskMapper, task.getId(), SyncTaskStatus.FAILED.getValue());
         assertNotNull(finished, "重发后任务记录应仍存在");
         assertEquals(SyncTaskStatus.FAILED.getValue(), finished.getStatus(),
                 "滞留超过 5 分钟的 PENDING 任务应在 10s 内被重新投递并执行到终态 FAILED，而不是卡在 PENDING");
@@ -126,7 +128,8 @@ class RemoteMountSchedulerExecutionTest extends IntegrationTestBase {
         createdUserIds.add(userWithSpace.user().getId());
         createdSpaceIds.add(userWithSpace.space().getId());
         RemoteMount mount = insertMount(userWithSpace.user().getId());
-        RemoteSyncTask task = insertPendingTask(mount.getId());
+        RemoteSyncTask task = SyncTaskTestSupport.insertPendingTask(
+                remoteSyncTaskMapper, RemoteSyncTask::new, t -> t.setRemoteMountId(mount.getId()));
 
         remoteMountScheduler.redispatchStalePendingTasks();
 
@@ -135,40 +138,8 @@ class RemoteMountSchedulerExecutionTest extends IntegrationTestBase {
         assertNotNull(current, "任务记录应仍存在");
         assertEquals(SyncTaskStatus.PENDING.getValue(), current.getStatus(),
                 "滞留不足 5 分钟的 PENDING 任务不应被重发，应保持 PENDING");
-        assertEquals(1, countTasksByMountId(mount.getId()), "重发仅重投既有任务，不应新建任务记录");
-    }
-
-    /**
-     * 轮询该任务直到 FAILED（100ms × 最多 100 次 = 10s 超时），超时返回最后一次观测值。
-     */
-    private RemoteSyncTask awaitTaskFailed(String taskId) throws Exception {
-        RemoteSyncTask task = null;
-        for (int i = 0; i < 100; i++) {
-            task = remoteSyncTaskMapper.selectById(taskId);
-            if (task != null && SyncTaskStatus.FAILED.getValue().equals(task.getStatus())) {
-                return task;
-            }
-            Thread.sleep(100);
-        }
-        return task;
-    }
-
-    private RemoteSyncTask insertPendingTask(String remoteMountId) {
-        RemoteSyncTask task = new RemoteSyncTask();
-        task.setId(IdUtil.nextId());
-        task.setRemoteMountId(remoteMountId);
-        task.setType(SyncTaskType.SCHEDULED.getValue());
-        task.setStatus(SyncTaskStatus.PENDING.getValue());
-        task.setTotalCount(0L);
-        task.setSuccessCount(0L);
-        task.setFailCount(0L);
-        remoteSyncTaskMapper.insert(task);
-        return task;
-    }
-
-    private long countTasksByMountId(String remoteMountId) {
-        return remoteSyncTaskMapper.selectCount(new LambdaQueryWrapper<RemoteSyncTask>()
-                .eq(RemoteSyncTask::getRemoteMountId, remoteMountId));
+        assertEquals(1, SyncTaskTestSupport.countTasksByOwner(
+                remoteSyncTaskMapper, RemoteSyncTask::getRemoteMountId, mount.getId()), "重发仅重投既有任务，不应新建任务记录");
     }
 
     /**

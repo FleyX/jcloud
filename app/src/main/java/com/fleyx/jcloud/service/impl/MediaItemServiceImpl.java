@@ -25,6 +25,7 @@ import com.fleyx.jcloud.model.po.MediaOther;
 import com.fleyx.jcloud.model.po.MediaSeries;
 import com.fleyx.jcloud.model.vo.MediaGenreVo;
 import com.fleyx.jcloud.model.vo.MediaItemDetailVo;
+import com.fleyx.jcloud.model.vo.MediaItemLookupVo;
 import com.fleyx.jcloud.model.vo.MediaItemVo;
 import com.fleyx.jcloud.model.vo.MediaSearchResultVo;
 import com.fleyx.jcloud.model.vo.MediaSeriesDetailVo;
@@ -213,20 +214,25 @@ public class MediaItemServiceImpl implements MediaItemService {
     }
 
     @Override
-    public String getItemIdByFileNodeId(String fileNodeId, String userId) {
-        // 新模型（issue #19）：其他行（文件级）→ 其他 ID；电影/集文件明细 → 标题级 ID
+    public MediaItemLookupVo lookupByFileNode(String fileNodeId, String userId) {
+        // 新模型（issue #19）：其他行（文件级）→ 其他 ID；电影/集文件明细 → 标题级 ID + 明细行 ID
         MediaOther other = mediaOtherMapper.selectOne(new LambdaQueryWrapper<MediaOther>()
                 .eq(MediaOther::getFileNodeId, fileNodeId)
                 .eq(MediaOther::getUserId, userId));
         if (other != null) {
-            return other.getId();
+            MediaItemLookupVo vo = new MediaItemLookupVo();
+            vo.setItemId(other.getId());
+            return vo;
         }
         MediaMovieFile movieFile = mediaMovieFileMapper.selectOne(new LambdaQueryWrapper<MediaMovieFile>()
                 .eq(MediaMovieFile::getFileNodeId, fileNodeId));
         if (movieFile != null) {
             MediaMovie movie = mediaMovieMapper.selectById(movieFile.getMovieId());
             if (movie != null && userId.equals(movie.getUserId())) {
-                return movie.getId();
+                MediaItemLookupVo vo = new MediaItemLookupVo();
+                vo.setItemId(movie.getId());
+                vo.setVersionId(movieFile.getId());
+                return vo;
             }
         }
         MediaEpisodeFile episodeFile = mediaEpisodeFileMapper.selectOne(new LambdaQueryWrapper<MediaEpisodeFile>()
@@ -236,7 +242,10 @@ public class MediaItemServiceImpl implements MediaItemService {
             if (episode != null) {
                 MediaSeries series = mediaSeriesMapper.selectById(episode.getSeriesId());
                 if (series != null && userId.equals(series.getUserId())) {
-                    return episode.getId();
+                    MediaItemLookupVo vo = new MediaItemLookupVo();
+                    vo.setItemId(episode.getId());
+                    vo.setVersionId(episodeFile.getId());
+                    return vo;
                 }
             }
         }

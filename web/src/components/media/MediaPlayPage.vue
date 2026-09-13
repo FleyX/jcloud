@@ -5,6 +5,8 @@
  * - 控制栏状态与交互（播放/进度/音量/倍速/画中画/全屏/自动隐藏/快捷键）由 usePlayerControls 承载
  * - 视频区域从首帧起即撑满全屏，加载中为纯黑 + 居中加载圈
  * - 电视剧显示选集列表，播完自动连播下一集
+ * - 双模式：影视模式（MediaPlay，已收录条目）/ 纯播放模式（MediaPlayFile，未收录文件直放，
+ *   标题栏显示文件名，无选集/版本/下载入口，对媒体数据零写入）
  */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -62,10 +64,16 @@ const controls = usePlayerControls(videoRef, pinned, timeline)
 const { controlsVisible, wake } = controls
 
 const itemId = computed(() => route.params.id as string)
-const isEpisode = computed(() => detail.value?.itemType === 'episode')
+const fileNodeId = computed(() => route.params.fileNodeId as string)
+/** 纯播放模式：未收录文件以文件节点直放，影视数据链路全部跳过 */
+const isPurePlay = computed(() => route.name === 'MediaPlayFile')
+const isEpisode = computed(() => !isPurePlay.value && detail.value?.itemType === 'episode')
 /** 电影版本列表（仅电影有效），多于 1 个时播放页内可切换版本 */
-const movieVersions = computed(() => detail.value?.versions ?? [])
+const movieVersions = computed(() => (isPurePlay.value ? [] : (detail.value?.versions ?? [])))
 const title = computed(() => {
+  if (isPurePlay.value) {
+    return playbackInfo.value?.fileName ?? ''
+  }
   const d = detail.value
   if (!d) return ''
   if (d.itemType === 'episode' && d.seriesName) {
@@ -78,11 +86,16 @@ const title = computed(() => {
 })
 
 onMounted(() => {
-  void init(itemId.value)
+  void init(isPurePlay.value ? fileNodeId.value : itemId.value)
 })
 
-watch(itemId, (id, oldId) => {
-  if (id && id !== oldId) {
+// 影视模式盯条目 ID、纯播放模式盯文件节点 ID：同路由内参数变化重新 init
+watch([itemId, fileNodeId], ([id, fnId], [oldId, oldFnId]) => {
+  if (isPurePlay.value) {
+    if (fnId && fnId !== oldFnId) {
+      void init(fnId)
+    }
+  } else if (id && id !== oldId) {
     void init(id)
   }
 })
@@ -92,6 +105,13 @@ onBeforeUnmount(() => {
 })
 
 async function init(id: string) {
+  if (isPurePlay.value) {
+    // 纯播放：不拉详情/选集（detail 恒 null、episodes 恒 []），直接以文件节点开播
+    detail.value = null
+    episodes.value = []
+    await start(id, undefined, undefined, { pure: true })
+    return
+  }
   try {
     detail.value = await fetchItemDetail(id)
     if (detail.value.itemType === 'episode' && detail.value.seriesId) {

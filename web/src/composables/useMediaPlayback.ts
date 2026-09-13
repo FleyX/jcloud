@@ -7,7 +7,7 @@
  */
 import { computed, ref, type Ref } from 'vue'
 import type { MediaPlaybackInfoVo } from '@/types/media'
-import { fetchPlaybackInfo, updateMediaProgress } from '@/api/media'
+import { fetchPlaybackInfo, fetchPlaybackInfoByFileNode, updateMediaProgress } from '@/api/media'
 import { loadPlaybackConfig } from './usePlaybackConfig'
 import { useTranscodeSession } from './useTranscodeSession'
 import { useSubtitleSelection } from './useSubtitleSelection'
@@ -30,6 +30,11 @@ export function useMediaPlayback(videoRef: Ref<HTMLVideoElement | null>) {
   const currentVersionId = ref<string | null>(null)
   /** 播放生命周期标记：stop 后置真，异步初始化/建会话不再落地 */
   const destroyed = ref(false)
+  /**
+   * 纯播放模式标记（未收录文件直放）：对媒体数据零写入——不拉详情/选集、
+   * 不上报进度、不启动进度定时器；itemId 照常置为 fileNodeId 供后续链路使用
+   */
+  const pure = ref(false)
 
   const transcode = useTranscodeSession({
     videoRef,
@@ -40,6 +45,8 @@ export function useMediaPlayback(videoRef: Ref<HTMLVideoElement | null>) {
     errorMsg,
     sourceEpoch,
     destroyed,
+    // deps 为延迟求值：start 中赋值 pure 后建会话分流才生效（纯播放走 by-file-node 端点）
+    pure,
     // 位图烧录参数延迟求值：subtitle 在本函数稍后创建，闭包运行时才读取，无循环依赖
     getBurnInParams: () => subtitle.burnInSubtitle.value,
   })
@@ -51,6 +58,8 @@ export function useMediaPlayback(videoRef: Ref<HTMLVideoElement | null>) {
     currentVersionId,
     transcodeActive: transcode.transcodeActive,
     transcodeBaseMs: transcode.transcodeBaseMs,
+    // deps 为延迟求值：start 中赋值 pure 后字幕 URL 分流才生效（纯播放走 files 形态）
+    pure,
   })
 
   const showAudioGroup = computed(() => (playbackInfo.value?.audioTracks.length ?? 0) > 1)
@@ -105,15 +114,18 @@ export function useMediaPlayback(videoRef: Ref<HTMLVideoElement | null>) {
   /**
    * 加载播放信息并初始化播放。startMs 为空时按历史进度续播。
    * versionId 为电影版本明细行 ID（可选）：指定时播放该版本，缺省时后端按续播语义定位。
+   * options.pure 为纯播放模式（未收录文件）：拉取走 by-file-node 接口且全链路零写入。
    */
-  async function start(id: string, startMs?: number, versionId?: string) {
+  async function start(id: string, startMs?: number, versionId?: string, options?: { pure?: boolean }) {
     destroyed.value = false
     teardown()
+    pure.value = options?.pure ?? false
     loading.value = true
     errorMsg.value = ''
     try {
       // 并行拉取播放信息与全局播放配置（配置单例缓存，进入播放流程时首次加载）
-      const [config, info] = await Promise.all([loadPlaybackConfig(), fetchPlaybackInfo(id, versionId)])
+      const fetchInfo = pure.value ? fetchPlaybackInfoByFileNode(id) : fetchPlaybackInfo(id, versionId)
+      const [config, info] = await Promise.all([loadPlaybackConfig(), fetchInfo])
       if (destroyed.value) return
       playbackInfo.value = info
       itemId.value = id
@@ -198,6 +210,8 @@ export function useMediaPlayback(videoRef: Ref<HTMLVideoElement | null>) {
   }
 
   function reportProgress() {
+    // 纯播放模式零写入：不上报进度（teardown/stop 经同一 guard 自然跳过）
+    if (pure.value) return
     const video = videoRef.value
     const id = itemId.value
     if (!video || !id) return
@@ -213,6 +227,8 @@ export function useMediaPlayback(videoRef: Ref<HTMLVideoElement | null>) {
 
   function startProgressTimer() {
     stopProgressTimer()
+    // 纯播放模式零写入：不启动进度定时器
+    if (pure.value) return
     progressTimer = setInterval(() => {
       reportProgress()
     }, 10_000)
@@ -228,6 +244,7 @@ export function useMediaPlayback(videoRef: Ref<HTMLVideoElement | null>) {
   function teardown() {
     stopProgressTimer()
     reportProgress()
+    pure.value = false
     transcode.destroyHls()
     if (videoRef.value) {
       videoRef.value.pause()
