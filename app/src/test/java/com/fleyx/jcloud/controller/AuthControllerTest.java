@@ -157,7 +157,7 @@ class AuthControllerTest {
         vo.setUserInfo(userInfo);
         vo.setResources(List.of("user:list", "user:view"));
         vo.setInitialized(true);
-        when(authService.login(eq(expected), isNull())).thenReturn(vo);
+        when(authService.login(eq(expected), isNull(), eq("127.0.0.1"))).thenReturn(vo);
 
         MvcResult result = mockMvc.perform(post("/jcloud/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -171,7 +171,7 @@ class AuthControllerTest {
                 .andExpect(jsonPath("$.data.initialized").value(true))
                 .andReturn();
 
-        verify(authService).login(eq(expected), isNull());
+        verify(authService).login(eq(expected), isNull(), eq("127.0.0.1"));
 
         List<String> cookies = setCookieHeaders(result);
         assertEquals(2, cookies.size());
@@ -233,7 +233,7 @@ class AuthControllerTest {
         vo.setRefreshToken("refresh-token");
         vo.setAccessExpiresAt(accessExpiresAt);
         vo.setUserInfo(userInfo);
-        when(authService.login(eq(expected), isNull())).thenReturn(vo);
+        when(authService.login(eq(expected), isNull(), eq("127.0.0.1"))).thenReturn(vo);
 
         MvcResult result = mockMvc.perform(post("/jcloud/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -430,7 +430,7 @@ class AuthControllerTest {
         UserLoginDto dto = new UserLoginDto();
         dto.setUsername("admin");
         dto.setPassword("wrong");
-        when(authService.login(eq(dto), isNull()))
+        when(authService.login(eq(dto), isNull(), eq("127.0.0.1")))
                 .thenThrow(new BusinessException(ResultCode.UNAUTHORIZED, "用户名或密码错误"));
 
         mockMvc.perform(post("/jcloud/api/auth/login")
@@ -440,6 +440,26 @@ class AuthControllerTest {
                 .andExpect(jsonPath("$.code").value(401))
                 .andExpect(jsonPath("$.msg").value("用户名或密码错误"));
 
-        verify(authService).login(eq(dto), isNull());
+        verify(authService).login(eq(dto), isNull(), eq("127.0.0.1"));
+    }
+
+    /**
+     * POST /auth/login：经 X-Forwarded-For 解析真实客户端 IP（取最左端）透传给 service。
+     */
+    @Test
+    void shouldResolveClientIpFromXffLeftmost() throws Exception {
+        UserLoginDto dto = new UserLoginDto();
+        dto.setUsername("admin");
+        dto.setPassword("admin123");
+        when(authService.login(eq(dto), isNull(), eq("203.0.113.9"))).thenReturn(new LoginVo());
+
+        mockMvc.perform(post("/jcloud/api/auth/login")
+                        .header("X-Forwarded-For", "203.0.113.9, 10.1.1.1, 10.2.2.2")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"admin\",\"password\":\"admin123\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200));
+
+        verify(authService).login(eq(dto), isNull(), eq("203.0.113.9"));
     }
 }

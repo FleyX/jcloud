@@ -109,6 +109,28 @@ class AuthServiceImplTest {
     }
 
     @Test
+    void loginShouldBeLockedAfterConsecutiveFailures() {
+        UserRegisterDto reg = buildRegisterDto("authlock");
+        authService.register(reg);
+        int maxFailures = authProperties.getRateLimit().getMaxFailures();
+
+        UserLoginDto wrong = new UserLoginDto();
+        wrong.setUsername(reg.getUsername());
+        wrong.setPassword("wrong-password");
+        for (int i = 0; i < maxFailures; i++) {
+            assertThrows(BusinessException.class, () -> authService.login(wrong, null, "10.55.1.1"));
+        }
+
+        // 达阈值后锁定：第 maxFailures+1 次即使密码正确也拒绝，文案明确
+        UserLoginDto correct = new UserLoginDto();
+        correct.setUsername(reg.getUsername());
+        correct.setPassword(reg.getPassword());
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> authService.login(correct, null, "10.55.1.1"));
+        assertEquals("尝试次数过多，请稍后再试", ex.getMessage());
+    }
+
+    @Test
     void loginWithDisabledUserShouldThrowForbidden() {
         // 注册真实用户后将其状态改为禁用，登录时命中 AuthServiceImpl 的禁用分支返回 FORBIDDEN
         UserRegisterDto reg = buildRegisterDto("authdisabled");

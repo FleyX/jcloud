@@ -27,6 +27,7 @@ import com.fleyx.jcloud.model.vo.TokenPairVo;
 import com.fleyx.jcloud.model.vo.UserVo;
 import com.fleyx.jcloud.service.AuthService;
 import com.fleyx.jcloud.service.SystemInitService;
+import com.fleyx.jcloud.service.support.AuthRateLimitSupport;
 import com.fleyx.jcloud.service.support.AuthSessionSupport;
 import com.fleyx.jcloud.util.DeviceNameUtil;
 import com.fleyx.jcloud.util.JwtUtil;
@@ -56,6 +57,7 @@ public class AuthServiceImpl implements AuthService {
     private final PermissionRegistry permissionRegistry;
     private final SystemInitService systemInitService;
     private final AuthSessionSupport authSessionSupport;
+    private final AuthRateLimitSupport authRateLimitSupport;
     private final JwtProperties jwtProperties;
     private final AuthProperties authProperties;
 
@@ -96,11 +98,15 @@ public class AuthServiceImpl implements AuthService {
     }
 
     @Override
-    public LoginVo login(UserLoginDto dto, String userAgent) {
-        User user = findActiveUserByUsername(dto.getUsername());
-        if (!matchPassword(dto.getPassword(), user.getPassword())) {
+    public LoginVo login(UserLoginDto dto, String userAgent, String clientIp) {
+        String username = UsernameUtil.normalize(dto.getUsername());
+        authRateLimitSupport.assertLoginAllowed(username, clientIp);
+        User user = findActiveUserByUsername(username);
+        if (user == null || !matchPassword(dto.getPassword(), user.getPassword())) {
+            authRateLimitSupport.recordLoginFailure(username);
             throw new BusinessException(ResultCode.UNAUTHORIZED, "用户名或密码错误");
         }
+        authRateLimitSupport.recordLoginSuccess(username);
         String deviceName = DeviceNameUtil.resolveDeviceName(dto.getDeviceName(), userAgent);
         String resolvedDeviceId = authSessionSupport.resolveDeviceId(dto.getDeviceId());
         String refreshToken = authSessionSupport.createSession(user.getId(), user.getUsername(), resolvedDeviceId, deviceName);
@@ -188,12 +194,15 @@ public class AuthServiceImpl implements AuthService {
         return vo;
     }
 
+    /**
+     * 按用户名查找启用状态的用户，不存在时返回 null（由调用方统一抛"用户名或密码错误"并记录失败计数）。
+     */
     private User findActiveUserByUsername(String username) {
         LambdaQueryWrapper<User> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(User::getUsername, UsernameUtil.normalize(username));
+        wrapper.eq(User::getUsername, username);
         User user = userMapper.selectOne(wrapper);
         if (user == null) {
-            throw new BusinessException(ResultCode.UNAUTHORIZED, "用户名或密码错误");
+            return null;
         }
         if (UserStatus.DISABLED.getCode() == user.getStatus()) {
             throw new BusinessException(ResultCode.FORBIDDEN, "账号已被禁用");

@@ -17,6 +17,7 @@ import com.fleyx.jcloud.model.vo.TokenPairVo;
 import com.fleyx.jcloud.model.vo.UserVo;
 import com.fleyx.jcloud.service.AuthService;
 import com.fleyx.jcloud.service.support.AuthCookieSupport;
+import com.fleyx.jcloud.util.ClientIpUtil;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
@@ -67,8 +68,9 @@ public class AuthController {
     @PostMapping("/login")
     public R<LoginVo> login(@Valid @RequestBody UserLoginDto dto,
                             @RequestHeader(value = "User-Agent", required = false) String userAgent,
+                            HttpServletRequest request,
                             HttpServletResponse response) {
-        LoginVo vo = authService.login(dto, userAgent);
+        LoginVo vo = authService.login(dto, userAgent, ClientIpUtil.resolve(request));
         authCookieSupport.writeTokenCookies(response, vo.getToken(), vo.getRefreshToken());
         return R.ok(vo);
     }
