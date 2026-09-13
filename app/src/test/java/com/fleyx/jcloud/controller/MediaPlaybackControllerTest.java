@@ -6,6 +6,7 @@ import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.common.exception.GlobalExceptionHandler;
 import com.fleyx.jcloud.model.bo.FileDownloadResult;
+import com.fleyx.jcloud.model.bo.TranscodeSessionParams;
 import com.fleyx.jcloud.model.vo.MediaPlaybackInfoVo;
 import com.fleyx.jcloud.service.MediaPlaybackService;
 import com.fleyx.jcloud.service.support.PlaybackConfigConstants;
@@ -15,6 +16,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.mockito.ArgumentCaptor;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
@@ -25,6 +27,11 @@ import java.time.Instant;
 
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.nullValue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -201,14 +208,14 @@ class MediaPlaybackControllerTest {
 
     /**
      * 纯播放转码会话端点：200、sessionId/playlistUrl 装配与已收录端点一致、
-     * service 参数透传（startMs/audioIndex/subtitleIndex/externalSubtitleId/targetBitrateKbps/maxHeight/
-     * forceVideoTranscode，工单 04 起带外挂字幕节点 ID）。
+     * 转码参数打包为 TranscodeSessionParams 透传（startMs/audioIndex/subtitleIndex/externalSubtitleId/
+     * targetBitrateKbps/maxHeight/forceVideoTranscode，工单 04 起带外挂字幕节点 ID）。
      */
     @Test
     void shouldCreateTranscodeSessionByFileNode() throws Exception {
         TranscodeSession session = new TranscodeSession("s-1", "user-1", null, null, "copy", Instant.now());
         when(mediaPlaybackService.createTranscodeSessionByFileNode(
-                "fn-1", 30_000L, 1, 2, "sub-1", 2_000L, 720, true, "user-1")).thenReturn(session);
+                eq("fn-1"), eq("user-1"), any(TranscodeSessionParams.class))).thenReturn(session);
 
         mockMvc.perform(post("/jcloud/api/media/files/fn-1/transcode")
                         .param("startMs", "30000")
@@ -224,8 +231,16 @@ class MediaPlaybackControllerTest {
                 .andExpect(jsonPath("$.data.playlistUrl")
                         .value("/jcloud/api/media/transcode/s-1/index.m3u8"));
 
-        verify(mediaPlaybackService).createTranscodeSessionByFileNode(
-                "fn-1", 30_000L, 1, 2, "sub-1", 2_000L, 720, true, "user-1");
+        ArgumentCaptor<TranscodeSessionParams> captor = ArgumentCaptor.forClass(TranscodeSessionParams.class);
+        verify(mediaPlaybackService).createTranscodeSessionByFileNode(eq("fn-1"), eq("user-1"), captor.capture());
+        TranscodeSessionParams params = captor.getValue();
+        assertEquals(30_000L, params.startMs());
+        assertEquals(1, params.audioIndex());
+        assertEquals(2, params.subtitleIndex());
+        assertEquals("sub-1", params.externalSubtitleId());
+        assertEquals(2_000L, params.targetBitrateKbps());
+        assertEquals(720, params.maxHeight());
+        assertTrue(params.forceVideoTranscode());
     }
 
     /**
@@ -235,7 +250,7 @@ class MediaPlaybackControllerTest {
     @Test
     void shouldPassthroughNotFoundForTranscodeByFileNode() throws Exception {
         when(mediaPlaybackService.createTranscodeSessionByFileNode(
-                "fn-9", 0L, null, null, null, null, null, false, "user-1"))
+                eq("fn-9"), eq("user-1"), any(TranscodeSessionParams.class)))
                 .thenThrow(new BusinessException(ResultCode.NOT_FOUND, "文件不存在"));
 
         mockMvc.perform(post("/jcloud/api/media/files/fn-9/transcode"))
@@ -243,8 +258,11 @@ class MediaPlaybackControllerTest {
                 .andExpect(jsonPath("$.code").value(404))
                 .andExpect(jsonPath("$.msg").value("文件不存在"));
 
-        verify(mediaPlaybackService).createTranscodeSessionByFileNode(
-                "fn-9", 0L, null, null, null, null, null, false, "user-1");
+        ArgumentCaptor<TranscodeSessionParams> captor = ArgumentCaptor.forClass(TranscodeSessionParams.class);
+        verify(mediaPlaybackService).createTranscodeSessionByFileNode(eq("fn-9"), eq("user-1"), captor.capture());
+        assertEquals(0L, captor.getValue().startMs());
+        assertNull(captor.getValue().audioIndex());
+        assertNull(captor.getValue().externalSubtitleId());
     }
 
     /**

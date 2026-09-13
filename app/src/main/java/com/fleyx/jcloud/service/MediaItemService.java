@@ -133,7 +133,7 @@ public interface MediaItemService {
      * @return 反查视图（条目 ID + 版本明细行 ID，命中其他行时版本 ID 为 null）
      * @throws BusinessException 未找到时抛出
      */
-    MediaItemLookupVo getItemIdByFileNodeId(String fileNodeId, String userId);
+    MediaItemLookupVo lookupByFileNode(String fileNodeId, String userId);
 
     /**
      * 聚合媒体库类型列表（类型页）。

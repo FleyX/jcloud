@@ -8,6 +8,7 @@ import com.fleyx.jcloud.mapper.FileMapper;
 import com.fleyx.jcloud.mapper.MediaSubtitleMapper;
 import com.fleyx.jcloud.model.bo.FileDownloadResult;
 import com.fleyx.jcloud.model.bo.MediaProbeResult;
+import com.fleyx.jcloud.model.bo.TranscodeSessionParams;
 import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.po.MediaSubtitle;
 import com.fleyx.jcloud.model.po.StorageSpace;
@@ -42,11 +43,13 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -161,30 +164,82 @@ class MediaPlaybackServiceImplTest {
     }
 
     /**
-     * 零写入：纯播放播放信息 + 直放流全链路执行后，影视归档解析/字幕表/烧录/转码会话/
-     * 远程下载均无任何交互（不产出进度、已观看、「继续观看」等媒体数据）。
+     * 零写入：纯播放全链路（播放信息 + 直放流 + 转码会话 + 内嵌/外挂字幕端点）执行后，
+     * 影视归档解析、字幕关联表、远程下载等写能力协作者零交互，且各协作者仅发生预期的只读调用——
+     * 任何遗漏的写调用（播放进度/已观看/「继续观看」等媒体数据）都会让本测试变红。
      */
     @Test
-    void shouldNotWriteAnyMediaDataForPurePlay() {
+    void shouldNotWriteAnyMediaDataForPurePlay() throws Exception {
         FileNode node = localNode("fn-1", "user-1");
+        FileNode subNode = localNode("sub-1", "user-1");
+        subNode.setName("movie.chs.srt");
         when(fileMapper.selectById("fn-1")).thenReturn(node);
+        when(fileMapper.selectById("sub-1")).thenReturn(subNode);
         Path localPath = Path.of("/data/user-1/movie.mp4");
+        Path subLocalPath = Path.of("/data/user-1/movie.chs.srt");
         when(mediaFileStreamSupport.resolveLocalPath(node, "user-1")).thenReturn(localPath);
+        when(mediaFileStreamSupport.resolveLocalPath(subNode, "user-1")).thenReturn(subLocalPath);
         MediaProbeResult probe = probeResult();
         when(mediaProbeSupport.probe(localPath)).thenReturn(probe);
         when(mediaSubtitleSupport.buildPureSubtitleList(probe.subtitleTracks(), node)).thenReturn(List.of());
+        MediaSubtitle detected = new MediaSubtitle();
+        detected.setFileId("fn-1");
+        detected.setFileNodeId("sub-1");
+        detected.setFormat("srt");
+        when(mediaSubtitleSupport.findDetectedSubtitle(node, "sub-1")).thenReturn(detected);
+        Path vtt = Path.of("/cache/ext_sub-1.vtt");
+        when(mediaSubtitleConvertSupport.resolveExternalVtt(detected, subNode, subLocalPath, "user-1"))
+                .thenReturn(vtt);
         FileDownloadResult download = new FileDownloadResult(
                 "movie.mp4", new ByteArrayInputStream(new byte[0]), "video/mp4", 1_024L);
         when(mediaFileStreamSupport.streamNode(node, "bytes=0-1", "user-1"))
                 .thenReturn(new MediaPlaybackService.MediaStreamResult(download, 0L, 1L, 1_024L, "movie.mp4"));
+        when(mediaBurnInSubtitleSupport.resolveExternalSubtitleBurnByFileNode(any(), any(), any(), any()))
+                .thenReturn(new MediaBurnInSubtitleSupport.ExternalSubtitleBurn(null, null));
+        when(transcodeSessionManager.createSession(any(), any()))
+                .thenReturn(new TranscodeSession("s-1", "user-1", null, null, "copy", Instant.now()));
+        StorageSpace space = new StorageSpace();
+        space.setPath(tempDir.toString());
+        when(systemStorageSpaceProvider.getSystemSpace()).thenReturn(space);
+        // 内嵌字幕缓存命中（canonical 已存在，不触发 ffmpeg 提取）
+        Path canonical = tempDir.resolve("system/media/subtitles/fn-1_0.vtt");
+        Files.createDirectories(canonical.getParent());
+        Files.writeString(canonical, "WEBVTT");
 
         service.getPlaybackInfoByFileNode("fn-1", "user-1");
         MediaPlaybackService.MediaStreamResult stream = service.streamByFileNode("fn-1", "bytes=0-1", "user-1");
+        service.createTranscodeSessionByFileNode("fn-1", "user-1",
+                new TranscodeSessionParams(0L, null, null, null, null, null, false));
+        service.extractSubtitleByFileNode("fn-1", 0, 0, "user-1");
+        service.extractExternalSubtitleByFileNode("fn-1", "sub-1", 0, "user-1");
 
         assertEquals(0L, stream.rangeStart());
+        // 零交互：影视归档解析/字幕关联表/远程下载/ffmpeg 配置等写能力协作者全程不触碰
+        verifyNoInteractions(mediaPlaybackResolveSupport, mediaSubtitleMapper, remoteFileService, mediaProperties);
+        // 已发生的交互逐条钉死后，任何多余调用（含一切写调用）都会让本测试变红
+        verify(fileMapper, times(5)).selectById("fn-1");
+        verify(fileMapper).selectById("sub-1");
+        verifyNoMoreInteractions(fileMapper);
+        // 播放信息探测 + 转码会话探测/装配各解析一次视频本地路径，外挂字幕收尾再解析一次字幕路径
+        verify(mediaFileStreamSupport, times(3)).resolveLocalPath(node, "user-1");
+        verify(mediaFileStreamSupport).resolveLocalPath(subNode, "user-1");
         verify(mediaFileStreamSupport).streamNode(node, "bytes=0-1", "user-1");
-        verifyNoInteractions(mediaPlaybackResolveSupport, mediaSubtitleMapper,
-                mediaBurnInSubtitleSupport, transcodeSessionManager, remoteFileService);
+        verifyNoMoreInteractions(mediaFileStreamSupport);
+        verify(mediaProbeSupport, times(2)).probe(localPath);
+        verifyNoMoreInteractions(mediaProbeSupport);
+        verify(mediaSubtitleSupport).buildPureSubtitleList(probe.subtitleTracks(), node);
+        verify(mediaSubtitleSupport).findDetectedSubtitle(node, "sub-1");
+        verifyNoMoreInteractions(mediaSubtitleSupport);
+        verify(mediaSubtitleConvertSupport).resolveExternalVtt(detected, subNode, subLocalPath, "user-1");
+        verifyNoMoreInteractions(mediaSubtitleConvertSupport);
+        verify(mediaBurnInSubtitleSupport).resolveExternalSubtitleBurnByFileNode(
+                eq(node), isNull(), eq("user-1"), any());
+        verify(mediaBurnInSubtitleSupport).validateSubtitleIndex(probe, null);
+        verifyNoMoreInteractions(mediaBurnInSubtitleSupport);
+        verify(transcodeSessionManager).createSession(eq("user-1"), any());
+        verifyNoMoreInteractions(transcodeSessionManager);
+        verify(systemStorageSpaceProvider).getSystemSpace();
+        verifyNoMoreInteractions(systemStorageSpaceProvider);
     }
 
     /**
@@ -207,8 +262,8 @@ class MediaPlaybackServiceImplTest {
         when(transcodeSessionManager.createSession(any(), any()))
                 .thenReturn(new TranscodeSession("s-1", "user-1", null, null, "copy", Instant.now()));
 
-        TranscodeSession session = service.createTranscodeSessionByFileNode(
-                "fn-1", 30_000L, 1, null, null, 2_000L, 720, true, "user-1");
+        TranscodeSession session = service.createTranscodeSessionByFileNode("fn-1", "user-1",
+                new TranscodeSessionParams(30_000L, 1, null, null, 2_000L, 720, true));
 
         assertEquals("s-1", session.id());
         ArgumentCaptor<TranscodeCommandBuilder.TranscodeRequest> captor =
@@ -250,7 +305,8 @@ class MediaPlaybackServiceImplTest {
         when(transcodeSessionManager.createSession(any(), any()))
                 .thenReturn(new TranscodeSession("s-1", "user-1", null, null, "copy", Instant.now()));
 
-        service.createTranscodeSessionByFileNode("fn-1", 0L, null, null, null, null, null, false, "user-1");
+        service.createTranscodeSessionByFileNode("fn-1", "user-1",
+                new TranscodeSessionParams(0L, null, null, null, null, null, false));
 
         ArgumentCaptor<TranscodeCommandBuilder.TranscodeRequest> captor =
                 ArgumentCaptor.forClass(TranscodeCommandBuilder.TranscodeRequest.class);
@@ -273,7 +329,8 @@ class MediaPlaybackServiceImplTest {
         when(fileMapper.selectById("fn-1")).thenReturn(localNode("fn-1", "other-user"));
 
         BusinessException exception = assertThrows(BusinessException.class,
-                () -> service.createTranscodeSessionByFileNode("fn-1", 0L, null, null, null, null, null, false, "user-1"));
+                () -> service.createTranscodeSessionByFileNode("fn-1", "user-1",
+                        new TranscodeSessionParams(0L, null, null, null, null, null, false)));
 
         assertEquals(ResultCode.NOT_FOUND, exception.getResultCode());
         verifyNoInteractions(mediaProbeSupport, transcodeSessionManager);
@@ -285,7 +342,8 @@ class MediaPlaybackServiceImplTest {
     @Test
     void shouldRejectInvalidMaxHeightForPureTranscodeSession() {
         BusinessException exception = assertThrows(BusinessException.class,
-                () -> service.createTranscodeSessionByFileNode("fn-1", 0L, null, null, null, null, 999, false, "user-1"));
+                () -> service.createTranscodeSessionByFileNode("fn-1", "user-1",
+                        new TranscodeSessionParams(0L, null, null, null, null, 999, false)));
 
         assertEquals(ResultCode.PARAM_ERROR, exception.getResultCode());
         verifyNoInteractions(fileMapper, mediaProbeSupport, transcodeSessionManager);
@@ -297,7 +355,8 @@ class MediaPlaybackServiceImplTest {
     @Test
     void shouldRejectSubtitleIndexAndExternalTogetherForPureTranscodeSession() {
         BusinessException exception = assertThrows(BusinessException.class,
-                () -> service.createTranscodeSessionByFileNode("fn-1", 0L, null, 2, "sub-1", null, null, false, "user-1"));
+                () -> service.createTranscodeSessionByFileNode("fn-1", "user-1",
+                        new TranscodeSessionParams(0L, null, 2, "sub-1", null, null, false)));
 
         assertEquals(ResultCode.PARAM_ERROR, exception.getResultCode());
         assertEquals("内嵌与外部字幕只能二选一", exception.getMessage());
@@ -305,30 +364,8 @@ class MediaPlaybackServiceImplTest {
     }
 
     /**
-     * 零写入：纯播放转码会话创建全链路执行后，影视归档解析与媒体字幕表无任何交互
-     * （不产出进度、已观看、「继续观看」等媒体数据）。
-     */
-    @Test
-    void shouldNotWriteAnyMediaDataForPureTranscodeSession() {
-        FileNode node = localNode("fn-1", "user-1");
-        when(fileMapper.selectById("fn-1")).thenReturn(node);
-        Path localPath = Path.of("/data/user-1/movie.mkv");
-        when(mediaFileStreamSupport.resolveLocalPath(node, "user-1")).thenReturn(localPath);
-        MediaProbeResult probe = probeResult();
-        when(mediaProbeSupport.probe(localPath)).thenReturn(probe);
-        when(mediaBurnInSubtitleSupport.resolveExternalSubtitleBurnByFileNode(any(), any(), any(), any()))
-                .thenReturn(new MediaBurnInSubtitleSupport.ExternalSubtitleBurn(null, null));
-        when(transcodeSessionManager.createSession(any(), any()))
-                .thenReturn(new TranscodeSession("s-1", "user-1", null, null, "copy", Instant.now()));
-
-        service.createTranscodeSessionByFileNode("fn-1", 0L, null, null, null, null, null, false, "user-1");
-
-        verifyNoInteractions(mediaPlaybackResolveSupport, mediaSubtitleMapper);
-    }
-
-    /**
      * 纯播放播放信息不可直放（容器不在直放白名单）时 mode=transcode，
-     * transcodeUrl 为 files 形态（工单 02 遗留 null 由本工单补齐）。
+     * transcodeUrl 为 files 形态（/jcloud/api/media/files/{fileNodeId}/transcode）。
      */
     @Test
     void shouldExposeFilesTranscodeUrlForPurePlaybackInfo() {
@@ -386,7 +423,7 @@ class MediaPlaybackServiceImplTest {
     }
 
     /**
-     * 纯播放外挂字幕读取（工单 04）：视频与字幕节点归属校验后，必须在实时探测命中集合内，
+     * 纯播放外挂字幕读取（工单 04）：视频与字幕节点归属校验后，经共用归属校验在实时探测命中集合内定位，
      * 命中后经 convertSupport 转 VTT；offsetMs>0 走独立偏移结果。
      */
     @Test
@@ -400,7 +437,7 @@ class MediaPlaybackServiceImplTest {
         detected.setFileId("fn-1");
         detected.setFileNodeId("sub-1");
         detected.setFormat("srt");
-        when(mediaSubtitleSupport.detectExternalSubtitles(video)).thenReturn(List.of(detected));
+        when(mediaSubtitleSupport.findDetectedSubtitle(video, "sub-1")).thenReturn(detected);
         Path localPath = Path.of("/data/user-1/movie.chs.srt");
         when(mediaFileStreamSupport.resolveLocalPath(subNode, "user-1")).thenReturn(localPath);
         Path vtt = Path.of("/cache/ext_sub-1.vtt");
@@ -417,33 +454,29 @@ class MediaPlaybackServiceImplTest {
     }
 
     /**
-     * 纯播放外挂字幕读取：未命中实时探测集合（探测为空或命中其他节点）与字幕节点归属他人均 404。
+     * 纯播放外挂字幕读取：共用归属校验未命中（实时探测空集合或命中其他节点）抛 404「字幕不存在」；
+     * 字幕文件节点归属他人在探测之前即 404。
      */
     @Test
     void shouldRejectPureExternalSubtitleNotDetectedOrOwnedByOthers() {
         FileNode video = localNode("fn-1", "user-1");
         when(fileMapper.selectById("fn-1")).thenReturn(video);
         when(fileMapper.selectById("sub-1")).thenReturn(localNode("sub-1", "user-1"));
-        when(mediaSubtitleSupport.detectExternalSubtitles(video)).thenReturn(List.of());
-        BusinessException empty = assertThrows(BusinessException.class,
-                () -> service.extractExternalSubtitleByFileNode("fn-1", "sub-1", 0, "user-1"));
-        assertEquals(ResultCode.NOT_FOUND, empty.getResultCode());
-
-        // 探测只命中其他节点 → 同样 404
-        MediaSubtitle other = new MediaSubtitle();
-        other.setFileNodeId("sub-9");
-        when(mediaSubtitleSupport.detectExternalSubtitles(video)).thenReturn(List.of(other));
+        // 探测未命中（空集合或命中其他节点）→ 共用归属校验抛 404
+        when(mediaSubtitleSupport.findDetectedSubtitle(video, "sub-1"))
+                .thenThrow(new BusinessException(ResultCode.NOT_FOUND, "字幕不存在"));
         BusinessException missed = assertThrows(BusinessException.class,
                 () -> service.extractExternalSubtitleByFileNode("fn-1", "sub-1", 0, "user-1"));
         assertEquals(ResultCode.NOT_FOUND, missed.getResultCode());
+        assertEquals("字幕不存在", missed.getMessage());
 
         // 字幕文件节点归属他人 → 404（探测之前即拦截）
         when(fileMapper.selectById("sub-1")).thenReturn(localNode("sub-1", "other-user"));
         BusinessException owned = assertThrows(BusinessException.class,
                 () -> service.extractExternalSubtitleByFileNode("fn-1", "sub-1", 0, "user-1"));
         assertEquals(ResultCode.NOT_FOUND, owned.getResultCode());
-        // 前两次断言各探测一次，归属拦截不再触发探测
-        verify(mediaSubtitleSupport, times(2)).detectExternalSubtitles(video);
+        // 归属拦截不再触发探测：全链路仅一次归属校验
+        verify(mediaSubtitleSupport).findDetectedSubtitle(video, "sub-1");
     }
 
     /**
@@ -463,7 +496,8 @@ class MediaPlaybackServiceImplTest {
         when(transcodeSessionManager.createSession(any(), any()))
                 .thenReturn(new TranscodeSession("s-1", "user-1", null, null, "copy", Instant.now()));
 
-        service.createTranscodeSessionByFileNode("fn-1", 0L, null, null, "sub-1", null, null, false, "user-1");
+        service.createTranscodeSessionByFileNode("fn-1", "user-1",
+                new TranscodeSessionParams(0L, null, null, "sub-1", null, null, false));
 
         ArgumentCaptor<TranscodeCommandBuilder.TranscodeRequest> captor =
                 ArgumentCaptor.forClass(TranscodeCommandBuilder.TranscodeRequest.class);

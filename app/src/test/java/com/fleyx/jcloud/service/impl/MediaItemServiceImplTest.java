@@ -76,7 +76,7 @@ class MediaItemServiceImplTest {
         other.setUserId("user-1");
         when(mediaOtherMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(other);
 
-        MediaItemLookupVo vo = mediaItemService.getItemIdByFileNodeId("fn-1", "user-1");
+        MediaItemLookupVo vo = mediaItemService.lookupByFileNode("fn-1", "user-1");
 
         assertEquals("other-1", vo.getItemId());
         assertNull(vo.getVersionId());
@@ -97,7 +97,7 @@ class MediaItemServiceImplTest {
         when(mediaMovieFileMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(movieFile);
         when(mediaMovieMapper.selectById("movie-1")).thenReturn(movie);
 
-        MediaItemLookupVo vo = mediaItemService.getItemIdByFileNodeId("fn-movie", "user-1");
+        MediaItemLookupVo vo = mediaItemService.lookupByFileNode("fn-movie", "user-1");
 
         assertEquals("movie-1", vo.getItemId());
         assertEquals("movie-file-1", vo.getVersionId());
@@ -122,7 +122,7 @@ class MediaItemServiceImplTest {
         when(mediaEpisodeMapper.selectById("episode-1")).thenReturn(episode);
         when(mediaSeriesMapper.selectById("series-1")).thenReturn(series);
 
-        MediaItemLookupVo vo = mediaItemService.getItemIdByFileNodeId("fn-ep", "user-1");
+        MediaItemLookupVo vo = mediaItemService.lookupByFileNode("fn-ep", "user-1");
 
         assertEquals("episode-1", vo.getItemId());
         assertEquals("ep-file-1", vo.getVersionId());
@@ -138,9 +138,49 @@ class MediaItemServiceImplTest {
         when(mediaEpisodeFileMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(null);
 
         BusinessException exception = assertThrows(BusinessException.class,
-                () -> mediaItemService.getItemIdByFileNodeId("fn-9", "user-1"));
+                () -> mediaItemService.lookupByFileNode("fn-9", "user-1"));
 
         assertEquals(ResultCode.NOT_FOUND, exception.getResultCode());
+    }
+
+    /**
+     * 按文件节点 ID 反查：他人收录的文件对本用户视为未收录（跨用户不可见，userId 硬过滤）——
+     * 电影/集文件明细行存在但标题级行归属他人时继续向后查找，最终抛 NOT_FOUND，
+     * 不向本用户暴露他人收录的条目 ID。
+     */
+    @Test
+    void shouldTreatOthersCollectedFileAsNotFound() {
+        MediaMovieFile movieFile = new MediaMovieFile();
+        movieFile.setId("movie-file-9");
+        movieFile.setFileNodeId("fn-movie");
+        movieFile.setMovieId("movie-9");
+        MediaMovie othersMovie = new MediaMovie();
+        othersMovie.setId("movie-9");
+        othersMovie.setUserId("other-user");
+        MediaEpisodeFile episodeFile = new MediaEpisodeFile();
+        episodeFile.setId("ep-file-9");
+        episodeFile.setFileNodeId("fn-ep");
+        episodeFile.setEpisodeId("episode-9");
+        MediaEpisode episode = new MediaEpisode();
+        episode.setId("episode-9");
+        episode.setSeriesId("series-9");
+        MediaSeries othersSeries = new MediaSeries();
+        othersSeries.setId("series-9");
+        othersSeries.setUserId("other-user");
+        when(mediaOtherMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(null);
+        when(mediaMovieFileMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(movieFile);
+        when(mediaMovieMapper.selectById("movie-9")).thenReturn(othersMovie);
+        when(mediaEpisodeFileMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(episodeFile);
+        when(mediaEpisodeMapper.selectById("episode-9")).thenReturn(episode);
+        when(mediaSeriesMapper.selectById("series-9")).thenReturn(othersSeries);
+
+        BusinessException movieException = assertThrows(BusinessException.class,
+                () -> mediaItemService.lookupByFileNode("fn-movie", "user-1"));
+        assertEquals(ResultCode.NOT_FOUND, movieException.getResultCode());
+
+        BusinessException episodeException = assertThrows(BusinessException.class,
+                () -> mediaItemService.lookupByFileNode("fn-ep", "user-1"));
+        assertEquals(ResultCode.NOT_FOUND, episodeException.getResultCode());
     }
 
     /**

@@ -15,6 +15,8 @@ import org.springframework.stereotype.Component;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
+import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 /**
@@ -47,6 +49,11 @@ public class SyncTaskSupport {
      * 卡死 PENDING 任务自愈重发的滞留阈值（分钟）：超过该时长仍为 PENDING 的任务会被调度器重新投递。
      */
     public static final long STALE_PENDING_MINUTES = 5L;
+
+    /**
+     * 单次自愈扫描重投的最大任务条数（防雪崩）。
+     */
+    public static final int STALE_REDISPATCH_LIMIT = 50;
 
     /**
      * 构造 PENDING 状态的同步任务（计数清零）。
@@ -134,6 +141,38 @@ public class SyncTaskSupport {
         wrapper.eq("delete_at", 0L);
         wrapper.lambda().eq(ownerColumn, ownerId).in(statusColumn, statuses);
         return mapper.selectCount(wrapper) > 0;
+    }
+
+    /**
+     * 扫描并重新投递滞留超过 {@link #STALE_PENDING_MINUTES} 分钟的 PENDING 任务，自愈存量卡死任务；
+     * 重发不创建新任务记录，仅重投既有任务（每次最多处理 {@link #STALE_REDISPATCH_LIMIT} 条，防雪崩）。
+     * status/create_time 为同步任务通用字段（{@link SyncTaskFields} 契约），按列名过滤。
+     *
+     * @param mapper        任务 Mapper
+     * @param taskDesc      任务描述（日志用语），如「远程挂载同步任务」「同步任务」
+     * @param ownerIdGetter 归属 ID 提取（日志用语），如 {@code RemoteSyncTask::getRemoteMountId}
+     * @param redispatcher  任务重投递执行器（各执行器的 executeAsync）
+     * @param <T>           任务类型
+     */
+    public <T extends SyncTaskFields> void redispatchStalePendingTasks(BaseMapper<T> mapper, String taskDesc,
+                                                                       Function<T, String> ownerIdGetter,
+                                                                       Consumer<String> redispatcher) {
+        LocalDateTime staleBefore = LocalDateTime.now().minusMinutes(STALE_PENDING_MINUTES);
+        QueryWrapper<T> wrapper = new QueryWrapper<>();
+        wrapper.eq("status", SyncTaskStatus.PENDING.getValue())
+                .lt("create_time", staleBefore)
+                .last("LIMIT " + STALE_REDISPATCH_LIMIT);
+        List<T> staleTasks = mapper.selectList(wrapper);
+        if (staleTasks.isEmpty()) {
+            return;
+        }
+        log.info("扫描到 {} 条滞留超过 {} 分钟的 PENDING {}，重新投递",
+                staleTasks.size(), STALE_PENDING_MINUTES, taskDesc);
+        for (T task : staleTasks) {
+            log.info("重新投递滞留的 PENDING {}，taskId={}, ownerId={}",
+                    taskDesc, task.getId(), ownerIdGetter.apply(task));
+            redispatcher.accept(task.getId());
+        }
     }
 
     /**

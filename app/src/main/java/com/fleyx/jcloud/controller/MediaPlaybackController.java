@@ -6,6 +6,7 @@ import com.fleyx.jcloud.common.context.UserContext;
 import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.model.bo.FileDownloadResult;
+import com.fleyx.jcloud.model.bo.TranscodeSessionParams;
 import com.fleyx.jcloud.model.vo.MediaPlaybackConfigVo;
 import com.fleyx.jcloud.model.vo.MediaPlaybackInfoVo;
 import com.fleyx.jcloud.service.MediaPlaybackService;
@@ -184,8 +185,9 @@ public class MediaPlaybackController {
                                                   @RequestParam(defaultValue = "false") boolean forceVideoTranscode,
                                                   @RequestParam(required = false) String versionId) {
         TranscodeSession session = mediaPlaybackService.createTranscodeSession(
-                id, startMs, audioIndex, subtitleIndex, externalSubtitleId, targetBitrateKbps, maxHeight,
-                forceVideoTranscode, UserContext.get().id(), versionId);
+                id, UserContext.get().id(), versionId,
+                new TranscodeSessionParams(startMs, audioIndex, subtitleIndex, externalSubtitleId,
+                        targetBitrateKbps, maxHeight, forceVideoTranscode));
         return R.ok(buildTranscodeSessionResult(session));
     }
 
@@ -204,8 +206,9 @@ public class MediaPlaybackController {
                                                             @RequestParam(defaultValue = "false")
                                                             boolean forceVideoTranscode) {
         TranscodeSession session = mediaPlaybackService.createTranscodeSessionByFileNode(
-                fileNodeId, startMs, audioIndex, subtitleIndex, externalSubtitleId, targetBitrateKbps, maxHeight,
-                forceVideoTranscode, UserContext.get().id());
+                fileNodeId, UserContext.get().id(),
+                new TranscodeSessionParams(startMs, audioIndex, subtitleIndex, externalSubtitleId,
+                        targetBitrateKbps, maxHeight, forceVideoTranscode));
         return R.ok(buildTranscodeSessionResult(session));
     }
 

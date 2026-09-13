@@ -2,6 +2,8 @@ package com.fleyx.jcloud.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fleyx.jcloud.common.constant.FileNodeConstants;
+import com.fleyx.jcloud.common.enums.ResultCode;
+import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.FileMapper;
 import com.fleyx.jcloud.mapper.MediaSubtitleMapper;
 import com.fleyx.jcloud.model.bo.MediaProbeResult;
@@ -22,6 +24,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
  * 纯播放外挂字幕实时探测与列表组装测试（工单 04）：
@@ -99,6 +102,39 @@ class MediaSubtitleSupportTest extends MediaScanTestBase {
         MediaSubtitle vobsub = detected.get(0);
         assertEquals("idx", vobsub.getFormat());
         assertEquals(fileNodeByName("Movie.idx").getId(), vobsub.getFileNodeId());
+    }
+
+    /**
+     * 共用归属校验（纯播放外挂字幕读取/烧录入口）：命中实时探测集合时返回合成记录；
+     * 未命中（探测为空或命中其他节点）抛 NOT_FOUND「字幕不存在」。
+     */
+    @Test
+    void shouldFindDetectedSubtitleOrThrowNotFound() {
+        UserVo user = prepareUserWithStorageSpace().user();
+        FileNodeVo folder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "视频");
+        upload(user.getId(), folder.getId(), "Movie.mkv");
+        upload(user.getId(), folder.getId(), "Movie.chs.srt");
+
+        FileNode video = fileNodeByName("Movie.mkv");
+        FileNode sub = fileNodeByName("Movie.chs.srt");
+        MediaSubtitle found = mediaSubtitleSupport.findDetectedSubtitle(video, sub.getId());
+        assertEquals(sub.getId(), found.getFileNodeId());
+        assertEquals("srt", found.getFormat());
+
+        // 未命中：探测为空的节点 + 命中其他节点两种情况都抛 404
+        FileNodeVo otherFolder = createFolder(user.getId(), FileNodeConstants.ROOT_ID, "视频2");
+        upload(user.getId(), otherFolder.getId(), "Solo.mkv");
+        FileNode soloVideo = fileNodeByName("Solo.mkv");
+        BusinessException empty = assertThrows(BusinessException.class,
+                () -> mediaSubtitleSupport.findDetectedSubtitle(soloVideo, sub.getId()));
+        assertEquals(ResultCode.NOT_FOUND, empty.getResultCode());
+        assertEquals("字幕不存在", empty.getMessage());
+
+        BusinessException missed = assertThrows(BusinessException.class,
+                () -> mediaSubtitleSupport.findDetectedSubtitle(video, "missing-sub-node"));
+        assertEquals(ResultCode.NOT_FOUND, missed.getResultCode());
+        // 零读写：归属校验不触碰字幕关联表
+        assertEquals(0, mediaSubtitleMapper.selectCount(null));
     }
 
     /**

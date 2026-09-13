@@ -214,7 +214,7 @@ public class MediaItemServiceImpl implements MediaItemService {
     }
 
     @Override
-    public MediaItemLookupVo getItemIdByFileNodeId(String fileNodeId, String userId) {
+    public MediaItemLookupVo lookupByFileNode(String fileNodeId, String userId) {
         // 新模型（issue #19）：其他行（文件级）→ 其他 ID；电影/集文件明细 → 标题级 ID + 明细行 ID
         MediaOther other = mediaOtherMapper.selectOne(new LambdaQueryWrapper<MediaOther>()
                 .eq(MediaOther::getFileNodeId, fileNodeId)

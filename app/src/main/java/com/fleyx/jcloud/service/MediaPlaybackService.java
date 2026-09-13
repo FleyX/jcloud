@@ -1,6 +1,7 @@
 package com.fleyx.jcloud.service;
 
 import com.fleyx.jcloud.model.bo.FileDownloadResult;
+import com.fleyx.jcloud.model.bo.TranscodeSessionParams;
 import com.fleyx.jcloud.model.vo.MediaPlaybackConfigVo;
 import com.fleyx.jcloud.model.vo.MediaPlaybackInfoVo;
 import com.fleyx.jcloud.service.support.TranscodeSession;
@@ -33,7 +34,8 @@ public interface MediaPlaybackService {
 
     /**
      * 纯播放模式播放信息（未收录文件直放）：以文件节点开播，文件事实全部来自实时探测，
-     * 进度恒为 0、versionId 为 null；不可直放时 mode=transcode（转码端点由后续工单补齐）。
+     * 进度恒为 0、versionId 为 null；不可直放时 mode=transcode，transcodeUrl 为 files 形态
+     * （/jcloud/api/media/files/{fileNodeId}/transcode）。
      *
      * @param fileNodeId 文件节点 ID
      * @param userId     用户 ID
@@ -114,44 +116,27 @@ public interface MediaPlaybackService {
     /**
      * 创建转码会话（按流决策转封装/转码）。
      *
-     * @param itemId              条目 ID
-     * @param startMs             起始位置（毫秒）
-     * @param audioIndex          音轨序号，可为 null
-     * @param subtitleIndex       内嵌位图字幕轨序号，可为 null（携带时强制视频转码，烧录进画面；文本轨与非法序号拒绝）
-     * @param externalSubtitleId  外挂位图字幕记录 ID，可为 null（携带时强制视频转码，烧录进画面；
-     *                            文本外挂、非本明细行归属、与 subtitleIndex 同传均拒绝）
-     * @param targetBitrateKbps   目标视频码率上限 kbps，可为 null（存在时视频强制转码并限码率）
-     * @param maxHeight           分辨率高度上限（2160/1080/720/480/360），可为 null
-     * @param forceVideoTranscode 前端 MSE 不支持转封装编码时传 true，视频强制转码
-     * @param userId              用户 ID
-     * @param versionId           文件明细行 ID（电影版本 ID），为空按续播定位
+     * @param itemId      条目 ID
+     * @param userId      用户 ID
+     * @param versionId   文件明细行 ID（电影版本 ID），为空按续播定位
+     * @param transcodeParams 转码参数（起始位置/轨道选择/码率档位/强制转码）
      * @return 转码会话
      */
-    TranscodeSession createTranscodeSession(String itemId, long startMs, Integer audioIndex, Integer subtitleIndex,
-                                            String externalSubtitleId, Long targetBitrateKbps, Integer maxHeight,
-                                            boolean forceVideoTranscode, String userId, String versionId);
+    TranscodeSession createTranscodeSession(String itemId, String userId, String versionId,
+                                            TranscodeSessionParams transcodeParams);
 
     /**
      * 纯播放模式创建转码会话（未收录文件）：以文件节点开播，校验文件归属当前用户，
      * 文件事实全部来自实时探测（strict，无存档字段可兜底）；参数语义与 {@link #createTranscodeSession} 一致，
      * externalSubtitleId 为外挂字幕文件节点 ID（须命中实时探测且为位图格式，工单 04 起支持），不支持版本定位。
      *
-     * @param fileNodeId          文件节点 ID
-     * @param startMs             起始位置（毫秒）
-     * @param audioIndex          音轨序号，可为 null
-     * @param subtitleIndex       内嵌位图字幕轨序号，可为 null（携带时强制视频转码，烧录进画面；文本轨与非法序号拒绝）
-     * @param externalSubtitleId  外挂字幕文件节点 ID，可为 null（携带时强制视频转码，烧录进画面；
-     *                            文本外挂、探测未命中、与 subtitleIndex 同传均拒绝）
-     * @param targetBitrateKbps   目标视频码率上限 kbps，可为 null（存在时视频强制转码并限码率）
-     * @param maxHeight           分辨率高度上限（2160/1080/720/480/360），可为 null
-     * @param forceVideoTranscode 前端 MSE 不支持转封装编码时传 true，视频强制转码
-     * @param userId              用户 ID
+     * @param fileNodeId      文件节点 ID
+     * @param userId          用户 ID
+     * @param transcodeParams 转码参数（起始位置/轨道选择/码率档位/强制转码）
      * @return 转码会话
      */
-    TranscodeSession createTranscodeSessionByFileNode(String fileNodeId, long startMs, Integer audioIndex,
-                                                      Integer subtitleIndex, String externalSubtitleId,
-                                                      Long targetBitrateKbps, Integer maxHeight,
-                                                      boolean forceVideoTranscode, String userId);
+    TranscodeSession createTranscodeSessionByFileNode(String fileNodeId, String userId,
+                                                      TranscodeSessionParams transcodeParams);
 
     /**
      * 媒体流结果。

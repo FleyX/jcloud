@@ -17,7 +17,6 @@ import org.springframework.stereotype.Component;
 
 import java.io.InputStream;
 import java.nio.file.Path;
-import java.util.List;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
@@ -104,11 +103,7 @@ public class MediaBurnInSubtitleSupport {
         if (externalSubtitleFileNodeId == null) {
             return new ExternalSubtitleBurn(null, null);
         }
-        List<MediaSubtitle> detected = mediaSubtitleSupport.detectExternalSubtitles(video);
-        MediaSubtitle subtitle = detected.stream()
-                .filter(s -> externalSubtitleFileNodeId.equals(s.getFileNodeId()))
-                .findFirst()
-                .orElseThrow(() -> new BusinessException(ResultCode.NOT_FOUND, "字幕不存在"));
+        MediaSubtitle subtitle = mediaSubtitleSupport.findDetectedSubtitle(video, externalSubtitleFileNodeId);
         return assembleExternalBurn(subtitle.getFormat(), subtitle.getFileNodeId(), userId, localPathResolver);
     }
 

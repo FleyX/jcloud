@@ -292,7 +292,10 @@ function goBack() {
         </p>
 
         <!-- 插槽：简介之下的页面级扩展位。用 v-if 包裹，调用方不传时不产生多余 DOM/间距；间距统一由本容器 mt-5 提供 -->
-        <div v-if="$slots.default" class="mt-5">
+        <div
+          v-if="$slots.default"
+          class="mt-5"
+        >
           <slot />
         </div>
       </div>

@@ -1,6 +1,8 @@
 package com.fleyx.jcloud.service.support;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.fleyx.jcloud.common.enums.ResultCode;
+import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.FileMapper;
 import com.fleyx.jcloud.mapper.MediaSubtitleMapper;
 import com.fleyx.jcloud.model.bo.MediaProbeResult;
@@ -189,6 +191,21 @@ public class MediaSubtitleSupport {
             }
         }
         return detected;
+    }
+
+    /**
+     * 在实时探测命中集合内查找指定字幕文件节点（纯播放外挂字幕读取/烧录共用的归属校验）：
+     * 未命中抛 NOT_FOUND「字幕不存在」（等价于已收录链路的「记录归属当前明细行」校验）。
+     *
+     * @param video      视频文件节点
+     * @param fileNodeId 外挂字幕文件节点 ID
+     * @return 命中的合成字幕记录
+     */
+    public MediaSubtitle findDetectedSubtitle(FileNode video, String fileNodeId) {
+        return detectExternalSubtitles(video).stream()
+                .filter(s -> fileNodeId.equals(s.getFileNodeId()))
+                .findFirst()
+                .orElseThrow(() -> new BusinessException(ResultCode.NOT_FOUND, "字幕不存在"));
     }
 
     /**

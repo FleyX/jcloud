@@ -71,7 +71,7 @@ class MediaItemControllerTest {
         MediaItemLookupVo vo = new MediaItemLookupVo();
         vo.setItemId("item-1");
         vo.setVersionId("version-1");
-        when(mediaItemService.getItemIdByFileNodeId(eq("fn-1"), eq("user-1"))).thenReturn(vo);
+        when(mediaItemService.lookupByFileNode(eq("fn-1"), eq("user-1"))).thenReturn(vo);
 
         mockMvc.perform(get("/jcloud/api/media/items/by-file-node/fn-1"))
                 .andExpect(status().isOk())
@@ -85,7 +85,7 @@ class MediaItemControllerTest {
      */
     @Test
     void shouldReturnNotFoundWhenItemMissing() throws Exception {
-        when(mediaItemService.getItemIdByFileNodeId(eq("fn-2"), eq("user-1")))
+        when(mediaItemService.lookupByFileNode(eq("fn-2"), eq("user-1")))
                 .thenThrow(new BusinessException(ResultCode.NOT_FOUND, "媒体条目不存在"));
 
         mockMvc.perform(get("/jcloud/api/media/items/by-file-node/fn-2"))

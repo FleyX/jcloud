@@ -69,8 +69,8 @@ public class MediaItemController {
     }
 
     @GetMapping("/items/by-file-node/{fileNodeId}")
-    public R<MediaItemLookupVo> getItemIdByFileNodeId(@PathVariable String fileNodeId) {
-        return R.ok(mediaItemService.getItemIdByFileNodeId(fileNodeId, UserContext.get().id()));
+    public R<MediaItemLookupVo> lookupByFileNode(@PathVariable String fileNodeId) {
+        return R.ok(mediaItemService.lookupByFileNode(fileNodeId, UserContext.get().id()));
     }
 
     @GetMapping("/items/{id}/detail")

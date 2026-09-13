@@ -13,7 +13,6 @@ import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayInputStream;
 import java.nio.file.Path;
-import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -70,10 +69,14 @@ class MediaBurnInSubtitleSupportTest {
         verifyNoInteractions(mediaSubtitleSupport);
     }
 
+    /**
+     * 归属校验未命中（实时探测空集合或命中其他节点）→ 共用校验抛 404，且不触碰字幕文件查询。
+     */
     @Test
     void shouldRejectByFileNodeExternalSubtitleNotDetected() {
         FileNode video = node("fn-1", "user-1", "movie.mkv", "local");
-        when(mediaSubtitleSupport.detectExternalSubtitles(video)).thenReturn(List.of());
+        when(mediaSubtitleSupport.findDetectedSubtitle(video, "sub-1"))
+                .thenThrow(new BusinessException(ResultCode.NOT_FOUND, "字幕不存在"));
 
         BusinessException exception = assertThrows(BusinessException.class,
                 () -> support.resolveExternalSubtitleBurnByFileNode(video, "sub-1", "user-1", n -> null));
@@ -86,8 +89,8 @@ class MediaBurnInSubtitleSupportTest {
     @Test
     void shouldRejectByFileNodeTextSubtitleBurn() {
         FileNode video = node("fn-1", "user-1", "movie.mkv", "local");
-        when(mediaSubtitleSupport.detectExternalSubtitles(video))
-                .thenReturn(List.of(detected("sub-1", "srt")));
+        when(mediaSubtitleSupport.findDetectedSubtitle(video, "sub-1"))
+                .thenReturn(detected("sub-1", "srt"));
 
         BusinessException exception = assertThrows(BusinessException.class,
                 () -> support.resolveExternalSubtitleBurnByFileNode(video, "sub-1", "user-1", n -> null));
@@ -100,8 +103,8 @@ class MediaBurnInSubtitleSupportTest {
     void shouldAssembleLocalExternalBurnByFileNode() {
         FileNode video = node("fn-1", "user-1", "movie.mkv", "local");
         FileNode subNode = node("sub-1", "user-1", "movie.cht.sup", "local");
-        when(mediaSubtitleSupport.detectExternalSubtitles(video))
-                .thenReturn(List.of(detected("sub-1", "sup")));
+        when(mediaSubtitleSupport.findDetectedSubtitle(video, "sub-1"))
+                .thenReturn(detected("sub-1", "sup"));
         when(fileMapper.selectById("sub-1")).thenReturn(subNode);
         Path subPath = Path.of("/data/user-1/movie.cht.sup");
 
@@ -110,13 +113,14 @@ class MediaBurnInSubtitleSupportTest {
 
         assertEquals(subPath, result.path());
         assertNull(result.stream());
+        verify(mediaSubtitleSupport).findDetectedSubtitle(video, "sub-1");
     }
 
     @Test
     void shouldRejectByFileNodeSubtitleOwnedByOthers() {
         FileNode video = node("fn-1", "user-1", "movie.mkv", "local");
-        when(mediaSubtitleSupport.detectExternalSubtitles(video))
-                .thenReturn(List.of(detected("sub-1", "sup")));
+        when(mediaSubtitleSupport.findDetectedSubtitle(video, "sub-1"))
+                .thenReturn(detected("sub-1", "sup"));
         when(fileMapper.selectById("sub-1")).thenReturn(node("sub-1", "other-user", "movie.cht.sup", "local"));
 
         BusinessException exception = assertThrows(BusinessException.class,
@@ -131,8 +135,8 @@ class MediaBurnInSubtitleSupportTest {
         FileNode video = node("fn-1", "user-1", "movie.mkv", "local");
         FileNode idxNode = node("sub-1", "user-1", "movie.cht.idx", "remote");
         FileNode subFileNode = node("sub-2", "user-1", "movie.cht.sub", "remote");
-        when(mediaSubtitleSupport.detectExternalSubtitles(video))
-                .thenReturn(List.of(detected("sub-1", "idx")));
+        when(mediaSubtitleSupport.findDetectedSubtitle(video, "sub-1"))
+                .thenReturn(detected("sub-1", "idx"));
         when(fileMapper.selectById("sub-1")).thenReturn(idxNode);
         when(fileMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(subFileNode);
         when(remoteFileService.download(any(FileNode.class), any()))
@@ -158,8 +162,8 @@ class MediaBurnInSubtitleSupportTest {
     void shouldRejectRemoteIdxBurnWhenSubMissing() {
         FileNode video = node("fn-1", "user-1", "movie.mkv", "local");
         FileNode idxNode = node("sub-1", "user-1", "movie.cht.idx", "remote");
-        when(mediaSubtitleSupport.detectExternalSubtitles(video))
-                .thenReturn(List.of(detected("sub-1", "idx")));
+        when(mediaSubtitleSupport.findDetectedSubtitle(video, "sub-1"))
+                .thenReturn(detected("sub-1", "idx"));
         when(fileMapper.selectById("sub-1")).thenReturn(idxNode);
         when(fileMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(null);
 
