@@ -47,6 +47,11 @@ import java.util.List;
 @RequiredArgsConstructor
 public class AuthServiceImpl implements AuthService {
 
+    /**
+     * 限流主体前缀：登录面按用户名计数。
+     */
+    private static final String RATE_LIMIT_SUBJECT_PREFIX = "login:";
+
     private final UserMapper userMapper;
     private final RoleMapper roleMapper;
     private final UserRoleMapper userRoleMapper;
@@ -100,13 +105,14 @@ public class AuthServiceImpl implements AuthService {
     @Override
     public LoginVo login(UserLoginDto dto, String userAgent, String clientIp) {
         String username = UsernameUtil.normalize(dto.getUsername());
-        authRateLimitSupport.assertLoginAllowed(username, clientIp);
+        String rateLimitSubject = RATE_LIMIT_SUBJECT_PREFIX + username;
+        authRateLimitSupport.assertAllowed(rateLimitSubject, clientIp);
         User user = findActiveUserByUsername(username);
         if (user == null || !matchPassword(dto.getPassword(), user.getPassword())) {
-            authRateLimitSupport.recordLoginFailure(username);
+            authRateLimitSupport.recordFailure(rateLimitSubject);
             throw new BusinessException(ResultCode.UNAUTHORIZED, "用户名或密码错误");
         }
-        authRateLimitSupport.recordLoginSuccess(username);
+        authRateLimitSupport.recordSuccess(rateLimitSubject);
         String deviceName = DeviceNameUtil.resolveDeviceName(dto.getDeviceName(), userAgent);
         String resolvedDeviceId = authSessionSupport.resolveDeviceId(dto.getDeviceId());
         String refreshToken = authSessionSupport.createSession(user.getId(), user.getUsername(), resolvedDeviceId, deviceName);

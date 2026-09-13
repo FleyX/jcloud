@@ -16,7 +16,7 @@ import org.springframework.stereotype.Component;
 import java.time.Duration;
 
 /**
- * 认证限流组件（登录失败锁定 + 客户端 IP 维度限额）。
+ * 认证限流组件（认证失败锁定 + 客户端 IP 维度限额），供登录/分享/WebDAV 三个认证面复用。
  * <p>
  * Redis key 前缀 {@code jcloud:auth:rl:}，失败计数/锁定/IP 计数各占一类键：
  * <ul>
@@ -24,7 +24,8 @@ import java.time.Duration;
  *   <li>{@code lock:{subject}}：锁定标记，TTL = 锁定时长，存在即拒绝认证；</li>
  *   <li>{@code ip:{epochMinute}:{clientIp}}：IP 固定窗口计数（RAtomicLong），TTL 1 分钟。</li>
  * </ul>
- * 主体（subject）为任意字符串——登录语义下为用户编码，分享/WebDAV 场景可直接复用。
+ * 主体（subject）为任意字符串，调用方需自行加面级前缀防命名空间碰撞：
+ * 登录 {@code login:{username}}、分享 {@code share:{shareCode}}、WebDAV {@code webdav:{userCode}}。
  */
 @Slf4j
 @Component
@@ -55,12 +56,13 @@ public class AuthRateLimitSupport {
     private final AuthProperties authProperties;
 
     /**
-     * 校验主体是否允许发起认证请求：未锁定且客户端 IP 未超窗口限额。
+     * 校验主体是否允许发起认证请求：未锁定且客户端 IP 未超窗口限额（每次调用计入窗口）。
+     * 登录/分享面使用；WebDAV 面每个请求都携带凭据，使用 {@link #assertWebDavAllowed}。
      *
-     * @param subject  主体（登录语义下为用户编码，任意字符串）
+     * @param subject  主体（任意字符串，调用方加面级前缀）
      * @param clientIp 客户端 IP（空白时跳过 IP 维度校验，仅测试直连场景）
      */
-    public void assertLoginAllowed(String subject, String clientIp) {
+    public void assertAllowed(String subject, String clientIp) {
         try {
             assertIpAllowed(clientIp);
             if (isLocked(subject)) {
@@ -74,11 +76,32 @@ public class AuthRateLimitSupport {
     }
 
     /**
-     * 记录一次登录失败：失败计数 +1（刷新 TTL），达阈值则写入锁定键（TTL = 锁定时长）。
+     * WebDAV 变体的锁定检查：复用锁定分支，IP 窗口仅只读检查
+     * （当前窗口计数已达上限则抛，不递增）——WebDAV 正常浏览的数十个带凭据请求
+     * 不应消耗 IP 窗口额度，只有失败认证才计数（见 {@link #recordWebDavFailure}）。
+     *
+     * @param subject  主体（调用方加面级前缀）
+     * @param clientIp 客户端 IP（空白时跳过 IP 维度校验）
+     */
+    public void assertWebDavAllowed(String subject, String clientIp) {
+        try {
+            assertIpWindowNotExceeded(clientIp);
+            if (isLocked(subject)) {
+                throw new BusinessException(ResultCode.FORBIDDEN, LOCKED_MESSAGE);
+            }
+        } catch (BusinessException | SystemException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new SystemException(ResultCode.SYSTEM_ERROR, "认证限流校验失败", e);
+        }
+    }
+
+    /**
+     * 记录一次认证失败：失败计数 +1（刷新 TTL），达阈值则写入锁定键（TTL = 锁定时长）。
      *
      * @param subject 主体
      */
-    public void recordLoginFailure(String subject) {
+    public void recordFailure(String subject) {
         if (StrUtil.isBlank(subject)) {
             return;
         }
@@ -89,42 +112,79 @@ public class AuthRateLimitSupport {
             counter.expire(rateLimit.getLockDuration().plus(FAIL_TTL_BUFFER));
             if (failures >= rateLimit.getMaxFailures()) {
                 bucket(LOCK_PREFIX + subject).set("1", rateLimit.getLockDuration());
-                log.info("登录失败次数达阈值，锁定主体 subject={}, failures={}", subject, failures);
+                log.info("认证失败次数达阈值，锁定主体 subject={}, failures={}", subject, failures);
             }
         } catch (SystemException e) {
             throw e;
         } catch (Exception e) {
-            throw new SystemException(ResultCode.SYSTEM_ERROR, "记录登录失败计数失败", e);
+            throw new SystemException(ResultCode.SYSTEM_ERROR, "记录认证失败计数失败", e);
         }
     }
 
     /**
-     * 登录成功后清零失败计数（删除失败计数键；锁定键仅在登录成功路径不可达时存在，不处理）。
+     * 记录一次 WebDAV 失败认证：主体失败计数 +1（规则同 {@link #recordFailure}），
+     * 并递增当前 IP 窗口计数。
+     *
+     * @param subject  主体
+     * @param clientIp 客户端 IP（空白时跳过 IP 维度计数）
+     */
+    public void recordWebDavFailure(String subject, String clientIp) {
+        recordFailure(subject);
+        try {
+            incrementIpWindow(clientIp);
+        } catch (SystemException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new SystemException(ResultCode.SYSTEM_ERROR, "记录WebDAV失败计数失败", e);
+        }
+    }
+
+    /**
+     * 认证成功后清零失败计数（删除失败计数键；锁定键仅在认证成功路径不可达时存在，不处理）。
      *
      * @param subject 主体
      */
-    public void recordLoginSuccess(String subject) {
+    public void recordSuccess(String subject) {
         if (StrUtil.isBlank(subject)) {
             return;
         }
         try {
             redissonClient.getAtomicLong(FAIL_PREFIX + subject).delete();
         } catch (Exception e) {
-            throw new SystemException(ResultCode.SYSTEM_ERROR, "清除登录失败计数失败", e);
+            throw new SystemException(ResultCode.SYSTEM_ERROR, "清除认证失败计数失败", e);
         }
     }
 
     private void assertIpAllowed(String clientIp) {
+        long count = incrementIpWindow(clientIp);
+        if (StrUtil.isNotBlank(clientIp) && count > authProperties.getRateLimit().getIpMaxPerMinute()) {
+            throw new BusinessException(ResultCode.FORBIDDEN, LOCKED_MESSAGE);
+        }
+    }
+
+    private void assertIpWindowNotExceeded(String clientIp) {
         if (StrUtil.isBlank(clientIp)) {
             return;
         }
         long windowMinute = System.currentTimeMillis() / 60_000L;
         RAtomicLong counter = redissonClient.getAtomicLong(IP_PREFIX + windowMinute + ":" + clientIp);
-        long count = counter.incrementAndGet();
-        counter.expire(IP_WINDOW);
-        if (count > authProperties.getRateLimit().getIpMaxPerMinute()) {
+        if (counter.get() >= authProperties.getRateLimit().getIpMaxPerMinute()) {
             throw new BusinessException(ResultCode.FORBIDDEN, LOCKED_MESSAGE);
         }
+    }
+
+    /**
+     * 递增当前 IP 窗口计数并刷新窗口 TTL，返回递增后的计数（空白 IP 返回 0）。
+     */
+    private long incrementIpWindow(String clientIp) {
+        if (StrUtil.isBlank(clientIp)) {
+            return 0L;
+        }
+        long windowMinute = System.currentTimeMillis() / 60_000L;
+        RAtomicLong counter = redissonClient.getAtomicLong(IP_PREFIX + windowMinute + ":" + clientIp);
+        long count = counter.incrementAndGet();
+        counter.expire(IP_WINDOW);
+        return count;
     }
 
     private boolean isLocked(String subject) {

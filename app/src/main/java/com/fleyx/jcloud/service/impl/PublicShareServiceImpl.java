@@ -27,6 +27,7 @@ import com.fleyx.jcloud.service.FileDownloadService;
 import com.fleyx.jcloud.service.FilePreviewService;
 import com.fleyx.jcloud.service.FileService;
 import com.fleyx.jcloud.service.PublicShareService;
+import com.fleyx.jcloud.service.support.AuthRateLimitSupport;
 import com.fleyx.jcloud.util.ShareAccessChecker;
 import com.fleyx.jcloud.util.ShareTokenUtil;
 import io.jsonwebtoken.Claims;
@@ -50,6 +51,11 @@ public class PublicShareServiceImpl implements PublicShareService {
 
     private static final String TYPE_FOLDER = "folder";
 
+    /**
+     * 限流主体前缀：分享面按分享编码计数。
+     */
+    private static final String RATE_LIMIT_SUBJECT_PREFIX = "share:";
+
     private final ShareMapper shareMapper;
     private final ShareItemMapper shareItemMapper;
     private final FileMapper fileMapper;
@@ -60,6 +66,7 @@ public class PublicShareServiceImpl implements PublicShareService {
     private final FileService fileService;
     private final FilePreviewService filePreviewService;
     private final FileDownloadService fileDownloadService;
+    private final AuthRateLimitSupport authRateLimitSupport;
 
     @Override
     public PublicShareVo getShare(String shareCode) {
@@ -71,13 +78,17 @@ public class PublicShareServiceImpl implements PublicShareService {
     }
 
     @Override
-    public String validateAccess(String shareCode, String password) {
+    public String validateAccess(String shareCode, String password, String clientIp) {
+        String rateLimitSubject = RATE_LIMIT_SUBJECT_PREFIX + shareCode;
+        authRateLimitSupport.assertAllowed(rateLimitSubject, clientIp);
         Share share = requireActiveShare(shareCode);
         if (hasPassword(share)) {
             if (password == null || !BCrypt.checkpw(password, share.getPasswordHash())) {
+                authRateLimitSupport.recordFailure(rateLimitSubject);
                 throw new BusinessException(ResultCode.FORBIDDEN, "访问密码错误");
             }
         }
+        authRateLimitSupport.recordSuccess(rateLimitSubject);
         incrementViewCount(share);
         return shareTokenUtil.generateToken(shareCode);
     }

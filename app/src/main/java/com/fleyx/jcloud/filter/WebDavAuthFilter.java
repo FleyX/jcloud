@@ -6,8 +6,11 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fleyx.jcloud.common.context.CurrentUser;
 import com.fleyx.jcloud.common.context.UserContext;
 import com.fleyx.jcloud.common.enums.UserStatus;
+import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.UserMapper;
 import com.fleyx.jcloud.model.po.User;
+import com.fleyx.jcloud.service.support.AuthRateLimitSupport;
+import com.fleyx.jcloud.util.ClientIpUtil;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -23,7 +26,8 @@ import java.util.Base64;
  * WebDAV 请求 Basic Auth 认证过滤器。
  * <p>
  * 仅拦截 /dav/* 路径，校验用户名/密码、用户状态、WebDAV 开关，以及 URL 中的用户编码
- * 必须与认证用户一致。
+ * 必须与认证用户一致。携带凭据但认证失败的请求计入限流（连续失败锁定 + IP 窗口计数），
+ * 锁定/限流期间返回 429 且不携带 WWW-Authenticate，避免客户端无限自动重试。
  */
 @Slf4j
 public class WebDavAuthFilter extends OncePerRequestFilter {
@@ -34,10 +38,22 @@ public class WebDavAuthFilter extends OncePerRequestFilter {
     private static final String WWW_AUTHENTICATE = "WWW-Authenticate";
     private static final String REALM = "Basic realm=\"JCloud WebDAV\"";
 
-    private final UserMapper userMapper;
+    /**
+     * HTTP 429（Servlet 规范未提供该常量）。
+     */
+    private static final int SC_TOO_MANY_REQUESTS = 429;
 
-    public WebDavAuthFilter(UserMapper userMapper) {
+    /**
+     * 限流主体前缀：WebDAV 面按用户编码计数。
+     */
+    private static final String RATE_LIMIT_SUBJECT_PREFIX = "webdav:";
+
+    private final UserMapper userMapper;
+    private final AuthRateLimitSupport authRateLimitSupport;
+
+    public WebDavAuthFilter(UserMapper userMapper, AuthRateLimitSupport authRateLimitSupport) {
         this.userMapper = userMapper;
+        this.authRateLimitSupport = authRateLimitSupport;
     }
 
     @Override
@@ -50,23 +66,51 @@ public class WebDavAuthFilter extends OncePerRequestFilter {
                 return;
             }
 
+            String clientIp = ClientIpUtil.resolve(request);
+            if (!assertRateLimitAllowed(userCode, clientIp, response)) {
+                return;
+            }
+
             String[] credentials = extractCredentials(request);
             if (credentials == null) {
+                // 无凭据的首次挑战请求不计入失败
                 sendUnauthorized(response);
                 return;
             }
 
             User user = authenticate(credentials[0], credentials[1], userCode);
             if (user == null) {
+                authRateLimitSupport.recordWebDavFailure(rateLimitSubject(userCode), clientIp);
                 sendUnauthorized(response);
                 return;
             }
 
+            authRateLimitSupport.recordSuccess(rateLimitSubject(userCode));
             UserContext.set(new CurrentUser(user.getId(), user.getUsername()));
             filterChain.doFilter(request, response);
         } finally {
             UserContext.clear();
         }
+    }
+
+    /**
+     * 锁定/IP 限流检查：被拦时响应 429 且不携带 WWW-Authenticate。
+     *
+     * @return true 表示放行，false 表示已响应 429
+     */
+    private boolean assertRateLimitAllowed(String userCode, String clientIp, HttpServletResponse response)
+            throws IOException {
+        try {
+            authRateLimitSupport.assertWebDavAllowed(rateLimitSubject(userCode), clientIp);
+            return true;
+        } catch (BusinessException e) {
+            response.sendError(SC_TOO_MANY_REQUESTS, "尝试次数过多，请稍后再试");
+            return false;
+        }
+    }
+
+    private String rateLimitSubject(String userCode) {
+        return RATE_LIMIT_SUBJECT_PREFIX + userCode;
     }
 
     /**

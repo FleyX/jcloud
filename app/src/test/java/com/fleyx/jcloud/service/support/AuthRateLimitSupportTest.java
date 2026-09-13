@@ -50,9 +50,9 @@ class AuthRateLimitSupportTest {
         String subject = uniqueSubject();
         int maxFailures = authProperties.getRateLimit().getMaxFailures();
         for (int i = 0; i < maxFailures - 1; i++) {
-            authRateLimitSupport.recordLoginFailure(subject);
+            authRateLimitSupport.recordFailure(subject);
         }
-        assertDoesNotThrow(() -> authRateLimitSupport.assertLoginAllowed(subject, ip(1)));
+        assertDoesNotThrow(() -> authRateLimitSupport.assertAllowed(subject, ip(1)));
     }
 
     @Test
@@ -60,10 +60,10 @@ class AuthRateLimitSupportTest {
         String subject = uniqueSubject();
         int maxFailures = authProperties.getRateLimit().getMaxFailures();
         for (int i = 0; i < maxFailures; i++) {
-            authRateLimitSupport.recordLoginFailure(subject);
+            authRateLimitSupport.recordFailure(subject);
         }
         BusinessException ex = assertThrows(BusinessException.class,
-                () -> authRateLimitSupport.assertLoginAllowed(subject, ip(2)));
+                () -> authRateLimitSupport.assertAllowed(subject, ip(2)));
         assertEquals(LOCKED_MESSAGE, ex.getMessage());
         assertEquals(ResultCode.FORBIDDEN.getCode(), ex.getResultCode().getCode());
     }
@@ -77,12 +77,12 @@ class AuthRateLimitSupportTest {
         try {
             int maxFailures = rateLimit.getMaxFailures();
             for (int i = 0; i < maxFailures; i++) {
-                authRateLimitSupport.recordLoginFailure(subject);
+                authRateLimitSupport.recordFailure(subject);
             }
             assertThrows(BusinessException.class,
-                    () -> authRateLimitSupport.assertLoginAllowed(subject, ip(3)));
+                    () -> authRateLimitSupport.assertAllowed(subject, ip(3)));
             Thread.sleep(1200);
-            assertDoesNotThrow(() -> authRateLimitSupport.assertLoginAllowed(subject, ip(3)));
+            assertDoesNotThrow(() -> authRateLimitSupport.assertAllowed(subject, ip(3)));
         } finally {
             rateLimit.setLockDuration(original);
         }
@@ -93,14 +93,14 @@ class AuthRateLimitSupportTest {
         String subject = uniqueSubject();
         int maxFailures = authProperties.getRateLimit().getMaxFailures();
         for (int i = 0; i < maxFailures - 1; i++) {
-            authRateLimitSupport.recordLoginFailure(subject);
+            authRateLimitSupport.recordFailure(subject);
         }
-        authRateLimitSupport.recordLoginSuccess(subject);
+        authRateLimitSupport.recordSuccess(subject);
         for (int i = 0; i < maxFailures - 1; i++) {
-            authRateLimitSupport.recordLoginFailure(subject);
+            authRateLimitSupport.recordFailure(subject);
         }
         // 若成功未清零，累计失败数已达阈值，此处会被锁定
-        assertDoesNotThrow(() -> authRateLimitSupport.assertLoginAllowed(subject, ip(4)));
+        assertDoesNotThrow(() -> authRateLimitSupport.assertAllowed(subject, ip(4)));
     }
 
     @Test
@@ -110,10 +110,10 @@ class AuthRateLimitSupportTest {
         int limit = authProperties.getRateLimit().getIpMaxPerMinute();
         for (int i = 0; i < limit; i++) {
             int ignored = i;
-            assertDoesNotThrow(() -> authRateLimitSupport.assertLoginAllowed(subject + ignored, ip));
+            assertDoesNotThrow(() -> authRateLimitSupport.assertAllowed(subject + ignored, ip));
         }
         BusinessException ex = assertThrows(BusinessException.class,
-                () -> authRateLimitSupport.assertLoginAllowed(subject, ip));
+                () -> authRateLimitSupport.assertAllowed(subject, ip));
         assertEquals(LOCKED_MESSAGE, ex.getMessage());
     }
 
@@ -125,9 +125,38 @@ class AuthRateLimitSupportTest {
         int limit = authProperties.getRateLimit().getIpMaxPerMinute();
         for (int i = 0; i < limit; i++) {
             int ignored = i;
-            assertDoesNotThrow(() -> authRateLimitSupport.assertLoginAllowed(subject + ignored, ipA));
+            assertDoesNotThrow(() -> authRateLimitSupport.assertAllowed(subject + ignored, ipA));
         }
-        assertThrows(BusinessException.class, () -> authRateLimitSupport.assertLoginAllowed(subject, ipA));
-        assertDoesNotThrow(() -> authRateLimitSupport.assertLoginAllowed(subject, ipB));
+        assertThrows(BusinessException.class, () -> authRateLimitSupport.assertAllowed(subject, ipA));
+        assertDoesNotThrow(() -> authRateLimitSupport.assertAllowed(subject, ipB));
+    }
+
+    @Test
+    void webDavIpWindowShouldOnlyCountFailures() {
+        String subject = uniqueSubject();
+        String ip = ip(8);
+        int limit = authProperties.getRateLimit().getIpMaxPerMinute();
+        // 只读检查不消耗窗口额度：超过上限次数的 assertWebDavAllowed 全部放行
+        for (int i = 0; i < limit + 1; i++) {
+            int ignored = i;
+            assertDoesNotThrow(() -> authRateLimitSupport.assertWebDavAllowed(subject + ignored, ip));
+        }
+        // 失败认证才计数：达上限后再请求即被拒
+        for (int i = 0; i < limit; i++) {
+            authRateLimitSupport.recordWebDavFailure(subject, ip);
+        }
+        assertThrows(BusinessException.class, () -> authRateLimitSupport.assertWebDavAllowed(subject, ip));
+    }
+
+    @Test
+    void webDavFailuresReachingThresholdShouldLockSubject() {
+        String subject = uniqueSubject();
+        int maxFailures = authProperties.getRateLimit().getMaxFailures();
+        for (int i = 0; i < maxFailures; i++) {
+            authRateLimitSupport.recordWebDavFailure(subject, ip(9));
+        }
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> authRateLimitSupport.assertWebDavAllowed(subject, ip(10)));
+        assertEquals(LOCKED_MESSAGE, ex.getMessage());
     }
 }

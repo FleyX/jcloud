@@ -10,6 +10,7 @@ import com.fleyx.jcloud.filter.WebDavAuthFilter;
 import com.fleyx.jcloud.mapper.UserMapper;
 import com.fleyx.jcloud.mapper.UserRoleMapper;
 import com.fleyx.jcloud.service.support.AuthBlacklistSupport;
+import com.fleyx.jcloud.service.support.AuthRateLimitSupport;
 import com.fleyx.jcloud.util.JwtUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
@@ -31,6 +32,7 @@ public class FilterConfig {
     private final UserPermissionCache userPermissionCache;
     private final PermissionResolver permissionResolver;
     private final AuthBlacklistSupport authBlacklistSupport;
+    private final AuthRateLimitSupport authRateLimitSupport;
 
     /**
      * 注册链路追踪 ID 过滤器。
@@ -66,7 +68,7 @@ public class FilterConfig {
     @Bean
     public FilterRegistrationBean<WebDavAuthFilter> webDavAuthFilterRegistration() {
         FilterRegistrationBean<WebDavAuthFilter> registration = new FilterRegistrationBean<>();
-        registration.setFilter(new WebDavAuthFilter(userMapper));
+        registration.setFilter(new WebDavAuthFilter(userMapper, authRateLimitSupport));
         registration.addUrlPatterns("/dav/*");
         registration.setName("webDavAuthFilter");
         registration.setOrder(3);

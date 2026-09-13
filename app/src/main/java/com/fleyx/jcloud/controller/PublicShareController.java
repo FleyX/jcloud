@@ -12,7 +12,9 @@ import com.fleyx.jcloud.model.dto.ShareAccessDto;
 import com.fleyx.jcloud.model.vo.FileNodeVo;
 import com.fleyx.jcloud.model.vo.PublicShareVo;
 import com.fleyx.jcloud.service.PublicShareService;
+import com.fleyx.jcloud.util.ClientIpUtil;
 import com.fleyx.jcloud.util.ContentDispositionUtil;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.InputStreamResource;
@@ -57,8 +59,10 @@ public class PublicShareController {
      */
     @PostMapping("/access")
     public R<String> validateAccess(@PathVariable String code,
-                                    @Valid @RequestBody ShareAccessDto dto) {
-        return R.ok(publicShareService.validateAccess(code, dto.getPassword()));
+                                    @Valid @RequestBody ShareAccessDto dto,
+                                    HttpServletRequest request) {
+        return R.ok(publicShareService.validateAccess(code, dto.getPassword(),
+                ClientIpUtil.resolve(request)));
     }
 
     /**

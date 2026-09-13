@@ -29,9 +29,10 @@ public interface PublicShareService {
      *
      * @param shareCode 分享短码
      * @param password  访问密码
+     * @param clientIp  真实客户端 IP（经 ClientIpUtil 解析，用于限流）
      * @return 访问 Token
      */
-    String validateAccess(String shareCode, String password);
+    String validateAccess(String shareCode, String password, String clientIp);
 
     /**
      * 获取分享项列表。
