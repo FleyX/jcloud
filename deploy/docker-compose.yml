@@ -21,6 +21,9 @@ services:
       - REDIS_PORT=${REDIS_PORT:-6379}
       - REDIS_DB=${REDIS_DB:-0}
       - JCLOUD_JWT_SECRET=${JCLOUD_JWT_SECRET:-change-me-in-production-jcloud-secret-key-2026}
+      # 认证 cookie Secure 标记：公网拓扑（外部代理卸载 TLS，浏览器侧 HTTPS）下必须 true；
+      # 纯 HTTP 局域网部署可显式置 false
+      - JCLOUD_AUTH_COOKIE_SECURE=${JCLOUD_AUTH_COOKIE_SECURE:-true}
       - spring.profiles.active=prod
       # 关闭 MyBatis SQL 日志（application.yml 默认 StdOutImpl）
       - mybatis-plus.configuration.log-impl=org.apache.ibatis.logging.nologging.NoLoggingImpl
