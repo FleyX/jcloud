@@ -41,6 +41,7 @@
 | `REDIS_PORT` | `6379` | Redis 端口 |
 | `REDIS_DB` | `0` | Redis 数据库索引 |
 | `JCLOUD_JWT_SECRET` | `change-me-in-production-jcloud-secret-key-2026` | JWT 签名密钥，至少36位字符**生产环境必须修改** |
+| `JCLOUD_AUTH_COOKIE_SECURE` | `true` | 认证 cookie Secure 标记，公网部署必须 `true`，纯 HTTP 局域网部署可显式置 `false` |
 | `JCLOUD_DATA_PATH` | `./data` | 数据存放目录，默认位于 `deploy/data` |
 | `PUID` | `0` | 容器运行用户 uid，用于解决宿主机数据目录归属 root 的权限问题（详见下文「指定运行用户」） |
 | `PGID` | `0` | 容器运行用户组 gid，与 `PUID` 配合使用 |
@@ -258,7 +259,16 @@ docker compose -f deploy/docker-compose.yml restart jcloud
 
 ### 4. 是否支持 HTTPS
 
-当前 `deploy/Caddyfile` 使用 HTTP。若需 HTTPS，建议：
+jcloud 自身以纯 HTTP 运行（内部 Caddy 不配置域名/证书），公网 HTTPS 由外部反向代理（如 Nginx Proxy Manager、Traefik、Cloudflare 等）卸载 TLS：
 
-- 使用外部反向代理（如 Nginx、Traefik、Cloudflare）终止 TLS。
-- 或修改 `deploy/Caddyfile` 添加自动 HTTPS 域名配置，并重新构建镜像。
+```
+浏览器 --HTTPS--> 外部代理（卸载 TLS）--HTTP--> 内部 Caddy --> 后端
+```
+
+前置要求：
+
+- **外部代理必须透传 `X-Forwarded-For`**（主流反代默认透传）。否则登录、分享、WebDAV 的 IP 限流会按代理 IP 计数，可能误伤全部用户。
+- **必须显式设置 `JCLOUD_JWT_SECRET`** 为随机长串（如 `openssl rand -hex 32`），否则回退到仓库中已公开的默认值，存在安全风险。
+- 公网部署保持 `JCLOUD_AUTH_COOKIE_SECURE=true`（见上文「环境变量」），HSTS 等 TLS 相关安全头由外部代理设置。
+
+纯内网 HTTP 部署无需外部代理，直接访问即可。

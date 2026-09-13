@@ -7,6 +7,13 @@
     root * /srv/web
     encode gzip zstd
 
+    # 基础安全响应头（TLS 由外部代理卸载，HSTS 等由外部代理设置）
+    header {
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        Content-Security-Policy "frame-ancestors 'self'"
+    }
+
     # API 请求透传给后端，保留 /jcloud/api 前缀
     handle /jcloud/api/* {
         reverse_proxy localhost:{$JCLOUD_APP_PORT:8080}
