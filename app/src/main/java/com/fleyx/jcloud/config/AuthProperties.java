@@ -26,4 +26,9 @@ public class AuthProperties {
      * cookie 是否启用 Secure。默认关闭以兼容局域网纯 HTTP 环境，HTTPS 部署时应开启。
      */
     private boolean cookieSecure = false;
+
+    /**
+     * 是否开放公开注册。默认关闭，受邀用户由管理员在用户管理中手动建号。
+     */
+    private boolean registrationEnabled = false;
 }

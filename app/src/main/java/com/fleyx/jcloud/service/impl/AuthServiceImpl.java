@@ -7,6 +7,7 @@ import com.fleyx.jcloud.common.enums.UserStatus;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.common.permission.PermissionRegistry;
 import com.fleyx.jcloud.common.permission.PermissionResolver;
+import com.fleyx.jcloud.config.AuthProperties;
 import com.fleyx.jcloud.config.JwtProperties;
 import com.fleyx.jcloud.mapper.RoleMapper;
 import com.fleyx.jcloud.mapper.UserMapper;
@@ -56,10 +57,14 @@ public class AuthServiceImpl implements AuthService {
     private final SystemInitService systemInitService;
     private final AuthSessionSupport authSessionSupport;
     private final JwtProperties jwtProperties;
+    private final AuthProperties authProperties;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public UserVo register(UserRegisterDto dto) {
+        if (!authProperties.isRegistrationEnabled()) {
+            throw new BusinessException("当前未开放注册");
+        }
         String username = UsernameUtil.requireValid(dto.getUsername());
         checkUsernameUnique(username);
         User user = new User();

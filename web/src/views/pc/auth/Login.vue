@@ -2,16 +2,27 @@
 import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/store/user'
+import { fetchRegistrationEnabled } from '@/api/auth'
 import { cn } from '@/utils/cn'
 import { Lock, User, Eye, EyeOff, Cloud } from '@lucide/vue'
 
 const router = useRouter()
 const userStore = useUserStore()
 
+/** 注册开关：查询失败默认关闭（公网场景宁缺毋滥） */
+const registrationEnabled = ref(false)
+
 onMounted(() => {
   if (userStore.isLoggedIn) {
     router.push('/files')
   }
+  fetchRegistrationEnabled()
+    .then((enabled) => {
+      registrationEnabled.value = enabled
+    })
+    .catch(() => {
+      registrationEnabled.value = false
+    })
 })
 
 const form = reactive({
@@ -125,7 +136,10 @@ function goRegister() {
         </button>
       </form>
 
-      <div class="mt-6 text-center text-sm text-surface-500">
+      <div
+        v-if="registrationEnabled"
+        class="mt-6 text-center text-sm text-surface-500"
+      >
         还没有账号？
         <button
           class="font-medium text-primary-600 hover:text-primary-700"

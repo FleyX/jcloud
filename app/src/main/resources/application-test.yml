@@ -13,6 +13,9 @@ spring:
       database: 1
 
 jcloud:
+  auth:
+    # 测试环境开启公开注册，避免影响既有 auth 相关测试；关闭分支的用例在测试内显式改值
+    registration-enabled: true
   media:
     # 测试环境关闭启动硬解探测，避免触发真实 ffmpeg 编码（无 GPU 的 CI 可跑）
     hwaccel-probe-enabled: false

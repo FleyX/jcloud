@@ -18,6 +18,7 @@
 public:
   - { code: "POST:/jcloud/api/auth/login", name: "用户登录" }
   - { code: "POST:/jcloud/api/auth/register", name: "用户注册" }
+  - { code: "GET:/jcloud/api/auth/registration-enabled", name: "查询注册开关" }
   - { code: "POST:/jcloud/api/auth/refresh", name: "刷新令牌" }
   - { code: "POST:/jcloud/api/auth/logout", name: "登出当前设备" }
   - { code: "GET:/jcloud/api/s/{code}", name: "获取公开分享信息" }

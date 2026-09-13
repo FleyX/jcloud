@@ -3,6 +3,7 @@ package com.fleyx.jcloud.service;
 import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.enums.UserStatus;
 import com.fleyx.jcloud.common.exception.BusinessException;
+import com.fleyx.jcloud.config.AuthProperties;
 import com.fleyx.jcloud.mapper.UserMapper;
 import com.fleyx.jcloud.model.dto.UserLoginDto;
 import com.fleyx.jcloud.model.dto.UserRegisterDto;
@@ -34,6 +35,9 @@ class AuthServiceImplTest {
     @Autowired
     private UserMapper userMapper;
 
+    @Autowired
+    private AuthProperties authProperties;
+
     private UserRegisterDto buildRegisterDto(String username) {
         UserRegisterDto dto = new UserRegisterDto();
         dto.setUsername(username);
@@ -50,6 +54,28 @@ class AuthServiceImplTest {
         assertNotNull(vo.getId());
         assertEquals(dto.getUsername(), vo.getUsername());
         assertEquals(dto.getEmail(), vo.getEmail());
+    }
+
+    @Test
+    void registerShouldRejectWhenRegistrationDisabled() {
+        // 测试配置默认开启注册，此处显式关闭以覆盖拒绝分支
+        authProperties.setRegistrationEnabled(false);
+        try {
+            UserRegisterDto dto = buildRegisterDto("authregclosed");
+            BusinessException ex = assertThrows(BusinessException.class, () -> authService.register(dto));
+            assertEquals("当前未开放注册", ex.getMessage());
+        } finally {
+            authProperties.setRegistrationEnabled(true);
+        }
+    }
+
+    @Test
+    void registerShouldSucceedWhenRegistrationEnabled() {
+        authProperties.setRegistrationEnabled(true);
+        UserRegisterDto dto = buildRegisterDto("authregopen");
+        UserVo vo = authService.register(dto);
+        assertNotNull(vo.getId());
+        assertEquals(dto.getUsername(), vo.getUsername());
     }
 
     @Test

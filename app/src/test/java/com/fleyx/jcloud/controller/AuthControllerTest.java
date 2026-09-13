@@ -58,7 +58,7 @@ class AuthControllerTest {
     private final JwtProperties jwtProperties = new JwtProperties();
     private final AuthCookieSupport authCookieSupport = new AuthCookieSupport(authProperties, jwtProperties);
 
-    private final AuthController controller = new AuthController(authService, authCookieSupport);
+    private final AuthController controller = new AuthController(authService, authCookieSupport, authProperties);
 
     private final MockMvc mockMvc = MockMvcBuilders.standaloneSetup(controller)
             .setControllerAdvice(new GlobalExceptionHandler())
@@ -80,6 +80,35 @@ class AuthControllerTest {
 
     private static String findCookie(List<String> cookies, String prefix) {
         return cookies.stream().filter(c -> c.startsWith(prefix)).findFirst().orElseThrow();
+    }
+
+    /**
+     * GET /auth/registration-enabled：匿名（无 UserContext）可读，默认开关关闭返回 false。
+     */
+    @Test
+    void shouldReturnRegistrationEnabledForAnonymousByDefault() throws Exception {
+        UserContext.clear();
+
+        mockMvc.perform(get("/jcloud/api/auth/registration-enabled"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data").value(false));
+    }
+
+    /**
+     * GET /auth/registration-enabled：开关开启时返回 true。
+     */
+    @Test
+    void shouldReturnRegistrationEnabledTrueWhenEnabled() throws Exception {
+        authProperties.setRegistrationEnabled(true);
+        try {
+            mockMvc.perform(get("/jcloud/api/auth/registration-enabled"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.code").value(200))
+                    .andExpect(jsonPath("$.data").value(true));
+        } finally {
+            authProperties.setRegistrationEnabled(false);
+        }
     }
 
     /**
