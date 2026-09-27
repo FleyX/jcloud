@@ -60,7 +60,7 @@ async function handleFolderChange(event: Event) {
   }
 }
 
-onMounted(list.loadFiles)
+onMounted(list.init)
 </script>
 
 <template>

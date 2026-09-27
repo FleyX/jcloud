@@ -35,6 +35,14 @@ export function fetchChildFolders(parentId: string): Promise<FileNodeVo[]> {
   return get<FileNodeVo[]>('/files/folders', { parentId })
 }
 
+/**
+ * 按 id 批量查询当前用户的文件节点，用于 URL 路径恢复时校验目录链。
+ * 不存在的 id 与其他用户的节点会被后端静默省略。
+ */
+export function fetchFilesByIds(ids: string[]): Promise<FileNodeVo[]> {
+  return get<FileNodeVo[]>('/files/batch', { ids: ids.join(',') })
+}
+
 export function preCheckUpload(dto: BatchUploadPreCheckRequest): Promise<BatchUploadPreCheckItem[]> {
   return post<BatchUploadPreCheckItem[]>('/files/upload/pre-check', dto)
 }

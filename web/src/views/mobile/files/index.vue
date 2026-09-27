@@ -94,7 +94,7 @@ async function handleCreateShare(payload: ShareCreateRequest) {
   exitSelectionMode()
 }
 
-onMounted(list.loadFiles)
+onMounted(list.init)
 </script>
 
 <template>
