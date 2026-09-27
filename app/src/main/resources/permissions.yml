@@ -56,6 +56,7 @@ permissions:
     resources:
       - { code: "VIEW:/files", name: "文件管理页面" }
       - { code: "GET:/jcloud/api/files", name: "分页查询文件列表" }
+      - { code: "GET:/jcloud/api/files/batch", name: "按ID批量查询文件节点" }
       - { code: "POST:/jcloud/api/files/upload", name: "上传文件" }
       - { code: "POST:/jcloud/api/files/upload/pre-check", name: "上传前预检" }
       - { code: "POST:/jcloud/api/files/instant", name: "秒传" }

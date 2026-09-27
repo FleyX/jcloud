@@ -66,6 +66,11 @@ public class FileServiceImpl implements FileService {
     }
 
     @Override
+    public List<FileNodeVo> listByIds(List<String> ids, String userId) {
+        return fileQuerySupport.listByIds(userId, ids);
+    }
+
+    @Override
     public FileDownloadResult download(String fileId, String userId) {
         return fileQuerySupport.download(fileId, userId);
     }

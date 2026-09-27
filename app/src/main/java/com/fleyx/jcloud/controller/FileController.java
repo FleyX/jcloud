@@ -6,6 +6,8 @@ import com.fleyx.jcloud.common.constant.CommonConstant;
 import com.fleyx.jcloud.common.constant.FileNodeConstants;
 import com.fleyx.jcloud.common.context.UserContext;
 import com.fleyx.jcloud.common.enums.PreviewType;
+import com.fleyx.jcloud.common.enums.ResultCode;
+import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.model.bo.BatchDownloadResult;
 import com.fleyx.jcloud.model.bo.FileDownloadResult;
 import com.fleyx.jcloud.model.bo.FileZipTask;
@@ -48,6 +50,7 @@ import org.springframework.core.io.InputStreamResource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -71,6 +74,8 @@ import java.util.Map;
 @RequestMapping(CommonConstant.API + "/files")
 @RequiredArgsConstructor
 public class FileController {
+
+    private static final int MAX_BATCH_QUERY_IDS = 100;
 
     private final FileService fileService;
     private final FileOperationService fileOperationService;
@@ -106,6 +111,24 @@ public class FileController {
             dto.setParentId(FileNodeConstants.ROOT_ID);
         }
         return R.ok(fileService.list(dto, UserContext.get().id()));
+    }
+
+    /**
+     * 按 id 批量查询当前用户的文件节点。
+     * <p>
+     * 不存在的 id、已删除的节点、属于其他用户的节点被静默省略。
+     */
+    @GetMapping("/batch")
+    public R<List<FileNodeVo>> listByIds(@RequestParam List<String> ids) {
+        List<String> distinctIds = ids.stream()
+                .filter(StringUtils::hasText)
+                .map(String::trim)
+                .distinct()
+                .toList();
+        if (distinctIds.size() > MAX_BATCH_QUERY_IDS) {
+            throw new BusinessException(ResultCode.PARAM_ERROR, "批量查询的文件数量不能超过 " + MAX_BATCH_QUERY_IDS);
+        }
+        return R.ok(fileService.listByIds(distinctIds, UserContext.get().id()));
     }
 
     /**

@@ -38,6 +38,17 @@ public interface FileService {
     IPage<FileNodeVo> list(FilePageQueryDto dto, String userId);
 
     /**
+     * 按 id 批量查询当前用户的文件节点。
+     * <p>
+     * 不存在的 id、已删除的节点、属于其他用户的节点一律静默省略。
+     *
+     * @param ids    文件节点 ID 列表
+     * @param userId 用户 ID
+     * @return 文件节点视图列表
+     */
+    List<FileNodeVo> listByIds(List<String> ids, String userId);
+
+    /**
      * 下载文件。
      *
      * @param fileId 文件节点 ID

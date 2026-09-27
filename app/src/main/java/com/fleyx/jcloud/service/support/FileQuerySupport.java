@@ -153,6 +153,33 @@ public class FileQuerySupport {
     }
 
     /**
+     * 按 id 批量查询当前用户的文件节点。
+     * <p>
+     * 不存在的 id、已删除的节点、属于其他用户的节点一律静默省略。
+     *
+     * @param userId 用户 ID
+     * @param ids    节点 id 列表
+     * @return 文件节点视图列表
+     */
+    public List<FileNodeVo> listByIds(String userId, List<String> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return List.of();
+        }
+        List<String> distinctIds = ids.stream()
+                .filter(StringUtils::hasText)
+                .map(String::trim)
+                .distinct()
+                .toList();
+        if (distinctIds.isEmpty()) {
+            return List.of();
+        }
+        return fileMapper.selectBatchIds(distinctIds).stream()
+                .filter(node -> userId.equals(node.getUserId()))
+                .map(fileConvert::poToVo)
+                .toList();
+    }
+
+    /**
      * 下载文件，返回文件内容流。
      *
      * @param fileId 文件 ID
