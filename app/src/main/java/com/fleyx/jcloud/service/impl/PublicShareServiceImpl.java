@@ -39,6 +39,7 @@ import org.springframework.util.StringUtils;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
 
@@ -229,10 +230,12 @@ public class PublicShareServiceImpl implements PublicShareService {
         Set<String> itemIds = items.stream()
                 .map(ShareItem::getFileNodeId)
                 .collect(java.util.stream.Collectors.toSet());
-        List<FileNode> nodes = fileMapper.selectBatchIds(itemIds);
-        return nodes.stream()
+        List<FileNodeVo> vos = new ArrayList<>(fileMapper.selectBatchIds(itemIds).stream()
                 .map(fileConvert::poToVo)
-                .toList();
+                .toList());
+        Comparator<FileNodeVo> folderFirst = Comparator.comparing(vo -> !TYPE_FOLDER.equals(vo.getType()));
+        vos.sort(folderFirst);
+        return vos;
     }
 
     private boolean allAccessible(List<String> fileNodeIds, List<ShareItem> items) {

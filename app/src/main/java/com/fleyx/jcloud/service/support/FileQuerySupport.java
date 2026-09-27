@@ -97,6 +97,7 @@ public class FileQuerySupport {
     private void applySort(LambdaQueryWrapper<FileNode> wrapper, FilePageQueryDto dto) {
         String field = dto.getSortField();
         boolean asc = "asc".equalsIgnoreCase(dto.getSortOrder());
+        wrapper.orderByDesc(FileNode::getType);
         if ("name".equals(field)) {
             if (asc) {
                 wrapper.orderByAsc(FileNode::getName);
@@ -129,7 +130,8 @@ public class FileQuerySupport {
         } else {
             comparator = Comparator.comparing(FileNode::getCreateTime, Comparator.nullsFirst(Comparator.naturalOrder()));
         }
-        return asc ? comparator : comparator.reversed();
+        Comparator<FileNode> folderFirst = Comparator.comparing(node -> !TYPE_FOLDER.equals(node.getType()));
+        return folderFirst.thenComparing(asc ? comparator : comparator.reversed());
     }
 
     /**

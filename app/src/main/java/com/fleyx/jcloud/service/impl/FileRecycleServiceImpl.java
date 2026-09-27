@@ -70,6 +70,7 @@ public class FileRecycleServiceImpl implements FileRecycleService {
                 pageSize == null || pageSize < 1 ? 20 : pageSize);
         LambdaQueryWrapper<RecycleRecord> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(RecycleRecord::getUserId, userId);
+        wrapper.orderByDesc(RecycleRecord::getType);
         wrapper.orderByDesc(RecycleRecord::getCreateTime);
         IPage<RecycleRecord> page = recycleRecordMapper.selectPage(pageParam, wrapper);
         return page.convert(recycleRecordConvert::poToVo);

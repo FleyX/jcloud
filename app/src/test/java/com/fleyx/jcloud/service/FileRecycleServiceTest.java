@@ -19,6 +19,7 @@ import com.fleyx.jcloud.model.po.RecycleRecord;
 import com.fleyx.jcloud.model.vo.ConflictItemVo;
 import com.fleyx.jcloud.model.vo.FileNodeVo;
 import com.fleyx.jcloud.model.vo.OperationResultVo;
+import com.fleyx.jcloud.model.vo.RecycleRecordVo;
 import com.fleyx.jcloud.model.vo.UserVo;
 import com.fleyx.jcloud.common.constant.FileNodeConstants;
 import org.junit.jupiter.api.Test;
@@ -288,6 +289,34 @@ class FileRecycleServiceTest extends IntegrationTestBase {
         assertEquals(1, page.getRecords().size());
         assertEquals("hello.txt", page.getRecords().get(0).getName());
         assertEquals("file", page.getRecords().get(0).getType());
+    }
+
+    @Test
+    void shouldListTrashRecordsWithFoldersFirstThenByDeleteTimeDesc() throws Exception {
+        UserVo user = prepareUserWithStorageSpace().user();
+        FileNodeVo olderFolder = createFolder(user.getId(), "aaa-folder", FileNodeConstants.ROOT_ID);
+        deleteToTrash(user.getId(), olderFolder.getId());
+        Thread.sleep(20);
+        FileNodeVo newerFolder = createFolder(user.getId(), "bbb-folder", FileNodeConstants.ROOT_ID);
+        deleteToTrash(user.getId(), newerFolder.getId());
+        Thread.sleep(20);
+        FileNodeVo olderFile = fileService.upload(buildFile("aaa.txt", "A"), user.getId(), FileNodeConstants.ROOT_ID, null);
+        deleteToTrash(user.getId(), olderFile.getId());
+        Thread.sleep(20);
+        FileNodeVo newerFile = fileService.upload(buildFile("bbb.txt", "B"), user.getId(), FileNodeConstants.ROOT_ID, null);
+        deleteToTrash(user.getId(), newerFile.getId());
+
+        var page = fileRecycleService.listTrash(1L, 10L, user.getId());
+
+        assertEquals(4L, page.getTotal());
+        List<String> names = page.getRecords().stream().map(RecycleRecordVo::getName).toList();
+        assertEquals(List.of("bbb-folder", "aaa-folder", "bbb.txt", "aaa.txt"), names);
+    }
+
+    private void deleteToTrash(String userId, String nodeId) {
+        FileDeleteDto dto = new FileDeleteDto();
+        dto.setIds(List.of(nodeId));
+        fileRecycleService.deleteToTrash(dto, userId);
     }
 
     @Test
