@@ -46,3 +46,4 @@ dist
 deploy/data
 .scratch/
 deploy/jellyfin-ffmpeg*.deb
+local*.sh
