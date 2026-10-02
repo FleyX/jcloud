@@ -121,6 +121,13 @@ describe('useFileList', () => {
     expect(display.displaySize).toBe('2.00 KB')
   })
 
+  it('formats empty folder displaySize as 0', async () => {
+    const folder = buildFileNode({ name: 'empty', type: 'folder', size: '0' })
+    const list = await createList([folder])
+
+    expect(list.displayFiles.value[0].displaySize).toBe('0')
+  })
+
   it('toggles selection', async () => {
     const a = buildFileNode({ id: 'a' })
     const b = buildFileNode({ id: 'b' })

@@ -46,8 +46,10 @@ export function inferFileType(source: FileTypeSource): FileDisplayType {
  * 将字节数格式化为可读大小
  */
 export function formatSize(bytes?: string | number): string {
+  if (bytes === undefined || bytes === null || bytes === '') return '-'
   const num = Number(bytes)
-  if (!num) return '-'
+  if (Number.isNaN(num)) return '-'
+  if (num === 0) return '0'
 
   const units = ['B', 'KB', 'MB', 'GB', 'TB']
   let i = 0
