@@ -188,8 +188,6 @@ permissions:
       - { code: "PUT:/jcloud/api/admin/storage-spaces/{id}", name: "编辑存储空间" }
       - { code: "DELETE:/jcloud/api/admin/storage-spaces/{id}", name: "删除存储空间" }
       - { code: "POST:/jcloud/api/admin/storage-spaces/{id}/refresh", name: "刷新存储空间磁盘状态" }
-      - { code: "GET:/jcloud/api/admin/storage-spaces/system-config", name: "查询系统数据目录配置" }
-      - { code: "PUT:/jcloud/api/admin/storage-spaces/system-config", name: "更新系统数据目录配置" }
       - { code: "GET:/jcloud/api/admin/system/init-status", name: "查询系统初始化状态" }
       - { code: "POST:/jcloud/api/admin/system/initialize", name: "执行系统初始化" }
       - { code: "PUT:/jcloud/api/users/{id}/storage", name: "设置用户默认存储空间" }

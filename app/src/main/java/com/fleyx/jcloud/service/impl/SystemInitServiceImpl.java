@@ -30,7 +30,6 @@ import java.util.List;
 public class SystemInitServiceImpl implements SystemInitService {
 
     private static final String SYSTEM_INITIALIZED_KEY = "system.initialized";
-    private static final String SYSTEM_STORAGE_SPACE_ID_KEY = "system.storage.space.id";
 
     private final StorageSpaceMapper storageSpaceMapper;
     private final UserMapper userMapper;
@@ -63,9 +62,7 @@ public class SystemInitServiceImpl implements SystemInitService {
             throw new BusinessException(ResultCode.PARAM_ERROR, "至少配置一个存储空间");
         }
         int primaryIndex = dto.getPrimaryIndex();
-        int systemDataIndex = dto.getSystemDataIndex();
         validateIndex(items, primaryIndex, "主存储空间索引不合法");
-        validateIndex(items, systemDataIndex, "系统数据存放空间索引不合法");
 
         List<String> spaceIds = new ArrayList<>(items.size());
         for (SystemInitDto.InitSpaceItem item : items) {
@@ -76,10 +73,8 @@ public class SystemInitServiceImpl implements SystemInitService {
         }
 
         String primarySpaceId = spaceIds.get(primaryIndex);
-        String systemDataSpaceId = spaceIds.get(systemDataIndex);
         markPrimary(primarySpaceId);
 
-        systemConfigService.setValue(SYSTEM_STORAGE_SPACE_ID_KEY, String.valueOf(systemDataSpaceId));
         systemConfigService.setValue(SYSTEM_INITIALIZED_KEY, "true");
 
         bindAllUsersToPrimarySpace(primarySpaceId);

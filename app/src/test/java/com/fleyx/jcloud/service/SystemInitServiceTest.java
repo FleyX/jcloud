@@ -48,9 +48,6 @@ class SystemInitServiceTest {
     private UserService userService;
 
     @Autowired
-    private SystemConfigService systemConfigService;
-
-    @Autowired
     private StorageSpaceMapper storageSpaceMapper;
 
     @Autowired
@@ -74,9 +71,6 @@ class SystemInitServiceTest {
         StorageSpace primarySpace = spaces.get(0);
         assertEquals(1, primarySpace.getIsPrimary());
 
-        // 系统数据空间 ID 写入配置
-        assertEquals(primarySpace.getId(), systemConfigService.getValue("system.storage.space.id", null));
-
         // 已存在用户被统一绑定到主空间
         User bound = userMapper.selectById(user.getId());
         assertEquals(primarySpace.getId(), bound.getStorageSpaceId());
@@ -95,7 +89,6 @@ class SystemInitServiceTest {
         SystemInitDto dto = new SystemInitDto();
         dto.setSpaces(List.of());
         dto.setPrimaryIndex(0);
-        dto.setSystemDataIndex(0);
 
         assertThrows(BusinessException.class, () -> systemInitService.initialize(dto));
     }
@@ -123,7 +116,6 @@ class SystemInitServiceTest {
         SystemInitDto dto = new SystemInitDto();
         dto.setSpaces(List.of(item));
         dto.setPrimaryIndex(0);
-        dto.setSystemDataIndex(0);
         return dto;
     }
 

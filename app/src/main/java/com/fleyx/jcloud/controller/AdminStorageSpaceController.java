@@ -8,11 +8,8 @@ import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.model.dto.StorageSpacePageQueryDto;
 import com.fleyx.jcloud.model.dto.StorageSpaceSaveDto;
 import com.fleyx.jcloud.model.dto.StorageSpaceUpdateDto;
-import com.fleyx.jcloud.model.dto.SystemStorageConfigUpdateDto;
 import com.fleyx.jcloud.model.vo.StorageSpaceVo;
-import com.fleyx.jcloud.model.vo.SystemStorageConfigVo;
 import com.fleyx.jcloud.service.StorageSpaceService;
-import com.fleyx.jcloud.service.SystemConfigService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -33,9 +30,6 @@ import org.springframework.web.bind.annotation.RestController;
 public class AdminStorageSpaceController {
 
     private final StorageSpaceService storageSpaceService;
-    private final SystemConfigService systemConfigService;
-
-    private static final String SYSTEM_STORAGE_SPACE_ID_KEY = "system.storage.space.id";
 
     /**
      * 新增存储空间。
@@ -85,25 +79,5 @@ public class AdminStorageSpaceController {
     @PostMapping("/{id}/refresh")
     public R<StorageSpaceVo> refreshDiskSpace(@PathVariable String id) {
         return R.ok(storageSpaceService.refreshDiskSpace(id));
-    }
-
-    /**
-     * 查询系统数据目录配置。
-     */
-    @GetMapping("/system-config")
-    public R<SystemStorageConfigVo> getSystemConfig() {
-        SystemStorageConfigVo vo = new SystemStorageConfigVo();
-        vo.setSystemSpaceId(systemConfigService.getValue(SYSTEM_STORAGE_SPACE_ID_KEY, null));
-        return R.ok(vo);
-    }
-
-    /**
-     * 更新系统数据目录配置。
-     */
-    @PutMapping("/system-config")
-    public R<Void> updateSystemConfig(@Valid @RequestBody SystemStorageConfigUpdateDto dto) {
-        storageSpaceService.getById(dto.getSystemSpaceId());
-        systemConfigService.setValue(SYSTEM_STORAGE_SPACE_ID_KEY, dto.getSystemSpaceId());
-        return R.ok();
     }
 }

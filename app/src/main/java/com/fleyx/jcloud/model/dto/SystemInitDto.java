@@ -34,12 +34,6 @@ public class SystemInitDto implements Serializable {
     private Integer primaryIndex;
 
     /**
-     * 系统数据存放的存储空间在 spaces 列表中的索引。
-     */
-    @NotNull(message = "必须指定系统数据存放空间")
-    private Integer systemDataIndex;
-
-    /**
      * 初始化阶段单个存储空间项。
      */
     @Data

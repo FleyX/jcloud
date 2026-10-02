@@ -21,16 +21,13 @@ const spaces = reactive<InitSpaceItem[]>([
 
 const selected = reactive({
   primaryIndex: 0,
-  systemDataIndex: 0,
 })
 
 const canSubmit = computed(() =>
   spaces.length > 0
   && spaces.every((s) => s.name.trim() && s.path.trim())
   && selected.primaryIndex >= 0
-  && selected.primaryIndex < spaces.length
-  && selected.systemDataIndex >= 0
-  && selected.systemDataIndex < spaces.length,
+  && selected.primaryIndex < spaces.length,
 )
 
 onMounted(async () => {
@@ -57,9 +54,6 @@ function addSpace() {
   if (selected.primaryIndex < 0) {
     selected.primaryIndex = 0
   }
-  if (selected.systemDataIndex < 0) {
-    selected.systemDataIndex = 0
-  }
 }
 
 function removeSpace(index: number) {
@@ -70,9 +64,6 @@ function removeSpace(index: number) {
   spaces.splice(index, 1)
   if (selected.primaryIndex >= spaces.length) {
     selected.primaryIndex = spaces.length - 1
-  }
-  if (selected.systemDataIndex >= spaces.length) {
-    selected.systemDataIndex = spaces.length - 1
   }
 }
 
@@ -90,7 +81,6 @@ async function handleSubmit() {
         remark: s.remark?.trim(),
       })),
       primaryIndex: selected.primaryIndex,
-      systemDataIndex: selected.systemDataIndex,
     }
     await initializeSystem(dto)
     userStore.initialized = true
@@ -115,7 +105,7 @@ async function handleSubmit() {
           系统初始化
         </h1>
         <p class="text-center text-xs text-surface-500">
-          首次使用需要配置存储空间，请选择主存储空间及系统数据存放位置
+          首次使用需要配置存储空间，请选择主存储空间
         </p>
       </div>
 
@@ -188,15 +178,6 @@ async function handleSubmit() {
                   class="h-4 w-4 border-surface-300 text-primary-600 focus:ring-primary-500"
                 >
                 设为主存储空间
-              </label>
-              <label class="flex cursor-pointer items-center gap-2 text-sm text-surface-700">
-                <input
-                  v-model="selected.systemDataIndex"
-                  type="radio"
-                  :value="index"
-                  class="h-4 w-4 border-surface-300 text-primary-600 focus:ring-primary-500"
-                >
-                系统数据存放于此
               </label>
             </div>
           </div>

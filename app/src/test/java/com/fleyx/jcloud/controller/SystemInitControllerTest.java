@@ -67,7 +67,7 @@ class SystemInitControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"spaces\":[{\"name\":\"数据盘\",\"path\":\"/data/jcloud\",\"remark\":\"主存储\"},"
                                 + "{\"name\":\"系统盘\",\"path\":\"/data/system\"}],"
-                                + "\"primaryIndex\":0,\"systemDataIndex\":1}"))
+                                + "\"primaryIndex\":0}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(200))
                 .andExpect(jsonPath("$.data").value(nullValue()));
@@ -81,7 +81,6 @@ class SystemInitControllerTest {
         assertEquals("系统盘", captor.getValue().getSpaces().get(1).getName());
         assertEquals("/data/system", captor.getValue().getSpaces().get(1).getPath());
         assertEquals(0, captor.getValue().getPrimaryIndex());
-        assertEquals(1, captor.getValue().getSystemDataIndex());
     }
 
     /**
@@ -92,7 +91,7 @@ class SystemInitControllerTest {
     void shouldRejectInitializeWithEmptySpaces() throws Exception {
         mockMvc.perform(post("/jcloud/api/admin/system/initialize")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"spaces\":[],\"primaryIndex\":0,\"systemDataIndex\":0}"))
+                        .content("{\"spaces\":[],\"primaryIndex\":0}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(400))
                 .andExpect(jsonPath("$.msg").value(containsString("至少配置一个存储空间")))
@@ -108,7 +107,7 @@ class SystemInitControllerTest {
     void shouldRejectInitializeWithMissingPrimaryIndex() throws Exception {
         mockMvc.perform(post("/jcloud/api/admin/system/initialize")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"spaces\":[{\"name\":\"数据盘\",\"path\":\"/data/jcloud\"}],\"systemDataIndex\":0}"))
+                        .content("{\"spaces\":[{\"name\":\"数据盘\",\"path\":\"/data/jcloud\"}]}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(400))
                 .andExpect(jsonPath("$.msg").value(containsString("必须指定主存储空间")))
@@ -125,7 +124,7 @@ class SystemInitControllerTest {
         mockMvc.perform(post("/jcloud/api/admin/system/initialize")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"spaces\":[{\"name\":\"\",\"path\":\"/data/jcloud\"}],"
-                                + "\"primaryIndex\":0,\"systemDataIndex\":0}"))
+                                + "\"primaryIndex\":0}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(400))
                 .andExpect(jsonPath("$.msg").value(containsString("存储空间名称不能为空")))
@@ -163,7 +162,7 @@ class SystemInitControllerTest {
         mockMvc.perform(post("/jcloud/api/admin/system/initialize")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"spaces\":[{\"name\":\"数据盘\",\"path\":\"/data/jcloud\"}],"
-                                + "\"primaryIndex\":0,\"systemDataIndex\":0}"))
+                                + "\"primaryIndex\":0}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(500))
                 .andExpect(jsonPath("$.msg").value("系统已完成初始化，禁止重复初始化"));
