@@ -119,11 +119,19 @@ JCLOUD_PORT=8080 docker compose -f deploy/docker-compose.yml --profile db --prof
 
 ```
 deploy/data/
-├── files/      # 用户文件数据
-├── system/     # 系统数据（预览图、ZIP 临时文件等）
-├── postgres/   # 内置 PostgreSQL 数据
-└── redis/      # 内置 Redis 数据
+├── files/               # 用户文件数据
+├── system-cache/        # 系统缓存（全部可再生成，可整体清空）
+│   ├── previews/        # 预览图（图片、文本、Office 转换 PDF）
+│   ├── media/subtitles/ # 字幕缓存
+│   ├── media/transcode/ # 转码切片与播放会话
+│   └── zip-tasks/       # ZIP 打包临时文件
+├── postgres/            # 内置 PostgreSQL 数据
+└── redis/               # 内置 Redis 数据
 ```
+
+系统缓存目录固定为容器内 `/data/system-cache`（由 compose 中的 `JCLOUD_SYSTEM_CACHE_DIR` 指定），并通过上述 `${JCLOUD_DATA_PATH}/system-cache` 映射持久化到宿主机。该目录内容全部可再生成：磁盘紧张时可直接清空整个 `system-cache/` 目录，系统会在后续预览、播放、下载时按需重建，不影响用户文件。
+
+> 旧版本的系统数据位于各存储空间下的 `system/` 子目录，升级到本版本后不再使用。系统尚未上线，未提供自动迁移，如需回收空间可手动删除该目录。
 
 可通过 `JCLOUD_DATA_PATH` 修改，例如放到项目根目录：
 

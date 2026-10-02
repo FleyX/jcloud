@@ -25,6 +25,9 @@ services:
       # 纯 HTTP 局域网部署可显式置 false
       - JCLOUD_AUTH_COOKIE_SECURE=${JCLOUD_AUTH_COOKIE_SECURE:-true}
       - spring.profiles.active=prod
+      # 系统缓存目录（预览图、字幕、转码切片、ZIP 临时包）固定为容器内 /data/system-cache，
+      # 不提供环境变量覆盖；如需调整，须同步修改下方同名 volumes 映射的容器侧路径
+      - JCLOUD_SYSTEM_CACHE_DIR=/data/system-cache
       # 关闭 MyBatis SQL 日志（application.yml 默认 StdOutImpl）
       - mybatis-plus.configuration.log-impl=org.apache.ibatis.logging.nologging.NoLoggingImpl
       # 视频转码硬件加速（NVIDIA NVENC/NVDEC）：需宿主机已安装 nvidia-container-toolkit，
@@ -32,6 +35,8 @@ services:
       # - NVIDIA_DRIVER_CAPABILITIES=all
     volumes:
       - ${JCLOUD_DATA_PATH:-./data}/jcloud:/data/jcloud
+      # 系统缓存目录：可再生的预览/字幕/转码/ZIP 缓存，可整体清空，系统会按需重建
+      - ${JCLOUD_DATA_PATH:-./data}/system-cache:/data/system-cache
     # 视频转码硬件加速（VAAPI/QSV）：映射 GPU 渲染节点；无核显/独显时可删除
     devices:
       - /dev/dri:/dev/dri
