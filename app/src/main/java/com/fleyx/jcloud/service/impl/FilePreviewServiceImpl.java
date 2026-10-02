@@ -53,12 +53,6 @@ public class FilePreviewServiceImpl implements FilePreviewService {
     private final List<FilePreviewGenerator> generators;
     private final PreviewProperties previewProperties;
 
-    /**
-     * 预览缓存的存储空间占位值：预览改为系统缓存目录后不再绑定存储空间，
-     * 但 t_preview_file.storage_space_id 仍为 NOT NULL（删列在 ticket 02）。
-     */
-    private static final String SYSTEM_CACHE_PLACEHOLDER_ID = "SYSTEM_CACHE";
-
     private volatile Map<PreviewType, FilePreviewGenerator> generatorMap;
 
     @Override
@@ -223,7 +217,6 @@ public class FilePreviewServiceImpl implements FilePreviewService {
         PreviewFile existing = findCachedPreview(node, type);
         if (existing != null) {
             existing.setRelativePath(relativePath);
-            existing.setStorageSpaceId(SYSTEM_CACHE_PLACEHOLDER_ID);
             existing.setSize(size);
             previewFileMapper.updateById(existing);
             return existing;
@@ -232,7 +225,6 @@ public class FilePreviewServiceImpl implements FilePreviewService {
         PreviewFile record = new PreviewFile();
         record.setFileNodeId(node.getId());
         record.setType(type.getCode());
-        record.setStorageSpaceId(SYSTEM_CACHE_PLACEHOLDER_ID);
         record.setRelativePath(relativePath);
         record.setSize(size);
         record.setStatus(1);
