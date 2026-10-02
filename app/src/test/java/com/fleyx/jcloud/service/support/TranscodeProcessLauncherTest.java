@@ -19,6 +19,8 @@ import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /**
  * 早期失败监控测试：启动失败标记会话失败、不再回退软解、有产出不误标。
@@ -28,6 +30,19 @@ class TranscodeProcessLauncherTest {
 
     private TranscodeProcessLauncher newLauncher() {
         return new TranscodeProcessLauncher(null, null, null);
+    }
+
+    /**
+     * 会话根目录直接基于系统缓存目录：{cacheDir}/media/transcode，不再多拼 system 段。
+     */
+    @Test
+    void shouldResolveSessionRootUnderCacheDir(@TempDir Path tempDir) {
+        SystemCacheDirProvider cacheDirProvider = mock(SystemCacheDirProvider.class);
+        when(cacheDirProvider.getCacheDir()).thenReturn(tempDir);
+
+        TranscodeProcessLauncher launcher = new TranscodeProcessLauncher(cacheDirProvider, null, null);
+
+        assertEquals(tempDir.resolve("media/transcode"), launcher.resolveSessionRoot());
     }
 
     /**

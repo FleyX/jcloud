@@ -23,6 +23,7 @@ import com.fleyx.jcloud.service.support.MediaProbeSupport;
 import com.fleyx.jcloud.service.support.MediaSubtitleConvertSupport;
 import com.fleyx.jcloud.service.support.MediaSubtitleSupport;
 import com.fleyx.jcloud.service.support.PlaybackConfigConstants;
+import com.fleyx.jcloud.service.support.SystemCacheDirProvider;
 import com.fleyx.jcloud.service.support.TranscodeCommandBuilder;
 import com.fleyx.jcloud.service.support.TranscodeSession;
 import com.fleyx.jcloud.service.support.TranscodeSessionManager;
@@ -59,7 +60,7 @@ public class MediaPlaybackServiceImpl implements MediaPlaybackService {
     private final TranscodeSessionManager transcodeSessionManager;
     private final MediaFileStreamSupport mediaFileStreamSupport;
     private final MediaProperties mediaProperties;
-    private final com.fleyx.jcloud.service.SystemStorageSpaceProvider systemStorageSpaceProvider;
+    private final SystemCacheDirProvider systemCacheDirProvider;
 
     @Override
     public MediaPlaybackConfigVo getPlaybackConfig() {
@@ -161,9 +162,9 @@ public class MediaPlaybackServiceImpl implements MediaPlaybackService {
      * 否则 ffmpeg 提取（远程先落地临时文件）；offsetMs>0 时生成独立偏移结果。
      */
     private Path extractSubtitleCore(Playable playable, int index, long offsetMs, String userId) {
-        Path canonical = Path.of(systemStorageSpaceProvider.getSystemSpace().getPath(),
-                "system", MediaSubtitleConvertSupport.SUBTITLE_CACHE_DIR,
-                playable.fileRowId() + "_" + index + ".vtt");
+        Path canonical = systemCacheDirProvider.getCacheDir()
+                .resolve(MediaSubtitleConvertSupport.SUBTITLE_CACHE_DIR)
+                .resolve(playable.fileRowId() + "_" + index + ".vtt");
         if (!Files.exists(canonical)) {
             FileNode node = requireFileNode(playable.fileNodeId(), userId);
             Path tempInput = null;

@@ -3,13 +3,12 @@ package com.fleyx.jcloud.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fleyx.jcloud.common.IntegrationTestBase;
 import com.fleyx.jcloud.common.enums.PreviewType;
+import com.fleyx.jcloud.config.SystemCacheProperties;
 import com.fleyx.jcloud.mapper.PreviewFileMapper;
 import com.fleyx.jcloud.model.bo.PreviewResult;
 import com.fleyx.jcloud.model.po.PreviewFile;
 import com.fleyx.jcloud.model.vo.FileNodeVo;
-import com.fleyx.jcloud.model.vo.StorageSpaceVo;
 import com.fleyx.jcloud.model.vo.UserVo;
-import com.fleyx.jcloud.service.SystemConfigService;
 import com.fleyx.jcloud.common.constant.FileNodeConstants;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
@@ -49,12 +48,7 @@ class FilePreviewServiceTest extends IntegrationTestBase {
     private PreviewFileMapper previewFileMapper;
 
     @Autowired
-    private SystemConfigService systemConfigService;
-
-    @Override
-    protected void afterSpaceCreated(StorageSpaceVo space) {
-        systemConfigService.setValue("system.storage.space.id", String.valueOf(space.getId()));
-    }
+    private SystemCacheProperties systemCacheProperties;
 
     @Test
     void shouldGenerateImageThumbnail() throws Exception {
@@ -125,10 +119,10 @@ class FilePreviewServiceTest extends IntegrationTestBase {
     }
 
     @Test
-    void shouldStorePreviewInSystemSpace() throws Exception {
+    void shouldStorePreviewInSystemCacheDir() throws Exception {
         UserWithSpace userWithSpace = prepareUserWithStorageSpace();
         UserVo user = userWithSpace.user();
-        MultipartFile file = buildFile("note.txt", "system space check");
+        MultipartFile file = buildFile("note.txt", "system cache check");
 
         FileNodeVo uploaded = fileService.upload(file, user.getId(), FileNodeConstants.ROOT_ID, null);
         filePreviewService.preview(uploaded.getId(), user.getId(), PreviewType.TEXT);
@@ -138,10 +132,10 @@ class FilePreviewServiceTest extends IntegrationTestBase {
                         .eq(PreviewFile::getFileNodeId, uploaded.getId())
         ).get(0);
 
-        Path systemPath = userWithSpace.spacePath().resolve("system");
-        Path previewPath = systemPath.resolve(record.getRelativePath());
+        Path cacheDir = Path.of(systemCacheProperties.getCacheDir());
+        Path previewPath = cacheDir.resolve(record.getRelativePath());
         assertTrue(Files.exists(previewPath));
-        assertTrue(previewPath.startsWith(systemPath));
+        assertTrue(previewPath.startsWith(cacheDir));
     }
 
     @Test

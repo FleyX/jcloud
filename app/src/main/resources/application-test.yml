@@ -22,3 +22,6 @@ jcloud:
   preview:
     # 测试环境缩小转换上限，便于验证大小闸门
     office-max-convert-size: 2048
+  system:
+    # 测试统一落在 target 下，由 mvn clean 清理，避免污染工作区
+    cache-dir: ./target/test-system-cache

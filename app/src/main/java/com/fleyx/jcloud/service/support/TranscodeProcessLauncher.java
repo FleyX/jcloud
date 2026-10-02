@@ -2,8 +2,6 @@ package com.fleyx.jcloud.service.support;
 
 import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.exception.SystemException;
-import com.fleyx.jcloud.model.po.StorageSpace;
-import com.fleyx.jcloud.service.SystemStorageSpaceProvider;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -30,13 +28,13 @@ public class TranscodeProcessLauncher {
 
     private static final String SESSION_ROOT = "media/transcode";
 
-    private final SystemStorageSpaceProvider systemStorageSpaceProvider;
+    private final SystemCacheDirProvider systemCacheDirProvider;
     private final TranscodeCommandBuilder commandBuilder;
     private final TranscodeConfigResolver configResolver;
 
-    public TranscodeProcessLauncher(SystemStorageSpaceProvider systemStorageSpaceProvider,
+    public TranscodeProcessLauncher(SystemCacheDirProvider systemCacheDirProvider,
                                     TranscodeCommandBuilder commandBuilder, TranscodeConfigResolver configResolver) {
-        this.systemStorageSpaceProvider = systemStorageSpaceProvider;
+        this.systemCacheDirProvider = systemCacheDirProvider;
         this.commandBuilder = commandBuilder;
         this.configResolver = configResolver;
     }
@@ -138,11 +136,10 @@ public class TranscodeProcessLauncher {
     }
 
     /**
-     * 定位会话输出根目录。
+     * 定位会话输出根目录（系统缓存目录下的 media/transcode）。
      */
     public Path resolveSessionRoot() {
-        StorageSpace space = systemStorageSpaceProvider.getSystemSpace();
-        return Path.of(space.getPath(), "system", SESSION_ROOT);
+        return systemCacheDirProvider.getCacheDir().resolve(SESSION_ROOT);
     }
 
     /**

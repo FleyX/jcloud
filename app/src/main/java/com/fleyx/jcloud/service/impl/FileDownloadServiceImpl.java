@@ -16,7 +16,7 @@ import com.fleyx.jcloud.common.constant.StorageConstant;
 import com.fleyx.jcloud.common.context.UserContext;
 import com.fleyx.jcloud.service.FileDownloadService;
 import com.fleyx.jcloud.service.RemoteFileService;
-import com.fleyx.jcloud.service.SystemStorageSpaceProvider;
+import com.fleyx.jcloud.service.support.SystemCacheDirProvider;
 import com.fleyx.jcloud.util.FilePathUtil;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
@@ -57,17 +57,17 @@ public class FileDownloadServiceImpl implements FileDownloadService {
     private final FileMapper fileMapper;
     private final StorageSpaceMapper storageSpaceMapper;
     private final TaskExecutor taskExecutor;
-    private final SystemStorageSpaceProvider systemStorageSpaceProvider;
+    private final SystemCacheDirProvider systemCacheDirProvider;
     private final RemoteFileService remoteFileService;
 
     public FileDownloadServiceImpl(FileMapper fileMapper, StorageSpaceMapper storageSpaceMapper,
                                    @Qualifier("applicationTaskExecutor") TaskExecutor taskExecutor,
-                                   SystemStorageSpaceProvider systemStorageSpaceProvider,
+                                   SystemCacheDirProvider systemCacheDirProvider,
                                    RemoteFileService remoteFileService) {
         this.fileMapper = fileMapper;
         this.storageSpaceMapper = storageSpaceMapper;
         this.taskExecutor = taskExecutor;
-        this.systemStorageSpaceProvider = systemStorageSpaceProvider;
+        this.systemCacheDirProvider = systemCacheDirProvider;
         this.remoteFileService = remoteFileService;
     }
 
@@ -260,8 +260,10 @@ public class FileDownloadServiceImpl implements FileDownloadService {
     }
 
     private Path resolveTaskDir(String username, String taskId) {
-        StorageSpace systemSpace = systemStorageSpaceProvider.getSystemSpace();
-        return Path.of(systemSpace.getPath(), StorageConstant.ZIP_TASKS_DIR, username, taskId);
+        return systemCacheDirProvider.getCacheDir()
+                .resolve(StorageConstant.ZIP_TASKS_DIR)
+                .resolve(username)
+                .resolve(taskId);
     }
 
     @Scheduled(fixedRate = 300_000)
