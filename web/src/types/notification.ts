@@ -30,3 +30,21 @@ export interface SmtpConfigPayload {
   fromAddress: string
   fromName: string
 }
+
+/**
+ * 站内通知项
+ */
+export interface NotificationItem {
+  id: string
+  /** 事件类型，如 transfer_completed / transfer_failed */
+  eventType: string
+  /** 通知标题 */
+  title: string
+  /** 通知内容 */
+  content: string | null
+  /** 是否已读 */
+  isRead: boolean
+  /** 创建时间（GMT+8 yyyy-MM-dd HH:mm:ss） */
+  createTime: string
+}
+

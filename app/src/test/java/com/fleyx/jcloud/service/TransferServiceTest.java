@@ -1,7 +1,9 @@
 package com.fleyx.jcloud.service;
 
 import com.fleyx.jcloud.common.constant.FileNodeConstants;
+import com.fleyx.jcloud.common.enums.NotificationEventType;
 import com.fleyx.jcloud.common.enums.TransferTaskStatus;
+import com.fleyx.jcloud.common.event.NotificationEvent;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.FileMapper;
 import com.fleyx.jcloud.mapper.StorageSpaceMapper;
@@ -32,6 +34,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.event.ApplicationEvents;
+import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.io.ByteArrayInputStream;
@@ -44,6 +48,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -57,6 +62,7 @@ import static org.mockito.Mockito.when;
 @SpringBootTest
 @ActiveProfiles("test")
 @Transactional
+@RecordApplicationEvents
 class TransferServiceTest {
 
     @Autowired
@@ -64,6 +70,9 @@ class TransferServiceTest {
 
     @Autowired
     private TransferTaskExecutor transferTaskExecutor;
+
+    @Autowired
+    private ApplicationEvents applicationEvents;
 
     @Autowired
     private TransferTaskMapper transferTaskMapper;
@@ -137,6 +146,79 @@ class TransferServiceTest {
         assertNotNull(localCopy.getHash());
         // 复制模式源节点保留
         assertNotNull(fileMapper.selectById(remoteNode.getId()));
+    }
+
+    /**
+     * 传输完成时向发起者发布站内通知事件，内容与任务结果一致。
+     */
+    @Test
+    void shouldPublishCompletedNotificationEventWhenTransferCompletes() throws Exception {
+        UserVo user = prepareUser();
+        FileNode mountNode = createMountNode(user.getId());
+        FileNode remoteNode = uploadRemoteFile(mountNode, user.getId(), "notice.txt");
+        when(adapter.download(anyString()))
+                .thenReturn(new ByteArrayInputStream("hello".getBytes(StandardCharsets.UTF_8)));
+
+        TransferTaskVo task = transferService.createTransfer(
+                buildDto(remoteNode.getId(), null), "copy", user.getId());
+        transferTaskExecutor.execute(task.getId());
+
+        assertEquals(TransferTaskStatus.COMPLETED.getValue(),
+                transferTaskMapper.selectById(task.getId()).getStatus());
+        List<NotificationEvent> events = notificationEvents();
+        assertEquals(1, events.size());
+        assertEquals(NotificationEventType.TRANSFER_COMPLETED, events.get(0).getEventType());
+        assertEquals(user.getId(), events.get(0).getTargetUserId());
+        assertEquals("跨来源传输完成", events.get(0).getTitle());
+        assertTrue(events.get(0).getContent().contains("成功 1 个，失败 0 个"));
+    }
+
+    /**
+     * 全部文件传输失败时发布失败通知事件，内容含首个失败项摘要。
+     */
+    @Test
+    void shouldPublishFailedNotificationEventWhenTransferFails() throws Exception {
+        UserVo user = prepareUser();
+        FileNode mountNode = createMountNode(user.getId());
+        FileNode remoteNode = uploadRemoteFile(mountNode, user.getId(), "broken.txt");
+        when(adapter.download(anyString())).thenThrow(new RuntimeException("下载失败"));
+
+        TransferTaskVo task = transferService.createTransfer(
+                buildDto(remoteNode.getId(), null), "copy", user.getId());
+        transferTaskExecutor.execute(task.getId());
+
+        assertEquals(TransferTaskStatus.FAILED.getValue(),
+                transferTaskMapper.selectById(task.getId()).getStatus());
+        List<NotificationEvent> events = notificationEvents();
+        assertEquals(1, events.size());
+        assertEquals(NotificationEventType.TRANSFER_FAILED, events.get(0).getEventType());
+        assertEquals(user.getId(), events.get(0).getTargetUserId());
+        assertEquals("跨来源传输失败", events.get(0).getTitle());
+        assertTrue(events.get(0).getContent().contains("broken.txt"));
+        assertTrue(events.get(0).getContent().contains("下载失败"));
+    }
+
+    /**
+     * 用户主动取消的任务不发布站内通知事件。
+     */
+    @Test
+    void shouldNotPublishNotificationEventWhenCancelled() throws Exception {
+        UserVo user = prepareUser();
+        FileNode mountNode = createMountNode(user.getId());
+        FileNode remoteNode = uploadRemoteFile(mountNode, user.getId(), "a.txt");
+
+        TransferTaskVo task = transferService.createTransfer(
+                buildDto(remoteNode.getId(), null), "copy", user.getId());
+        transferService.cancel(task.getId(), user.getId());
+        transferTaskExecutor.execute(task.getId());
+
+        assertEquals(TransferTaskStatus.CANCELED.getValue(),
+                transferTaskMapper.selectById(task.getId()).getStatus());
+        assertTrue(notificationEvents().isEmpty());
+    }
+
+    private List<NotificationEvent> notificationEvents() {
+        return applicationEvents.stream(NotificationEvent.class).toList();
     }
 
     @Test

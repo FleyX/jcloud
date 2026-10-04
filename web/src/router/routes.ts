@@ -19,6 +19,7 @@ export type RouteName =
   | 'PersonProfile'
   | 'PersonDevices'
   | 'PersonWebDav'
+  | 'Notifications'
   | 'MediaHome'
   | 'MediaLibrary'
   | 'MediaDirectories'
@@ -120,6 +121,12 @@ export const dynamicRoutes: RouteRecordRaw[] = [
     name: 'PersonWebDav' as RouteName,
     component: deviceView('person/webdav'),
     meta: { title: 'WebDAV共享' },
+  },
+  {
+    path: '/notifications',
+    name: 'Notifications' as RouteName,
+    component: deviceView('notifications/index'),
+    meta: { title: '通知' },
   },
   // 旧路径重定向，保持兼容
   {

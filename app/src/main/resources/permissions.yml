@@ -49,6 +49,10 @@ login:
   - { code: "GET:/jcloud/api/remote-mounts/{id}/sync/task", name: "查询远程挂载最新同步任务" }
   - { code: "PUT:/jcloud/api/remote-mounts/{id}/sync-config", name: "更新远程挂载同步配置" }
   - { code: "GET:/jcloud/api/remote-mounts/sync-tasks", name: "分页查询远程同步任务" }
+  - { code: "GET:/jcloud/api/notifications", name: "查询当前用户通知列表" }
+  - { code: "GET:/jcloud/api/notifications/unread-count", name: "查询当前用户未读通知数" }
+  - { code: "PUT:/jcloud/api/notifications/{id}/read", name: "标记单条通知已读" }
+  - { code: "PUT:/jcloud/api/notifications/read-all", name: "标记全部通知已读" }
 
 permissions:
   - code: "file:menu"

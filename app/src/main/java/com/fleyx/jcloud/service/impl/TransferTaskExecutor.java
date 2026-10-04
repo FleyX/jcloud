@@ -1,10 +1,12 @@
 package com.fleyx.jcloud.service.impl;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fleyx.jcloud.common.enums.NotificationEventType;
 import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.enums.TransferTaskStatus;
-import com.fleyx.jcloud.common.exception.SystemException;
+import com.fleyx.jcloud.common.event.NotificationEvent;
 import com.fleyx.jcloud.common.event.TransferSubmittedEvent;
+import com.fleyx.jcloud.common.exception.SystemException;
 import com.fleyx.jcloud.mapper.TransferTaskMapper;
 import com.fleyx.jcloud.model.bo.TransferItem;
 import com.fleyx.jcloud.model.po.TransferTask;
@@ -15,6 +17,7 @@ import com.fleyx.jcloud.util.UserReadWriteLock;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RLock;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
@@ -38,6 +41,7 @@ public class TransferTaskExecutor {
     private final SyncTaskSupport syncTaskSupport;
     private final ObjectMapper objectMapper;
     private final UserReadWriteLock userReadWriteLock;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Async
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
@@ -114,6 +118,23 @@ public class TransferTaskExecutor {
         update.setEndTime(LocalDateTime.now());
         update.setUpdateTime(LocalDateTime.now());
         transferTaskMapper.updateById(update);
+        publishResultNotification(task, update.getStatus(), ctx.getSuccessCount(), ctx.getFailCount(),
+                failureSummary(ctx, update.getStatus()));
+    }
+
+    /**
+     * 任务失败时取首个失败项作为错误摘要；其余状态不附带错误信息。
+     *
+     * @param ctx    执行上下文
+     * @param status 终结状态
+     * @return 错误摘要，无则为 null
+     */
+    private String failureSummary(TransferContext ctx, String status) {
+        if (!TransferTaskStatus.FAILED.getValue().equals(status)) {
+            return null;
+        }
+        TransferContext.FailItem first = ctx.firstFailure();
+        return first == null ? null : first.name() + "：" + first.reason();
     }
 
     private void failTask(TransferTask task, String errorMsg) {
@@ -124,5 +145,47 @@ public class TransferTaskExecutor {
         update.setEndTime(LocalDateTime.now());
         update.setUpdateTime(LocalDateTime.now());
         transferTaskMapper.updateById(update);
+        publishResultNotification(task, TransferTaskStatus.FAILED.getValue(),
+                valueOrZero(task.getSuccessCount()), valueOrZero(task.getFailCount()), update.getErrorMsg());
+    }
+
+    /**
+     * 任务终结时向发起者发布站内通知；用户主动取消（CANCELED）不发。
+     * <p>
+     * 执行路径为异步无事务，直接发布进程内事件，由通知模块异步落库。
+     *
+     * @param task         传输任务
+     * @param status       终结状态
+     * @param successCount 成功数
+     * @param failCount    失败数
+     * @param errorMsg     错误摘要，可空
+     */
+    private void publishResultNotification(TransferTask task, String status,
+                                           long successCount, long failCount, String errorMsg) {
+        if (TransferTaskStatus.CANCELED.getValue().equals(status)) {
+            return;
+        }
+        String opLabel = "move".equals(task.getOpType()) ? "移动" : "复制";
+        boolean failed = TransferTaskStatus.FAILED.getValue().equals(status);
+        boolean partial = TransferTaskStatus.PARTIAL.getValue().equals(status);
+        NotificationEventType eventType = failed
+                ? NotificationEventType.TRANSFER_FAILED : NotificationEventType.TRANSFER_COMPLETED;
+        String title;
+        if (failed) {
+            title = "跨来源传输失败";
+        } else if (partial) {
+            title = "跨来源传输部分成功";
+        } else {
+            title = "跨来源传输完成";
+        }
+        String content = failed && errorMsg != null
+                ? String.format("%s任务失败：%s", opLabel, errorMsg)
+                : String.format("%s任务%s：成功 %d 个，失败 %d 个", opLabel, partial ? "部分成功" : "完成",
+                        successCount, failCount);
+        eventPublisher.publishEvent(new NotificationEvent(this, eventType, task.getUserId(), title, content));
+    }
+
+    private long valueOrZero(Long value) {
+        return value == null ? 0L : value;
     }
 }

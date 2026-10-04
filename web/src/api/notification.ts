@@ -1,5 +1,5 @@
 import { get, post, put } from './request'
-import type { SmtpConfig, SmtpConfigPayload } from '@/types/notification'
+import type { NotificationItem, SmtpConfig, SmtpConfigPayload } from '@/types/notification'
 
 /**
  * 查询发件邮箱（SMTP）配置，密码不回显
@@ -21,3 +21,32 @@ export function updateSmtpConfig(payload: SmtpConfigPayload): Promise<void> {
 export function sendTestMail(to: string): Promise<void> {
   return post<void>('/admin/notification/smtp-config/test', { to })
 }
+
+/**
+ * 查询当前用户最近通知（倒序，最多 50 条）
+ */
+export function listNotifications(): Promise<NotificationItem[]> {
+  return get<NotificationItem[]>('/notifications')
+}
+
+/**
+ * 查询当前用户未读通知数（后端 Long 序列化为 string）
+ */
+export function getUnreadCount(): Promise<string> {
+  return get<string>('/notifications/unread-count')
+}
+
+/**
+ * 标记单条通知已读
+ */
+export function markNotificationRead(id: string): Promise<void> {
+  return put<void>(`/notifications/${id}/read`)
+}
+
+/**
+ * 标记当前用户全部通知已读
+ */
+export function markAllNotificationsRead(): Promise<void> {
+  return put<void>('/notifications/read-all')
+}
+

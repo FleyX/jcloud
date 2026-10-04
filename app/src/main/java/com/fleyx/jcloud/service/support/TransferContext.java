@@ -97,6 +97,15 @@ public class TransferContext {
         return json.length() > MAX_DETAIL_LENGTH ? json.substring(0, MAX_DETAIL_LENGTH) : json;
     }
 
+    /**
+     * 首个失败项，无失败返回 {@code null}。用于任务失败时的通知错误摘要。
+     *
+     * @return 首个失败明细
+     */
+    public FailItem firstFailure() {
+        return failDetails.isEmpty() ? null : failDetails.get(0);
+    }
+
     private void flush() {
         TransferTask update = new TransferTask();
         update.setId(task.getId());

@@ -11,6 +11,7 @@ import { Cloud, Film, Settings, LogOut, User, Sun, Moon, Monitor } from '@lucide
 import { cn } from '@/utils/cn'
 import type { Component } from 'vue'
 import { useThemeStore, type ThemeMode } from '@/store/theme'
+import NotificationBell from '@/components/notification/NotificationBell.vue'
 
 const router = useRouter()
 const menuStore = useMenuStore()
@@ -157,6 +158,7 @@ const themeButtonLabel = computed(() => {
           </button>
         </div>
       </div>
+      <NotificationBell />
     </div>
   </header>
 </template>

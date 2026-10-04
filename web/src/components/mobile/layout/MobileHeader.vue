@@ -7,6 +7,7 @@ import { useUserStore } from '@/store/user'
 import MobileDrawer from './MobileDrawer.vue'
 import type { SecondaryMenuItem } from '@/store/menu'
 import { useThemeStore, type ThemeMode } from '@/store/theme'
+import NotificationBell from '@/components/notification/NotificationBell.vue'
 
 
 const router = useRouter()
@@ -144,6 +145,7 @@ const themeButtonLabel = computed(() => {
       >
         {{ userStore.userInfo?.username?.charAt(0).toUpperCase() || 'U' }}
       </button>
+      <NotificationBell />
     </div>
   </header>
 
