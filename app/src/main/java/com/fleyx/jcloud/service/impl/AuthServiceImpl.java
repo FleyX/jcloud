@@ -2,8 +2,11 @@ package com.fleyx.jcloud.service.impl;
 
 import cn.hutool.crypto.digest.BCrypt;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.fleyx.jcloud.common.enums.NotificationEventType;
+import com.fleyx.jcloud.common.enums.NotificationTargetType;
 import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.enums.UserStatus;
+import com.fleyx.jcloud.common.event.NotificationEvent;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.common.permission.PermissionRegistry;
 import com.fleyx.jcloud.common.permission.PermissionResolver;
@@ -29,6 +32,7 @@ import com.fleyx.jcloud.service.AuthService;
 import com.fleyx.jcloud.service.SystemInitService;
 import com.fleyx.jcloud.service.support.AuthRateLimitSupport;
 import com.fleyx.jcloud.service.support.AuthSessionSupport;
+import com.fleyx.jcloud.service.support.NotificationEventSupport;
 import com.fleyx.jcloud.util.DeviceNameUtil;
 import com.fleyx.jcloud.util.JwtUtil;
 import com.fleyx.jcloud.util.UsernameUtil;
@@ -63,6 +67,7 @@ public class AuthServiceImpl implements AuthService {
     private final SystemInitService systemInitService;
     private final AuthSessionSupport authSessionSupport;
     private final AuthRateLimitSupport authRateLimitSupport;
+    private final NotificationEventSupport notificationEventSupport;
     private final JwtProperties jwtProperties;
     private final AuthProperties authProperties;
 
@@ -83,6 +88,9 @@ public class AuthServiceImpl implements AuthService {
         user.setIsAdmin(0);
         userMapper.insert(user);
         bindCommonUserRole(user.getId());
+        notificationEventSupport.publishAfterCommit(new NotificationEvent(this, NotificationEventType.USER_REGISTERED,
+                NotificationTargetType.ADMINS, null, "新用户注册",
+                String.format("新用户 %s 注册成功", username)));
         return userConvert.poToVo(user);
     }
 
