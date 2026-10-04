@@ -94,6 +94,7 @@ export function useFileList(options: UseFileListOptions = {}) {
 
   const shareOpen = ref(false)
   const shareEditTarget = ref<ShareDetailVo | undefined>(undefined)
+  const emailShareOpen = ref(false)
 
   const uploadConflictOpen = ref(false)
   const uploadConflicts = ref<ConflictItemVo[]>([])
@@ -472,6 +473,21 @@ export function useFileList(options: UseFileListOptions = {}) {
     shareOpen.value = true
   }
 
+  function openEmailShareModal() {
+    const targets = selectedFiles.value
+    if (targets.length === 0) return
+    if (hasMixedSource(targets)) {
+      notificationStore.error('分享不能同时包含本地与远程文件')
+      return
+    }
+    emailShareOpen.value = true
+  }
+
+  function handleEmailShareSent() {
+    emailShareOpen.value = false
+    selectedIds.value.clear()
+  }
+
   async function handleCreateShare(payload: ShareCreateRequest) {
     const share = await createShare(payload)
     shareOpen.value = false
@@ -551,6 +567,7 @@ export function useFileList(options: UseFileListOptions = {}) {
     moveCopyTargets,
     shareOpen,
     shareEditTarget,
+    emailShareOpen,
     uploadConflictOpen,
     uploadConflicts,
 
@@ -584,6 +601,8 @@ export function useFileList(options: UseFileListOptions = {}) {
     handleCreateShare,
     handleUpdateShare,
     handleShareConfirm,
+    openEmailShareModal,
+    handleEmailShareSent,
     openUploadConflict,
     handleUploadConflictConfirm,
     handleUploadConflictCancel,

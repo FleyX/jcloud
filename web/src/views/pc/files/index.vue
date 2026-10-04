@@ -11,6 +11,7 @@ import { useFileList } from '@/views/files/composables/useFileList'
 import { useFileOperations } from '@/views/files/composables/useFileOperations'
 import CreateFolderModal from '@/views/files/components/CreateFolderModal.vue'
 import CreateShareModal from '@/views/files/components/CreateShareModal.vue'
+import EmailShareModal from '@/components/notification/EmailShareModal.vue'
 import RenameModal from '@/views/files/components/RenameModal.vue'
 import MoveCopyModal from '@/views/files/components/MoveCopyModal.vue'
 import BatchActionBar from './components/BatchActionBar.vue'
@@ -152,6 +153,7 @@ onMounted(list.init)
       @copy="list.openMoveCopy('copy', list.selectedFiles)"
       @download="list.handleBatchDownload"
       @share="list.openShareModal"
+      @share-email="list.openEmailShareModal"
       @delete="list.handleBatchDelete"
       @clear="list.clearSelection"
     />
@@ -162,6 +164,13 @@ onMounted(list.init)
       :edit-share="list.shareEditTarget"
       @close="list.shareOpen = false"
       @confirm="list.handleShareConfirm"
+    />
+
+    <EmailShareModal
+      :open="list.emailShareOpen"
+      :items="list.selectedFiles"
+      @close="list.emailShareOpen = false"
+      @sent="list.handleEmailShareSent"
     />
 
     <FilePreviewModal
