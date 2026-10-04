@@ -1,13 +1,15 @@
 <script setup lang="ts">
 /**
- * 分享到邮件弹窗（链接分享模式）
- * - 模式选择：链接分享 / 附件直发（本工单置灰，仅文件且不含文件夹时展示）
- * - 提交：先创建分享，再用站点 origin 组装分享链接调发送接口
+ * 分享到邮件弹窗（链接分享 / 附件直发两种模式）
+ * - 模式选择：链接分享 / 附件直发（仅选中集全为文件时可选，含文件夹不出现）
+ * - 链接分享：先创建分享，再用站点 origin 组装分享链接调发送接口
+ * - 附件直发：前端预检总大小上限，超限提示改用链接分享
  */
 import { computed, ref, watch } from 'vue'
-import { X, Mail, Link, Lock, Clock, Paperclip, AlertTriangle, Plus } from '@lucide/vue'
+import { X, Mail, Link, Lock, Clock, Paperclip, AlertTriangle, Plus, Info } from '@lucide/vue'
 import { cn } from '@/utils/cn'
-import { createShare, getRecentRecipients, sendEmailShareLink } from '@/api/share'
+import { formatSize } from '@/utils/fileDisplay'
+import { createShare, getRecentRecipients, sendEmailShareAttachment, sendEmailShareLink } from '@/api/share'
 import { useNotificationStore } from '@/store/notification'
 import type { FileNodeVo } from '@/types/file'
 
@@ -35,6 +37,7 @@ const recipientInput = ref('')
 const recipientError = ref('')
 const recentRecipients = ref<string[]>([])
 const smtpConfigured = ref(true)
+const attachmentMaxSizeMb = ref(50)
 const shareName = ref('')
 const hasPassword = ref(false)
 const password = ref('')
@@ -52,7 +55,15 @@ const expireOptions: { value: typeof expireOption.value; label: string }[] = [
 
 const hasFolder = computed(() => props.items.some((item) => item.type === 'folder'))
 const selectableRecent = computed(() => recentRecipients.value.filter((email) => !recipients.value.includes(email)))
-const canSubmit = computed(() => smtpConfigured.value && !submitting.value && recipients.value.length > 0 && !!shareName.value.trim())
+const totalSelectedBytes = computed(() => props.items.reduce((sum, item) => sum + Number(item.size || 0), 0))
+const attachmentMaxBytes = computed(() => attachmentMaxSizeMb.value * 1024 * 1024)
+const sizeOverLimit = computed(() => mode.value === 'attachment' && totalSelectedBytes.value > attachmentMaxBytes.value)
+const canSubmit = computed(() => {
+  if (!smtpConfigured.value || submitting.value || recipients.value.length === 0) return false
+  if (mode.value === 'attachment') return !sizeOverLimit.value
+  return !!shareName.value.trim()
+})
+const submitLabel = computed(() => (mode.value === 'attachment' ? '发送附件' : '创建并发送'))
 
 watch(
   () => props.open,
@@ -73,6 +84,7 @@ function reset() {
   recipientError.value = ''
   recentRecipients.value = []
   smtpConfigured.value = true
+  attachmentMaxSizeMb.value = 50
   shareName.value = ''
   hasPassword.value = false
   password.value = ''
@@ -87,6 +99,7 @@ async function loadRecentRecipients() {
     const result = await getRecentRecipients()
     recentRecipients.value = result.recipients
     smtpConfigured.value = result.smtpConfigured
+    attachmentMaxSizeMb.value = result.attachmentMaxSizeMb
   } catch {
     // 请求层已统一提示，此处保持可用状态交由提交时兜底
   }
@@ -134,12 +147,20 @@ function buildExpireAt(): string | undefined {
 }
 
 function validate(): boolean {
-  if (!shareName.value.trim()) {
-    error.value = '分享名称不能为空'
-    return false
-  }
   if (recipients.value.length === 0) {
     error.value = '请至少添加一个收件邮箱'
+    return false
+  }
+  if (mode.value === 'attachment') {
+    if (sizeOverLimit.value) {
+      error.value = `所选文件超过附件大小上限 ${attachmentMaxSizeMb.value}MB，请改用链接分享`
+      return false
+    }
+    error.value = ''
+    return true
+  }
+  if (!shareName.value.trim()) {
+    error.value = '分享名称不能为空'
     return false
   }
   if (hasPassword.value && !password.value.trim()) {
@@ -156,23 +177,31 @@ function validate(): boolean {
 
 async function handleSubmit() {
   if (!validate()) return
-  const accessPassword = hasPassword.value ? password.value.trim() : undefined
   submitting.value = true
   try {
-    const share = await createShare({
-      name: shareName.value.trim(),
-      fileNodeIds: props.items.map((item) => item.id),
-      password: accessPassword,
-      expireAt: buildExpireAt(),
-    })
-    await sendEmailShareLink({
-      shareCode: share.shareCode,
-      shareUrl: `${window.location.origin}/s/${share.shareCode}`,
-      shareName: shareName.value.trim(),
-      password: accessPassword,
-      recipients: recipients.value,
-    })
-    notificationStore.success('分享已创建，邮件发送中')
+    if (mode.value === 'attachment') {
+      await sendEmailShareAttachment({
+        fileNodeIds: props.items.map((item) => item.id),
+        recipients: recipients.value,
+      })
+      notificationStore.success('邮件发送中，结果将通知你')
+    } else {
+      const accessPassword = hasPassword.value ? password.value.trim() : undefined
+      const share = await createShare({
+        name: shareName.value.trim(),
+        fileNodeIds: props.items.map((item) => item.id),
+        password: accessPassword,
+        expireAt: buildExpireAt(),
+      })
+      await sendEmailShareLink({
+        shareCode: share.shareCode,
+        shareUrl: `${window.location.origin}/s/${share.shareCode}`,
+        shareName: shareName.value.trim(),
+        password: accessPassword,
+        recipients: recipients.value,
+      })
+      notificationStore.success('分享已创建，邮件发送中')
+    }
     emit('sent')
     emit('close')
   } catch {
@@ -233,16 +262,18 @@ async function handleSubmit() {
             </button>
             <button
               v-if="!hasFolder"
-              :disabled="true"
-              title="即将支持"
               :class="
                 cn(
-                  'flex cursor-not-allowed items-center justify-center gap-1.5 rounded-xl border border-surface-200 bg-surface-50 px-3 py-2 text-xs font-medium text-surface-400'
+                  'flex items-center justify-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-medium transition-all',
+                  mode === 'attachment'
+                    ? 'border-primary-300 bg-primary-50 text-primary-700'
+                    : 'border-surface-200 bg-white text-surface-600 hover:bg-surface-50'
                 )
               "
+              @click="mode = 'attachment'"
             >
               <Paperclip class="h-3.5 w-3.5" />
-              附件直发（≤50MB）
+              附件直发（≤{{ attachmentMaxSizeMb }}MB）
             </button>
           </div>
           <p
@@ -250,6 +281,34 @@ async function handleSubmit() {
             class="mt-1.5 text-xs text-surface-400"
           >
             创建分享后，链接与访问密码将发送到收件邮箱。
+          </p>
+          <p
+            v-else
+            class="mt-1.5 text-xs text-surface-400"
+          >
+            文件将作为邮件附件直接发送。
+          </p>
+        </div>
+
+        <div
+          v-if="mode === 'attachment'"
+          class="space-y-2 rounded-xl border border-surface-200 bg-surface-50 px-3 py-2.5"
+        >
+          <div class="flex items-center justify-between text-xs">
+            <span class="text-surface-500">所选文件总大小</span>
+            <span :class="cn('font-medium', sizeOverLimit ? 'text-red-500' : 'text-surface-700')">
+              {{ formatSize(totalSelectedBytes) }} / {{ attachmentMaxSizeMb }}MB
+            </span>
+          </div>
+          <p
+            v-if="sizeOverLimit"
+            class="text-xs text-red-500"
+          >
+            超过附件大小上限，请改用链接分享。
+          </p>
+          <p class="flex items-start gap-1.5 text-xs text-surface-400">
+            <Info class="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <span>发送至 Kindle 时，需先将发件邮箱加入 Kindle 认可邮箱白名单。</span>
           </p>
         </div>
 
@@ -301,7 +360,7 @@ async function handleSubmit() {
           </div>
         </div>
 
-        <div>
+        <div v-if="mode === 'link'">
           <label class="mb-1.5 block text-xs font-medium text-surface-500">分享名称</label>
           <input
             v-model="shareName"
@@ -311,7 +370,10 @@ async function handleSubmit() {
           >
         </div>
 
-        <div class="flex items-center justify-between rounded-xl border border-surface-200 bg-surface-50 px-4 py-3">
+        <div
+          v-if="mode === 'link'"
+          class="flex items-center justify-between rounded-xl border border-surface-200 bg-surface-50 px-4 py-3"
+        >
           <div class="flex items-center gap-2 text-sm font-medium text-surface-700">
             <Lock class="h-4 w-4 text-surface-500" />
             访问密码
@@ -330,7 +392,7 @@ async function handleSubmit() {
             />
           </button>
         </div>
-        <div v-if="hasPassword">
+        <div v-if="mode === 'link' && hasPassword">
           <input
             v-model="password"
             type="text"
@@ -340,7 +402,7 @@ async function handleSubmit() {
           >
         </div>
 
-        <div>
+        <div v-if="mode === 'link'">
           <label class="mb-1.5 flex items-center gap-2 text-xs font-medium text-surface-500">
             <Clock class="h-3.5 w-3.5" />
             有效期
@@ -403,7 +465,7 @@ async function handleSubmit() {
           :disabled="!canSubmit"
           @click="handleSubmit"
         >
-          {{ submitting ? '发送中...' : '创建并发送' }}
+          {{ submitting ? '发送中...' : submitLabel }}
         </button>
       </div>
     </div>

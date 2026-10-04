@@ -58,6 +58,7 @@ public class AdminNotificationController {
         vo.setFromAddress(config.getFromAddress());
         vo.setFromName(config.getFromName());
         vo.setHasPassword(config.getPassword() != null && !config.getPassword().isBlank());
+        vo.setAttachmentMaxSizeMb(smtpConfigSupport.attachmentMaxSizeMb());
         return R.ok(vo);
     }
 
@@ -80,7 +81,7 @@ public class AdminNotificationController {
     }
 
     /**
-     * 查询七类通知事件的启用状态。
+     * 查询全部通知事件的启用状态。
      */
     @GetMapping("/event-switches")
     public R<List<NotificationEventSwitchVo>> listEventSwitches() {

@@ -16,6 +16,8 @@ export interface SmtpConfig {
   fromAddress: string
   fromName: string
   hasPassword: boolean
+  /** 邮件分享附件直发大小上限（MB） */
+  attachmentMaxSizeMb: number
 }
 
 /**
@@ -29,6 +31,8 @@ export interface SmtpConfigPayload {
   encryption: SmtpEncryption
   fromAddress: string
   fromName: string
+  /** 邮件分享附件直发大小上限（MB），为空表示保留原值（默认 50） */
+  attachmentMaxSizeMb?: number
 }
 
 /**

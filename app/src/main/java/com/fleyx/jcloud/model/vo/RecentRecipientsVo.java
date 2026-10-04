@@ -26,4 +26,9 @@ public class RecentRecipientsVo implements Serializable {
      * 最近收件邮箱，最多 5 个、最新在前。
      */
     private List<String> recipients;
+
+    /**
+     * 邮件分享附件直发大小上限（MB），供弹窗预检提示。
+     */
+    private Integer attachmentMaxSizeMb;
 }

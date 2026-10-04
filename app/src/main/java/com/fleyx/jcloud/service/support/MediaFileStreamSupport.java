@@ -95,11 +95,12 @@ public class MediaFileStreamSupport {
         String username = userMapper.selectById(userId).getUsername();
         Map<String, String> nameCache = new HashMap<>();
         if (node.getPath() != null) {
-            List<FileNode> ancestors = fileMapper.selectBatchIds(
-                    java.util.Arrays.stream(node.getPath().split("\\."))
-                            .filter(id -> !FileNodeConstants.ROOT_ID.equals(id)).toList());
-            for (FileNode ancestor : ancestors) {
-                nameCache.put(ancestor.getId(), ancestor.getName());
+            List<String> ancestorIds = java.util.Arrays.stream(node.getPath().split("\\."))
+                    .filter(id -> !FileNodeConstants.ROOT_ID.equals(id)).toList();
+            if (!ancestorIds.isEmpty()) {
+                for (FileNode ancestor : fileMapper.selectBatchIds(ancestorIds)) {
+                    nameCache.put(ancestor.getId(), ancestor.getName());
+                }
             }
         }
         Path path = FilePathUtil.resolvePhysicalPath(node, FilePathUtil.contextOf(space, username, nameCache));

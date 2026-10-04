@@ -19,6 +19,16 @@ export interface EmailShareLinkRequest {
 }
 
 /**
+ * 附件直发邮件发送请求
+ */
+export interface EmailShareAttachmentRequest {
+  /** 文件节点 ID 列表，仅支持文件类型节点 */
+  fileNodeIds: string[]
+  /** 收件邮箱列表，1~20 个 */
+  recipients: string[]
+}
+
+/**
  * 最近收件人与发件邮箱可用状态
  */
 export interface RecentRecipientsVo {
@@ -26,4 +36,6 @@ export interface RecentRecipientsVo {
   smtpConfigured: boolean
   /** 最近收件邮箱，最多 5 个、最新在前 */
   recipients: string[]
+  /** 附件直发大小上限（MB），供弹窗预检提示 */
+  attachmentMaxSizeMb: number
 }

@@ -56,4 +56,11 @@ public class SmtpConfigDto {
      * 发件人昵称。
      */
     private String fromName;
+
+    /**
+     * 邮件分享附件直发大小上限（MB），为空表示保留原值。
+     */
+    @Min(value = 1, message = "附件大小上限需在 1~1024 MB 之间")
+    @Max(value = 1024, message = "附件大小上限需在 1~1024 MB 之间")
+    private Integer attachmentMaxSizeMb;
 }

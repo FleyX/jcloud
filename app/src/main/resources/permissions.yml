@@ -54,6 +54,7 @@ login:
   - { code: "PUT:/jcloud/api/notifications/{id}/read", name: "标记单条通知已读" }
   - { code: "PUT:/jcloud/api/notifications/read-all", name: "标记全部通知已读" }
   - { code: "POST:/jcloud/api/shares/email/send-link", name: "邮件分享发送链接分享" }
+  - { code: "POST:/jcloud/api/shares/email/send-attachment", name: "邮件分享发送附件直发" }
   - { code: "GET:/jcloud/api/shares/email/recent-recipients", name: "查询最近邮件分享收件人" }
 
 permissions:

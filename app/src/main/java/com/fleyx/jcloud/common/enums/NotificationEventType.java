@@ -47,7 +47,12 @@ public enum NotificationEventType {
     /**
      * 存储空间容量告警。
      */
-    STORAGE_CAPACITY_ALERT("storage_capacity_alert", "存储空间容量告警");
+    STORAGE_CAPACITY_ALERT("storage_capacity_alert", "存储空间容量告警"),
+
+    /**
+     * 邮件分享失败（附件直发异步发送失败时补发给操作者）。
+     */
+    EMAIL_SHARE_FAILED("email_share_failed", "邮件分享失败");
 
     private final String value;
 

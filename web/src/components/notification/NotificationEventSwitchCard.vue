@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 通知事件开关卡片（管理员）：七类事件逐一启用/禁用，禁用后不触发任何渠道
+ * 通知事件开关卡片（管理员）：各事件逐一启用/禁用，禁用后不触发任何渠道
  */
 import { onMounted, ref } from 'vue'
 import { SwitchRoot, SwitchThumb } from 'radix-vue'

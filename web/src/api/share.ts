@@ -11,7 +11,7 @@ import type {
   ShareVo,
 } from '@/types/share'
 import type { FileBatchDownloadRequest, FileNodeVo, FileZipTaskVo } from '@/types/file'
-import type { EmailShareLinkRequest, RecentRecipientsVo } from '@/types/email-share'
+import type { EmailShareAttachmentRequest, EmailShareLinkRequest, RecentRecipientsVo } from '@/types/email-share'
 
 /**
  * 创建分享
@@ -56,7 +56,14 @@ export function sendEmailShareLink(body: EmailShareLinkRequest): Promise<void> {
 }
 
 /**
- * 查询最近收件邮箱与发件邮箱可用状态
+ * 发送附件直发邮件（异步组装附件发送，接口立即返回）
+ */
+export function sendEmailShareAttachment(body: EmailShareAttachmentRequest): Promise<void> {
+  return post<void>('/shares/email/send-attachment', body)
+}
+
+/**
+ * 查询最近收件邮箱、发件邮箱可用状态与附件直发大小上限
  */
 export function getRecentRecipients(): Promise<RecentRecipientsVo> {
   return get<RecentRecipientsVo>('/shares/email/recent-recipients')

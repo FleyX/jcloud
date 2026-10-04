@@ -25,6 +25,7 @@ const password = ref('')
 const encryption = ref<SmtpEncryption>('ssl')
 const fromAddress = ref('')
 const fromName = ref('')
+const attachmentMaxSizeMb = ref(50)
 const hasPassword = ref(false)
 const configured = ref(false)
 const loading = ref(false)
@@ -48,6 +49,7 @@ async function loadConfig() {
     encryption.value = config.encryption
     fromAddress.value = config.fromAddress
     fromName.value = config.fromName
+    attachmentMaxSizeMb.value = config.attachmentMaxSizeMb
     hasPassword.value = config.hasPassword
     configured.value = config.host !== '' && config.fromAddress !== ''
   } catch {
@@ -67,6 +69,7 @@ async function handleSave() {
       encryption: encryption.value,
       fromAddress: fromAddress.value.trim(),
       fromName: fromName.value.trim(),
+      attachmentMaxSizeMb: Number(attachmentMaxSizeMb.value),
     }
     if (password.value !== '') {
       payload.password = password.value
@@ -196,6 +199,19 @@ async function handleTestSend() {
           >
         </label>
       </div>
+
+      <label class="block w-64 max-w-full">
+        <span class="mb-1 block text-xs font-medium text-surface-500">附件大小上限（MB）</span>
+        <input
+          v-model.number="attachmentMaxSizeMb"
+          type="number"
+          min="1"
+          max="1024"
+          placeholder="50"
+          :class="inputClass"
+        >
+        <span class="mt-1 block text-xs text-surface-400">邮件分享附件直发的总大小上限，超出时提示改用链接分享</span>
+      </label>
 
       <div class="flex justify-end">
         <button

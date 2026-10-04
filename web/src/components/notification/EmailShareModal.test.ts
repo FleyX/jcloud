@@ -5,11 +5,13 @@ import type { FileNodeVo } from '@/types/file'
 
 const mockCreateShare = vi.fn()
 const mockSendEmailShareLink = vi.fn()
+const mockSendEmailShareAttachment = vi.fn()
 const mockGetRecentRecipients = vi.fn()
 
 vi.mock('@/api/share', () => ({
   createShare: (...args: unknown[]) => mockCreateShare(...args),
   sendEmailShareLink: (...args: unknown[]) => mockSendEmailShareLink(...args),
+  sendEmailShareAttachment: (...args: unknown[]) => mockSendEmailShareAttachment(...args),
   getRecentRecipients: (...args: unknown[]) => mockGetRecentRecipients(...args),
 }))
 
@@ -17,14 +19,14 @@ vi.mock('@/store/notification', () => ({
   useNotificationStore: () => ({ success: vi.fn(), error: vi.fn() }),
 }))
 
-function fileNode(id: string, name: string, type: 'file' | 'folder' = 'file'): FileNodeVo {
+function fileNode(id: string, name: string, type: 'file' | 'folder' = 'file', size = '1024'): FileNodeVo {
   return {
     id,
     userId: 'u1',
     parentId: '0',
     name,
     type,
-    size: '1024',
+    size,
     storageSpaceId: 's1',
     pathName: name,
     status: 1,
@@ -52,21 +54,58 @@ describe('EmailShareModal', () => {
   beforeEach(() => {
     mockCreateShare.mockReset()
     mockSendEmailShareLink.mockReset()
+    mockSendEmailShareAttachment.mockReset()
     mockGetRecentRecipients.mockReset()
-    mockGetRecentRecipients.mockResolvedValue({ smtpConfigured: true, recipients: [] })
+    mockGetRecentRecipients.mockResolvedValue({ smtpConfigured: true, recipients: [], attachmentMaxSizeMb: 50 })
   })
 
-  it('shows disabled attachment mode for file-only selection', async () => {
+  it('enables attachment mode and shows kindle hint for file-only selection', async () => {
     const wrapper = await openModal([fileNode('f1', 'a.pdf')])
     const attachment = findButton(wrapper, '附件直发')
     expect(attachment).toBeDefined()
-    expect(attachment!.attributes('disabled')).toBeDefined()
+    expect(attachment!.attributes('disabled')).toBeUndefined()
+
+    await attachment!.trigger('click')
     expect(wrapper.text()).toContain('链接分享')
+    expect(wrapper.text()).toContain('需先将发件邮箱加入 Kindle 认可邮箱白名单')
+    expect(wrapper.text()).toContain('1.00 KB / 50MB')
   })
 
   it('hides attachment mode when selection contains a folder', async () => {
     const wrapper = await openModal([fileNode('d1', 'docs', 'folder')])
     expect(findButton(wrapper, '附件直发')).toBeUndefined()
+  })
+
+  it('blocks attachment submit when total size exceeds the limit', async () => {
+    mockGetRecentRecipients.mockResolvedValue({ smtpConfigured: true, recipients: [], attachmentMaxSizeMb: 1 })
+    const wrapper = await openModal([fileNode('f1', 'big.bin', 'file', String(2 * 1024 * 1024))])
+    await findButton(wrapper, '附件直发')!.trigger('click')
+    await addRecipient(wrapper, 'to@example.com')
+
+    await findButton(wrapper, '发送附件')!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('超过附件大小上限')
+    expect(mockSendEmailShareAttachment).not.toHaveBeenCalled()
+  })
+
+  it('sends attachment mail with file ids and recipients', async () => {
+    mockSendEmailShareAttachment.mockResolvedValue(undefined)
+    const wrapper = await openModal([fileNode('f1', 'a.pdf')])
+    await findButton(wrapper, '附件直发')!.trigger('click')
+    await addRecipient(wrapper, 'to@example.com')
+
+    await findButton(wrapper, '发送附件')!.trigger('click')
+    await flushPromises()
+
+    expect(mockCreateShare).not.toHaveBeenCalled()
+    expect(mockSendEmailShareAttachment).toHaveBeenCalledTimes(1)
+    expect(mockSendEmailShareAttachment.mock.calls[0][0]).toEqual({
+      fileNodeIds: ['f1'],
+      recipients: ['to@example.com'],
+    })
+    expect(wrapper.emitted('sent')).toHaveLength(1)
+    expect(wrapper.emitted('close')).toHaveLength(1)
   })
 
   it('adds recipients from recent list and input, and removes a chip', async () => {

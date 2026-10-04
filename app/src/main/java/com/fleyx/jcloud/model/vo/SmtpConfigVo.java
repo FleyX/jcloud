@@ -42,4 +42,9 @@ public class SmtpConfigVo {
      * 是否已设置密码。
      */
     private boolean hasPassword;
+
+    /**
+     * 邮件分享附件直发大小上限（MB）。
+     */
+    private Integer attachmentMaxSizeMb;
 }

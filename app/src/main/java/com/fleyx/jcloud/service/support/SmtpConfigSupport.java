@@ -55,6 +55,16 @@ public class SmtpConfigSupport {
     public static final String CONFIG_KEY_FROM_NAME = "notification.smtp.from-name";
 
     /**
+     * 系统配置键：邮件分享附件直发大小上限（MB）。
+     */
+    public static final String CONFIG_KEY_ATTACHMENT_MAX_SIZE = "notification.email-share.attachment-max-size";
+
+    /**
+     * 附件直发大小上限默认值（MB）。
+     */
+    public static final int DEFAULT_ATTACHMENT_MAX_SIZE_MB = 50;
+
+    /**
      * 加密方式：不加密。
      */
     public static final String ENCRYPTION_NONE = "none";
@@ -114,6 +124,10 @@ public class SmtpConfigSupport {
         systemConfigService.setValue(CONFIG_KEY_ENCRYPTION, dto.getEncryption());
         systemConfigService.setValue(CONFIG_KEY_FROM_ADDRESS, trim(dto.getFromAddress()));
         systemConfigService.setValue(CONFIG_KEY_FROM_NAME, trim(dto.getFromName()));
+        if (dto.getAttachmentMaxSizeMb() != null) {
+            systemConfigService.setValue(CONFIG_KEY_ATTACHMENT_MAX_SIZE,
+                    String.valueOf(dto.getAttachmentMaxSizeMb()));
+        }
     }
 
     /**
@@ -121,6 +135,18 @@ public class SmtpConfigSupport {
      */
     public boolean isConfigured() {
         return load().isConfigured();
+    }
+
+    /**
+     * 读取邮件分享附件直发大小上限（MB），未配置或非法时回退默认值。
+     */
+    public int attachmentMaxSizeMb() {
+        try {
+            int value = Integer.parseInt(systemConfigService.getValue(CONFIG_KEY_ATTACHMENT_MAX_SIZE, "").trim());
+            return value > 0 ? value : DEFAULT_ATTACHMENT_MAX_SIZE_MB;
+        } catch (NumberFormatException e) {
+            return DEFAULT_ATTACHMENT_MAX_SIZE_MB;
+        }
     }
 
     private int resolvePort(String value) {
