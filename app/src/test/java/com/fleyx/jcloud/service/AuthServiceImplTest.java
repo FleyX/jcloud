@@ -5,10 +5,12 @@ import com.fleyx.jcloud.common.enums.UserStatus;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.config.AuthProperties;
 import com.fleyx.jcloud.mapper.UserMapper;
+import com.fleyx.jcloud.model.dto.TokenRefreshDto;
 import com.fleyx.jcloud.model.dto.UserLoginDto;
 import com.fleyx.jcloud.model.dto.UserRegisterDto;
 import com.fleyx.jcloud.model.po.User;
 import com.fleyx.jcloud.model.vo.LoginVo;
+import com.fleyx.jcloud.model.vo.TokenPairVo;
 import com.fleyx.jcloud.model.vo.UserVo;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -94,6 +97,30 @@ class AuthServiceImplTest {
         assertNotNull(vo.getResources());
         assertTrue(vo.getResources().contains("VIEW:/files"));
         assertTrue(vo.getResources().contains("GET:/jcloud/api/files"));
+    }
+
+    /**
+     * 存量 email 为空的用户：登录与刷新令牌均不受影响。
+     */
+    @Test
+    void loginAndRefreshShouldSucceedForLegacyUserWithoutEmail() {
+        UserRegisterDto reg = buildRegisterDto("authnoemail");
+        reg.setEmail(null);
+        UserVo user = authService.register(reg);
+        assertNull(user.getEmail());
+
+        UserLoginDto login = new UserLoginDto();
+        login.setUsername(reg.getUsername());
+        login.setPassword(reg.getPassword());
+        LoginVo vo = authService.login(login);
+        assertNotNull(vo.getToken());
+        assertNotNull(vo.getRefreshToken());
+
+        TokenRefreshDto refresh = new TokenRefreshDto();
+        refresh.setRefreshToken(vo.getRefreshToken());
+        TokenPairVo pair = authService.refresh(refresh);
+        assertNotNull(pair.getToken());
+        assertNotNull(pair.getRefreshToken());
     }
 
     @Test

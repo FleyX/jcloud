@@ -7,6 +7,7 @@ import { useRouter } from 'vue-router'
 import { useUserStore } from '@/store/user'
 import { register } from '@/api/auth'
 import { cn } from '@/utils/cn'
+import { emailValidationMessage } from '@/utils/email'
 import { Cloud, User, Lock, Mail, Smile, Eye, EyeOff } from '@lucide/vue'
 
 const router = useRouter()
@@ -36,6 +37,11 @@ async function handleRegister() {
   }
   if (form.password.length < 6) {
     errorMsg.value = '密码长度至少 6 位'
+    return
+  }
+  const emailError = emailValidationMessage(form.email)
+  if (emailError) {
+    errorMsg.value = emailError
     return
   }
   if (form.password !== form.confirmPassword) {
@@ -110,7 +116,7 @@ function goLogin() {
         </div>
 
         <div>
-          <label class="mb-1.5 block text-sm font-medium text-surface-700">邮箱</label>
+          <label class="mb-1.5 block text-sm font-medium text-surface-700">邮箱 <span class="text-red-500">*</span></label>
           <div class="relative">
             <Mail class="absolute left-3.5 top-1/2 h-[18px] w-[18px] -translate-y-1/2 text-surface-400" />
             <input

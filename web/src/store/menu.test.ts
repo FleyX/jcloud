@@ -102,7 +102,7 @@ describe('menuStore secondary menus', () => {
     const menuStore = useMenuStore()
     const menus = menuStore.getSecondaryMenusByPrimary('system')
 
-    expect(menus.map((menu) => menu.key)).toEqual(['users', 'roles', 'storage-spaces', 'media'])
+    expect(menus.map((menu) => menu.key)).toEqual(['users', 'roles', 'storage-spaces', 'media', 'notification'])
   })
 
   it('returns only user management for a user with only the user menu resource', () => {

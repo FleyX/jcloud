@@ -108,7 +108,7 @@ function handleSubmit() {
             >
           </div>
           <div>
-            <label class="mb-1 block text-xs font-medium text-surface-700">邮箱</label>
+            <label class="mb-1 block text-xs font-medium text-surface-700">邮箱 <span class="text-red-500">*</span></label>
             <input
               v-model="props.form.email"
               type="email"

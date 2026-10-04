@@ -140,6 +140,36 @@ class AuthControllerTest {
     }
 
     /**
+     * POST /auth/register 缺邮箱：@Valid 校验失败，GlobalExceptionHandler 包装为 code=400。
+     */
+    @Test
+    void shouldRejectRegisterWithoutEmail() throws Exception {
+        mockMvc.perform(post("/jcloud/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"zhangsan\",\"password\":\"123456\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(ResultCode.PARAM_ERROR.getCode()))
+                .andExpect(jsonPath("$.msg").value(containsString("邮箱不能为空")));
+
+        verify(authService, never()).register(any(UserRegisterDto.class));
+    }
+
+    /**
+     * POST /auth/register 邮箱格式非法：@Valid 校验失败，GlobalExceptionHandler 包装为 code=400。
+     */
+    @Test
+    void shouldRejectRegisterWithInvalidEmail() throws Exception {
+        mockMvc.perform(post("/jcloud/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"zhangsan\",\"password\":\"123456\",\"email\":\"not-an-email\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(ResultCode.PARAM_ERROR.getCode()))
+                .andExpect(jsonPath("$.msg").value(containsString("邮箱格式不正确")));
+
+        verify(authService, never()).register(any(UserRegisterDto.class));
+    }
+
+    /**
      * POST /auth/login：登录凭证 DTO 透传，返回 R.ok 包装的 LoginVo；响应带双 token 的 Set-Cookie 且 body 仍含令牌对。
      */
     @Test
