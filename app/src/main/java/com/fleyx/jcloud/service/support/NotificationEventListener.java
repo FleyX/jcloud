@@ -12,7 +12,7 @@ import java.util.List;
 /**
  * 通知事件监听器（ADR 0039）：遍历所有渠道适配器分发。
  * <p>
- * 异步执行，不阻塞业务触发点；单个渠道失败不影响其余渠道，仅记录日志。
+ * 异步执行，不阻塞业务触发点；事件开关禁用则整事件跳过；单个渠道失败不影响其余渠道，仅记录日志。
  */
 @Slf4j
 @Component
@@ -20,6 +20,7 @@ import java.util.List;
 public class NotificationEventListener {
 
     private final List<NotificationChannel> channels;
+    private final NotificationSwitchSupport notificationSwitchSupport;
 
     /**
      * 消费通知事件并分发至全部渠道。
@@ -29,6 +30,10 @@ public class NotificationEventListener {
     @Async
     @EventListener
     public void onNotification(NotificationEvent event) {
+        if (!notificationSwitchSupport.isEnabled(event.getEventType())) {
+            log.debug("通知事件已禁用，跳过分发：eventType={}", event.getEventType());
+            return;
+        }
         for (NotificationChannel channel : channels) {
             try {
                 channel.deliver(event);

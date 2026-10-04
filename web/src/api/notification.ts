@@ -1,5 +1,13 @@
 import { get, post, put } from './request'
-import type { NotificationItem, SmtpConfig, SmtpConfigPayload } from '@/types/notification'
+import type { PageResult } from '@/types/auth'
+import type {
+  NotificationEventSwitch,
+  NotificationItem,
+  NotificationSendLog,
+  NotificationSendLogQuery,
+  SmtpConfig,
+  SmtpConfigPayload,
+} from '@/types/notification'
 
 /**
  * 查询发件邮箱（SMTP）配置，密码不回显
@@ -20,6 +28,27 @@ export function updateSmtpConfig(payload: SmtpConfigPayload): Promise<void> {
  */
 export function sendTestMail(to: string): Promise<void> {
   return post<void>('/admin/notification/smtp-config/test', { to })
+}
+
+/**
+ * 查询七类通知事件的启用状态
+ */
+export function fetchNotificationEventSwitches(): Promise<NotificationEventSwitch[]> {
+  return get<NotificationEventSwitch[]>('/admin/notification/event-switches')
+}
+
+/**
+ * 设置单个通知事件的启用状态
+ */
+export function updateNotificationEventSwitch(eventType: string, enabled: boolean): Promise<void> {
+  return put<void>(`/admin/notification/event-switches/${eventType}`, { enabled })
+}
+
+/**
+ * 分页查询邮件发送记录（按发送时间倒序）
+ */
+export function fetchNotificationSendLogs(params: NotificationSendLogQuery): Promise<PageResult<NotificationSendLog>> {
+  return get<PageResult<NotificationSendLog>>('/admin/notification/send-logs', params as Record<string, unknown>)
 }
 
 /**

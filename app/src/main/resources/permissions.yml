@@ -214,3 +214,6 @@ permissions:
       - { code: "GET:/jcloud/api/admin/notification/smtp-config", name: "查询发件邮箱配置" }
       - { code: "PUT:/jcloud/api/admin/notification/smtp-config", name: "更新发件邮箱配置" }
       - { code: "POST:/jcloud/api/admin/notification/smtp-config/test", name: "发送测试邮件" }
+      - { code: "GET:/jcloud/api/admin/notification/event-switches", name: "查询通知事件开关" }
+      - { code: "PUT:/jcloud/api/admin/notification/event-switches/{eventType}", name: "设置通知事件开关" }
+      - { code: "GET:/jcloud/api/admin/notification/send-logs", name: "分页查询邮件发送记录" }

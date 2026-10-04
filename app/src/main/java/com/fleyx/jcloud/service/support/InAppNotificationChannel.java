@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fleyx.jcloud.common.event.NotificationEvent;
 import com.fleyx.jcloud.mapper.NotificationMapper;
 import com.fleyx.jcloud.model.po.Notification;
+import com.fleyx.jcloud.model.po.User;
 import com.fleyx.jcloud.util.IdUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -11,7 +12,7 @@ import org.springframework.stereotype.Component;
 import java.util.List;
 
 /**
- * 站内通知渠道（ADR 0039）：通知落库。
+ * 站内通知渠道（ADR 0039）：按解析出的收件人集合逐人落库。
  * <p>
  * 每用户仅保留最近 {@value #MAX_PER_USER} 条，插入后裁剪该用户超出的最旧记录（物理删除）。
  */
@@ -30,18 +31,25 @@ public class InAppNotificationChannel implements NotificationChannel {
     private static final int UNREAD = 0;
 
     private final NotificationMapper notificationMapper;
+    private final NotificationRecipientSupport recipientSupport;
 
     @Override
     public void deliver(NotificationEvent event) {
+        for (User user : recipientSupport.resolve(event)) {
+            insertForUser(user.getId(), event);
+        }
+    }
+
+    private void insertForUser(String userId, NotificationEvent event) {
         Notification notification = new Notification();
         notification.setId(IdUtil.nextId());
-        notification.setUserId(event.getTargetUserId());
+        notification.setUserId(userId);
         notification.setEventType(event.getEventType().getValue());
         notification.setTitle(event.getTitle());
         notification.setContent(event.getContent());
         notification.setIsRead(UNREAD);
         notificationMapper.insert(notification);
-        trimOverflow(event.getTargetUserId());
+        trimOverflow(userId);
     }
 
     /**

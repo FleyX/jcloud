@@ -4,6 +4,8 @@
  */
 import { Mail } from '@lucide/vue'
 import SmtpConfigCard from '@/components/notification/SmtpConfigCard.vue'
+import NotificationEventSwitchCard from '@/components/notification/NotificationEventSwitchCard.vue'
+import NotificationSendLogCard from '@/components/notification/NotificationSendLogCard.vue'
 </script>
 
 <template>
@@ -17,11 +19,16 @@ import SmtpConfigCard from '@/components/notification/SmtpConfigCard.vue'
           通知设置
         </h2>
         <p class="text-xs text-surface-500">
-          邮件通知的发件邮箱配置
+          邮件通知的发件邮箱配置、事件开关与发送记录
         </p>
       </div>
     </div>
 
-    <SmtpConfigCard />
+    <div class="space-y-6">
+      <SmtpConfigCard />
+      <NotificationEventSwitchCard />
+      <NotificationSendLogCard />
+    </div>
   </div>
 </template>
+
