@@ -1,3 +1,5 @@
+import type { SmtpConfigPayload } from './notification'
+
 /**
  * 存储空间视图对象
  */
@@ -143,4 +145,5 @@ export interface InitSpaceItem {
 export interface SystemInitDto {
   spaces: InitSpaceItem[]
   primaryIndex: number
+  smtp?: SmtpConfigPayload
 }

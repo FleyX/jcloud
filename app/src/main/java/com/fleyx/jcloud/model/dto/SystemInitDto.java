@@ -34,6 +34,12 @@ public class SystemInitDto implements Serializable {
     private Integer primaryIndex;
 
     /**
+     * 发件邮箱配置，为空表示初始化时跳过邮箱配置。
+     */
+    @Valid
+    private SmtpConfigDto smtp;
+
+    /**
      * 初始化阶段单个存储空间项。
      */
     @Data

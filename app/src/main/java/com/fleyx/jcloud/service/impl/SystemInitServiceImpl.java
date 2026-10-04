@@ -14,6 +14,7 @@ import com.fleyx.jcloud.model.po.User;
 import com.fleyx.jcloud.model.vo.SystemInitStatusVo;
 import com.fleyx.jcloud.service.SystemConfigService;
 import com.fleyx.jcloud.service.SystemInitService;
+import com.fleyx.jcloud.service.support.SmtpConfigSupport;
 import com.fleyx.jcloud.util.DiskSpaceUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -34,6 +35,7 @@ public class SystemInitServiceImpl implements SystemInitService {
     private final StorageSpaceMapper storageSpaceMapper;
     private final UserMapper userMapper;
     private final SystemConfigService systemConfigService;
+    private final SmtpConfigSupport smtpConfigSupport;
 
     @Override
     public SystemInitStatusVo getInitStatus() {
@@ -74,6 +76,10 @@ public class SystemInitServiceImpl implements SystemInitService {
 
         String primarySpaceId = spaceIds.get(primaryIndex);
         markPrimary(primarySpaceId);
+
+        if (dto.getSmtp() != null) {
+            smtpConfigSupport.save(dto.getSmtp());
+        }
 
         systemConfigService.setValue(SYSTEM_INITIALIZED_KEY, "true");
 
