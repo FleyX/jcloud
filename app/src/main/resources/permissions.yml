@@ -201,3 +201,12 @@ permissions:
       - { code: "PUT:/jcloud/api/admin/media/tmdb-config", name: "更新 TMDB 配置" }
       - { code: "GET:/jcloud/api/admin/media/transcode-config", name: "查询转码配置" }
       - { code: "PUT:/jcloud/api/admin/media/transcode-config", name: "更新转码配置" }
+
+  - code: "notification:menu"
+    name: "通知"
+    parent: "system:menu"
+    resources:
+      - { code: "VIEW:/admin/notification", name: "通知页面" }
+      - { code: "GET:/jcloud/api/admin/notification/smtp-config", name: "查询发件邮箱配置" }
+      - { code: "PUT:/jcloud/api/admin/notification/smtp-config", name: "更新发件邮箱配置" }
+      - { code: "POST:/jcloud/api/admin/notification/smtp-config/test", name: "发送测试邮件" }

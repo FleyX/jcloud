@@ -15,6 +15,7 @@ export type RouteName =
   | 'RoleManagement'
   | 'StorageSpaceManagement'
   | 'AdminMediaSettings'
+  | 'AdminNotificationSettings'
   | 'PersonProfile'
   | 'PersonDevices'
   | 'PersonWebDav'
@@ -207,5 +208,11 @@ export const dynamicRoutes: RouteRecordRaw[] = [
     name: 'AdminMediaSettings' as RouteName,
     component: deviceView('admin/MediaSettings'),
     meta: { resource: 'VIEW:/admin/media', title: '影视设置' },
+  },
+  {
+    path: '/admin/notification',
+    name: 'AdminNotificationSettings' as RouteName,
+    component: deviceView('admin/NotificationSettings'),
+    meta: { resource: 'VIEW:/admin/notification', title: '通知' },
   },
 ]

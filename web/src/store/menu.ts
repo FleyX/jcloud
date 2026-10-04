@@ -143,6 +143,9 @@ export const useMenuStore = defineStore('menu', () => {
     if (userStore.isAdmin || userStore.hasResource('VIEW:/admin/media')) {
       menus.push({ key: 'media', label: '影视', route: '/admin/media' })
     }
+    if (userStore.isAdmin || userStore.hasResource('VIEW:/admin/notification')) {
+      menus.push({ key: 'notification', label: '通知', route: '/admin/notification' })
+    }
     return menus
   }
 
