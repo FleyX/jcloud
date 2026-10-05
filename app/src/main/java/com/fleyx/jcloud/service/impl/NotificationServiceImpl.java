@@ -7,6 +7,7 @@ import com.fleyx.jcloud.mapper.NotificationMapper;
 import com.fleyx.jcloud.model.po.Notification;
 import com.fleyx.jcloud.model.vo.NotificationVo;
 import com.fleyx.jcloud.service.NotificationService;
+import com.fleyx.jcloud.service.support.InAppNotificationChannel;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -20,9 +21,9 @@ import java.util.List;
 public class NotificationServiceImpl implements NotificationService {
 
     /**
-     * 列表返回的最近通知条数上限。
+     * 列表返回的最近通知条数上限，与站内渠道每用户保留条数同源，保证「查看全部」可见全部留存通知。
      */
-    private static final int LIST_LIMIT = 50;
+    private static final int LIST_LIMIT = InAppNotificationChannel.MAX_PER_USER;
 
     /**
      * 已读 / 未读标记。

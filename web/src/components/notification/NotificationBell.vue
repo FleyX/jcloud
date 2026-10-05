@@ -6,7 +6,8 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { Bell } from '@lucide/vue'
-import { getUnreadCount, listNotifications, markAllNotificationsRead, markNotificationRead } from '@/api/notification'
+import { getUnreadCount, listNotifications } from '@/api/notification'
+import { useNotificationActions } from '@/composables/useNotificationActions'
 import { useUserStore } from '@/store/user'
 import { formatMediaRelativeTime } from '@/components/media/format'
 import { cn } from '@/utils/cn'
@@ -26,6 +27,8 @@ const items = ref<NotificationItem[]>([])
 const open = ref(false)
 const loading = ref(false)
 
+const { markRead, markAllRead } = useNotificationActions({ items, unreadCount })
+
 let pollTimer: ReturnType<typeof setInterval> | null = null
 
 const badgeText = computed(() => (unreadCount.value > 99 ? '99+' : String(unreadCount.value)))
@@ -44,8 +47,8 @@ async function refreshUnreadCount() {
 async function loadItems() {
   loading.value = true
   try {
+    // 角标只来自未读数接口：列表可能被上限截断，不得用列表重算覆盖
     items.value = await listNotifications()
-    unreadCount.value = items.value.filter((item) => !item.isRead).length
   } catch {
     // 静默：下拉面板保留上次数据
   } finally {
@@ -69,37 +72,6 @@ async function togglePanel() {
   open.value = !open.value
   if (open.value) {
     await loadItems()
-  }
-}
-
-async function handleItemClick(item: NotificationItem) {
-  if (item.isRead) return
-  const previousCount = unreadCount.value
-  item.isRead = true
-  unreadCount.value = Math.max(0, previousCount - 1)
-  try {
-    await markNotificationRead(item.id)
-  } catch {
-    item.isRead = false
-    unreadCount.value = previousCount
-  }
-}
-
-async function handleReadAll() {
-  if (unreadCount.value === 0) return
-  const previousCount = unreadCount.value
-  const previousReadState = items.value.map((item) => item.isRead)
-  items.value.forEach((item) => {
-    item.isRead = true
-  })
-  unreadCount.value = 0
-  try {
-    await markAllNotificationsRead()
-  } catch {
-    items.value.forEach((item, index) => {
-      item.isRead = previousReadState[index]
-    })
-    unreadCount.value = previousCount
   }
 }
 
@@ -170,7 +142,7 @@ onBeforeUnmount(stopPolling)
             type="button"
             :class="cn('text-xs transition-colors', unreadCount > 0 ? 'text-primary-600 hover:text-primary-700' : 'cursor-not-allowed text-surface-400')"
             :disabled="unreadCount === 0"
-            @click="handleReadAll"
+            @click="markAllRead"
           >
             全部已读
           </button>
@@ -188,7 +160,7 @@ onBeforeUnmount(stopPolling)
             :key="item.id"
             type="button"
             class="flex w-full gap-2 border-b border-surface-50 px-4 py-3 text-left transition-colors last:border-b-0 hover:bg-surface-50"
-            @click="handleItemClick(item)"
+            @click="markRead(item)"
           >
             <span
               :class="cn('mt-1.5 h-2 w-2 shrink-0 rounded-full', item.isRead ? 'bg-transparent' : 'bg-primary-500')"

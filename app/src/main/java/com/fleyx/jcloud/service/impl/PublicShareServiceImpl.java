@@ -50,8 +50,6 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class PublicShareServiceImpl implements PublicShareService {
 
-    private static final String TYPE_FOLDER = "folder";
-
     /**
      * 限流主体前缀：分享面按分享编码计数。
      */
@@ -233,8 +231,8 @@ public class PublicShareServiceImpl implements PublicShareService {
         List<FileNodeVo> vos = new ArrayList<>(fileMapper.selectBatchIds(itemIds).stream()
                 .map(fileConvert::poToVo)
                 .toList());
-        Comparator<FileNodeVo> folderFirst = Comparator.comparing(vo -> !TYPE_FOLDER.equals(vo.getType()));
-        vos.sort(folderFirst);
+        // 与文件列表 SQL 侧 orderByDesc(type) 一致的字典序倒序：folder 排在 file 之前
+        vos.sort(Comparator.comparing(FileNodeVo::getType, Comparator.reverseOrder()));
         return vos;
     }
 

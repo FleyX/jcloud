@@ -123,7 +123,7 @@ class NotificationServiceImplTest extends IntegrationTestBase {
         assertTrue(remaining.stream().noneMatch(item -> item.getTitle().matches("通知-[1-5]")),
                 "最旧的 5 条应被清理");
         List<NotificationVo> list = notificationService.listRecent(userId);
-        assertEquals(50, list.size(), "列表仅返回最近 50 条");
+        assertEquals(100, list.size(), "列表应返回全部留存的最近 100 条");
         assertEquals("通知-105", list.get(0).getTitle());
     }
 

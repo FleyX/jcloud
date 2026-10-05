@@ -1,7 +1,6 @@
 package com.fleyx.jcloud.service.support;
 
 import cn.hutool.core.util.StrUtil;
-import cn.hutool.http.HtmlUtil;
 import com.fleyx.jcloud.common.event.NotificationEvent;
 import com.fleyx.jcloud.model.po.User;
 import com.fleyx.jcloud.service.MailService;
@@ -12,27 +11,31 @@ import org.springframework.stereotype.Component;
 /**
  * 邮件通知渠道（ADR 0039）：逐收件人发送 HTML 邮件并写入发送记录。
  * <p>
- * 未配置发件邮箱时整体静默跳过；收件人无邮箱时跳过且不写失败记录（站内渠道兜底）。
+ * 未配置发件邮箱时整体静默跳过；收件人无邮箱时跳过且不写失败记录（站内渠道兜底）；
+ * 仅站内渠道的兜底事件（如邮件分享失败）不走本渠道。
  */
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class MailNotificationChannel implements NotificationChannel {
 
-    private static final String DEFAULT_LINK_TEXT = "查看详情";
-
     private final SmtpConfigSupport smtpConfigSupport;
     private final MailService mailService;
     private final NotificationRecipientSupport recipientSupport;
-    private final NotificationLogSupport notificationLogSupport;
+    private final MailSendSupport mailSendSupport;
+    private final MailTemplateSupport mailTemplateSupport;
 
     @Override
     public void deliver(NotificationEvent event) {
+        if (event.getEventType().isInAppOnly()) {
+            log.debug("事件仅走站内渠道，跳过邮件通知：eventType={}", event.getEventType());
+            return;
+        }
         if (!smtpConfigSupport.isConfigured()) {
             log.debug("未配置发件邮箱，跳过邮件通知渠道：eventType={}", event.getEventType());
             return;
         }
-        String html = buildHtml(event.getTitle(), event.getContent(), null, null);
+        String html = mailTemplateSupport.buildHtml(event.getTitle(), event.getContent(), null, null);
         for (User user : recipientSupport.resolve(event)) {
             String email = user.getEmail();
             if (StrUtil.isBlank(email)) {
@@ -42,51 +45,10 @@ public class MailNotificationChannel implements NotificationChannel {
         }
     }
 
-    /**
-     * 统一中文 HTML 邮件模板：标题 + 正文 + 可选链接按钮。
-     *
-     * @param title    标题
-     * @param content  正文，可空
-     * @param linkUrl  链接地址，为空时不渲染按钮
-     * @param linkText 按钮文案，为空时使用默认文案
-     * @return HTML 正文
-     */
-    public String buildHtml(String title, String content, String linkUrl, String linkText) {
-        StringBuilder html = new StringBuilder(512);
-        html.append("<!DOCTYPE html><html lang=\"zh-CN\"><body style=\"margin:0;padding:24px;")
-                .append("background:#f5f5f5;font-family:Arial,'Microsoft YaHei',sans-serif;\">")
-                .append("<div style=\"max-width:560px;margin:0 auto;background:#ffffff;border-radius:12px;padding:24px;\">")
-                .append("<h2 style=\"margin:0 0 16px;font-size:18px;color:#1f2937;\">")
-                .append(HtmlUtil.escape(title))
-                .append("</h2>");
-        if (StrUtil.isNotBlank(content)) {
-            html.append("<p style=\"margin:0;font-size:14px;line-height:1.7;color:#4b5563;\">")
-                    .append(HtmlUtil.escape(content).replace("\n", "<br>"))
-                    .append("</p>");
-        }
-        if (StrUtil.isNotBlank(linkUrl)) {
-            html.append("<div style=\"margin-top:24px;\"><a href=\"")
-                    .append(HtmlUtil.escape(linkUrl))
-                    .append("\" style=\"display:inline-block;padding:10px 20px;background:#2563eb;color:#ffffff;")
-                    .append("border-radius:8px;text-decoration:none;font-size:14px;\">")
-                    .append(HtmlUtil.escape(StrUtil.blankToDefault(linkText, DEFAULT_LINK_TEXT)))
-                    .append("</a></div>");
-        }
-        html.append("<p style=\"margin:24px 0 0;font-size:12px;color:#9ca3af;\">本邮件由 jcloud 系统自动发送，请勿回复。</p>")
-                .append("</div></body></html>");
-        return html.toString();
-    }
-
     private void sendAndRecord(NotificationEvent event, String email, String html) {
         String eventType = event.getEventType().getValue();
         String subject = event.getTitle();
-        try {
-            mailService.send(email, subject, html);
-        } catch (Exception e) {
-            log.warn("邮件通知发送失败：to={}, eventType={}", email, eventType, e);
-            notificationLogSupport.record(eventType, email, subject, false, e.getMessage());
-            return;
-        }
-        notificationLogSupport.record(eventType, email, subject, true, null);
+        mailSendSupport.sendAndRecord(eventType, email, subject,
+                recipient -> mailService.send(recipient, subject, html));
     }
 }

@@ -2,6 +2,7 @@ import { get, post, put } from './request'
 import type { PageResult } from '@/types/auth'
 import type {
   NotificationEventSwitch,
+  NotificationEventType,
   NotificationItem,
   NotificationSendLog,
   NotificationSendLogQuery,
@@ -40,7 +41,7 @@ export function fetchNotificationEventSwitches(): Promise<NotificationEventSwitc
 /**
  * 设置单个通知事件的启用状态
  */
-export function updateNotificationEventSwitch(eventType: string, enabled: boolean): Promise<void> {
+export function updateNotificationEventSwitch(eventType: NotificationEventType, enabled: boolean): Promise<void> {
   return put<void>(`/admin/notification/event-switches/${eventType}`, { enabled })
 }
 
@@ -52,7 +53,7 @@ export function fetchNotificationSendLogs(params: NotificationSendLogQuery): Pro
 }
 
 /**
- * 查询当前用户最近通知（倒序，最多 50 条）
+ * 查询当前用户最近通知（倒序）
  */
 export function listNotifications(): Promise<NotificationItem[]> {
   return get<NotificationItem[]>('/notifications')

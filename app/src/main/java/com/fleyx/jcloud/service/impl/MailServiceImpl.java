@@ -7,6 +7,7 @@ import com.fleyx.jcloud.common.exception.SystemException;
 import com.fleyx.jcloud.model.bo.MailAttachment;
 import com.fleyx.jcloud.model.bo.SmtpConfig;
 import com.fleyx.jcloud.service.MailService;
+import com.fleyx.jcloud.service.support.NotificationLogSupport;
 import com.fleyx.jcloud.service.support.SmtpConfigSupport;
 import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
@@ -32,12 +33,18 @@ import java.util.Properties;
 @RequiredArgsConstructor
 public class MailServiceImpl implements MailService {
 
+    /**
+     * 测试邮件在发送记录中的事件类型标识（非通知事件枚举，不受事件开关控制）。
+     */
+    public static final String TEST_EVENT_TYPE = "smtp_test";
+
     private static final String TEST_SUBJECT = "jcloud 测试邮件";
 
     private static final String TEST_BODY = "<p>这是一封来自 jcloud 的测试邮件。</p>"
             + "<p>收到本邮件说明发件邮箱配置正确，通知功能可用。</p>";
 
     private final SmtpConfigSupport smtpConfigSupport;
+    private final NotificationLogSupport notificationLogSupport;
 
     @Override
     public void send(String to, String subject, String htmlBody) {
@@ -73,9 +80,20 @@ public class MailServiceImpl implements MailService {
         }
     }
 
+    /**
+     * 发送测试邮件并写入发送记录（成功/失败均记录，与通知邮件记录口径一致）。
+     * <p>
+     * 测试邮件不是业务事件通知，不参与通知事件开关；失败时记录后原样抛出，由调用方展示原因。
+     */
     @Override
     public void sendTest(String to) {
-        send(to, TEST_SUBJECT, TEST_BODY);
+        try {
+            send(to, TEST_SUBJECT, TEST_BODY);
+        } catch (RuntimeException e) {
+            notificationLogSupport.record(TEST_EVENT_TYPE, to, TEST_SUBJECT, false, e.getMessage());
+            throw e;
+        }
+        notificationLogSupport.record(TEST_EVENT_TYPE, to, TEST_SUBJECT, true, null);
     }
 
     /**

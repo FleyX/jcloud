@@ -254,19 +254,21 @@ class MailNotificationChannelTest extends IntegrationTestBase {
     }
 
     /**
-     * HTML 模板：标题与正文转义后内联，链接按钮仅在给定地址时渲染。
+     * 仅站内渠道事件（邮件分享失败）：即使事件开关被禁用仍恒定落站内通知，且不发邮件、无发送记录。
      */
     @Test
-    void shouldRenderHtmlTemplateWithOptionalLinkButton() {
-        String withoutLink = mailNotificationChannel.buildHtml("标题", "正文内容", null, null);
-        assertTrue(withoutLink.contains("标题"));
-        assertTrue(withoutLink.contains("正文内容"));
-        assertFalse(withoutLink.contains("查看详情"));
+    void shouldDeliverInAppOnlyForEmailShareFailedRegardlessOfSwitch() {
+        configureSmtpToGreenMail();
+        String userId = prepareUser(USER_EMAIL).user().getId();
+        notificationSwitchSupport.set(NotificationEventType.EMAIL_SHARE_FAILED, false);
 
-        String withLink = mailNotificationChannel.buildHtml("标题", "正文内容", "https://example.com/x", "立即查看");
-        assertTrue(withLink.contains("href=\"https://example.com/x\""));
-        assertTrue(withLink.contains("立即查看"));
-        assertFalse(withLink.contains("<script>"));
+        eventPublisher.publishEvent(new NotificationEvent(this, NotificationEventType.EMAIL_SHARE_FAILED,
+                userId, "邮件分享失败", "文件：a.mobi\n失败原因：SMTP 不可达"));
+
+        awaitInAppCount(userId, 1);
+        sleepQuietly();
+        assertEquals(0L, notificationLogMapper.selectCount(null), "仅站内渠道事件不应产生发送记录");
+        assertFalse(GREEN_MAIL.waitForIncomingEmail(500, 1), "仅站内渠道事件不应发信");
     }
 
     /**

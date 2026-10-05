@@ -28,19 +28,25 @@ import org.springframework.stereotype.Component;
 public class UserUsedSpaceSupport {
 
     /**
-     * 配额/容量告警阈值：使用率达到 80% 即告警。
+     * 配额/容量告警阈值分子：使用率严格超过 4/5（80%）才告警。
      */
-    private static final double ALERT_THRESHOLD = 0.8;
+    private static final long ALERT_THRESHOLD_NUMERATOR = 4;
+
+    /**
+     * 配额/容量告警阈值分母。
+     */
+    private static final long ALERT_THRESHOLD_DENOMINATOR = 5;
 
     private final UserMapper userMapper;
     private final StorageSpaceMapper storageSpaceMapper;
     private final NotificationAlertDedupSupport alertDedupSupport;
+    private final NotificationSwitchSupport notificationSwitchSupport;
     private final ApplicationEventPublisher eventPublisher;
 
     /**
      * 按增量原子累加用户已用空间（单语句 UPDATE，并发调用不丢更新，结果不小于 0）。
      * <p>
-     * 累加后检查配额与所属存储空间容量是否达到告警阈值（80%），达阈值且 24 小时内未告警过则发送通知。
+     * 累加后检查配额与所属存储空间容量是否超过告警阈值（80%），超阈值且 24 小时内未告警过则发送通知。
      *
      * @param userId 用户 ID
      * @param delta  容量增量（可为负）
@@ -51,11 +57,12 @@ public class UserUsedSpaceSupport {
     }
 
     /**
-     * 检查用户配额与所属存储空间容量是否达到告警阈值并触发通知。
+     * 检查用户配额与所属存储空间容量是否超过告警阈值并触发通知。
      * <p>
-     * 阈值比较用 {@code >= 0.8}；配额或容量为 0/null 视为不限，跳过。两条告警分别以用户与
-     * 存储空间为对象独立去重（24 小时窗口），仅首次超限发送。本方法只做读取与 Redis 标记，
-     * 事件由通知模块异步落库/发信，不阻塞记账路径。
+     * 阈值比较为严格超过 80%（整数运算避免浮点误差）；配额或容量为 0/null 视为不限，跳过。
+     * 两条告警分别以用户与存储空间为对象独立去重（24 小时窗口），仅首次超限发送，且仅在
+     * 对应事件开关启用时写入去重标记（开关禁用时不写标记，重新启用后仍能告警）。
+     * 本方法只做读取与 Redis 标记，事件由通知模块异步落库/发信，不阻塞记账路径。
      *
      * @param userId 用户 ID
      */
@@ -71,7 +78,10 @@ public class UserUsedSpaceSupport {
     private void checkQuotaAlert(User user) {
         Long quota = user.getQuota();
         long used = user.getUsedSpace() == null ? 0L : user.getUsedSpace();
-        if (quota == null || quota <= 0 || used < quota * ALERT_THRESHOLD) {
+        if (quota == null || quota <= 0 || !exceedsAlertThreshold(used, quota)) {
+            return;
+        }
+        if (!notificationSwitchSupport.isEnabled(NotificationEventType.QUOTA_ALERT)) {
             return;
         }
         if (!alertDedupSupport.tryMark("quota:" + user.getId())) {
@@ -98,7 +108,10 @@ public class UserUsedSpaceSupport {
         }
         Long capacity = space.getCapacity();
         long used = space.getUsedSpace() == null ? 0L : space.getUsedSpace();
-        if (capacity == null || capacity <= 0 || used < capacity * ALERT_THRESHOLD) {
+        if (capacity == null || capacity <= 0 || !exceedsAlertThreshold(used, capacity)) {
+            return;
+        }
+        if (!notificationSwitchSupport.isEnabled(NotificationEventType.STORAGE_CAPACITY_ALERT)) {
             return;
         }
         if (!alertDedupSupport.tryMark("capacity:" + spaceId)) {
@@ -109,6 +122,19 @@ public class UserUsedSpaceSupport {
                 NotificationTargetType.ADMINS, null, "存储空间容量告警",
                 String.format("存储空间「%s」已用 %d 字节，容量 %d 字节，使用率已达 %d%%",
                         space.getName(), used, capacity, percent)));
+    }
+
+    /**
+     * 判断使用量是否严格超过配额/容量的 80%。
+     * <p>
+     * 用整数乘法与整除比较，避免 double 阈值在边界（恰好 80%）上的精度误差。
+     *
+     * @param used  已用量（字节）
+     * @param limit 配额/容量（字节），调用方保证大于 0
+     * @return true 使用率严格超过 80%
+     */
+    private static boolean exceedsAlertThreshold(long used, long limit) {
+        return used > limit * ALERT_THRESHOLD_NUMERATOR / ALERT_THRESHOLD_DENOMINATOR;
     }
 
     /**

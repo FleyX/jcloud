@@ -9,7 +9,7 @@ import java.util.Optional;
  * 通知事件类型（ADR 0039）。
  * <p>
  * 枚举值即 {@code t_notification.event_type} 字符串；标题与内容由业务触发点给定，枚举只做类型标识。
- * 显示名用于管理端「通知事件」开关区块。
+ * 显示名用于管理端「通知事件」开关区块；标记为仅站内渠道的事件不参与该开关。
  */
 @Getter
 public enum NotificationEventType {
@@ -51,16 +51,28 @@ public enum NotificationEventType {
 
     /**
      * 邮件分享失败（附件直发异步发送失败时补发给操作者）。
+     * <p>
+     * 系统兜底类事件：不参与管理端「通知事件开关」，恒定投递且只走站内通知渠道（不走邮件渠道）。
      */
-    EMAIL_SHARE_FAILED("email_share_failed", "邮件分享失败");
+    EMAIL_SHARE_FAILED("email_share_failed", "邮件分享失败", true);
 
     private final String value;
 
     private final String displayName;
 
+    /**
+     * 是否仅走站内通知渠道：为 true 时不出现在事件开关列表、不受开关抑制，且不发邮件。
+     */
+    private final boolean inAppOnly;
+
     NotificationEventType(String value, String displayName) {
+        this(value, displayName, false);
+    }
+
+    NotificationEventType(String value, String displayName, boolean inAppOnly) {
         this.value = value;
         this.displayName = displayName;
+        this.inAppOnly = inAppOnly;
     }
 
     /**

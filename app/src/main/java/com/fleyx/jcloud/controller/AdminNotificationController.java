@@ -81,11 +81,12 @@ public class AdminNotificationController {
     }
 
     /**
-     * 查询全部通知事件的启用状态。
+     * 查询全部通知事件的启用状态（不含仅走站内渠道的兜底事件）。
      */
     @GetMapping("/event-switches")
     public R<List<NotificationEventSwitchVo>> listEventSwitches() {
         return R.ok(Arrays.stream(NotificationEventType.values())
+                .filter(eventType -> !eventType.isInAppOnly())
                 .map(eventType -> {
                     NotificationEventSwitchVo vo = new NotificationEventSwitchVo();
                     vo.setEventType(eventType.getValue());
@@ -97,12 +98,13 @@ public class AdminNotificationController {
     }
 
     /**
-     * 设置单个通知事件的启用状态，禁用后该事件不触发任何渠道。
+     * 设置单个通知事件的启用状态，禁用后该事件不触发任何渠道；仅站内渠道的兜底事件不可配置。
      */
     @PutMapping("/event-switches/{eventType}")
     public R<Void> updateEventSwitch(@PathVariable String eventType,
                                      @Valid @RequestBody NotificationEventSwitchDto dto) {
         NotificationEventType type = NotificationEventType.fromValue(eventType)
+                .filter(candidate -> !candidate.isInAppOnly())
                 .orElseThrow(() -> new BusinessException(ResultCode.PARAM_ERROR, "未知的通知事件类型：" + eventType));
         notificationSwitchSupport.set(type, dto.getEnabled());
         return R.ok();

@@ -3,12 +3,15 @@ package com.fleyx.jcloud.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.common.exception.SystemException;
+import com.fleyx.jcloud.mapper.NotificationLogMapper;
 import com.fleyx.jcloud.mapper.SystemConfigMapper;
 import com.fleyx.jcloud.model.bo.SmtpConfig;
 import com.fleyx.jcloud.model.dto.SmtpConfigDto;
+import com.fleyx.jcloud.model.po.NotificationLog;
 import com.fleyx.jcloud.model.po.SystemConfig;
 import com.fleyx.jcloud.service.MailService;
 import com.fleyx.jcloud.service.SystemConfigService;
+import com.fleyx.jcloud.service.support.NotificationLogSupport;
 import com.fleyx.jcloud.service.support.SmtpConfigSupport;
 import com.fleyx.jcloud.util.RemoteConfigCrypto;
 import com.icegreen.greenmail.junit5.GreenMailExtension;
@@ -24,6 +27,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.net.ServerSocket;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -65,6 +69,9 @@ class MailServiceImplTest {
 
     @Autowired
     private SystemConfigMapper systemConfigMapper;
+
+    @Autowired
+    private NotificationLogMapper notificationLogMapper;
 
     @BeforeEach
     void cleanSmtpConfig() {
@@ -115,7 +122,7 @@ class MailServiceImplTest {
     }
 
     /**
-     * 未配置发件邮箱时 send/sendTest 抛 BusinessException。
+     * 未配置发件邮箱时 send/sendTest 抛 BusinessException；sendTest 失败仍记入发送记录。
      */
     @Test
     void shouldThrowBusinessExceptionWhenNotConfigured() {
@@ -126,10 +133,15 @@ class MailServiceImplTest {
         assertTrue(exception.getMessage().contains("未配置发件邮箱"));
 
         assertThrows(BusinessException.class, () -> mailService.sendTest("to@example.com"));
+
+        NotificationLog log = singleTestLog("to@example.com");
+        assertEquals(NotificationLogSupport.FAILURE, log.getSuccess());
+        assertNotNull(log.getErrorMessage());
     }
 
     /**
-     * 指向本地 SMTP 仿真服务发送测试邮件：GreenMail 收到邮件且主题/收件人/HTML 正文正确。
+     * 指向本地 SMTP 仿真服务发送测试邮件：GreenMail 收到邮件、主题/收件人/HTML 正文正确，
+     * 且写入一条成功发送记录（事件类型 smtp_test）。
      */
     @Test
     void shouldSendTestMailThroughSmtpServer() throws Exception {
@@ -138,6 +150,11 @@ class MailServiceImplTest {
                 SmtpConfigSupport.ENCRYPTION_NONE, "from@example.com", "jcloud"));
 
         mailService.sendTest("to@example.com");
+
+        NotificationLog log = singleTestLog("to@example.com");
+        assertEquals(NotificationLogSupport.SUCCESS, log.getSuccess());
+        assertEquals("jcloud 测试邮件", log.getSubject());
+        assertNull(log.getErrorMessage());
 
         assertTrue(GREEN_MAIL.waitForIncomingEmail(5000, 1));
         MimeMessage[] messages = GREEN_MAIL.getReceivedMessages();
@@ -180,7 +197,7 @@ class MailServiceImplTest {
     }
 
     /**
-     * SMTP 不可达时发送失败抛 SystemException 并携带原异常。
+     * SMTP 不可达时发送失败抛 SystemException 并携带原异常，同时写入失败发送记录。
      */
     @Test
     void shouldThrowSystemExceptionWhenSmtpUnreachable() throws Exception {
@@ -195,6 +212,18 @@ class MailServiceImplTest {
                 () -> mailService.sendTest("to@example.com"));
         assertTrue(exception.getMessage().contains("邮件发送失败"));
         assertNotNull(exception.getCause());
+
+        NotificationLog log = singleTestLog("to@example.com");
+        assertEquals(NotificationLogSupport.FAILURE, log.getSuccess());
+        assertNotNull(log.getErrorMessage());
+    }
+
+    private NotificationLog singleTestLog(String recipient) {
+        List<NotificationLog> logs = notificationLogMapper.selectList(new LambdaQueryWrapper<NotificationLog>()
+                .eq(NotificationLog::getEventType, MailServiceImpl.TEST_EVENT_TYPE)
+                .eq(NotificationLog::getRecipient, recipient));
+        assertEquals(1, logs.size(), "测试邮件应恰好写入一条发送记录");
+        return logs.get(0);
     }
 
     private SmtpConfigDto newConfigDto(String host, int port, String username, String password,

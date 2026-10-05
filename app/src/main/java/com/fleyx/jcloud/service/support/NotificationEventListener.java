@@ -12,7 +12,8 @@ import java.util.List;
 /**
  * 通知事件监听器（ADR 0039）：遍历所有渠道适配器分发。
  * <p>
- * 异步执行，不阻塞业务触发点；事件开关禁用则整事件跳过；单个渠道失败不影响其余渠道，仅记录日志。
+ * 异步执行，不阻塞业务触发点；事件开关禁用则整事件跳过（仅站内渠道的兜底事件不受开关抑制）；
+ * 单个渠道失败不影响其余渠道，仅记录日志。
  */
 @Slf4j
 @Component
@@ -30,7 +31,8 @@ public class NotificationEventListener {
     @Async
     @EventListener
     public void onNotification(NotificationEvent event) {
-        if (!notificationSwitchSupport.isEnabled(event.getEventType())) {
+        // 站内兜底类事件（如邮件分享失败）不受事件开关抑制，恒定投递
+        if (!event.getEventType().isInAppOnly() && !notificationSwitchSupport.isEnabled(event.getEventType())) {
             log.debug("通知事件已禁用，跳过分发：eventType={}", event.getEventType());
             return;
         }

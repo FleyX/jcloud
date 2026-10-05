@@ -82,6 +82,22 @@ describe('NotificationBell', () => {
     wrapper.unmount()
   })
 
+  it('keeps the badge from the unread-count API when the list is truncated', async () => {
+    apiMocks.getUnreadCount.mockResolvedValue('60')
+    apiMocks.listNotifications.mockResolvedValue(
+      Array.from({ length: 10 }, (_, index) => buildItem(`n${index}`, `通知 ${index}`)),
+    )
+    const { wrapper } = await mountBell()
+    await flushPromises()
+    expect(badgeOf(wrapper)).toContain('60')
+
+    await wrapper.find('button[aria-label="通知"]').trigger('click')
+    await flushPromises()
+
+    // 列表最多展示 10 条，但角标仍以未读数接口为准
+    expect(badgeOf(wrapper)).toContain('60')
+  })
+
   it('marks a single notification read when clicked in the panel', async () => {
     apiMocks.getUnreadCount.mockResolvedValue('1')
     apiMocks.listNotifications.mockResolvedValue([buildItem('n1', '传输完成')])

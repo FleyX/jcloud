@@ -1,11 +1,12 @@
 <script setup lang="ts">
 /**
  * 通知页（PC）
- * 展示当前用户最近通知（最多 50 条），支持单条已读、全部已读与空态。
+ * 展示当前用户最近通知，支持单条已读、全部已读与空态。
  */
 import { computed, onMounted, ref } from 'vue'
 import { BellOff } from '@lucide/vue'
-import { listNotifications, markAllNotificationsRead, markNotificationRead } from '@/api/notification'
+import { listNotifications } from '@/api/notification'
+import { useNotificationActions } from '@/composables/useNotificationActions'
 import { formatMediaRelativeTime } from '@/components/media/format'
 import { cn } from '@/utils/cn'
 import type { NotificationItem } from '@/types/notification'
@@ -15,6 +16,8 @@ const loading = ref(true)
 
 const unreadCount = computed(() => items.value.filter((item) => !item.isRead).length)
 
+const { markRead, markAllRead } = useNotificationActions({ items })
+
 async function load() {
   loading.value = true
   try {
@@ -23,31 +26,6 @@ async function load() {
     // 静默：请求异常已由全局拦截统一展示
   } finally {
     loading.value = false
-  }
-}
-
-async function handleRead(item: NotificationItem) {
-  if (item.isRead) return
-  item.isRead = true
-  try {
-    await markNotificationRead(item.id)
-  } catch {
-    item.isRead = false
-  }
-}
-
-async function handleReadAll() {
-  if (unreadCount.value === 0) return
-  const snapshot = items.value.map((item) => item.isRead)
-  items.value.forEach((item) => {
-    item.isRead = true
-  })
-  try {
-    await markAllNotificationsRead()
-  } catch {
-    items.value.forEach((item, index) => {
-      item.isRead = snapshot[index]
-    })
   }
 }
 
@@ -69,7 +47,7 @@ onMounted(load)
           )
         "
         :disabled="unreadCount === 0"
-        @click="handleReadAll"
+        @click="markAllRead"
       >
         全部已读
       </button>
@@ -102,7 +80,7 @@ onMounted(load)
         <button
           type="button"
           class="flex w-full gap-3 px-5 py-4 text-left transition-colors hover:bg-surface-50"
-          @click="handleRead(item)"
+          @click="markRead(item)"
         >
           <span
             :class="cn('mt-2 h-2 w-2 shrink-0 rounded-full', item.isRead ? 'bg-transparent' : 'bg-primary-500')"

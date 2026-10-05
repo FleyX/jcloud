@@ -40,14 +40,16 @@ public class NotificationSwitchSupport {
     }
 
     /**
-     * 加载全部事件开关状态，顺序与枚举定义一致。
+     * 加载全部可配置事件开关状态，顺序与枚举定义一致（不含仅站内渠道的兜底事件）。
      *
      * @return 事件类型到启用状态的映射
      */
     public Map<NotificationEventType, Boolean> loadAll() {
         Map<NotificationEventType, Boolean> switches = new EnumMap<>(NotificationEventType.class);
         for (NotificationEventType eventType : NotificationEventType.values()) {
-            switches.put(eventType, isEnabled(eventType));
+            if (!eventType.isInAppOnly()) {
+                switches.put(eventType, isEnabled(eventType));
+            }
         }
         return switches;
     }

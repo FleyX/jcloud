@@ -3,7 +3,7 @@ import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import NotificationEventSwitchCard from './NotificationEventSwitchCard.vue'
 import NotificationSendLogCard from './NotificationSendLogCard.vue'
-import type { NotificationEventSwitch, NotificationSendLog } from '@/types/notification'
+import type { NotificationEventSwitch, NotificationEventType, NotificationSendLog } from '@/types/notification'
 
 const apiMocks = vi.hoisted(() => ({
   fetchNotificationEventSwitches: vi.fn(),
@@ -13,7 +13,7 @@ const apiMocks = vi.hoisted(() => ({
 
 vi.mock('@/api/notification', () => apiMocks)
 
-function buildSwitch(eventType: string, name: string, enabled: boolean): NotificationEventSwitch {
+function buildSwitch(eventType: NotificationEventType, name: string, enabled: boolean): NotificationEventSwitch {
   return { eventType, name, enabled }
 }
 

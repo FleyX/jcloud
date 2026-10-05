@@ -6,13 +6,13 @@ import { onMounted, ref } from 'vue'
 import { SwitchRoot, SwitchThumb } from 'radix-vue'
 import { fetchNotificationEventSwitches, updateNotificationEventSwitch } from '@/api/notification'
 import { useNotificationStore } from '@/store/notification'
-import type { NotificationEventSwitch } from '@/types/notification'
+import type { NotificationEventSwitch, NotificationEventType } from '@/types/notification'
 
 const notificationStore = useNotificationStore()
 
 const events = ref<NotificationEventSwitch[]>([])
 const loading = ref(false)
-const savingType = ref('')
+const savingType = ref<NotificationEventType | ''>('')
 
 onMounted(loadEvents)
 

@@ -11,6 +11,7 @@ import com.fleyx.jcloud.mapper.RemoteMountMapper;
 import com.fleyx.jcloud.mapper.RemoteSyncTaskMapper;
 import com.fleyx.jcloud.mapper.RoleMapper;
 import com.fleyx.jcloud.mapper.StorageSpaceMapper;
+import com.fleyx.jcloud.mapper.SystemConfigMapper;
 import com.fleyx.jcloud.mapper.UserMapper;
 import com.fleyx.jcloud.mapper.UserRoleMapper;
 import com.fleyx.jcloud.model.dto.UserRegisterDto;
@@ -20,6 +21,7 @@ import com.fleyx.jcloud.model.po.RemoteMount;
 import com.fleyx.jcloud.model.po.RemoteSyncTask;
 import com.fleyx.jcloud.model.po.Role;
 import com.fleyx.jcloud.model.po.StorageSpace;
+import com.fleyx.jcloud.model.po.SystemConfig;
 import com.fleyx.jcloud.model.po.UserRole;
 import com.fleyx.jcloud.model.vo.UserVo;
 import com.fleyx.jcloud.service.AuthService;
@@ -59,6 +61,12 @@ class NotificationEventSourceTest extends IntegrationTestBase {
 
     @Autowired
     private NotificationAlertDedupSupport alertDedupSupport;
+
+    @Autowired
+    private NotificationSwitchSupport notificationSwitchSupport;
+
+    @Autowired
+    private SystemConfigMapper systemConfigMapper;
 
     @Autowired
     private NotificationMapper notificationMapper;
@@ -124,6 +132,7 @@ class NotificationEventSourceTest extends IntegrationTestBase {
         createdDirectoryIds.forEach(mediaDirectoryMapper::deleteById);
         createdUserIds.forEach(this::clearAlertKeys);
         createdSpaceIds.forEach(this::clearAlertKeys);
+        clearEventSwitches();
         createdUserIds.clear();
         createdSpaceIds.clear();
         createdMountIds.clear();
@@ -132,7 +141,7 @@ class NotificationEventSourceTest extends IntegrationTestBase {
     }
 
     /**
-     * 配额告警：79% 不告警、达 80% 告警且抄送全部超管；24 小时内重复超限不再发。
+     * 配额告警：79%、恰好 80% 均不告警，超过 80% 才告警且抄送全部超管；24 小时内重复超限不再发。
      */
     @Test
     void shouldAlertQuotaAtThresholdAndDedupWithin24Hours() {
@@ -143,8 +152,14 @@ class NotificationEventSourceTest extends IntegrationTestBase {
         bindSuperAdmin(admin.user().getId());
 
         userUsedSpaceSupport.addUsedSpace(user.user().getId(), 79L);
+        sleepQuietly(300);
         assertEquals(0L, countNotifications(user.user().getId(), NotificationEventType.QUOTA_ALERT),
                 "79% 不应触发配额告警");
+
+        userUsedSpaceSupport.addUsedSpace(user.user().getId(), 1L);
+        sleepQuietly(300);
+        assertEquals(0L, countNotifications(user.user().getId(), NotificationEventType.QUOTA_ALERT),
+                "恰好 80% 不应触发配额告警");
 
         userUsedSpaceSupport.addUsedSpace(user.user().getId(), 1L);
         awaitNotificationCount(user.user().getId(), NotificationEventType.QUOTA_ALERT, 1);
@@ -163,7 +178,7 @@ class NotificationEventSourceTest extends IntegrationTestBase {
     }
 
     /**
-     * 容量告警：79% 不告警、达 80% 全部超管告警；24 小时内重复超限不再发。
+     * 容量告警：79%、恰好 80% 均不告警，超过 80% 才向全部超管告警；24 小时内重复超限不再发。
      */
     @Test
     void shouldAlertStorageCapacityAtThresholdAndDedupWithin24Hours() {
@@ -172,11 +187,18 @@ class NotificationEventSourceTest extends IntegrationTestBase {
         UserWithSpace admin = prepareUser(DEFAULT_QUOTA_BYTES);
         bindSuperAdmin(admin.user().getId());
 
-        userUsedSpaceSupport.addUsedSpace(user.user().getId(), 1L);
+        userUsedSpaceSupport.addUsedSpace(user.user().getId(), 0L);
+        sleepQuietly(300);
         assertEquals(0L, countNotifications(admin.user().getId(), NotificationEventType.STORAGE_CAPACITY_ALERT),
                 "79% 不应触发容量告警");
 
         updateSpaceUsage(user.space().getId(), 100L, 80L);
+        userUsedSpaceSupport.addUsedSpace(user.user().getId(), 0L);
+        sleepQuietly(300);
+        assertEquals(0L, countNotifications(admin.user().getId(), NotificationEventType.STORAGE_CAPACITY_ALERT),
+                "恰好 80% 不应触发容量告警");
+
+        updateSpaceUsage(user.space().getId(), 100L, 81L);
         userUsedSpaceSupport.addUsedSpace(user.user().getId(), 0L);
         awaitNotificationCount(admin.user().getId(), NotificationEventType.STORAGE_CAPACITY_ALERT, 1);
         Notification notice = firstNotification(admin.user().getId(), NotificationEventType.STORAGE_CAPACITY_ALERT);
@@ -191,6 +213,28 @@ class NotificationEventSourceTest extends IntegrationTestBase {
         assertEquals(1L, countNotifications(admin.user().getId(), NotificationEventType.STORAGE_CAPACITY_ALERT),
                 "24 小时内重复超限不应再发");
         assertFalse(alertDedupSupport.tryMark("capacity:" + user.space().getId()), "去重标记应已存在");
+    }
+
+    /**
+     * 告警去重标记与事件开关解耦：开关禁用时不投递也不写 24h 标记，重新启用后仍能告警。
+     */
+    @Test
+    void shouldNotMarkAlertDedupWhenEventSwitchDisabled() {
+        UserWithSpace user = prepareUser(100L);
+        updateSpaceUsage(user.space().getId(), 1_000_000L, 0L);
+        notificationSwitchSupport.set(NotificationEventType.QUOTA_ALERT, false);
+
+        userUsedSpaceSupport.addUsedSpace(user.user().getId(), 81L);
+        sleepQuietly(300);
+
+        assertEquals(0L, countNotifications(user.user().getId(), NotificationEventType.QUOTA_ALERT),
+                "开关禁用不应投递配额告警");
+        assertFalse(hasAlertKey("quota:" + user.user().getId()), "开关禁用不应写入去重标记");
+
+        notificationSwitchSupport.set(NotificationEventType.QUOTA_ALERT, true);
+        userUsedSpaceSupport.addUsedSpace(user.user().getId(), 0L);
+        awaitNotificationCount(user.user().getId(), NotificationEventType.QUOTA_ALERT, 1);
+        assertFalse(alertDedupSupport.tryMark("quota:" + user.user().getId()), "投递后应已写入去重标记");
     }
 
     /**
@@ -321,6 +365,16 @@ class NotificationEventSourceTest extends IntegrationTestBase {
                 StringCodec.INSTANCE).delete();
         redissonClient.getBucket(NotificationAlertDedupSupport.KEY_PREFIX + "capacity:" + id,
                 StringCodec.INSTANCE).delete();
+    }
+
+    private boolean hasAlertKey(String alertKey) {
+        return redissonClient.getBucket(NotificationAlertDedupSupport.KEY_PREFIX + alertKey,
+                StringCodec.INSTANCE).isExists();
+    }
+
+    private void clearEventSwitches() {
+        systemConfigMapper.delete(new LambdaQueryWrapper<SystemConfig>()
+                .likeRight(SystemConfig::getConfigKey, NotificationSwitchSupport.CONFIG_KEY_PREFIX));
     }
 
     private long countNotifications(String userId, NotificationEventType eventType) {

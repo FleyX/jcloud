@@ -14,7 +14,7 @@ import com.fleyx.jcloud.service.EmailShareService;
 import com.fleyx.jcloud.service.support.EmailShareRecipientSupport;
 import com.fleyx.jcloud.service.support.EmailShareSender;
 import com.fleyx.jcloud.service.support.FileNodeSupport;
-import com.fleyx.jcloud.service.support.MailNotificationChannel;
+import com.fleyx.jcloud.service.support.MailTemplateSupport;
 import com.fleyx.jcloud.service.support.SmtpConfigSupport;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -47,7 +47,7 @@ public class EmailShareServiceImpl implements EmailShareService {
     private final SmtpConfigSupport smtpConfigSupport;
     private final EmailShareRecipientSupport recipientSupport;
     private final EmailShareSender emailShareSender;
-    private final MailNotificationChannel mailNotificationChannel;
+    private final MailTemplateSupport mailTemplateSupport;
     private final FileNodeSupport fileNodeSupport;
 
     @Override
@@ -58,7 +58,7 @@ public class EmailShareServiceImpl implements EmailShareService {
             throw new BusinessException("未配置发件邮箱，通知功能不可用");
         }
         String subject = username + " 与你分享了文件";
-        String html = mailNotificationChannel.buildHtml(subject, buildContent(dto), dto.getShareUrl(), LINK_TEXT);
+        String html = mailTemplateSupport.buildHtml(subject, buildContent(dto), dto.getShareUrl(), LINK_TEXT);
         emailShareSender.sendLinkEmails(userId, subject, html, recipients);
     }
 
@@ -71,7 +71,7 @@ public class EmailShareServiceImpl implements EmailShareService {
             throw new BusinessException("未配置发件邮箱，通知功能不可用");
         }
         String subject = username + " 与你分享了文件";
-        String html = mailNotificationChannel.buildHtml(subject, buildAttachmentContent(nodes), null, null);
+        String html = mailTemplateSupport.buildHtml(subject, buildAttachmentContent(nodes), null, null);
         emailShareSender.sendAttachmentEmails(userId, subject, html, recipients, nodes);
     }
 

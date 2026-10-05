@@ -46,6 +46,7 @@ public class EmailShareSender {
 
     private final MailService mailService;
     private final NotificationLogSupport notificationLogSupport;
+    private final MailSendSupport mailSendSupport;
     private final EmailShareRecipientSupport recipientSupport;
     private final MediaFileStreamSupport mediaFileStreamSupport;
     private final RemoteFileService remoteFileService;
@@ -61,18 +62,9 @@ public class EmailShareSender {
      */
     @Async
     public void sendLinkEmails(String userId, String subject, String html, List<String> recipients) {
-        List<String> succeeded = new ArrayList<>();
-        for (String recipient : recipients) {
-            try {
-                mailService.send(recipient, subject, html);
-                notificationLogSupport.record(EVENT_TYPE, recipient, subject, true, null);
-                succeeded.add(recipient);
-            } catch (Exception e) {
-                log.warn("邮件分享发送失败：to={}, subject={}", recipient, subject, e);
-                notificationLogSupport.record(EVENT_TYPE, recipient, subject, false, e.getMessage());
-            }
-        }
-        recipientSupport.record(userId, succeeded);
+        List<MailSendSupport.SendOutcome> outcomes = mailSendSupport.sendEachAndRecord(
+                EVENT_TYPE, recipients, subject, recipient -> mailService.send(recipient, subject, html));
+        recipientSupport.record(userId, succeededRecipients(outcomes));
     }
 
     /**
@@ -99,26 +91,30 @@ public class EmailShareSender {
             return;
         }
 
-        List<String> succeeded = new ArrayList<>();
-        List<String> failedRecipients = new ArrayList<>();
-        String lastError = null;
-        for (String recipient : recipients) {
-            try {
-                mailService.sendWithAttachments(recipient, subject, html, attachments);
-                notificationLogSupport.record(EVENT_TYPE, recipient, subject, true, null);
-                succeeded.add(recipient);
-            } catch (Exception e) {
-                log.warn("邮件分享发送失败：to={}, subject={}", recipient, subject, e);
-                notificationLogSupport.record(EVENT_TYPE, recipient, subject, false, e.getMessage());
-                failedRecipients.add(recipient);
-                lastError = e.getMessage();
-            }
-        }
-        recipientSupport.record(userId, succeeded);
+        List<MailSendSupport.SendOutcome> outcomes = mailSendSupport.sendEachAndRecord(
+                EVENT_TYPE, recipients, subject,
+                recipient -> mailService.sendWithAttachments(recipient, subject, html, attachments));
+        recipientSupport.record(userId, succeededRecipients(outcomes));
+        List<String> failedRecipients = outcomes.stream()
+                .filter(outcome -> !outcome.success())
+                .map(MailSendSupport.SendOutcome::recipient)
+                .toList();
         if (!failedRecipients.isEmpty()) {
+            String lastError = outcomes.stream()
+                    .filter(outcome -> !outcome.success())
+                    .reduce((first, second) -> second)
+                    .map(MailSendSupport.SendOutcome::error)
+                    .orElse(null);
             notifyFailure(userId, nodes,
                     "收件人 " + String.join("、", failedRecipients) + " 发送失败：" + lastError);
         }
+    }
+
+    private List<String> succeededRecipients(List<MailSendSupport.SendOutcome> outcomes) {
+        return outcomes.stream()
+                .filter(MailSendSupport.SendOutcome::success)
+                .map(MailSendSupport.SendOutcome::recipient)
+                .toList();
     }
 
     private List<MailAttachment> loadAttachments(List<FileNode> nodes, String userId) {

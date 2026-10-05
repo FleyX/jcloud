@@ -35,13 +35,14 @@ class EmailShareSenderTest {
 
     private final MailService mailService = mock(MailService.class);
     private final NotificationLogSupport notificationLogSupport = mock(NotificationLogSupport.class);
+    private final MailSendSupport mailSendSupport = new MailSendSupport(notificationLogSupport);
     private final EmailShareRecipientSupport recipientSupport = mock(EmailShareRecipientSupport.class);
     private final MediaFileStreamSupport mediaFileStreamSupport = mock(MediaFileStreamSupport.class);
     private final RemoteFileService remoteFileService = mock(RemoteFileService.class);
     private final NotificationEventSupport notificationEventSupport = mock(NotificationEventSupport.class);
 
     private final EmailShareSender sender = new EmailShareSender(mailService, notificationLogSupport,
-            recipientSupport, mediaFileStreamSupport, remoteFileService, notificationEventSupport);
+            mailSendSupport, recipientSupport, mediaFileStreamSupport, remoteFileService, notificationEventSupport);
 
     private FileNode remoteNode(String name) {
         FileNode node = new FileNode();

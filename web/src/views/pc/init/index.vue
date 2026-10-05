@@ -6,9 +6,10 @@ import { useNotificationStore } from '@/store/notification'
 import { fetchInitStatus, initializeSystem } from '@/api/storage-space'
 import { cn } from '@/utils/cn'
 import { isValidEmail } from '@/utils/email'
+import SmtpConfigForm from '@/components/notification/SmtpConfigForm.vue'
 import { ChevronDown, ChevronUp, Cloud, Plus, Trash2 } from '@lucide/vue'
 import type { InitSpaceItem, SystemInitDto } from '@/types/storage-space'
-import type { SmtpConfigPayload, SmtpEncryption } from '@/types/notification'
+import type { SmtpConfigPayload, SmtpFormModel } from '@/types/notification'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -27,26 +28,18 @@ const selected = reactive({
 
 const smtpOpen = ref(false)
 
-const fieldClass = 'w-full rounded-xl border border-surface-200 bg-surface-50 px-3 py-2 text-sm outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100'
-
-const encryptionOptions: { value: SmtpEncryption, label: string }[] = [
-  { value: 'none', label: '无' },
-  { value: 'ssl', label: 'SSL' },
-  { value: 'starttls', label: 'STARTTLS' },
-]
-
-const smtp = reactive({
+const smtp = ref<SmtpFormModel>({
   host: '',
   port: 465,
   username: '',
   password: '',
-  encryption: 'ssl' as SmtpEncryption,
+  encryption: 'ssl',
   fromAddress: '',
   fromName: '',
 })
 
 const smtpFilled = computed(() =>
-  [smtp.host, smtp.username, smtp.password, smtp.fromAddress, smtp.fromName]
+  [smtp.value.host, smtp.value.username, smtp.value.password, smtp.value.fromAddress, smtp.value.fromName]
     .some((value) => value.trim() !== ''),
 )
 
@@ -54,20 +47,20 @@ const smtpError = computed(() => {
   if (!smtpFilled.value) {
     return ''
   }
-  if (!smtp.host.trim()) {
+  if (!smtp.value.host.trim()) {
     return '请填写 SMTP 主机'
   }
-  const port = Number(smtp.port)
+  const port = Number(smtp.value.port)
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     return '请填写 1~65535 之间的 SMTP 端口'
   }
-  if (!smtp.password.trim()) {
+  if (!smtp.value.password.trim()) {
     return '请填写 SMTP 密码'
   }
-  if (!smtp.fromAddress.trim()) {
+  if (!smtp.value.fromAddress.trim()) {
     return '请填写发件人地址'
   }
-  if (!isValidEmail(smtp.fromAddress)) {
+  if (!isValidEmail(smtp.value.fromAddress)) {
     return '发件人地址格式不正确'
   }
   return ''
@@ -135,13 +128,13 @@ async function handleSubmit() {
     }
     if (smtpFilled.value) {
       const payload: SmtpConfigPayload = {
-        host: smtp.host.trim(),
-        port: Number(smtp.port),
-        username: smtp.username.trim(),
-        encryption: smtp.encryption,
-        fromAddress: smtp.fromAddress.trim(),
-        fromName: smtp.fromName.trim(),
-        password: smtp.password,
+        host: smtp.value.host.trim(),
+        port: Number(smtp.value.port),
+        username: smtp.value.username.trim(),
+        encryption: smtp.value.encryption,
+        fromAddress: smtp.value.fromAddress.trim(),
+        fromName: smtp.value.fromName.trim(),
+        password: smtp.value.password,
       }
       dto.smtp = payload
     }
@@ -274,96 +267,13 @@ async function handleSubmit() {
 
           <div
             v-if="smtpOpen"
-            class="space-y-3 border-t border-surface-100 p-4"
+            class="border-t border-surface-100 p-4"
           >
-            <div class="grid gap-3 sm:grid-cols-3">
-              <div class="sm:col-span-2">
-                <label class="mb-1 block text-xs font-medium text-surface-700">SMTP 主机</label>
-                <input
-                  v-model="smtp.host"
-                  type="text"
-                  placeholder="smtp.example.com"
-                  :class="fieldClass"
-                >
-              </div>
-              <div>
-                <label class="mb-1 block text-xs font-medium text-surface-700">端口</label>
-                <input
-                  v-model.number="smtp.port"
-                  type="number"
-                  min="1"
-                  max="65535"
-                  placeholder="465"
-                  :class="fieldClass"
-                >
-              </div>
-            </div>
-
-            <div class="grid gap-3 sm:grid-cols-2">
-              <div>
-                <label class="mb-1 block text-xs font-medium text-surface-700">账号（可选）</label>
-                <input
-                  v-model="smtp.username"
-                  type="text"
-                  placeholder="user@example.com"
-                  :class="fieldClass"
-                >
-              </div>
-              <div>
-                <label class="mb-1 block text-xs font-medium text-surface-700">密码</label>
-                <input
-                  v-model="smtp.password"
-                  type="password"
-                  autocomplete="new-password"
-                  :class="fieldClass"
-                >
-              </div>
-            </div>
-
-            <div>
-              <label class="mb-1 block text-xs font-medium text-surface-700">加密方式</label>
-              <div class="flex flex-wrap gap-2">
-                <button
-                  v-for="option in encryptionOptions"
-                  :key="option.value"
-                  type="button"
-                  :class="cn(
-                    'rounded-xl border px-4 py-2 text-sm transition-colors',
-                    smtp.encryption === option.value
-                      ? 'border-primary-300 bg-primary-50 font-semibold text-primary-700'
-                      : 'border-surface-200 bg-surface-50 text-surface-600 hover:border-primary-200',
-                  )"
-                  @click="smtp.encryption = option.value"
-                >
-                  {{ option.label }}
-                </button>
-              </div>
-            </div>
-
-            <div class="grid gap-3 sm:grid-cols-2">
-              <div>
-                <label class="mb-1 block text-xs font-medium text-surface-700">发件人地址</label>
-                <input
-                  v-model="smtp.fromAddress"
-                  type="email"
-                  placeholder="no-reply@example.com"
-                  :class="fieldClass"
-                >
-              </div>
-              <div>
-                <label class="mb-1 block text-xs font-medium text-surface-700">发件人昵称（可选）</label>
-                <input
-                  v-model="smtp.fromName"
-                  type="text"
-                  placeholder="jcloud"
-                  :class="fieldClass"
-                >
-              </div>
-            </div>
+            <SmtpConfigForm v-model="smtp" />
 
             <p
               v-if="smtpError"
-              class="text-xs text-red-500"
+              class="mt-3 text-xs text-red-500"
             >
               {{ smtpError }}
             </p>

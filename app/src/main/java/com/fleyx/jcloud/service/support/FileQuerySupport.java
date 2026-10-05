@@ -130,7 +130,8 @@ public class FileQuerySupport {
         } else {
             comparator = Comparator.comparing(FileNode::getCreateTime, Comparator.nullsFirst(Comparator.naturalOrder()));
         }
-        Comparator<FileNode> folderFirst = Comparator.comparing(node -> !TYPE_FOLDER.equals(node.getType()));
+        // 与 SQL 侧 orderByDesc(type) 一致的字典序倒序：folder 排在 file 之前
+        Comparator<FileNode> folderFirst = Comparator.comparing(FileNode::getType, Comparator.reverseOrder());
         return folderFirst.thenComparing(asc ? comparator : comparator.reversed());
     }
 

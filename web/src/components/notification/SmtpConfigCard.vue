@@ -5,26 +5,22 @@
 import { computed, onMounted, ref } from 'vue'
 import { getSmtpConfig, sendTestMail, updateSmtpConfig } from '@/api/notification'
 import { useNotificationStore } from '@/store/notification'
-import { cn } from '@/utils/cn'
-import type { SmtpConfigPayload, SmtpEncryption } from '@/types/notification'
+import SmtpConfigForm from './SmtpConfigForm.vue'
+import type { SmtpConfigPayload, SmtpFormModel } from '@/types/notification'
 
 const notificationStore = useNotificationStore()
 
-const encryptionOptions: { value: SmtpEncryption, label: string }[] = [
-  { value: 'none', label: '无' },
-  { value: 'ssl', label: 'SSL' },
-  { value: 'starttls', label: 'STARTTLS' },
-]
-
 const inputClass = 'w-full rounded-xl border border-surface-200 bg-surface-50 px-4 py-2 text-sm outline-none focus:border-primary-300 focus:bg-white'
 
-const host = ref('')
-const port = ref(465)
-const username = ref('')
-const password = ref('')
-const encryption = ref<SmtpEncryption>('ssl')
-const fromAddress = ref('')
-const fromName = ref('')
+const form = ref<SmtpFormModel>({
+  host: '',
+  port: 465,
+  username: '',
+  password: '',
+  encryption: 'ssl',
+  fromAddress: '',
+  fromName: '',
+})
 const attachmentMaxSizeMb = ref(50)
 const hasPassword = ref(false)
 const configured = ref(false)
@@ -42,13 +38,13 @@ async function loadConfig() {
   loading.value = true
   try {
     const config = await getSmtpConfig()
-    host.value = config.host
-    port.value = config.port
-    username.value = config.username
-    password.value = ''
-    encryption.value = config.encryption
-    fromAddress.value = config.fromAddress
-    fromName.value = config.fromName
+    form.value.host = config.host
+    form.value.port = config.port
+    form.value.username = config.username
+    form.value.password = ''
+    form.value.encryption = config.encryption
+    form.value.fromAddress = config.fromAddress
+    form.value.fromName = config.fromName
     attachmentMaxSizeMb.value = config.attachmentMaxSizeMb
     hasPassword.value = config.hasPassword
     configured.value = config.host !== '' && config.fromAddress !== ''
@@ -63,16 +59,16 @@ async function handleSave() {
   saving.value = true
   try {
     const payload: SmtpConfigPayload = {
-      host: host.value.trim(),
-      port: Number(port.value),
-      username: username.value.trim(),
-      encryption: encryption.value,
-      fromAddress: fromAddress.value.trim(),
-      fromName: fromName.value.trim(),
+      host: form.value.host.trim(),
+      port: Number(form.value.port),
+      username: form.value.username.trim(),
+      encryption: form.value.encryption,
+      fromAddress: form.value.fromAddress.trim(),
+      fromName: form.value.fromName.trim(),
       attachmentMaxSizeMb: Number(attachmentMaxSizeMb.value),
     }
-    if (password.value !== '') {
-      payload.password = password.value
+    if (form.value.password !== '') {
+      payload.password = form.value.password
     }
     await updateSmtpConfig(payload)
     notificationStore.success('发件邮箱配置已保存')
@@ -114,91 +110,10 @@ async function handleTestSend() {
     </div>
 
     <div class="space-y-4">
-      <div class="flex flex-wrap gap-4">
-        <label class="flex-1 min-w-64">
-          <span class="mb-1 block text-xs font-medium text-surface-500">SMTP 主机</span>
-          <input
-            v-model="host"
-            type="text"
-            placeholder="smtp.example.com"
-            :class="inputClass"
-          >
-        </label>
-        <label class="w-40">
-          <span class="mb-1 block text-xs font-medium text-surface-500">端口</span>
-          <input
-            v-model.number="port"
-            type="number"
-            min="1"
-            max="65535"
-            placeholder="465"
-            :class="inputClass"
-          >
-        </label>
-      </div>
-
-      <div class="flex flex-wrap gap-4">
-        <label class="flex-1 min-w-64">
-          <span class="mb-1 block text-xs font-medium text-surface-500">账号（可选）</span>
-          <input
-            v-model="username"
-            type="text"
-            placeholder="user@example.com"
-            :class="inputClass"
-          >
-        </label>
-        <label class="flex-1 min-w-64">
-          <span class="mb-1 block text-xs font-medium text-surface-500">密码</span>
-          <input
-            v-model="password"
-            type="password"
-            :placeholder="passwordPlaceholder"
-            autocomplete="new-password"
-            :class="inputClass"
-          >
-        </label>
-      </div>
-
-      <div>
-        <span class="mb-1 block text-xs font-medium text-surface-500">加密方式</span>
-        <div class="flex flex-wrap gap-2">
-          <button
-            v-for="option in encryptionOptions"
-            :key="option.value"
-            type="button"
-            :class="cn(
-              'rounded-xl border px-4 py-2 text-sm transition-colors',
-              encryption === option.value
-                ? 'border-primary-300 bg-primary-50 font-semibold text-primary-700'
-                : 'border-surface-200 bg-surface-50 text-surface-600 hover:border-primary-200',
-            )"
-            @click="encryption = option.value"
-          >
-            {{ option.label }}
-          </button>
-        </div>
-      </div>
-
-      <div class="flex flex-wrap gap-4">
-        <label class="flex-1 min-w-64">
-          <span class="mb-1 block text-xs font-medium text-surface-500">发件人地址</span>
-          <input
-            v-model="fromAddress"
-            type="email"
-            placeholder="no-reply@example.com"
-            :class="inputClass"
-          >
-        </label>
-        <label class="flex-1 min-w-64">
-          <span class="mb-1 block text-xs font-medium text-surface-500">发件人昵称（可选）</span>
-          <input
-            v-model="fromName"
-            type="text"
-            placeholder="jcloud"
-            :class="inputClass"
-          >
-        </label>
-      </div>
+      <SmtpConfigForm
+        v-model="form"
+        :password-placeholder="passwordPlaceholder"
+      />
 
       <label class="block w-64 max-w-full">
         <span class="mb-1 block text-xs font-medium text-surface-500">附件大小上限（MB）</span>

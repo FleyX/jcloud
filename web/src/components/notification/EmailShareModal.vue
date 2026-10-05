@@ -8,6 +8,7 @@
 import { computed, ref, watch } from 'vue'
 import { X, Mail, Link, Lock, Clock, Paperclip, AlertTriangle, Plus, Info } from '@lucide/vue'
 import { cn } from '@/utils/cn'
+import { isValidEmail } from '@/utils/email'
 import { formatSize } from '@/utils/fileDisplay'
 import { createShare, getRecentRecipients, sendEmailShareAttachment, sendEmailShareLink } from '@/api/share'
 import { useNotificationStore } from '@/store/notification'
@@ -28,7 +29,6 @@ const notificationStore = useNotificationStore()
 
 type ShareMode = 'link' | 'attachment'
 
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const MAX_RECIPIENTS = 20
 
 const mode = ref<ShareMode>('link')
@@ -115,7 +115,7 @@ function handleRecipientInput(raw: string) {
 }
 
 function addRecipient(email: string) {
-  if (!EMAIL_PATTERN.test(email)) {
+  if (!isValidEmail(email)) {
     recipientError.value = `邮箱格式不正确：${email}`
     return
   }
