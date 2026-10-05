@@ -138,6 +138,7 @@ const themeButtonLabel = computed(() => {
           class="h-4 w-4"
         />
       </button>
+      <NotificationBell />
       <button
         type="button"
         class="flex h-9 w-9 items-center justify-center rounded-full bg-primary-100 text-sm font-bold text-primary-700 ring-2 ring-surface-50"
@@ -145,7 +146,6 @@ const themeButtonLabel = computed(() => {
       >
         {{ userStore.userInfo?.username?.charAt(0).toUpperCase() || 'U' }}
       </button>
-      <NotificationBell />
     </div>
   </header>
 

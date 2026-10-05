@@ -149,4 +149,19 @@ describe('MobileHeader', () => {
     await wrapper.vm.$nextTick()
     expect(button.attributes('aria-label')).toContain('跟随系统')
   })
+
+  it('orders the right-side icons as theme, notification, then avatar', async () => {
+    const { wrapper } = await mountHeader('/files')
+
+    const buttons = wrapper.findAll('header button')
+    const themeIndex = buttons.findIndex((item) => (item.attributes('aria-label') ?? '').startsWith('主题'))
+    const notificationIndex = buttons.findIndex((item) => item.attributes('aria-label') === '通知')
+    const avatarIndex = buttons.findIndex((item) => item.classes().includes('rounded-full'))
+
+    expect(themeIndex).toBeGreaterThanOrEqual(0)
+    expect(notificationIndex).toBeGreaterThanOrEqual(0)
+    expect(avatarIndex).toBeGreaterThanOrEqual(0)
+    expect(themeIndex).toBeLessThan(notificationIndex)
+    expect(notificationIndex).toBeLessThan(avatarIndex)
+  })
 })
