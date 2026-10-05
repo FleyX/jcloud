@@ -387,6 +387,88 @@ describe('useFileList', () => {
     expect(list.selectedIds.value.size).toBe(0)
   })
 
+  it('opens share modal for a single file without mixed-source check and keeps selection', async () => {
+    const remote = buildFileNode({ id: 'a', sourceType: 'remote', remoteMountId: 'm1' })
+    const list = await createList([remote])
+
+    list.openShareModalFor(remote)
+
+    expect(list.shareOpen.value).toBe(true)
+    expect(list.shareModalItems.value).toEqual([remote])
+    expect(list.shareModalItemIds.value).toEqual(['a'])
+    expect(list.selectedIds.value.size).toBe(0)
+  })
+
+  it('opens email share modal for a single file without touching selection', async () => {
+    const node = buildFileNode({ id: 'a' })
+    const list = await createList([node])
+
+    list.openEmailShareModalFor(node)
+
+    expect(list.emailShareOpen.value).toBe(true)
+    expect(list.shareModalItems.value).toEqual([node])
+    expect(list.selectedIds.value.size).toBe(0)
+  })
+
+  it('keeps selection after a single-file share is created', async () => {
+    const a = buildFileNode({ id: 'a' })
+    const b = buildFileNode({ id: 'b' })
+    mockCreateShare.mockResolvedValue({ id: 's1' })
+
+    const list = await createList([a, b])
+    list.toggleSelect('b')
+    list.openShareModalFor(a)
+    await list.handleCreateShare({ name: 'share', fileNodeIds: ['a'] } as ShareCreateRequest)
+
+    expect(list.shareOpen.value).toBe(false)
+    expect(list.selectedIds.value.has('b')).toBe(true)
+    // 单文件分享结束后目标覆盖被重置，回落到批量勾选
+    expect(list.shareModalItems.value).toEqual([b])
+  })
+
+  it('keeps selection after a single-file email share is sent', async () => {
+    const a = buildFileNode({ id: 'a' })
+    const b = buildFileNode({ id: 'b' })
+
+    const list = await createList([a, b])
+    list.toggleSelect('b')
+    list.openEmailShareModalFor(a)
+    list.handleEmailShareSent()
+
+    expect(list.emailShareOpen.value).toBe(false)
+    expect(list.selectedIds.value.has('b')).toBe(true)
+    expect(list.shareModalItems.value).toEqual([b])
+  })
+
+  it('batch share entry keeps clearing selection', async () => {
+    const a = buildFileNode({ id: 'a' })
+    mockCreateShare.mockResolvedValue({ id: 's1' })
+
+    const list = await createList([a])
+    list.toggleSelect('a')
+    list.openShareModal()
+    expect(list.shareModalItems.value).toEqual([a])
+
+    await list.handleCreateShare({ name: 'share', fileNodeIds: ['a'] } as ShareCreateRequest)
+
+    expect(list.selectedIds.value.size).toBe(0)
+  })
+
+  it('resets single-file share target when the modal closes', async () => {
+    const node = buildFileNode({ id: 'a' })
+    const list = await createList([node])
+
+    list.openShareModalFor(node)
+    list.closeShareModal()
+    expect(list.shareOpen.value).toBe(false)
+    expect(list.shareModalItems.value).toEqual([])
+
+    list.openEmailShareModalFor(node)
+    list.closeEmailShareModal()
+    expect(list.emailShareOpen.value).toBe(false)
+    expect(list.shareModalItems.value).toEqual([])
+  })
+
   it('uploads files through useBatchUpload', async () => {
     const file = new File(['x'], 'x.txt')
 

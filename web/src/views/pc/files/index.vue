@@ -111,6 +111,8 @@ onMounted(list.init)
           @rename="openRename"
           @copy="(f: FileNodeVo) => list.openMoveCopy('copy', [f])"
           @move="(f: FileNodeVo) => list.openMoveCopy('move', [f])"
+          @share="(f: FileNodeVo) => list.openShareModalFor(f)"
+          @share-email="(f: FileNodeVo) => list.openEmailShareModalFor(f)"
           @remove="list.handleDelete"
         />
 
@@ -160,16 +162,16 @@ onMounted(list.init)
 
     <CreateShareModal
       :open="list.shareOpen"
-      :item-ids="Array.from(list.selectedIds)"
+      :item-ids="list.shareModalItemIds"
       :edit-share="list.shareEditTarget"
-      @close="list.shareOpen = false"
+      @close="list.closeShareModal"
       @confirm="list.handleShareConfirm"
     />
 
     <EmailShareModal
       :open="list.emailShareOpen"
-      :items="list.selectedFiles"
-      @close="list.emailShareOpen = false"
+      :items="list.shareModalItems"
+      @close="list.closeEmailShareModal"
       @sent="list.handleEmailShareSent"
     />
 

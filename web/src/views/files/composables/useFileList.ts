@@ -95,6 +95,8 @@ export function useFileList(options: UseFileListOptions = {}) {
   const shareOpen = ref(false)
   const shareEditTarget = ref<ShareDetailVo | undefined>(undefined)
   const emailShareOpen = ref(false)
+  /** 单文件行内分享的目标覆盖；为 null 表示走批量勾选流程 */
+  const shareTargets = ref<FileNodeVo[] | null>(null)
 
   const uploadConflictOpen = ref(false)
   const uploadConflicts = ref<ConflictItemVo[]>([])
@@ -102,6 +104,8 @@ export function useFileList(options: UseFileListOptions = {}) {
 
   const folders = computed(() => files.value.filter((file) => file.type === 'folder'))
   const selectedFiles = computed(() => files.value.filter((file) => selectedIds.value.has(file.id)))
+  const shareModalItems = computed<FileNodeVo[]>(() => shareTargets.value ?? selectedFiles.value)
+  const shareModalItemIds = computed<string[]>(() => shareModalItems.value.map((file) => file.id))
   const isAllSelected = computed(() => files.value.length > 0 && selectedIds.value.size === files.value.length)
   const hasMixedSelection = computed(() => hasMixedSource(selectedFiles.value))
   const isSearching = computed(() => keyword.value.trim().length > 0)
@@ -463,6 +467,7 @@ export function useFileList(options: UseFileListOptions = {}) {
   }
 
   function openShareModal() {
+    shareTargets.value = null
     const targets = selectedFiles.value
     if (targets.length === 0) return
     if (hasMixedSource(targets)) {
@@ -473,7 +478,14 @@ export function useFileList(options: UseFileListOptions = {}) {
     shareOpen.value = true
   }
 
+  function openShareModalFor(file: FileNodeVo) {
+    shareTargets.value = [file]
+    shareEditTarget.value = undefined
+    shareOpen.value = true
+  }
+
   function openEmailShareModal() {
+    shareTargets.value = null
     const targets = selectedFiles.value
     if (targets.length === 0) return
     if (hasMixedSource(targets)) {
@@ -483,15 +495,34 @@ export function useFileList(options: UseFileListOptions = {}) {
     emailShareOpen.value = true
   }
 
-  function handleEmailShareSent() {
+  function openEmailShareModalFor(file: FileNodeVo) {
+    shareTargets.value = [file]
+    emailShareOpen.value = true
+  }
+
+  function closeShareModal() {
+    shareOpen.value = false
+    shareTargets.value = null
+  }
+
+  function closeEmailShareModal() {
     emailShareOpen.value = false
-    selectedIds.value.clear()
+    shareTargets.value = null
+  }
+
+  function handleEmailShareSent() {
+    const isBatch = shareTargets.value === null
+    emailShareOpen.value = false
+    shareTargets.value = null
+    if (isBatch) selectedIds.value.clear()
   }
 
   async function handleCreateShare(payload: ShareCreateRequest) {
+    const isBatch = shareTargets.value === null
     const share = await createShare(payload)
     shareOpen.value = false
-    selectedIds.value.clear()
+    shareTargets.value = null
+    if (isBatch) selectedIds.value.clear()
     notificationStore.success('分享创建成功')
     return share
   }
@@ -573,6 +604,8 @@ export function useFileList(options: UseFileListOptions = {}) {
 
     folders,
     selectedFiles,
+    shareModalItems,
+    shareModalItemIds,
     isAllSelected,
     hasMixedSelection,
     isSearching,
@@ -598,10 +631,14 @@ export function useFileList(options: UseFileListOptions = {}) {
     handleBatchDelete,
     handleBatchDownload,
     openShareModal,
+    openShareModalFor,
+    closeShareModal,
     handleCreateShare,
     handleUpdateShare,
     handleShareConfirm,
     openEmailShareModal,
+    openEmailShareModalFor,
+    closeEmailShareModal,
     handleEmailShareSent,
     openUploadConflict,
     handleUploadConflictConfirm,

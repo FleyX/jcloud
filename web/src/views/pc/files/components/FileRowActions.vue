@@ -8,7 +8,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
 } from 'radix-vue'
-import { MoreVertical, Pencil, Copy, FolderInput, Trash2 } from '@lucide/vue'
+import { MoreVertical, Pencil, Copy, FolderInput, Trash2, Share2, Mail } from '@lucide/vue'
 import { cn } from '@/utils/cn'
 
 import type { FileNodeVo } from '@/types/file'
@@ -22,6 +22,8 @@ const emit = defineEmits<{
   rename: [file: FileNodeVo]
   copy: [file: FileNodeVo]
   move: [file: FileNodeVo]
+  share: [file: FileNodeVo]
+  shareEmail: [file: FileNodeVo]
   delete: [file: FileNodeVo]
 }>()
 
@@ -35,6 +37,14 @@ function handleCopy() {
 
 function handleMove() {
   emit('move', props.file)
+}
+
+function handleShare() {
+  emit('share', props.file)
+}
+
+function handleShareEmail() {
+  emit('shareEmail', props.file)
 }
 
 function handleDelete() {
@@ -82,6 +92,20 @@ function handleDelete() {
       >
         <FolderInput class="h-4 w-4 text-primary-500" />
         移动
+      </DropdownMenuItem>
+      <DropdownMenuItem
+        class="flex cursor-pointer items-center gap-2.5 rounded-xl px-3 py-2 text-sm text-surface-700 outline-none transition-colors duration-150 hover:bg-primary-50 hover:text-primary-700 focus:bg-primary-50"
+        @click.stop="handleShare"
+      >
+        <Share2 class="h-4 w-4 text-primary-500" />
+        分享
+      </DropdownMenuItem>
+      <DropdownMenuItem
+        class="flex cursor-pointer items-center gap-2.5 rounded-xl px-3 py-2 text-sm text-surface-700 outline-none transition-colors duration-150 hover:bg-primary-50 hover:text-primary-700 focus:bg-primary-50"
+        @click.stop="handleShareEmail"
+      >
+        <Mail class="h-4 w-4 text-primary-500" />
+        分享到邮件
       </DropdownMenuItem>
       <DropdownMenuItem
         class="flex cursor-pointer items-center gap-2.5 rounded-xl px-3 py-2 text-sm text-red-600 outline-none transition-colors duration-150 hover:bg-red-50 focus:bg-red-50"
