@@ -12,6 +12,7 @@ import {
   changePassword,
 } from '@/api/user'
 import { useUserStore } from '@/store/user'
+import { emailValidationMessage } from '@/utils/email'
 import type { ChangePasswordDto, UserProfileUpdateDto, UserProfileVo } from '@/types/auth'
 
 const userStore = useUserStore()
@@ -19,6 +20,7 @@ const userStore = useUserStore()
 const profile = ref<UserProfileVo | null>(null)
 const profileForm = ref<UserProfileUpdateDto>({ email: '', nickname: '' })
 const profileSubmitting = ref(false)
+const profileError = ref('')
 
 const passwordForm = ref<ChangePasswordDto>({
   currentPassword: '',
@@ -38,6 +40,12 @@ onMounted(async () => {
 })
 
 async function handleProfileSubmit() {
+  profileError.value = ''
+  const emailError = emailValidationMessage(profileForm.value.email)
+  if (emailError) {
+    profileError.value = emailError
+    return
+  }
   profileSubmitting.value = true
   try {
     await updateCurrentUserProfile({ ...profileForm.value })
@@ -108,7 +116,7 @@ async function handlePasswordSubmit() {
           >
         </div>
         <div>
-          <label class="mb-1 block text-xs font-medium text-surface-700">邮箱</label>
+          <label class="mb-1 block text-xs font-medium text-surface-700">邮箱 <span class="text-red-500">*</span></label>
           <input
             v-model="profileForm.email"
             type="email"
@@ -116,6 +124,12 @@ async function handlePasswordSubmit() {
             class="w-full rounded-xl border border-surface-200 bg-surface-50 px-3 py-2 text-sm outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100"
           >
         </div>
+        <p
+          v-if="profileError"
+          class="text-sm text-red-600"
+        >
+          {{ profileError }}
+        </p>
       </div>
 
       <div class="flex justify-end">

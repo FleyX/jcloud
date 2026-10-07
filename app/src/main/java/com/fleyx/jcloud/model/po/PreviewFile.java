@@ -25,12 +25,7 @@ public class PreviewFile extends SoftDeleteEntity {
     private String type;
 
     /**
-     * 所属系统存储空间 ID。
-     */
-    private String storageSpaceId;
-
-    /**
-     * 预览文件在系统存储空间中的相对路径。
+     * 预览文件在系统缓存目录中的相对路径。
      */
     private String relativePath;
 

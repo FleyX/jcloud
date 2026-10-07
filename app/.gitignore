@@ -1,6 +1,7 @@
 HELP.md
 target
 static
+data/
 !.mvn/wrapper/maven-wrapper.jar
 
 ### STS ###

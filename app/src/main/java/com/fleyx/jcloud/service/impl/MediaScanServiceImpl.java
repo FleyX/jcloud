@@ -3,6 +3,8 @@ package com.fleyx.jcloud.service.impl;
 import com.fleyx.jcloud.common.enums.MediaScanOutcome;
 import com.fleyx.jcloud.common.enums.MediaScanStatus;
 import com.fleyx.jcloud.common.enums.MediaType;
+import com.fleyx.jcloud.common.enums.NotificationEventType;
+import com.fleyx.jcloud.common.event.NotificationEvent;
 import com.fleyx.jcloud.mapper.MediaDirectoryMapper;
 import com.fleyx.jcloud.mapper.UserMapper;
 import com.fleyx.jcloud.model.po.MediaDirectory;
@@ -18,6 +20,7 @@ import com.fleyx.jcloud.service.support.MediaTaskSupport;
 import com.fleyx.jcloud.service.support.MediaTvScanSupport;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.core.task.TaskExecutor;
 import org.springframework.scheduling.support.CronExpression;
 import org.springframework.stereotype.Service;
@@ -54,6 +57,7 @@ public class MediaScanServiceImpl implements MediaScanService {
     private final MediaMovieScanSupport mediaMovieScanSupport;
     private final MediaOtherScanSupport mediaOtherScanSupport;
     private final TaskExecutor taskExecutor;
+    private final ApplicationEventPublisher eventPublisher;
 
     public MediaScanServiceImpl(MediaDirectoryMapper mediaDirectoryMapper,
                                 UserMapper userMapper,
@@ -64,7 +68,8 @@ public class MediaScanServiceImpl implements MediaScanService {
                                 MediaTvScanSupport mediaTvScanSupport,
                                 MediaMovieScanSupport mediaMovieScanSupport,
                                 MediaOtherScanSupport mediaOtherScanSupport,
-                                @Qualifier("applicationTaskExecutor") TaskExecutor taskExecutor) {
+                                @Qualifier("applicationTaskExecutor") TaskExecutor taskExecutor,
+                                ApplicationEventPublisher eventPublisher) {
         this.mediaDirectoryMapper = mediaDirectoryMapper;
         this.userMapper = userMapper;
         this.mediaScanSupport = mediaScanSupport;
@@ -76,6 +81,7 @@ public class MediaScanServiceImpl implements MediaScanService {
         this.mediaMovieScanSupport = mediaMovieScanSupport;
         this.mediaOtherScanSupport = mediaOtherScanSupport;
         this.taskExecutor = taskExecutor;
+        this.eventPublisher = eventPublisher;
     }
 
     /**
@@ -217,5 +223,24 @@ public class MediaScanServiceImpl implements MediaScanService {
             update.setNextScanTime(CronExpression.parse(directory.getScanCron()).next(LocalDateTime.now()));
         }
         mediaDirectoryMapper.updateById(update);
+        if (MediaScanStatus.FAILED.name().equals(status)) {
+            publishScanFailed(directory, error);
+        }
+    }
+
+    /**
+     * 扫描失败时通知媒体库属主。
+     * <p>
+     * 异常与「扫描已中断」（协作式取消）均归为失败态，逐次通知不做去重；扫描本身无事务，
+     * 事件直接发布，由通知模块异步落库/发信。
+     *
+     * @param directory 媒体库
+     * @param error     失败原因，可空
+     */
+    private void publishScanFailed(MediaDirectory directory, String error) {
+        String reason = error == null || error.isBlank() ? "未知原因" : error;
+        eventPublisher.publishEvent(new NotificationEvent(this, NotificationEventType.MEDIA_SCAN_FAILED,
+                directory.getUserId(), "媒体库扫描失败",
+                String.format("媒体库「%s」扫描失败：%s", directory.getName(), reason)));
     }
 }

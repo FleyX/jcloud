@@ -5,6 +5,7 @@ import com.fleyx.jcloud.common.IntegrationTestBase;
 import com.fleyx.jcloud.common.constant.FileNodeConstants;
 import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.exception.BusinessException;
+import com.fleyx.jcloud.config.AuthProperties;
 import com.fleyx.jcloud.model.dto.ShareCreateDto;
 import com.fleyx.jcloud.model.dto.SharePageQueryDto;
 import com.fleyx.jcloud.model.dto.ShareUpdateDto;
@@ -21,6 +22,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -45,6 +47,20 @@ class ShareServiceTest extends IntegrationTestBase {
 
     @Autowired
     private FileOperationService fileOperationService;
+
+    @Autowired
+    private AuthProperties authProperties;
+
+    /**
+     * 用例级随机客户端 IP，避免 Redis IP 窗口计数跨用例串扰。
+     */
+    private final String testIp = uniqueIp();
+
+    private static String uniqueIp() {
+        int a = Integer.parseInt(UUID.randomUUID().toString().replace("-", "").substring(0, 2), 16);
+        int b = Integer.parseInt(UUID.randomUUID().toString().replace("-", "").substring(0, 2), 16);
+        return "10.98." + a + "." + b;
+    }
 
     @Test
     void shouldCreateShareWithMultipleFiles() {
@@ -91,7 +107,7 @@ class ShareServiceTest extends IntegrationTestBase {
         assertTrue(publicShare.getHasPassword());
         assertTrue(publicShare.getItems().isEmpty());
 
-        String token = publicShareService.validateAccess(share.getShareCode(), "123456");
+        String token = publicShareService.validateAccess(share.getShareCode(), "123456", null);
         assertNotNull(token);
 
         List<FileNodeVo> items = publicShareService.listItems(share.getShareCode(), null, token);
@@ -192,6 +208,58 @@ class ShareServiceTest extends IntegrationTestBase {
         BusinessException exception = assertThrows(BusinessException.class,
                 () -> publicShareService.getShare(share.getShareCode()));
         assertEquals(ResultCode.NOT_FOUND.getCode(), exception.getResultCode().getCode());
+    }
+
+    @Test
+    void shareAccessShouldLockAfterConsecutiveFailures() {
+        UserWithSpace userWithSpace = prepareUserWithStorageSpace();
+        UserVo user = userWithSpace.user();
+        FileNodeVo file = uploadFile(user.getId(), "a.txt", "hello");
+
+        ShareCreateDto dto = new ShareCreateDto();
+        dto.setName("限流分享");
+        dto.setFileNodeIds(List.of(file.getId()));
+        dto.setPassword("123456");
+        ShareVo share = shareService.create(dto, user.getId());
+
+        int maxFailures = authProperties.getRateLimit().getMaxFailures();
+        for (int i = 0; i < maxFailures; i++) {
+            BusinessException ex = assertThrows(BusinessException.class,
+                    () -> publicShareService.validateAccess(share.getShareCode(), "wrong-password", testIp));
+            assertEquals("访问密码错误", ex.getMessage());
+        }
+
+        // 第 maxFailures+1 次即使密码正确也拒绝，文案明确
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> publicShareService.validateAccess(share.getShareCode(), "123456", testIp));
+        assertEquals("尝试次数过多，请稍后再试", ex.getMessage());
+        assertEquals(ResultCode.FORBIDDEN.getCode(), ex.getResultCode().getCode());
+    }
+
+    @Test
+    void shareAccessSuccessShouldClearFailureCount() {
+        UserWithSpace userWithSpace = prepareUserWithStorageSpace();
+        UserVo user = userWithSpace.user();
+        FileNodeVo file = uploadFile(user.getId(), "a.txt", "hello");
+
+        ShareCreateDto dto = new ShareCreateDto();
+        dto.setName("清零分享");
+        dto.setFileNodeIds(List.of(file.getId()));
+        dto.setPassword("123456");
+        ShareVo share = shareService.create(dto, user.getId());
+        String shareCode = share.getShareCode();
+
+        // 先失败 2 次
+        for (int i = 0; i < 2; i++) {
+            assertThrows(BusinessException.class,
+                    () -> publicShareService.validateAccess(shareCode, "wrong-password", testIp));
+        }
+        // 成功后计数清零
+        assertNotNull(publicShareService.validateAccess(shareCode, "123456", testIp));
+        // 再失败 1 次未达阈值，不锁定
+        assertThrows(BusinessException.class,
+                () -> publicShareService.validateAccess(shareCode, "wrong-password", testIp));
+        assertNotNull(publicShareService.validateAccess(shareCode, "123456", testIp));
     }
 
     private FileNodeVo uploadFile(String userId, String name, String content) {

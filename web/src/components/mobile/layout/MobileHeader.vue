@@ -7,6 +7,7 @@ import { useUserStore } from '@/store/user'
 import MobileDrawer from './MobileDrawer.vue'
 import type { SecondaryMenuItem } from '@/store/menu'
 import { useThemeStore, type ThemeMode } from '@/store/theme'
+import NotificationBell from '@/components/notification/NotificationBell.vue'
 
 
 const router = useRouter()
@@ -137,6 +138,7 @@ const themeButtonLabel = computed(() => {
           class="h-4 w-4"
         />
       </button>
+      <NotificationBell />
       <button
         type="button"
         class="flex h-9 w-9 items-center justify-center rounded-full bg-primary-100 text-sm font-bold text-primary-700 ring-2 ring-surface-50"

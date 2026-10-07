@@ -11,11 +11,10 @@ import com.fleyx.jcloud.model.bo.MediaProbeResult;
 import com.fleyx.jcloud.model.bo.TranscodeSessionParams;
 import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.po.MediaSubtitle;
-import com.fleyx.jcloud.model.po.StorageSpace;
 import com.fleyx.jcloud.model.vo.MediaPlaybackInfoVo;
 import com.fleyx.jcloud.service.MediaPlaybackService;
 import com.fleyx.jcloud.service.RemoteFileService;
-import com.fleyx.jcloud.service.SystemStorageSpaceProvider;
+import com.fleyx.jcloud.service.support.SystemCacheDirProvider;
 import com.fleyx.jcloud.service.support.MediaBurnInSubtitleSupport;
 import com.fleyx.jcloud.service.support.MediaFileStreamSupport;
 import com.fleyx.jcloud.service.support.MediaPlaybackResolveSupport;
@@ -71,12 +70,12 @@ class MediaPlaybackServiceImplTest {
     private final TranscodeSessionManager transcodeSessionManager = mock(TranscodeSessionManager.class);
     private final MediaFileStreamSupport mediaFileStreamSupport = mock(MediaFileStreamSupport.class);
     private final MediaProperties mediaProperties = mock(MediaProperties.class);
-    private final SystemStorageSpaceProvider systemStorageSpaceProvider = mock(SystemStorageSpaceProvider.class);
+    private final SystemCacheDirProvider systemCacheDirProvider = mock(SystemCacheDirProvider.class);
 
     private final MediaPlaybackServiceImpl service = new MediaPlaybackServiceImpl(
             mediaPlaybackResolveSupport, fileMapper, remoteFileService, mediaProbeSupport,
             mediaSubtitleSupport, mediaSubtitleConvertSupport, mediaSubtitleMapper, mediaBurnInSubtitleSupport,
-            transcodeSessionManager, mediaFileStreamSupport, mediaProperties, systemStorageSpaceProvider);
+            transcodeSessionManager, mediaFileStreamSupport, mediaProperties, systemCacheDirProvider);
 
     @TempDir
     Path tempDir;
@@ -198,11 +197,9 @@ class MediaPlaybackServiceImplTest {
                 .thenReturn(new MediaBurnInSubtitleSupport.ExternalSubtitleBurn(null, null));
         when(transcodeSessionManager.createSession(any(), any()))
                 .thenReturn(new TranscodeSession("s-1", "user-1", null, null, "copy", Instant.now()));
-        StorageSpace space = new StorageSpace();
-        space.setPath(tempDir.toString());
-        when(systemStorageSpaceProvider.getSystemSpace()).thenReturn(space);
+        when(systemCacheDirProvider.getCacheDir()).thenReturn(tempDir);
         // 内嵌字幕缓存命中（canonical 已存在，不触发 ffmpeg 提取）
-        Path canonical = tempDir.resolve("system/media/subtitles/fn-1_0.vtt");
+        Path canonical = tempDir.resolve("media/subtitles/fn-1_0.vtt");
         Files.createDirectories(canonical.getParent());
         Files.writeString(canonical, "WEBVTT");
 
@@ -238,8 +235,8 @@ class MediaPlaybackServiceImplTest {
         verifyNoMoreInteractions(mediaBurnInSubtitleSupport);
         verify(transcodeSessionManager).createSession(eq("user-1"), any());
         verifyNoMoreInteractions(transcodeSessionManager);
-        verify(systemStorageSpaceProvider).getSystemSpace();
-        verifyNoMoreInteractions(systemStorageSpaceProvider);
+        verify(systemCacheDirProvider).getCacheDir();
+        verifyNoMoreInteractions(systemCacheDirProvider);
     }
 
     /**
@@ -394,16 +391,14 @@ class MediaPlaybackServiceImplTest {
     void shouldExtractPureEmbeddedSubtitleViaCacheAndOffset() throws Exception {
         FileNode node = localNode("fn-1", "user-1");
         when(fileMapper.selectById("fn-1")).thenReturn(node);
-        StorageSpace space = new StorageSpace();
-        space.setPath(tempDir.toString());
-        when(systemStorageSpaceProvider.getSystemSpace()).thenReturn(space);
-        Path canonical = tempDir.resolve("system/media/subtitles/fn-1_0.vtt");
+        when(systemCacheDirProvider.getCacheDir()).thenReturn(tempDir);
+        Path canonical = tempDir.resolve("media/subtitles/fn-1_0.vtt");
         Files.createDirectories(canonical.getParent());
         Files.writeString(canonical, "WEBVTT");
 
         assertEquals(canonical, service.extractSubtitleByFileNode("fn-1", 0, 0, "user-1"));
 
-        Path offsetVtt = tempDir.resolve("system/media/subtitles/fn-1_0_off30000.vtt");
+        Path offsetVtt = tempDir.resolve("media/subtitles/fn-1_0_off30000.vtt");
         when(mediaSubtitleConvertSupport.resolveOffsetVtt(canonical, "fn-1_0", 30_000L)).thenReturn(offsetVtt);
         assertEquals(offsetVtt, service.extractSubtitleByFileNode("fn-1", 0, 30_000, "user-1"));
         verify(mediaSubtitleConvertSupport).resolveOffsetVtt(canonical, "fn-1_0", 30_000L);

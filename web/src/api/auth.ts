@@ -22,6 +22,14 @@ export function register(params: RegisterParams): Promise<UserVo> {
   return post<UserVo>('/auth/register', params)
 }
 
+/**
+ * 查询注册开关（匿名可读）：登录页据此决定是否展示注册入口。
+ * 查询失败由调用方兜底（默认隐藏注册入口）。
+ */
+export function fetchRegistrationEnabled(): Promise<boolean> {
+  return get<boolean>('/auth/registration-enabled')
+}
+
 export function getCurrentUser(): Promise<LoginVo> {
   return get<LoginVo>('/auth/me')
 }

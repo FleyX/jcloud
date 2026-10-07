@@ -2,11 +2,15 @@ package com.fleyx.jcloud.service.impl;
 
 import cn.hutool.crypto.digest.BCrypt;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.fleyx.jcloud.common.enums.NotificationEventType;
+import com.fleyx.jcloud.common.enums.NotificationTargetType;
 import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.enums.UserStatus;
+import com.fleyx.jcloud.common.event.NotificationEvent;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.common.permission.PermissionRegistry;
 import com.fleyx.jcloud.common.permission.PermissionResolver;
+import com.fleyx.jcloud.config.AuthProperties;
 import com.fleyx.jcloud.config.JwtProperties;
 import com.fleyx.jcloud.mapper.RoleMapper;
 import com.fleyx.jcloud.mapper.UserMapper;
@@ -26,7 +30,9 @@ import com.fleyx.jcloud.model.vo.TokenPairVo;
 import com.fleyx.jcloud.model.vo.UserVo;
 import com.fleyx.jcloud.service.AuthService;
 import com.fleyx.jcloud.service.SystemInitService;
+import com.fleyx.jcloud.service.support.AuthRateLimitSupport;
 import com.fleyx.jcloud.service.support.AuthSessionSupport;
+import com.fleyx.jcloud.service.support.NotificationEventSupport;
 import com.fleyx.jcloud.util.DeviceNameUtil;
 import com.fleyx.jcloud.util.JwtUtil;
 import com.fleyx.jcloud.util.UsernameUtil;
@@ -45,6 +51,11 @@ import java.util.List;
 @RequiredArgsConstructor
 public class AuthServiceImpl implements AuthService {
 
+    /**
+     * 限流主体前缀：登录面按用户名计数。
+     */
+    private static final String RATE_LIMIT_SUBJECT_PREFIX = "login:";
+
     private final UserMapper userMapper;
     private final RoleMapper roleMapper;
     private final UserRoleMapper userRoleMapper;
@@ -55,11 +66,17 @@ public class AuthServiceImpl implements AuthService {
     private final PermissionRegistry permissionRegistry;
     private final SystemInitService systemInitService;
     private final AuthSessionSupport authSessionSupport;
+    private final AuthRateLimitSupport authRateLimitSupport;
+    private final NotificationEventSupport notificationEventSupport;
     private final JwtProperties jwtProperties;
+    private final AuthProperties authProperties;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public UserVo register(UserRegisterDto dto) {
+        if (!authProperties.isRegistrationEnabled()) {
+            throw new BusinessException("当前未开放注册");
+        }
         String username = UsernameUtil.requireValid(dto.getUsername());
         checkUsernameUnique(username);
         User user = new User();
@@ -71,6 +88,9 @@ public class AuthServiceImpl implements AuthService {
         user.setIsAdmin(0);
         userMapper.insert(user);
         bindCommonUserRole(user.getId());
+        notificationEventSupport.publishAfterCommit(new NotificationEvent(this, NotificationEventType.USER_REGISTERED,
+                NotificationTargetType.ADMINS, null, "新用户注册",
+                String.format("新用户 %s 注册成功", username)));
         return userConvert.poToVo(user);
     }
 
@@ -91,11 +111,16 @@ public class AuthServiceImpl implements AuthService {
     }
 
     @Override
-    public LoginVo login(UserLoginDto dto, String userAgent) {
-        User user = findActiveUserByUsername(dto.getUsername());
-        if (!matchPassword(dto.getPassword(), user.getPassword())) {
+    public LoginVo login(UserLoginDto dto, String userAgent, String clientIp) {
+        String username = UsernameUtil.normalize(dto.getUsername());
+        String rateLimitSubject = RATE_LIMIT_SUBJECT_PREFIX + username;
+        authRateLimitSupport.assertAllowed(rateLimitSubject, clientIp);
+        User user = findActiveUserByUsername(username);
+        if (user == null || !matchPassword(dto.getPassword(), user.getPassword())) {
+            authRateLimitSupport.recordFailure(rateLimitSubject);
             throw new BusinessException(ResultCode.UNAUTHORIZED, "用户名或密码错误");
         }
+        authRateLimitSupport.recordSuccess(rateLimitSubject);
         String deviceName = DeviceNameUtil.resolveDeviceName(dto.getDeviceName(), userAgent);
         String resolvedDeviceId = authSessionSupport.resolveDeviceId(dto.getDeviceId());
         String refreshToken = authSessionSupport.createSession(user.getId(), user.getUsername(), resolvedDeviceId, deviceName);
@@ -183,12 +208,15 @@ public class AuthServiceImpl implements AuthService {
         return vo;
     }
 
+    /**
+     * 按用户名查找启用状态的用户，不存在时返回 null（由调用方统一抛"用户名或密码错误"并记录失败计数）。
+     */
     private User findActiveUserByUsername(String username) {
         LambdaQueryWrapper<User> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(User::getUsername, UsernameUtil.normalize(username));
+        wrapper.eq(User::getUsername, username);
         User user = userMapper.selectOne(wrapper);
         if (user == null) {
-            throw new BusinessException(ResultCode.UNAUTHORIZED, "用户名或密码错误");
+            return null;
         }
         if (UserStatus.DISABLED.getCode() == user.getStatus()) {
             throw new BusinessException(ResultCode.FORBIDDEN, "账号已被禁用");

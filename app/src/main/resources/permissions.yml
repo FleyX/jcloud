@@ -18,6 +18,7 @@
 public:
   - { code: "POST:/jcloud/api/auth/login", name: "用户登录" }
   - { code: "POST:/jcloud/api/auth/register", name: "用户注册" }
+  - { code: "GET:/jcloud/api/auth/registration-enabled", name: "查询注册开关" }
   - { code: "POST:/jcloud/api/auth/refresh", name: "刷新令牌" }
   - { code: "POST:/jcloud/api/auth/logout", name: "登出当前设备" }
   - { code: "GET:/jcloud/api/s/{code}", name: "获取公开分享信息" }
@@ -48,6 +49,13 @@ login:
   - { code: "GET:/jcloud/api/remote-mounts/{id}/sync/task", name: "查询远程挂载最新同步任务" }
   - { code: "PUT:/jcloud/api/remote-mounts/{id}/sync-config", name: "更新远程挂载同步配置" }
   - { code: "GET:/jcloud/api/remote-mounts/sync-tasks", name: "分页查询远程同步任务" }
+  - { code: "GET:/jcloud/api/notifications", name: "查询当前用户通知列表" }
+  - { code: "GET:/jcloud/api/notifications/unread-count", name: "查询当前用户未读通知数" }
+  - { code: "PUT:/jcloud/api/notifications/{id}/read", name: "标记单条通知已读" }
+  - { code: "PUT:/jcloud/api/notifications/read-all", name: "标记全部通知已读" }
+  - { code: "POST:/jcloud/api/shares/email/send-link", name: "邮件分享发送链接分享" }
+  - { code: "POST:/jcloud/api/shares/email/send-attachment", name: "邮件分享发送附件直发" }
+  - { code: "GET:/jcloud/api/shares/email/recent-recipients", name: "查询最近邮件分享收件人" }
 
 permissions:
   - code: "file:menu"
@@ -55,6 +63,7 @@ permissions:
     resources:
       - { code: "VIEW:/files", name: "文件管理页面" }
       - { code: "GET:/jcloud/api/files", name: "分页查询文件列表" }
+      - { code: "GET:/jcloud/api/files/batch", name: "按ID批量查询文件节点" }
       - { code: "POST:/jcloud/api/files/upload", name: "上传文件" }
       - { code: "POST:/jcloud/api/files/upload/pre-check", name: "上传前预检" }
       - { code: "POST:/jcloud/api/files/instant", name: "秒传" }
@@ -186,8 +195,6 @@ permissions:
       - { code: "PUT:/jcloud/api/admin/storage-spaces/{id}", name: "编辑存储空间" }
       - { code: "DELETE:/jcloud/api/admin/storage-spaces/{id}", name: "删除存储空间" }
       - { code: "POST:/jcloud/api/admin/storage-spaces/{id}/refresh", name: "刷新存储空间磁盘状态" }
-      - { code: "GET:/jcloud/api/admin/storage-spaces/system-config", name: "查询系统数据目录配置" }
-      - { code: "PUT:/jcloud/api/admin/storage-spaces/system-config", name: "更新系统数据目录配置" }
       - { code: "GET:/jcloud/api/admin/system/init-status", name: "查询系统初始化状态" }
       - { code: "POST:/jcloud/api/admin/system/initialize", name: "执行系统初始化" }
       - { code: "PUT:/jcloud/api/users/{id}/storage", name: "设置用户默认存储空间" }
@@ -201,3 +208,15 @@ permissions:
       - { code: "PUT:/jcloud/api/admin/media/tmdb-config", name: "更新 TMDB 配置" }
       - { code: "GET:/jcloud/api/admin/media/transcode-config", name: "查询转码配置" }
       - { code: "PUT:/jcloud/api/admin/media/transcode-config", name: "更新转码配置" }
+
+  - code: "notification:menu"
+    name: "通知"
+    parent: "system:menu"
+    resources:
+      - { code: "VIEW:/admin/notification", name: "通知页面" }
+      - { code: "GET:/jcloud/api/admin/notification/smtp-config", name: "查询发件邮箱配置" }
+      - { code: "PUT:/jcloud/api/admin/notification/smtp-config", name: "更新发件邮箱配置" }
+      - { code: "POST:/jcloud/api/admin/notification/smtp-config/test", name: "发送测试邮件" }
+      - { code: "GET:/jcloud/api/admin/notification/event-switches", name: "查询通知事件开关" }
+      - { code: "PUT:/jcloud/api/admin/notification/event-switches/{eventType}", name: "设置通知事件开关" }
+      - { code: "GET:/jcloud/api/admin/notification/send-logs", name: "分页查询邮件发送记录" }

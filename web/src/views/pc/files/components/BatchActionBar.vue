@@ -2,7 +2,7 @@
 /**
  * 批量操作栏
  */
-import { FolderInput, Copy, Trash2, Download, Share2, X } from '@lucide/vue'
+import { FolderInput, Copy, Trash2, Download, Share2, Mail, X } from '@lucide/vue'
 import { cn } from '@/utils/cn'
 import { computed } from 'vue'
 
@@ -17,6 +17,7 @@ const emit = defineEmits<{
   copy: []
   download: []
   share: []
+  shareEmail: []
   delete: []
   clear: []
 }>()
@@ -64,6 +65,13 @@ const allowBatchOperations = computed(() => !props.hasMixedSource)
       >
         <Share2 class="h-4 w-4" />
         分享
+      </button>
+      <button
+        class="flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-sm font-medium text-surface-600 transition-colors hover:bg-surface-100"
+        @click="emit('shareEmail')"
+      >
+        <Mail class="h-4 w-4" />
+        分享到邮件
       </button>
     </template>
     <button

@@ -32,8 +32,10 @@ import java.util.List;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.nullValue;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -420,6 +422,98 @@ class UserControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(ResultCode.PARAM_ERROR.getCode()))
                 .andExpect(jsonPath("$.msg").value(containsString("用户名不能为空")));
+    }
+
+    /**
+     * POST /users 缺邮箱：@Valid 校验失败，GlobalExceptionHandler 包装为 code=400。
+     */
+    @Test
+    void shouldRejectSaveWithoutEmail() throws Exception {
+        mockMvc.perform(post("/jcloud/api/users")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"zhangsan\",\"password\":\"123456\","
+                                + "\"storageSpaceId\":\"s1\",\"quota\":1024}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(ResultCode.PARAM_ERROR.getCode()))
+                .andExpect(jsonPath("$.msg").value(containsString("邮箱不能为空")));
+
+        verify(userService, never()).saveUser(any(UserSaveDto.class));
+    }
+
+    /**
+     * POST /users 邮箱格式非法：@Valid 校验失败，GlobalExceptionHandler 包装为 code=400。
+     */
+    @Test
+    void shouldRejectSaveWithInvalidEmail() throws Exception {
+        mockMvc.perform(post("/jcloud/api/users")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"zhangsan\",\"password\":\"123456\",\"email\":\"not-an-email\","
+                                + "\"storageSpaceId\":\"s1\",\"quota\":1024}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(ResultCode.PARAM_ERROR.getCode()))
+                .andExpect(jsonPath("$.msg").value(containsString("邮箱格式不正确")));
+
+        verify(userService, never()).saveUser(any(UserSaveDto.class));
+    }
+
+    /**
+     * PUT /users/{id} 缺邮箱：@Valid 校验失败，GlobalExceptionHandler 包装为 code=400。
+     */
+    @Test
+    void shouldRejectUpdateWithoutEmail() throws Exception {
+        mockMvc.perform(put("/jcloud/api/users/u1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"nickname\":\"新昵称\",\"status\":1}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(ResultCode.PARAM_ERROR.getCode()))
+                .andExpect(jsonPath("$.msg").value(containsString("邮箱不能为空")));
+
+        verify(userService, never()).updateUser(any(UserUpdateDto.class));
+    }
+
+    /**
+     * PUT /users/{id} 邮箱格式非法：@Valid 校验失败，GlobalExceptionHandler 包装为 code=400。
+     */
+    @Test
+    void shouldRejectUpdateWithInvalidEmail() throws Exception {
+        mockMvc.perform(put("/jcloud/api/users/u1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"nickname\":\"新昵称\",\"email\":\"not-an-email\",\"status\":1}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(ResultCode.PARAM_ERROR.getCode()))
+                .andExpect(jsonPath("$.msg").value(containsString("邮箱格式不正确")));
+
+        verify(userService, never()).updateUser(any(UserUpdateDto.class));
+    }
+
+    /**
+     * PUT /users/me 缺邮箱：@Valid 校验失败，GlobalExceptionHandler 包装为 code=400。
+     */
+    @Test
+    void shouldRejectProfileUpdateWithoutEmail() throws Exception {
+        mockMvc.perform(put("/jcloud/api/users/me")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"nickname\":\"新昵称\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(ResultCode.PARAM_ERROR.getCode()))
+                .andExpect(jsonPath("$.msg").value(containsString("邮箱不能为空")));
+
+        verify(userService, never()).updateUserProfile(eq("user-1"), any(UserProfileUpdateDto.class));
+    }
+
+    /**
+     * PUT /users/me 邮箱格式非法：@Valid 校验失败，GlobalExceptionHandler 包装为 code=400。
+     */
+    @Test
+    void shouldRejectProfileUpdateWithInvalidEmail() throws Exception {
+        mockMvc.perform(put("/jcloud/api/users/me")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"not-an-email\",\"nickname\":\"新昵称\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(ResultCode.PARAM_ERROR.getCode()))
+                .andExpect(jsonPath("$.msg").value(containsString("邮箱格式不正确")));
+
+        verify(userService, never()).updateUserProfile(eq("user-1"), any(UserProfileUpdateDto.class));
     }
 
     /**

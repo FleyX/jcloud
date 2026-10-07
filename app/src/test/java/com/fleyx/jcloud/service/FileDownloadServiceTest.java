@@ -12,7 +12,6 @@ import com.fleyx.jcloud.model.dto.FileExecuteOperationDto;
 import com.fleyx.jcloud.model.dto.OperationItemDto;
 import com.fleyx.jcloud.model.vo.FileNodeVo;
 import com.fleyx.jcloud.model.vo.OperationResultVo;
-import com.fleyx.jcloud.model.vo.StorageSpaceVo;
 import com.fleyx.jcloud.model.vo.UserVo;
 import com.fleyx.jcloud.service.impl.FileDownloadServiceImpl;
 import com.fleyx.jcloud.common.constant.FileNodeConstants;
@@ -70,14 +69,6 @@ class FileDownloadServiceTest extends IntegrationTestBase {
 
     @Autowired
     private FileOperationService fileOperationService;
-
-    @Autowired
-    private SystemConfigService systemConfigService;
-
-    @Override
-    protected void afterSpaceCreated(StorageSpaceVo space) {
-        systemConfigService.setValue("system.storage.space.id", String.valueOf(space.getId()));
-    }
 
     @Test
     void shouldDownloadSingleFileAsZip() throws Exception {

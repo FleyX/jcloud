@@ -3,6 +3,7 @@ import {
   deleteToTrash,
   downloadBatchFiles,
   fetchFilePage,
+  fetchFilesByIds,
 } from '@/api/file'
 import { lookupMediaItemByFileNode } from '@/api/media'
 import { createShare, updateShare } from '@/api/share'
@@ -25,6 +26,7 @@ import type {
   OperationResultVo,
 } from '@/types/file'
 import type { ShareCreateRequest, ShareDetailVo, ShareUpdateRequest } from '@/types/share'
+import type { LocationQueryRaw } from 'vue-router'
 
 export interface DisplayFileNode extends FileNodeVo {
   iconType: FileDisplayType
@@ -92,6 +94,9 @@ export function useFileList(options: UseFileListOptions = {}) {
 
   const shareOpen = ref(false)
   const shareEditTarget = ref<ShareDetailVo | undefined>(undefined)
+  const emailShareOpen = ref(false)
+  /** 单文件行内分享的目标覆盖；为 null 表示走批量勾选流程 */
+  const shareTargets = ref<FileNodeVo[] | null>(null)
 
   const uploadConflictOpen = ref(false)
   const uploadConflicts = ref<ConflictItemVo[]>([])
@@ -99,6 +104,8 @@ export function useFileList(options: UseFileListOptions = {}) {
 
   const folders = computed(() => files.value.filter((file) => file.type === 'folder'))
   const selectedFiles = computed(() => files.value.filter((file) => selectedIds.value.has(file.id)))
+  const shareModalItems = computed<FileNodeVo[]>(() => shareTargets.value ?? selectedFiles.value)
+  const shareModalItemIds = computed<string[]>(() => shareModalItems.value.map((file) => file.id))
   const isAllSelected = computed(() => files.value.length > 0 && selectedIds.value.size === files.value.length)
   const hasMixedSelection = computed(() => hasMixedSource(selectedFiles.value))
   const isSearching = computed(() => keyword.value.trim().length > 0)
@@ -144,6 +151,108 @@ export function useFileList(options: UseFileListOptions = {}) {
       JSON.stringify({ sortField: sortField.value, sortOrder: sortOrder.value }),
     )
   }
+
+  /** URL query 中承载目录 id 链的键名 */
+  const PATH_QUERY_KEY = 'path'
+
+  /** 当前面包屑对应的 id 链签名（根目录为空串） */
+  function pathSignature(): string {
+    return breadcrumbStack.value
+      .slice(1)
+      .map((crumb) => crumb.id)
+      .join('.')
+  }
+
+  /** 回退到根目录初始状态 */
+  function resetToRoot() {
+    currentParentId.value = initialParentId
+    breadcrumbStack.value = [{ id: initialParentId, name: rootName }]
+  }
+
+  /**
+   * 将 id 链写入 URL query：保留既有 query，链为空（根目录）时删除 path 键。
+   * 默认 push 产生历史记录；replace 用于修正失效链接。
+   */
+  function writePathQuery(chain: string, replace = false): void {
+    const query: LocationQueryRaw = { ...router.currentRoute.value.query }
+    if (chain) {
+      query[PATH_QUERY_KEY] = chain
+    } else {
+      delete query[PATH_QUERY_KEY]
+    }
+    const location = { query }
+    void (replace ? router.replace(location) : router.push(location))
+  }
+
+  /**
+   * 节点是否直接位于虚拟根目录下。
+   * 前端虚拟根 id 为 '0'，后端节点中存的是补零 base36 形式的根 id（0000000000000），两者等价。
+   */
+  function isRootChild(parentId: string): boolean {
+    return parentId === initialParentId || /^0+$/.test(parentId)
+  }
+
+  /**
+   * 按 id 链顺序校验节点：数量、类型、父子衔接任一项不满足即返回 null。
+   * 后端不保证返回顺序，先按 id 建映射再按链顺序取。
+   */
+  function buildStackFromChain(
+    chain: string[],
+    nodes: FileNodeVo[],
+  ): Array<{ id: string; name: string }> | null {
+    if (nodes.length !== chain.length) return null
+    const nodeMap = new Map(nodes.map((node) => [node.id, node]))
+    const stack: Array<{ id: string; name: string }> = [{ id: initialParentId, name: rootName }]
+    // null 表示当前是链首，其父节点必须是虚拟根
+    let expectedParentId: string | null = null
+    for (const id of chain) {
+      const node = nodeMap.get(id)
+      if (!node || node.type !== 'folder') return null
+      const parentMatched = expectedParentId === null
+        ? isRootChild(node.parentId)
+        : node.parentId === expectedParentId
+      if (!parentMatched) return null
+      stack.push({ id: node.id, name: node.name })
+      expectedParentId = node.id
+    }
+    return stack
+  }
+
+  /**
+   * 按 URL path 恢复目录状态：链全部有效则重建面包屑，任一级失效静默回退根目录并修正 URL。
+   */
+  async function restoreFromUrl(): Promise<void> {
+    const raw = router.currentRoute.value.query[PATH_QUERY_KEY]
+    const chain = typeof raw === 'string' ? raw.split('.').filter((id) => id.length > 0) : []
+    if (chain.length === 0) {
+      resetToRoot()
+      return loadFiles()
+    }
+    const nodes = await fetchFilesByIds(chain)
+    const stack = buildStackFromChain(chain, nodes)
+    if (stack) {
+      breadcrumbStack.value = stack
+      currentParentId.value = stack[stack.length - 1].id
+    } else {
+      resetToRoot()
+      writePathQuery('', true)
+    }
+    return loadFiles()
+  }
+
+  /** 页面初始化：优先按 URL path 恢复目录，无 path 时加载根目录 */
+  function init(): Promise<void> {
+    return restoreFromUrl()
+  }
+
+  // 浏览器前进/后退：URL path 与当前面包屑不一致时重建目录状态（自身 push 引起的变化签名一致，自然跳过）
+  watch(
+    () => router.currentRoute.value.query[PATH_QUERY_KEY],
+    (value) => {
+      if ((typeof value === 'string' ? value : '') === pathSignature()) return
+      void restoreFromUrl()
+    },
+  )
 
   async function loadFiles() {
     loading.value = true
@@ -235,6 +344,7 @@ export function useFileList(options: UseFileListOptions = {}) {
     currentParentId.value = file.id
     breadcrumbStack.value.push({ id: file.id, name: file.name })
     resetKeywordSilently()
+    writePathQuery(pathSignature())
     return loadFiles()
   }
 
@@ -242,6 +352,7 @@ export function useFileList(options: UseFileListOptions = {}) {
     breadcrumbStack.value = breadcrumbStack.value.slice(0, index + 1)
     currentParentId.value = breadcrumbStack.value[index].id
     resetKeywordSilently()
+    writePathQuery(pathSignature())
     return loadFiles()
   }
 
@@ -356,6 +467,7 @@ export function useFileList(options: UseFileListOptions = {}) {
   }
 
   function openShareModal() {
+    shareTargets.value = null
     const targets = selectedFiles.value
     if (targets.length === 0) return
     if (hasMixedSource(targets)) {
@@ -366,10 +478,51 @@ export function useFileList(options: UseFileListOptions = {}) {
     shareOpen.value = true
   }
 
+  function openShareModalFor(file: FileNodeVo) {
+    shareTargets.value = [file]
+    shareEditTarget.value = undefined
+    shareOpen.value = true
+  }
+
+  function openEmailShareModal() {
+    shareTargets.value = null
+    const targets = selectedFiles.value
+    if (targets.length === 0) return
+    if (hasMixedSource(targets)) {
+      notificationStore.error('分享不能同时包含本地与远程文件')
+      return
+    }
+    emailShareOpen.value = true
+  }
+
+  function openEmailShareModalFor(file: FileNodeVo) {
+    shareTargets.value = [file]
+    emailShareOpen.value = true
+  }
+
+  function closeShareModal() {
+    shareOpen.value = false
+    shareTargets.value = null
+  }
+
+  function closeEmailShareModal() {
+    emailShareOpen.value = false
+    shareTargets.value = null
+  }
+
+  function handleEmailShareSent() {
+    const isBatch = shareTargets.value === null
+    emailShareOpen.value = false
+    shareTargets.value = null
+    if (isBatch) selectedIds.value.clear()
+  }
+
   async function handleCreateShare(payload: ShareCreateRequest) {
+    const isBatch = shareTargets.value === null
     const share = await createShare(payload)
     shareOpen.value = false
-    selectedIds.value.clear()
+    shareTargets.value = null
+    if (isBatch) selectedIds.value.clear()
     notificationStore.success('分享创建成功')
     return share
   }
@@ -445,17 +598,21 @@ export function useFileList(options: UseFileListOptions = {}) {
     moveCopyTargets,
     shareOpen,
     shareEditTarget,
+    emailShareOpen,
     uploadConflictOpen,
     uploadConflicts,
 
     folders,
     selectedFiles,
+    shareModalItems,
+    shareModalItemIds,
     isAllSelected,
     hasMixedSelection,
     isSearching,
     displayFiles,
 
     loadFiles,
+    init,
     setSortField,
     toggleSortOrder,
     toggleSort,
@@ -474,9 +631,15 @@ export function useFileList(options: UseFileListOptions = {}) {
     handleBatchDelete,
     handleBatchDownload,
     openShareModal,
+    openShareModalFor,
+    closeShareModal,
     handleCreateShare,
     handleUpdateShare,
     handleShareConfirm,
+    openEmailShareModal,
+    openEmailShareModalFor,
+    closeEmailShareModal,
+    handleEmailShareSent,
     openUploadConflict,
     handleUploadConflictConfirm,
     handleUploadConflictCancel,

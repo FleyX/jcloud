@@ -42,6 +42,22 @@ describe('FileRowActions', () => {
     expect(wrapper.emitted('copy')).toHaveLength(1)
   })
 
+  it('emits share event', async () => {
+    const wrapper = mount(FileRowActions, {
+      props: { file: buildFile() },
+    })
+    wrapper.vm.$emit('share', buildFile())
+    expect(wrapper.emitted('share')).toHaveLength(1)
+  })
+
+  it('emits shareEmail event', async () => {
+    const wrapper = mount(FileRowActions, {
+      props: { file: buildFile() },
+    })
+    wrapper.vm.$emit('shareEmail', buildFile())
+    expect(wrapper.emitted('shareEmail')).toHaveLength(1)
+  })
+
   it('emits delete event', async () => {
     const wrapper = mount(FileRowActions, {
       props: { file: buildFile() },

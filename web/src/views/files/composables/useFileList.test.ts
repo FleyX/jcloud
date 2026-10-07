@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { nextTick, ref } from 'vue'
+import { flushPromises } from '@vue/test-utils'
 import { setActivePinia, createPinia } from 'pinia'
 import { useFileList } from './useFileList'
 import { ApiError } from '@/api/errors'
@@ -6,6 +8,7 @@ import type { FileNodeVo } from '@/types/file'
 import type { ShareCreateRequest } from '@/types/share'
 
 const mockFetchFilePage = vi.fn()
+const mockFetchFilesByIds = vi.fn()
 const mockDeleteToTrash = vi.fn()
 const mockDownloadBatchFiles = vi.fn()
 const mockUploadBatch = vi.fn()
@@ -14,9 +17,12 @@ const mockUpdateShare = vi.fn()
 const mockGetCurrentUser = vi.fn()
 const mockLookupMediaItemByFileNode = vi.fn()
 const mockRouterPush = vi.fn()
+const mockRouterReplace = vi.fn()
+const mockCurrentRoute = ref<{ query: Record<string, string> }>({ query: {} })
 
 vi.mock('@/api/file', () => ({
   fetchFilePage: (...args: unknown[]) => mockFetchFilePage(...args),
+  fetchFilesByIds: (...args: unknown[]) => mockFetchFilesByIds(...args),
   deleteToTrash: (...args: unknown[]) => mockDeleteToTrash(...args),
   downloadBatchFiles: (...args: unknown[]) => mockDownloadBatchFiles(...args),
 }))
@@ -26,7 +32,13 @@ vi.mock('@/api/media', () => ({
 }))
 
 vi.mock('@/router', () => ({
-  default: { push: (...args: unknown[]) => mockRouterPush(...args) },
+  default: {
+    push: (...args: unknown[]) => mockRouterPush(...args),
+    replace: (...args: unknown[]) => mockRouterReplace(...args),
+    get currentRoute() {
+      return mockCurrentRoute
+    },
+  },
 }))
 
 vi.mock('@/api/auth', () => ({
@@ -77,6 +89,8 @@ describe('useFileList', () => {
     setActivePinia(createPinia())
     vi.clearAllMocks()
     mockFetchFilePage.mockResolvedValue({ records: [] })
+    mockFetchFilesByIds.mockResolvedValue([])
+    mockCurrentRoute.value = { query: {} }
     localStorage.clear()
   })
 
@@ -105,6 +119,13 @@ describe('useFileList', () => {
     const display = list.displayFiles.value[0]
     expect(display.type).toBe('folder')
     expect(display.displaySize).toBe('2.00 KB')
+  })
+
+  it('formats empty folder displaySize as 0', async () => {
+    const folder = buildFileNode({ name: 'empty', type: 'folder', size: '0' })
+    const list = await createList([folder])
+
+    expect(list.displayFiles.value[0].displaySize).toBe('0')
   })
 
   it('toggles selection', async () => {
@@ -366,6 +387,88 @@ describe('useFileList', () => {
     expect(list.selectedIds.value.size).toBe(0)
   })
 
+  it('opens share modal for a single file without mixed-source check and keeps selection', async () => {
+    const remote = buildFileNode({ id: 'a', sourceType: 'remote', remoteMountId: 'm1' })
+    const list = await createList([remote])
+
+    list.openShareModalFor(remote)
+
+    expect(list.shareOpen.value).toBe(true)
+    expect(list.shareModalItems.value).toEqual([remote])
+    expect(list.shareModalItemIds.value).toEqual(['a'])
+    expect(list.selectedIds.value.size).toBe(0)
+  })
+
+  it('opens email share modal for a single file without touching selection', async () => {
+    const node = buildFileNode({ id: 'a' })
+    const list = await createList([node])
+
+    list.openEmailShareModalFor(node)
+
+    expect(list.emailShareOpen.value).toBe(true)
+    expect(list.shareModalItems.value).toEqual([node])
+    expect(list.selectedIds.value.size).toBe(0)
+  })
+
+  it('keeps selection after a single-file share is created', async () => {
+    const a = buildFileNode({ id: 'a' })
+    const b = buildFileNode({ id: 'b' })
+    mockCreateShare.mockResolvedValue({ id: 's1' })
+
+    const list = await createList([a, b])
+    list.toggleSelect('b')
+    list.openShareModalFor(a)
+    await list.handleCreateShare({ name: 'share', fileNodeIds: ['a'] } as ShareCreateRequest)
+
+    expect(list.shareOpen.value).toBe(false)
+    expect(list.selectedIds.value.has('b')).toBe(true)
+    // 单文件分享结束后目标覆盖被重置，回落到批量勾选
+    expect(list.shareModalItems.value).toEqual([b])
+  })
+
+  it('keeps selection after a single-file email share is sent', async () => {
+    const a = buildFileNode({ id: 'a' })
+    const b = buildFileNode({ id: 'b' })
+
+    const list = await createList([a, b])
+    list.toggleSelect('b')
+    list.openEmailShareModalFor(a)
+    list.handleEmailShareSent()
+
+    expect(list.emailShareOpen.value).toBe(false)
+    expect(list.selectedIds.value.has('b')).toBe(true)
+    expect(list.shareModalItems.value).toEqual([b])
+  })
+
+  it('batch share entry keeps clearing selection', async () => {
+    const a = buildFileNode({ id: 'a' })
+    mockCreateShare.mockResolvedValue({ id: 's1' })
+
+    const list = await createList([a])
+    list.toggleSelect('a')
+    list.openShareModal()
+    expect(list.shareModalItems.value).toEqual([a])
+
+    await list.handleCreateShare({ name: 'share', fileNodeIds: ['a'] } as ShareCreateRequest)
+
+    expect(list.selectedIds.value.size).toBe(0)
+  })
+
+  it('resets single-file share target when the modal closes', async () => {
+    const node = buildFileNode({ id: 'a' })
+    const list = await createList([node])
+
+    list.openShareModalFor(node)
+    list.closeShareModal()
+    expect(list.shareOpen.value).toBe(false)
+    expect(list.shareModalItems.value).toEqual([])
+
+    list.openEmailShareModalFor(node)
+    list.closeEmailShareModal()
+    expect(list.emailShareOpen.value).toBe(false)
+    expect(list.shareModalItems.value).toEqual([])
+  })
+
   it('uploads files through useBatchUpload', async () => {
     const file = new File(['x'], 'x.txt')
 
@@ -480,6 +583,141 @@ describe('useFileList', () => {
       expect(mockRouterPush).not.toHaveBeenCalled()
       expect(list.previewOpen.value).toBe(true)
       expect(list.previewTarget.value).toEqual(image)
+    })
+  })
+
+  describe('URL 路径记忆', () => {
+    const rootCrumb = { id: '0', name: '全部文件' }
+    // 后端根节点占位 id：根目录下的节点 parentId 是补零 base36 形式，前端虚拟根用 '0'
+    const ROOT_PARENT_ID = '0000000000000'
+
+    function buildFolder(id: string, name: string, parentId: string): FileNodeVo {
+      return buildFileNode({ id, name, parentId, type: 'folder' })
+    }
+
+    function setRoutePath(path: string) {
+      mockCurrentRoute.value = path ? { query: { path } } : { query: {} }
+    }
+
+    it('进入文件夹与逐级深入时 push 点号分隔的 id 链', async () => {
+      const list = await createList([])
+
+      list.enterFolder(buildFolder('a', 'docs', ROOT_PARENT_ID))
+      expect(mockRouterPush).toHaveBeenLastCalledWith({ query: { path: 'a' } })
+
+      list.enterFolder(buildFolder('b', 'sub', 'a'))
+      expect(mockRouterPush).toHaveBeenLastCalledWith({ query: { path: 'a.b' } })
+    })
+
+    it('面包屑回根目录时 push 的 query 不含 path', async () => {
+      const list = await createList([])
+
+      list.enterFolder(buildFolder('a', 'docs', ROOT_PARENT_ID))
+      expect(mockRouterPush).toHaveBeenLastCalledWith({ query: { path: 'a' } })
+
+      list.navigateToBreadcrumb(0)
+      expect(mockRouterPush).toHaveBeenLastCalledWith({ query: {} })
+    })
+
+    it('init 恢复有效 id 链：面包屑名称与当前目录均来自接口返回', async () => {
+      // 接口不保证顺序，故意逆序返回以验证按链顺序重建
+      mockFetchFilesByIds.mockResolvedValue([
+        buildFolder('b', 'sub', 'a'),
+        buildFolder('a', 'docs', ROOT_PARENT_ID),
+      ])
+      setRoutePath('a.b')
+
+      const list = useFileList()
+      await list.init()
+
+      expect(mockFetchFilesByIds).toHaveBeenCalledWith(['a', 'b'])
+      expect(list.breadcrumbStack.value).toEqual([
+        rootCrumb,
+        { id: 'a', name: 'docs' },
+        { id: 'b', name: 'sub' },
+      ])
+      expect(list.currentParentId.value).toBe('b')
+      expect(mockFetchFilePage).toHaveBeenLastCalledWith(expect.objectContaining({ parentId: 'b' }))
+      expect(mockRouterReplace).not.toHaveBeenCalled()
+    })
+
+    it('init 链中一级缺失：静默回退根目录并 replace 清 path', async () => {
+      mockFetchFilesByIds.mockResolvedValue([buildFolder('a', 'docs', ROOT_PARENT_ID)])
+      setRoutePath('a.b')
+
+      const list = useFileList()
+      await list.init()
+
+      expect(list.currentParentId.value).toBe('0')
+      expect(list.breadcrumbStack.value).toEqual([rootCrumb])
+      expect(mockRouterReplace).toHaveBeenCalledWith({ query: {} })
+      expect(mockFetchFilePage).toHaveBeenLastCalledWith(expect.objectContaining({ parentId: '0' }))
+    })
+
+    it('init 链中一级为文件类型：回退根目录', async () => {
+      mockFetchFilesByIds.mockResolvedValue([
+        buildFileNode({ id: 'a', name: 'x.txt', parentId: ROOT_PARENT_ID }),
+      ])
+      setRoutePath('a')
+
+      const list = useFileList()
+      await list.init()
+
+      expect(list.currentParentId.value).toBe('0')
+      expect(mockRouterReplace).toHaveBeenCalledWith({ query: {} })
+    })
+
+    it('init 父子链断裂：回退根目录', async () => {
+      mockFetchFilesByIds.mockResolvedValue([
+        buildFolder('a', 'docs', ROOT_PARENT_ID),
+        buildFolder('b', 'sub', 'x'),
+      ])
+      setRoutePath('a.b')
+
+      const list = useFileList()
+      await list.init()
+
+      expect(list.currentParentId.value).toBe('0')
+      expect(mockRouterReplace).toHaveBeenCalledWith({ query: {} })
+    })
+
+    it('init 链首节点已被移出根目录：回退根目录', async () => {
+      mockFetchFilesByIds.mockResolvedValue([buildFolder('a', 'docs', 'other')])
+      setRoutePath('a')
+
+      const list = useFileList()
+      await list.init()
+
+      expect(list.currentParentId.value).toBe('0')
+      expect(mockRouterReplace).toHaveBeenCalledWith({ query: {} })
+    })
+
+    it('前进/后退切换 path：状态跟随 URL 且不再 push', async () => {
+      mockFetchFilesByIds.mockResolvedValue([
+        buildFolder('a', 'docs', ROOT_PARENT_ID),
+        buildFolder('b', 'sub', 'a'),
+      ])
+      const list = useFileList()
+      await list.loadFiles()
+
+      setRoutePath('a.b')
+      await nextTick()
+      await flushPromises()
+
+      expect(list.currentParentId.value).toBe('b')
+      expect(list.breadcrumbStack.value.map((crumb) => crumb.name)).toEqual([
+        '全部文件',
+        'docs',
+        'sub',
+      ])
+
+      setRoutePath('')
+      await nextTick()
+      await flushPromises()
+
+      expect(list.currentParentId.value).toBe('0')
+      expect(list.breadcrumbStack.value).toEqual([rootCrumb])
+      expect(mockRouterPush).not.toHaveBeenCalled()
     })
   })
 })

@@ -2,7 +2,9 @@ package com.fleyx.jcloud.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fleyx.jcloud.common.constant.FileNodeConstants;
+import com.fleyx.jcloud.common.enums.NotificationEventType;
 import com.fleyx.jcloud.common.enums.SyncTaskStatus;
+import com.fleyx.jcloud.common.event.NotificationEvent;
 import com.fleyx.jcloud.common.event.RemoteMountSubmittedEvent;
 import com.fleyx.jcloud.common.event.SyncCompletedEvent;
 import com.fleyx.jcloud.mapper.FileMapper;
@@ -97,7 +99,7 @@ public class RemoteMountSyncExecutor extends AbstractTreeSyncExecutor<RemoteMoun
         }
         RemoteMount mount = remoteMountMapper.selectById(task.getRemoteMountId());
         if (mount == null || mount.getDeleteAt() != 0L) {
-            syncTaskSupport.failTask(task, "挂载配置不存在或已删除", remoteSyncTaskMapper);
+            failAndNotify(task, mount, "挂载配置不存在或已删除");
             return;
         }
 
@@ -106,16 +108,16 @@ public class RemoteMountSyncExecutor extends AbstractTreeSyncExecutor<RemoteMoun
         try {
             locked = lock.tryLock(SyncTaskSupport.LOCK_WAIT_SECONDS, TimeUnit.SECONDS);
             if (!locked) {
-                syncTaskSupport.failTask(task, "获取挂载点锁超时", remoteSyncTaskMapper);
+                failAndNotify(task, mount, "获取挂载点锁超时");
                 return;
             }
             doSync(task, mount);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            syncTaskSupport.failTask(task, "同步任务被中断", remoteSyncTaskMapper);
+            failAndNotify(task, mount, "同步任务被中断");
         } catch (Exception e) {
             log.error("远程挂载同步失败，taskId={}", taskId, e);
-            syncTaskSupport.failTask(task, e.getMessage(), remoteSyncTaskMapper);
+            failAndNotify(task, mount, e.getMessage());
         } finally {
             if (locked) {
                 lock.unlock();
@@ -123,12 +125,32 @@ public class RemoteMountSyncExecutor extends AbstractTreeSyncExecutor<RemoteMoun
         }
     }
 
+    /**
+     * 将同步任务置为失败并通知挂载点属主。
+     * <p>
+     * 仅在失败出口调用（取消、成功均不通知）；挂载配置已不存在时无属主可通知，仅落库失败状态。
+     *
+     * @param task     同步任务
+     * @param mount    挂载配置，可为空（配置不存在时）
+     * @param errorMsg 失败原因
+     */
+    private void failAndNotify(RemoteSyncTask task, RemoteMount mount, String errorMsg) {
+        syncTaskSupport.failTask(task, errorMsg, remoteSyncTaskMapper);
+        if (mount == null) {
+            return;
+        }
+        String reason = errorMsg == null || errorMsg.isBlank() ? "未知错误" : errorMsg;
+        eventPublisher.publishEvent(new NotificationEvent(this, NotificationEventType.REMOTE_SYNC_FAILED,
+                mount.getUserId(), "远程挂载同步失败",
+                String.format("挂载点「%s」同步失败：%s", mount.getName(), reason)));
+    }
+
     private void doSync(RemoteSyncTask task, RemoteMount mount) throws Exception {
         syncTaskSupport.markRunning(task, remoteSyncTaskMapper);
         RemoteProtocolAdapter adapter = adapterFactory.create(mount);
         FileNode mountNode = remoteMountSupport.findMountNode(mount.getId(), mount.getUserId());
         if (mountNode == null) {
-            syncTaskSupport.failTask(task, "挂载点文件节点不存在", remoteSyncTaskMapper);
+            failAndNotify(task, mount, "挂载点文件节点不存在");
             return;
         }
         SyncContext context = new SyncContext(task.getId(), mount.getUserId(), mount.getId());

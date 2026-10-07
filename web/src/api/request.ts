@@ -14,14 +14,14 @@ export interface RequestOptions {
 /** access 剩余有效期低于该阈值时先刷新再发业务请求 */
 const REFRESH_THRESHOLD_MS = 10 * 60 * 1000
 
-/** 豁免预检刷新的精确路径（刷新接口豁免保证无递归；登录/注册/登出走各自原生流程） */
-const REFRESH_EXEMPT_EXACT = ['/auth/login', '/auth/register', '/auth/refresh', '/auth/logout']
+/** 豁免预检刷新的精确路径（刷新接口豁免保证无递归；登录/注册/登出/注册开关走各自原生流程） */
+const REFRESH_EXEMPT_EXACT = ['/auth/login', '/auth/register', '/auth/refresh', '/auth/logout', '/auth/registration-enabled']
 
 /** 单飞刷新承诺：并发业务请求共享同一次刷新 */
 let refreshPromise: Promise<void> | null = null
 
 /**
- * 是否豁免预检刷新：精确匹配登录/注册/刷新/登出，前缀匹配公开分享 /s/。
+ * 是否豁免预检刷新：精确匹配登录/注册/刷新/登出/注册开关，前缀匹配公开分享 /s/。
  * /auth/me、/auth/devices、/auth/logout-all 不豁免（登录态接口同样需要有效 access；
  * 页面刷新后守卫的首个 /auth/me 依赖预检兜底刷新）。
  */

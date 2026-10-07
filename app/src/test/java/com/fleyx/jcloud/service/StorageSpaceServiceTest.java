@@ -45,9 +45,6 @@ class StorageSpaceServiceTest {
     @Autowired
     private UserMapper userMapper;
 
-    @Autowired
-    private SystemConfigService systemConfigService;
-
     @Test
     void shouldCreateStorageSpace() {
         StorageSpaceSaveDto dto = buildDto("默认空间", "default");
@@ -159,14 +156,6 @@ class StorageSpaceServiceTest {
         update.setStatus(1);
         update.setIsPrimary(1);
         storageSpaceService.update(update);
-
-        assertThrows(BusinessException.class, () -> storageSpaceService.removeById(saved.getId()));
-    }
-
-    @Test
-    void shouldRejectDeleteWhenConfiguredAsSystemSpace() {
-        StorageSpaceVo saved = storageSpaceService.save(buildDto("系统目录空间", "system-configured"));
-        systemConfigService.setValue("system.storage.space.id", String.valueOf(saved.getId()));
 
         assertThrows(BusinessException.class, () -> storageSpaceService.removeById(saved.getId()));
     }

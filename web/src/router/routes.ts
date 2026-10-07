@@ -15,9 +15,11 @@ export type RouteName =
   | 'RoleManagement'
   | 'StorageSpaceManagement'
   | 'AdminMediaSettings'
+  | 'AdminNotificationSettings'
   | 'PersonProfile'
   | 'PersonDevices'
   | 'PersonWebDav'
+  | 'Notifications'
   | 'MediaHome'
   | 'MediaLibrary'
   | 'MediaDirectories'
@@ -120,6 +122,12 @@ export const dynamicRoutes: RouteRecordRaw[] = [
     component: deviceView('person/webdav'),
     meta: { title: 'WebDAV共享' },
   },
+  {
+    path: '/notifications',
+    name: 'Notifications' as RouteName,
+    component: deviceView('notifications/index'),
+    meta: { title: '通知' },
+  },
   // 旧路径重定向，保持兼容
   {
     path: '/profile',
@@ -207,5 +215,11 @@ export const dynamicRoutes: RouteRecordRaw[] = [
     name: 'AdminMediaSettings' as RouteName,
     component: deviceView('admin/MediaSettings'),
     meta: { resource: 'VIEW:/admin/media', title: '影视设置' },
+  },
+  {
+    path: '/admin/notification',
+    name: 'AdminNotificationSettings' as RouteName,
+    component: deviceView('admin/NotificationSettings'),
+    meta: { resource: 'VIEW:/admin/notification', title: '通知' },
   },
 ]

@@ -20,7 +20,7 @@ import com.fleyx.jcloud.config.PreviewProperties;
 import com.fleyx.jcloud.service.FilePreviewGenerator;
 import com.fleyx.jcloud.service.FilePreviewService;
 import com.fleyx.jcloud.service.RemoteFileService;
-import com.fleyx.jcloud.service.SystemStorageSpaceProvider;
+import com.fleyx.jcloud.service.support.SystemCacheDirProvider;
 import com.fleyx.jcloud.util.FilePathUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -48,7 +48,7 @@ public class FilePreviewServiceImpl implements FilePreviewService {
     private final FileMapper fileMapper;
     private final PreviewFileMapper previewFileMapper;
     private final StorageSpaceMapper storageSpaceMapper;
-    private final SystemStorageSpaceProvider systemStorageSpaceProvider;
+    private final SystemCacheDirProvider systemCacheDirProvider;
     private final RemoteFileService remoteFileService;
     private final List<FilePreviewGenerator> generators;
     private final PreviewProperties previewProperties;
@@ -91,18 +91,16 @@ public class FilePreviewServiceImpl implements FilePreviewService {
 
         PreviewFile cached = findCachedPreview(node, type);
         if (cached != null) {
-            StorageSpace space = systemStorageSpaceProvider.getSystemSpace();
-            Path previewPath = buildAbsolutePath(space, cached.getRelativePath());
+            Path previewPath = buildAbsolutePath(cached.getRelativePath());
             if (Files.exists(previewPath)) {
                 return buildResult(cached, previewPath);
             }
         }
 
-        StorageSpace space = systemStorageSpaceProvider.getSystemSpace();
         Path sourcePath = resolvePreviewSourcePath(node, ownerUserId, ownerUserCode);
 
         String relativePath = buildRelativePath(node, type);
-        Path targetPath = buildAbsolutePath(space, relativePath);
+        Path targetPath = buildAbsolutePath(relativePath);
         try {
             generator.generate(sourcePath, targetPath);
         } catch (Exception e) {
@@ -110,7 +108,7 @@ public class FilePreviewServiceImpl implements FilePreviewService {
                     "预览生成失败：" + e.getMessage());
         }
 
-        PreviewFile previewFile = savePreviewRecord(node, type, space, relativePath);
+        PreviewFile previewFile = savePreviewRecord(node, type, relativePath);
         return buildResult(previewFile, targetPath);
     }
 
@@ -203,13 +201,12 @@ public class FilePreviewServiceImpl implements FilePreviewService {
                 safeHash.substring(0, Math.min(2, safeHash.length())), safeHash, ext);
     }
 
-    private Path buildAbsolutePath(StorageSpace space, String relativePath) {
-        return Path.of(space.getPath()).resolve(relativePath);
+    private Path buildAbsolutePath(String relativePath) {
+        return systemCacheDirProvider.getCacheDir().resolve(relativePath);
     }
 
-    private PreviewFile savePreviewRecord(FileNode node, PreviewType type,
-                                          StorageSpace space, String relativePath) {
-        Path previewPath = buildAbsolutePath(space, relativePath);
+    private PreviewFile savePreviewRecord(FileNode node, PreviewType type, String relativePath) {
+        Path previewPath = buildAbsolutePath(relativePath);
         long size;
         try {
             size = Files.size(previewPath);
@@ -220,7 +217,6 @@ public class FilePreviewServiceImpl implements FilePreviewService {
         PreviewFile existing = findCachedPreview(node, type);
         if (existing != null) {
             existing.setRelativePath(relativePath);
-            existing.setStorageSpaceId(space.getId());
             existing.setSize(size);
             previewFileMapper.updateById(existing);
             return existing;
@@ -229,7 +225,6 @@ public class FilePreviewServiceImpl implements FilePreviewService {
         PreviewFile record = new PreviewFile();
         record.setFileNodeId(node.getId());
         record.setType(type.getCode());
-        record.setStorageSpaceId(space.getId());
         record.setRelativePath(relativePath);
         record.setSize(size);
         record.setStatus(1);

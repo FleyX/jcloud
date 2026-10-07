@@ -5,8 +5,11 @@ import { useUserStore } from '@/store/user'
 import { useNotificationStore } from '@/store/notification'
 import { fetchInitStatus, initializeSystem } from '@/api/storage-space'
 import { cn } from '@/utils/cn'
-import { Cloud, Plus, Trash2 } from '@lucide/vue'
+import { isValidEmail } from '@/utils/email'
+import SmtpConfigForm from '@/components/notification/SmtpConfigForm.vue'
+import { ChevronDown, ChevronUp, Cloud, Plus, Trash2 } from '@lucide/vue'
 import type { InitSpaceItem, SystemInitDto } from '@/types/storage-space'
+import type { SmtpConfigPayload, SmtpFormModel } from '@/types/notification'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -21,7 +24,46 @@ const spaces = reactive<InitSpaceItem[]>([
 
 const selected = reactive({
   primaryIndex: 0,
-  systemDataIndex: 0,
+})
+
+const smtpOpen = ref(false)
+
+const smtp = ref<SmtpFormModel>({
+  host: '',
+  port: 465,
+  username: '',
+  password: '',
+  encryption: 'ssl',
+  fromAddress: '',
+  fromName: '',
+})
+
+const smtpFilled = computed(() =>
+  [smtp.value.host, smtp.value.username, smtp.value.password, smtp.value.fromAddress, smtp.value.fromName]
+    .some((value) => value.trim() !== ''),
+)
+
+const smtpError = computed(() => {
+  if (!smtpFilled.value) {
+    return ''
+  }
+  if (!smtp.value.host.trim()) {
+    return '请填写 SMTP 主机'
+  }
+  const port = Number(smtp.value.port)
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    return '请填写 1~65535 之间的 SMTP 端口'
+  }
+  if (!smtp.value.password.trim()) {
+    return '请填写 SMTP 密码'
+  }
+  if (!smtp.value.fromAddress.trim()) {
+    return '请填写发件人地址'
+  }
+  if (!isValidEmail(smtp.value.fromAddress)) {
+    return '发件人地址格式不正确'
+  }
+  return ''
 })
 
 const canSubmit = computed(() =>
@@ -29,8 +71,7 @@ const canSubmit = computed(() =>
   && spaces.every((s) => s.name.trim() && s.path.trim())
   && selected.primaryIndex >= 0
   && selected.primaryIndex < spaces.length
-  && selected.systemDataIndex >= 0
-  && selected.systemDataIndex < spaces.length,
+  && smtpError.value === '',
 )
 
 onMounted(async () => {
@@ -57,9 +98,6 @@ function addSpace() {
   if (selected.primaryIndex < 0) {
     selected.primaryIndex = 0
   }
-  if (selected.systemDataIndex < 0) {
-    selected.systemDataIndex = 0
-  }
 }
 
 function removeSpace(index: number) {
@@ -70,9 +108,6 @@ function removeSpace(index: number) {
   spaces.splice(index, 1)
   if (selected.primaryIndex >= spaces.length) {
     selected.primaryIndex = spaces.length - 1
-  }
-  if (selected.systemDataIndex >= spaces.length) {
-    selected.systemDataIndex = spaces.length - 1
   }
 }
 
@@ -90,7 +125,18 @@ async function handleSubmit() {
         remark: s.remark?.trim(),
       })),
       primaryIndex: selected.primaryIndex,
-      systemDataIndex: selected.systemDataIndex,
+    }
+    if (smtpFilled.value) {
+      const payload: SmtpConfigPayload = {
+        host: smtp.value.host.trim(),
+        port: Number(smtp.value.port),
+        username: smtp.value.username.trim(),
+        encryption: smtp.value.encryption,
+        fromAddress: smtp.value.fromAddress.trim(),
+        fromName: smtp.value.fromName.trim(),
+        password: smtp.value.password,
+      }
+      dto.smtp = payload
     }
     await initializeSystem(dto)
     userStore.initialized = true
@@ -106,7 +152,7 @@ async function handleSubmit() {
 
 <template>
   <div class="flex h-screen w-screen flex-col bg-gradient-to-br from-surface-50 to-primary-50 p-4">
-    <div class="w-full flex-1 rounded-3xl bg-white p-5 shadow-soft">
+    <div class="w-full flex-1 overflow-y-auto rounded-3xl bg-white p-5 shadow-soft">
       <div class="mb-6 flex flex-col items-center gap-3">
         <div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary-600 text-white shadow-soft">
           <Cloud class="h-6 w-6" />
@@ -115,7 +161,7 @@ async function handleSubmit() {
           系统初始化
         </h1>
         <p class="text-center text-xs text-surface-500">
-          首次使用需要配置存储空间，请选择主存储空间及系统数据存放位置
+          首次使用需要配置存储空间，可选配置发件邮箱以启用邮件通知
         </p>
       </div>
 
@@ -189,16 +235,38 @@ async function handleSubmit() {
                 >
                 设为主存储空间
               </label>
-              <label class="flex cursor-pointer items-center gap-2 text-sm text-surface-700">
-                <input
-                  v-model="selected.systemDataIndex"
-                  type="radio"
-                  :value="index"
-                  class="h-4 w-4 border-surface-300 text-primary-600 focus:ring-primary-500"
-                >
-                系统数据存放于此
-              </label>
             </div>
+          </div>
+        </div>
+
+        <div class="mb-5 rounded-2xl border border-surface-200">
+          <button
+            type="button"
+            class="flex w-full items-center justify-between px-3 py-2.5 text-left"
+            @click="smtpOpen = !smtpOpen"
+          >
+            <span>
+              <span class="text-xs font-semibold text-surface-700">发件邮箱配置（可选）</span>
+              <span class="mt-0.5 block text-xs text-surface-400">留空即跳过</span>
+            </span>
+            <component
+              :is="smtpOpen ? ChevronUp : ChevronDown"
+              class="h-4 w-4 shrink-0 text-surface-400"
+            />
+          </button>
+
+          <div
+            v-if="smtpOpen"
+            class="border-t border-surface-100 p-3"
+          >
+            <SmtpConfigForm v-model="smtp" />
+
+            <p
+              v-if="smtpError"
+              class="mt-3 text-xs text-red-500"
+            >
+              {{ smtpError }}
+            </p>
           </div>
         </div>
 

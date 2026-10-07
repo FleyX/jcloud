@@ -1,10 +1,16 @@
 package com.fleyx.jcloud.service.support;
 
+import com.fleyx.jcloud.common.enums.NotificationEventType;
+import com.fleyx.jcloud.common.enums.NotificationTargetType;
+import com.fleyx.jcloud.common.event.NotificationEvent;
 import com.fleyx.jcloud.common.event.SyncCompletedEvent;
+import com.fleyx.jcloud.mapper.StorageSpaceMapper;
 import com.fleyx.jcloud.mapper.UserMapper;
+import com.fleyx.jcloud.model.po.StorageSpace;
 import com.fleyx.jcloud.model.po.User;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
@@ -21,16 +27,114 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class UserUsedSpaceSupport {
 
+    /**
+     * 配额/容量告警阈值分子：使用率严格超过 4/5（80%）才告警。
+     */
+    private static final long ALERT_THRESHOLD_NUMERATOR = 4;
+
+    /**
+     * 配额/容量告警阈值分母。
+     */
+    private static final long ALERT_THRESHOLD_DENOMINATOR = 5;
+
     private final UserMapper userMapper;
+    private final StorageSpaceMapper storageSpaceMapper;
+    private final NotificationAlertDedupSupport alertDedupSupport;
+    private final NotificationSwitchSupport notificationSwitchSupport;
+    private final ApplicationEventPublisher eventPublisher;
 
     /**
      * 按增量原子累加用户已用空间（单语句 UPDATE，并发调用不丢更新，结果不小于 0）。
+     * <p>
+     * 累加后检查配额与所属存储空间容量是否超过告警阈值（80%），超阈值且 24 小时内未告警过则发送通知。
      *
      * @param userId 用户 ID
      * @param delta  容量增量（可为负）
      */
     public void addUsedSpace(String userId, long delta) {
         userMapper.addUsedSpace(userId, delta);
+        checkUsageAlert(userId);
+    }
+
+    /**
+     * 检查用户配额与所属存储空间容量是否超过告警阈值并触发通知。
+     * <p>
+     * 阈值比较为严格超过 80%（整数运算避免浮点误差）；配额或容量为 0/null 视为不限，跳过。
+     * 两条告警分别以用户与存储空间为对象独立去重（24 小时窗口），仅首次超限发送，且仅在
+     * 对应事件开关启用时写入去重标记（开关禁用时不写标记，重新启用后仍能告警）。
+     * 本方法只做读取与 Redis 标记，事件由通知模块异步落库/发信，不阻塞记账路径。
+     *
+     * @param userId 用户 ID
+     */
+    private void checkUsageAlert(String userId) {
+        User user = userMapper.selectById(userId);
+        if (user == null) {
+            return;
+        }
+        checkQuotaAlert(user);
+        checkCapacityAlert(user);
+    }
+
+    private void checkQuotaAlert(User user) {
+        Long quota = user.getQuota();
+        long used = user.getUsedSpace() == null ? 0L : user.getUsedSpace();
+        if (quota == null || quota <= 0 || !exceedsAlertThreshold(used, quota)) {
+            return;
+        }
+        if (!notificationSwitchSupport.isEnabled(NotificationEventType.QUOTA_ALERT)) {
+            return;
+        }
+        if (!alertDedupSupport.tryMark("quota:" + user.getId())) {
+            return;
+        }
+        long percent = Math.round(used * 100.0 / quota);
+        eventPublisher.publishEvent(new NotificationEvent(this, NotificationEventType.QUOTA_ALERT,
+                user.getId(), "配额告警",
+                String.format("已用空间 %d 字节，配额 %d 字节，使用率已达 %d%%", used, quota, percent)));
+        eventPublisher.publishEvent(new NotificationEvent(this, NotificationEventType.QUOTA_ALERT,
+                NotificationTargetType.ADMINS, null, "配额告警",
+                String.format("用户 %s 已用空间 %d 字节，配额 %d 字节，使用率已达 %d%%",
+                        user.getUsername(), used, quota, percent)));
+    }
+
+    private void checkCapacityAlert(User user) {
+        String spaceId = user.getStorageSpaceId();
+        if (spaceId == null) {
+            return;
+        }
+        StorageSpace space = storageSpaceMapper.selectById(spaceId);
+        if (space == null) {
+            return;
+        }
+        Long capacity = space.getCapacity();
+        long used = space.getUsedSpace() == null ? 0L : space.getUsedSpace();
+        if (capacity == null || capacity <= 0 || !exceedsAlertThreshold(used, capacity)) {
+            return;
+        }
+        if (!notificationSwitchSupport.isEnabled(NotificationEventType.STORAGE_CAPACITY_ALERT)) {
+            return;
+        }
+        if (!alertDedupSupport.tryMark("capacity:" + spaceId)) {
+            return;
+        }
+        long percent = Math.round(used * 100.0 / capacity);
+        eventPublisher.publishEvent(new NotificationEvent(this, NotificationEventType.STORAGE_CAPACITY_ALERT,
+                NotificationTargetType.ADMINS, null, "存储空间容量告警",
+                String.format("存储空间「%s」已用 %d 字节，容量 %d 字节，使用率已达 %d%%",
+                        space.getName(), used, capacity, percent)));
+    }
+
+    /**
+     * 判断使用量是否严格超过配额/容量的 80%。
+     * <p>
+     * 用整数乘法与整除比较，避免 double 阈值在边界（恰好 80%）上的精度误差。
+     *
+     * @param used  已用量（字节）
+     * @param limit 配额/容量（字节），调用方保证大于 0
+     * @return true 使用率严格超过 80%
+     */
+    private static boolean exceedsAlertThreshold(long used, long limit) {
+        return used > limit * ALERT_THRESHOLD_NUMERATOR / ALERT_THRESHOLD_DENOMINATOR;
     }
 
     /**

@@ -22,7 +22,7 @@ interface Props {
 }
 
 defineProps<Props>()
-const emit = defineEmits(['rowClick', 'toggleSelect', 'download', 'rename', 'copy', 'move', 'remove'])
+const emit = defineEmits(['rowClick', 'toggleSelect', 'download', 'rename', 'copy', 'move', 'share', 'shareEmail', 'remove'])
 </script>
 
 <template>
@@ -105,6 +105,8 @@ const emit = defineEmits(['rowClick', 'toggleSelect', 'download', 'rename', 'cop
         @rename="emit('rename', $event)"
         @copy="emit('copy', $event)"
         @move="emit('move', $event)"
+        @share="emit('share', $event)"
+        @share-email="emit('shareEmail', $event)"
         @delete="emit('remove', $event)"
       />
     </div>

@@ -58,7 +58,7 @@ class AuthControllerTest {
     private final JwtProperties jwtProperties = new JwtProperties();
     private final AuthCookieSupport authCookieSupport = new AuthCookieSupport(authProperties, jwtProperties);
 
-    private final AuthController controller = new AuthController(authService, authCookieSupport);
+    private final AuthController controller = new AuthController(authService, authCookieSupport, authProperties);
 
     private final MockMvc mockMvc = MockMvcBuilders.standaloneSetup(controller)
             .setControllerAdvice(new GlobalExceptionHandler())
@@ -80,6 +80,35 @@ class AuthControllerTest {
 
     private static String findCookie(List<String> cookies, String prefix) {
         return cookies.stream().filter(c -> c.startsWith(prefix)).findFirst().orElseThrow();
+    }
+
+    /**
+     * GET /auth/registration-enabled：匿名（无 UserContext）可读，默认开关关闭返回 false。
+     */
+    @Test
+    void shouldReturnRegistrationEnabledForAnonymousByDefault() throws Exception {
+        UserContext.clear();
+
+        mockMvc.perform(get("/jcloud/api/auth/registration-enabled"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data").value(false));
+    }
+
+    /**
+     * GET /auth/registration-enabled：开关开启时返回 true。
+     */
+    @Test
+    void shouldReturnRegistrationEnabledTrueWhenEnabled() throws Exception {
+        authProperties.setRegistrationEnabled(true);
+        try {
+            mockMvc.perform(get("/jcloud/api/auth/registration-enabled"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.code").value(200))
+                    .andExpect(jsonPath("$.data").value(true));
+        } finally {
+            authProperties.setRegistrationEnabled(false);
+        }
     }
 
     /**
@@ -111,6 +140,36 @@ class AuthControllerTest {
     }
 
     /**
+     * POST /auth/register 缺邮箱：@Valid 校验失败，GlobalExceptionHandler 包装为 code=400。
+     */
+    @Test
+    void shouldRejectRegisterWithoutEmail() throws Exception {
+        mockMvc.perform(post("/jcloud/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"zhangsan\",\"password\":\"123456\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(ResultCode.PARAM_ERROR.getCode()))
+                .andExpect(jsonPath("$.msg").value(containsString("邮箱不能为空")));
+
+        verify(authService, never()).register(any(UserRegisterDto.class));
+    }
+
+    /**
+     * POST /auth/register 邮箱格式非法：@Valid 校验失败，GlobalExceptionHandler 包装为 code=400。
+     */
+    @Test
+    void shouldRejectRegisterWithInvalidEmail() throws Exception {
+        mockMvc.perform(post("/jcloud/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"zhangsan\",\"password\":\"123456\",\"email\":\"not-an-email\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(ResultCode.PARAM_ERROR.getCode()))
+                .andExpect(jsonPath("$.msg").value(containsString("邮箱格式不正确")));
+
+        verify(authService, never()).register(any(UserRegisterDto.class));
+    }
+
+    /**
      * POST /auth/login：登录凭证 DTO 透传，返回 R.ok 包装的 LoginVo；响应带双 token 的 Set-Cookie 且 body 仍含令牌对。
      */
     @Test
@@ -128,7 +187,7 @@ class AuthControllerTest {
         vo.setUserInfo(userInfo);
         vo.setResources(List.of("user:list", "user:view"));
         vo.setInitialized(true);
-        when(authService.login(eq(expected), isNull())).thenReturn(vo);
+        when(authService.login(eq(expected), isNull(), eq("127.0.0.1"))).thenReturn(vo);
 
         MvcResult result = mockMvc.perform(post("/jcloud/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -142,7 +201,7 @@ class AuthControllerTest {
                 .andExpect(jsonPath("$.data.initialized").value(true))
                 .andReturn();
 
-        verify(authService).login(eq(expected), isNull());
+        verify(authService).login(eq(expected), isNull(), eq("127.0.0.1"));
 
         List<String> cookies = setCookieHeaders(result);
         assertEquals(2, cookies.size());
@@ -204,7 +263,7 @@ class AuthControllerTest {
         vo.setRefreshToken("refresh-token");
         vo.setAccessExpiresAt(accessExpiresAt);
         vo.setUserInfo(userInfo);
-        when(authService.login(eq(expected), isNull())).thenReturn(vo);
+        when(authService.login(eq(expected), isNull(), eq("127.0.0.1"))).thenReturn(vo);
 
         MvcResult result = mockMvc.perform(post("/jcloud/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -401,7 +460,7 @@ class AuthControllerTest {
         UserLoginDto dto = new UserLoginDto();
         dto.setUsername("admin");
         dto.setPassword("wrong");
-        when(authService.login(eq(dto), isNull()))
+        when(authService.login(eq(dto), isNull(), eq("127.0.0.1")))
                 .thenThrow(new BusinessException(ResultCode.UNAUTHORIZED, "用户名或密码错误"));
 
         mockMvc.perform(post("/jcloud/api/auth/login")
@@ -411,6 +470,26 @@ class AuthControllerTest {
                 .andExpect(jsonPath("$.code").value(401))
                 .andExpect(jsonPath("$.msg").value("用户名或密码错误"));
 
-        verify(authService).login(eq(dto), isNull());
+        verify(authService).login(eq(dto), isNull(), eq("127.0.0.1"));
+    }
+
+    /**
+     * POST /auth/login：经 X-Forwarded-For 解析真实客户端 IP（取最左端）透传给 service。
+     */
+    @Test
+    void shouldResolveClientIpFromXffLeftmost() throws Exception {
+        UserLoginDto dto = new UserLoginDto();
+        dto.setUsername("admin");
+        dto.setPassword("admin123");
+        when(authService.login(eq(dto), isNull(), eq("203.0.113.9"))).thenReturn(new LoginVo());
+
+        mockMvc.perform(post("/jcloud/api/auth/login")
+                        .header("X-Forwarded-For", "203.0.113.9, 10.1.1.1, 10.2.2.2")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"admin\",\"password\":\"admin123\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200));
+
+        verify(authService).login(eq(dto), isNull(), eq("203.0.113.9"));
     }
 }

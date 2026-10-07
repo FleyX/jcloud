@@ -11,7 +11,6 @@ import com.fleyx.jcloud.model.dto.StorageSpaceSaveDto;
 import com.fleyx.jcloud.model.dto.StorageSpaceUpdateDto;
 import com.fleyx.jcloud.model.vo.StorageSpaceVo;
 import com.fleyx.jcloud.service.StorageSpaceService;
-import com.fleyx.jcloud.service.SystemConfigService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -27,7 +26,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentCaptor.forClass;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -45,10 +43,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class AdminStorageSpaceControllerTest {
 
     private final StorageSpaceService storageSpaceService = mock(StorageSpaceService.class);
-    private final SystemConfigService systemConfigService = mock(SystemConfigService.class);
 
     private final AdminStorageSpaceController controller =
-            new AdminStorageSpaceController(storageSpaceService, systemConfigService);
+            new AdminStorageSpaceController(storageSpaceService);
 
     private final MockMvc mockMvc = MockMvcBuilders.standaloneSetup(controller)
             .setControllerAdvice(new GlobalExceptionHandler())
@@ -184,36 +181,6 @@ class AdminStorageSpaceControllerTest {
     }
 
     /**
-     * GET /admin/storage-spaces/system-config：从系统配置读取系统数据目录空间 ID，返回 R.ok 包装的配置视图。
-     */
-    @Test
-    void shouldReturnSystemConfig() throws Exception {
-        when(systemConfigService.getValue(eq("system.storage.space.id"), isNull())).thenReturn("ss-1");
-
-        mockMvc.perform(get("/jcloud/api/admin/storage-spaces/system-config"))
-                .andExpectAll(status().isOk(), jsonPath("$.code").value(200),
-                        jsonPath("$.data.systemSpaceId").value("ss-1"));
-
-        verify(systemConfigService).getValue(eq("system.storage.space.id"), isNull());
-    }
-
-    /**
-     * PUT /admin/storage-spaces/system-config 更新：先校验空间存在，再透传配置键值，返回 R.ok（data 为 null）。
-     */
-    @Test
-    void shouldUpdateSystemConfigPassingSpaceId() throws Exception {
-        when(storageSpaceService.getById("ss-1")).thenReturn(space("ss-1", "主存储", "/data"));
-
-        mockMvc.perform(put("/jcloud/api/admin/storage-spaces/system-config")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"systemSpaceId\":\"ss-1\"}"))
-                .andExpectAll(status().isOk(), jsonPath("$.code").value(200), jsonPath("$.data").value(nullValue()));
-
-        verify(storageSpaceService).getById(eq("ss-1"));
-        verify(systemConfigService).setValue(eq("system.storage.space.id"), eq("ss-1"));
-    }
-
-    /**
      * POST /admin/storage-spaces 请求体缺少必填字段：@Valid 校验失败经 GlobalExceptionHandler
      * 包装为 R（body code=400，msg 含校验消息），service 不被调用。
      */
@@ -243,23 +210,6 @@ class AdminStorageSpaceControllerTest {
                         jsonPath("$.data").value(nullValue()));
 
         verify(storageSpaceService, never()).update(any());
-    }
-
-    /**
-     * PUT /admin/storage-spaces/system-config 请求体缺少必填字段：@Valid 校验失败经
-     * GlobalExceptionHandler 包装为 R（body code=400），service 不被调用。
-     */
-    @Test
-    void shouldRejectInvalidSystemConfigDtoWithParamError() throws Exception {
-        mockMvc.perform(put("/jcloud/api/admin/storage-spaces/system-config")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{}"))
-                .andExpectAll(status().isOk(), jsonPath("$.code").value(400),
-                        jsonPath("$.msg").value(containsString("存储空间 ID 不能为空")),
-                        jsonPath("$.data").value(nullValue()));
-
-        verify(storageSpaceService, never()).getById(any());
-        verify(systemConfigService, never()).setValue(any(), any());
     }
 
     /**

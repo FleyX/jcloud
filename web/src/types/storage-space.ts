@@ -1,3 +1,5 @@
+import type { SmtpConfigPayload } from './notification'
+
 /**
  * 存储空间视图对象
  */
@@ -82,20 +84,6 @@ export interface UserMigrationSubmitDto {
 }
 
 /**
- * 系统数据目录配置视图
- */
-export interface SystemStorageConfigVo {
-  systemSpaceId?: string
-}
-
-/**
- * 系统数据目录配置更新 DTO
- */
-export interface SystemStorageConfigUpdateDto {
-  systemSpaceId: string
-}
-
-/**
  * 系统初始化状态视图
  */
 export interface SystemInitStatusVo {
@@ -157,5 +145,5 @@ export interface InitSpaceItem {
 export interface SystemInitDto {
   spaces: InitSpaceItem[]
   primaryIndex: number
-  systemDataIndex: number
+  smtp?: SmtpConfigPayload
 }

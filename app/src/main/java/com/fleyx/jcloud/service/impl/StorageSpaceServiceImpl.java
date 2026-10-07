@@ -16,7 +16,6 @@ import com.fleyx.jcloud.model.po.StorageSpace;
 import com.fleyx.jcloud.model.po.User;
 import com.fleyx.jcloud.model.vo.StorageSpaceVo;
 import com.fleyx.jcloud.service.StorageSpaceService;
-import com.fleyx.jcloud.service.SystemConfigService;
 import com.fleyx.jcloud.util.DiskSpaceUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -35,9 +34,6 @@ public class StorageSpaceServiceImpl implements StorageSpaceService {
     private final StorageSpaceMapper storageSpaceMapper;
     private final StorageSpaceConvert storageSpaceConvert;
     private final UserMapper userMapper;
-    private final SystemConfigService systemConfigService;
-
-    private static final String SYSTEM_STORAGE_SPACE_ID_KEY = "system.storage.space.id";
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -104,7 +100,6 @@ public class StorageSpaceServiceImpl implements StorageSpaceService {
         if (po == null) {
             throw new BusinessException(ResultCode.NOT_FOUND, "存储空间不存在");
         }
-        rejectIfSystemSpaceConfigured(id);
         rejectIfPrimarySpace(po);
         LambdaQueryWrapper<User> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(User::getStorageSpaceId, id);
@@ -132,13 +127,6 @@ public class StorageSpaceServiceImpl implements StorageSpaceService {
         DiskSpaceUtil.refreshSpace(po);
         storageSpaceMapper.updateById(po);
         return storageSpaceConvert.poToVo(po);
-    }
-
-    private void rejectIfSystemSpaceConfigured(String id) {
-        String configuredId = systemConfigService.getValue(SYSTEM_STORAGE_SPACE_ID_KEY, null);
-        if (configuredId != null && configuredId.equals(id)) {
-            throw new BusinessException(ResultCode.BUSINESS_ERROR, "该存储空间已被指定为系统数据目录，无法删除");
-        }
     }
 
     private void rejectIfPrimarySpace(StorageSpace po) {

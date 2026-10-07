@@ -11,6 +11,7 @@ import { useFileList } from '@/views/files/composables/useFileList'
 import { useFileOperations } from '@/views/files/composables/useFileOperations'
 import CreateFolderModal from '@/views/files/components/CreateFolderModal.vue'
 import CreateShareModal from '@/views/files/components/CreateShareModal.vue'
+import EmailShareModal from '@/components/notification/EmailShareModal.vue'
 import RenameModal from '@/views/files/components/RenameModal.vue'
 import MoveCopyModal from '@/views/files/components/MoveCopyModal.vue'
 import BatchActionBar from './components/BatchActionBar.vue'
@@ -60,7 +61,7 @@ async function handleFolderChange(event: Event) {
   }
 }
 
-onMounted(list.loadFiles)
+onMounted(list.init)
 </script>
 
 <template>
@@ -110,6 +111,8 @@ onMounted(list.loadFiles)
           @rename="openRename"
           @copy="(f: FileNodeVo) => list.openMoveCopy('copy', [f])"
           @move="(f: FileNodeVo) => list.openMoveCopy('move', [f])"
+          @share="(f: FileNodeVo) => list.openShareModalFor(f)"
+          @share-email="(f: FileNodeVo) => list.openEmailShareModalFor(f)"
           @remove="list.handleDelete"
         />
 
@@ -152,16 +155,24 @@ onMounted(list.loadFiles)
       @copy="list.openMoveCopy('copy', list.selectedFiles)"
       @download="list.handleBatchDownload"
       @share="list.openShareModal"
+      @share-email="list.openEmailShareModal"
       @delete="list.handleBatchDelete"
       @clear="list.clearSelection"
     />
 
     <CreateShareModal
       :open="list.shareOpen"
-      :item-ids="Array.from(list.selectedIds)"
+      :item-ids="list.shareModalItemIds"
       :edit-share="list.shareEditTarget"
-      @close="list.shareOpen = false"
+      @close="list.closeShareModal"
       @confirm="list.handleShareConfirm"
+    />
+
+    <EmailShareModal
+      :open="list.emailShareOpen"
+      :items="list.shareModalItems"
+      @close="list.closeEmailShareModal"
+      @sent="list.handleEmailShareSent"
     />
 
     <FilePreviewModal

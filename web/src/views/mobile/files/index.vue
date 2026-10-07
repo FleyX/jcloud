@@ -21,6 +21,7 @@ import { fileIconMap, formatDate, getTypeStyle } from '@/utils/fileDisplay'
 import { useFileList } from '@/views/files/composables/useFileList'
 import SortDialog from '@/components/SortDialog.vue'
 import CreateShareModal from '@/views/files/components/CreateShareModal.vue'
+import EmailShareModal from '@/components/notification/EmailShareModal.vue'
 import MoveCopyModal from '@/views/files/components/MoveCopyModal.vue'
 import MobileBatchActionBar from './components/MobileBatchActionBar.vue'
 import FilePreviewDrawer from '@/components/files/FilePreviewDrawer.vue'
@@ -94,7 +95,12 @@ async function handleCreateShare(payload: ShareCreateRequest) {
   exitSelectionMode()
 }
 
-onMounted(list.loadFiles)
+function handleEmailShareSent() {
+  list.handleEmailShareSent()
+  exitSelectionMode()
+}
+
+onMounted(list.init)
 </script>
 
 <template>
@@ -290,6 +296,7 @@ onMounted(list.loadFiles)
       @copy="list.openMoveCopy('copy', list.selectedFiles)"
       @download="list.handleBatchDownload"
       @share="list.openShareModal"
+      @share-email="list.openEmailShareModal"
       @delete="handleBatchDelete"
       @clear="exitSelectionMode"
       @select-all="list.toggleSelectAll"
@@ -300,6 +307,13 @@ onMounted(list.loadFiles)
       :item-ids="Array.from(list.selectedIds)"
       @close="list.shareOpen = false"
       @confirm="handleCreateShare"
+    />
+
+    <EmailShareModal
+      :open="list.emailShareOpen"
+      :items="list.selectedFiles"
+      @close="list.emailShareOpen = false"
+      @sent="handleEmailShareSent"
     />
 
     <FilePreviewDrawer

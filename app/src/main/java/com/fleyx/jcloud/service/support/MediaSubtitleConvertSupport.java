@@ -8,7 +8,6 @@ import com.fleyx.jcloud.config.MediaProperties;
 import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.po.MediaSubtitle;
 import com.fleyx.jcloud.service.RemoteFileService;
-import com.fleyx.jcloud.service.SystemStorageSpaceProvider;
 import com.fleyx.jcloud.util.SubtitleCharsetUtil;
 import com.fleyx.jcloud.util.WebVttOffsetUtil;
 import lombok.RequiredArgsConstructor;
@@ -34,19 +33,19 @@ import java.util.concurrent.TimeUnit;
 public class MediaSubtitleConvertSupport {
 
     /**
-     * 字幕缓存目录（系统空间下），播放链路字幕提取/转换与外部字幕缓存共用（票据 10 起单一定义）。
+     * 字幕缓存目录（系统缓存目录下），播放链路字幕提取/转换与外部字幕缓存共用（票据 10 起单一定义）。
      */
     public static final String SUBTITLE_CACHE_DIR = "media/subtitles";
     private static final String FORMAT_VTT = "vtt";
 
     private final MediaProperties mediaProperties;
     private final RemoteFileService remoteFileService;
-    private final SystemStorageSpaceProvider systemStorageSpaceProvider;
+    private final SystemCacheDirProvider systemCacheDirProvider;
 
     /**
      * 解析外部字幕的 webvtt 文件：vtt 原样返回（远程落地缓存），srt/ass/ssa 经 ffmpeg 转换并缓存。
      * <p>
-     * 缓存位置 {存储空间}/system/media/subtitles/ext_{fileNodeId}_{内容版本}.vtt，
+     * 缓存位置 {系统缓存目录}/media/subtitles/ext_{fileNodeId}_{内容版本}.vtt，
      * 内容版本优先节点 hash，缺失时回退文件大小与最后修改时间；内容变化后生成新缓存，旧缓存遗留不复用。
      *
      * @param subtitle  外部字幕记录
@@ -61,8 +60,9 @@ public class MediaSubtitleConvertSupport {
             // 本地 vtt 原样返回字节，无需转换与缓存
             return localPath;
         }
-        Path target = Path.of(systemStorageSpaceProvider.getSystemSpace().getPath(),
-                "system", SUBTITLE_CACHE_DIR, externalCacheName(node));
+        Path target = systemCacheDirProvider.getCacheDir()
+                .resolve(SUBTITLE_CACHE_DIR)
+                .resolve(externalCacheName(node));
         if (Files.exists(target)) {
             return target;
         }
@@ -111,8 +111,9 @@ public class MediaSubtitleConvertSupport {
      */
     public Path resolveOffsetVtt(FileNode node, Path canonical, long offsetMs) {
         String base = externalCacheName(node).replace(".vtt", "") + "_off" + offsetMs;
-        Path target = Path.of(systemStorageSpaceProvider.getSystemSpace().getPath(),
-                "system", SUBTITLE_CACHE_DIR, base + ".vtt");
+        Path target = systemCacheDirProvider.getCacheDir()
+                .resolve(SUBTITLE_CACHE_DIR)
+                .resolve(base + ".vtt");
         return writeOffsetVtt(canonical, target, offsetMs);
     }
 

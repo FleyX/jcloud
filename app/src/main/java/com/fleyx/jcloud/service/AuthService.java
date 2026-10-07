@@ -28,15 +28,23 @@ public interface AuthService {
      *
      * @param dto       登录信息
      * @param userAgent User-Agent
+     * @param clientIp  真实客户端 IP（经 ClientIpUtil 解析）
      * @return 登录结果（含 Token、用户信息、权限编码）
      */
-    LoginVo login(UserLoginDto dto, String userAgent);
+    LoginVo login(UserLoginDto dto, String userAgent, String clientIp);
 
     /**
-     * 兼容旧调用（测试等），User-Agent 为空。
+     * 兼容旧调用（测试等），User-Agent 与客户端 IP 为空（跳过 IP 维度限流）。
+     */
+    default LoginVo login(UserLoginDto dto, String userAgent) {
+        return login(dto, userAgent, null);
+    }
+
+    /**
+     * 兼容旧调用（测试等），User-Agent 与客户端 IP 为空。
      */
     default LoginVo login(UserLoginDto dto) {
-        return login(dto, null);
+        return login(dto, null, null);
     }
 
     /**

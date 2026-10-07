@@ -29,6 +29,8 @@ jcloud:
     office-max-convert-size: 52428800
     convert-timeout-seconds: 60
     max-concurrent-conversions: 2
+  system:
+    cache-dir: ${JCLOUD_SYSTEM_CACHE_DIR:./data/system-cache}
 
 spring:
   application:

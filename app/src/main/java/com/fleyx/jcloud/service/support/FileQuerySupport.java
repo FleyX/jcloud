@@ -97,6 +97,7 @@ public class FileQuerySupport {
     private void applySort(LambdaQueryWrapper<FileNode> wrapper, FilePageQueryDto dto) {
         String field = dto.getSortField();
         boolean asc = "asc".equalsIgnoreCase(dto.getSortOrder());
+        wrapper.orderByDesc(FileNode::getType);
         if ("name".equals(field)) {
             if (asc) {
                 wrapper.orderByAsc(FileNode::getName);
@@ -129,7 +130,9 @@ public class FileQuerySupport {
         } else {
             comparator = Comparator.comparing(FileNode::getCreateTime, Comparator.nullsFirst(Comparator.naturalOrder()));
         }
-        return asc ? comparator : comparator.reversed();
+        // 与 SQL 侧 orderByDesc(type) 一致的字典序倒序：folder 排在 file 之前
+        Comparator<FileNode> folderFirst = Comparator.comparing(FileNode::getType, Comparator.reverseOrder());
+        return folderFirst.thenComparing(asc ? comparator : comparator.reversed());
     }
 
     /**
@@ -148,6 +151,33 @@ public class FileQuerySupport {
         wrapper.eq(FileNode::getType, TYPE_FOLDER);
         wrapper.orderByAsc(FileNode::getName);
         return fileMapper.selectList(wrapper).stream()
+                .map(fileConvert::poToVo)
+                .toList();
+    }
+
+    /**
+     * 按 id 批量查询当前用户的文件节点。
+     * <p>
+     * 不存在的 id、已删除的节点、属于其他用户的节点一律静默省略。
+     *
+     * @param userId 用户 ID
+     * @param ids    节点 id 列表
+     * @return 文件节点视图列表
+     */
+    public List<FileNodeVo> listByIds(String userId, List<String> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return List.of();
+        }
+        List<String> distinctIds = ids.stream()
+                .filter(StringUtils::hasText)
+                .map(String::trim)
+                .distinct()
+                .toList();
+        if (distinctIds.isEmpty()) {
+            return List.of();
+        }
+        return fileMapper.selectBatchIds(distinctIds).stream()
+                .filter(node -> userId.equals(node.getUserId()))
                 .map(fileConvert::poToVo)
                 .toList();
     }

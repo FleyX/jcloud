@@ -12,6 +12,7 @@ import {
 import { fetchAllRoles } from '@/api/role'
 import { fetchStorageSpacePage } from '@/api/storage-space'
 import { cn } from '@/utils/cn'
+import { emailValidationMessage } from '@/utils/email'
 import { useConfirmStore } from '@/store/confirm'
 import { useNotificationStore } from '@/store/notification'
 import UserCreateDialog from './components/UserCreateDialog.vue'
@@ -192,6 +193,11 @@ function openCreateDialog() {
 }
 
 async function submitCreateUser() {
+  const emailError = emailValidationMessage(createForm.email)
+  if (emailError) {
+    notificationStore.error(emailError)
+    return
+  }
   submitting.value = true
   try {
     await createUser(createForm)
@@ -221,6 +227,11 @@ function openEditDialog(user: UserVo) {
 
 async function submitEditUser() {
   if (!editingUser.value) return
+  const emailError = emailValidationMessage(editForm.email)
+  if (emailError) {
+    notificationStore.error(emailError)
+    return
+  }
   const dto: UserUpdateDto = {
     id: editForm.id,
     nickname: editForm.nickname,

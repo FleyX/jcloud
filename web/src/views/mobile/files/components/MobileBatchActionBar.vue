@@ -2,7 +2,7 @@
 /**
  * 移动端底部批量操作栏
  */
-import { FolderInput, Copy, Download, Trash2, X, Check, Share2 } from '@lucide/vue'
+import { FolderInput, Copy, Download, Trash2, X, Check, Share2, Mail } from '@lucide/vue'
 import { cn } from '@/utils/cn'
 import { computed } from 'vue'
 
@@ -18,6 +18,7 @@ const emit = defineEmits<{
   copy: []
   download: []
   share: []
+  shareEmail: []
   delete: []
   clear: []
   selectAll: []
@@ -62,7 +63,7 @@ const allowBatchOperations = computed(() => !props.hasMixedSource)
     <div
       :class="cn(
         'grid gap-2 pb-3',
-        allowBatchOperations ? 'grid-cols-5' : 'grid-cols-1'
+        allowBatchOperations ? 'grid-cols-6' : 'grid-cols-1'
       )"
     >
       <template v-if="allowBatchOperations">
@@ -93,6 +94,13 @@ const allowBatchOperations = computed(() => !props.hasMixedSource)
         >
           <Share2 class="h-5 w-5" />
           分享
+        </button>
+        <button
+          class="flex flex-col items-center gap-1 rounded-xl py-2 text-xs font-medium text-surface-600 transition-colors hover:bg-surface-100"
+          @click="emit('shareEmail')"
+        >
+          <Mail class="h-5 w-5" />
+          邮件分享
         </button>
       </template>
       <button

@@ -3,15 +3,23 @@ package com.fleyx.jcloud.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fleyx.jcloud.common.exception.BusinessException;
 import com.fleyx.jcloud.mapper.StorageSpaceMapper;
+import com.fleyx.jcloud.mapper.SystemConfigMapper;
 import com.fleyx.jcloud.mapper.UserMapper;
+import com.fleyx.jcloud.model.bo.SmtpConfig;
+import com.fleyx.jcloud.model.dto.SmtpConfigDto;
 import com.fleyx.jcloud.model.dto.StorageSpaceSaveDto;
 import com.fleyx.jcloud.model.dto.SystemInitDto;
 import com.fleyx.jcloud.model.dto.UserSaveDto;
 import com.fleyx.jcloud.model.po.StorageSpace;
+import com.fleyx.jcloud.model.po.SystemConfig;
 import com.fleyx.jcloud.model.po.User;
 import com.fleyx.jcloud.model.vo.StorageSpaceVo;
 import com.fleyx.jcloud.model.vo.SystemInitStatusVo;
 import com.fleyx.jcloud.model.vo.UserVo;
+import com.fleyx.jcloud.service.SystemConfigService;
+import com.fleyx.jcloud.service.support.SmtpConfigSupport;
+import com.fleyx.jcloud.util.RemoteConfigCrypto;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -24,6 +32,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -48,13 +57,28 @@ class SystemInitServiceTest {
     private UserService userService;
 
     @Autowired
-    private SystemConfigService systemConfigService;
-
-    @Autowired
     private StorageSpaceMapper storageSpaceMapper;
 
     @Autowired
     private UserMapper userMapper;
+
+    @Autowired
+    private SmtpConfigSupport smtpConfigSupport;
+
+    @Autowired
+    private SystemConfigService systemConfigService;
+
+    @Autowired
+    private RemoteConfigCrypto remoteConfigCrypto;
+
+    @Autowired
+    private SystemConfigMapper systemConfigMapper;
+
+    @BeforeEach
+    void cleanSmtpConfig() {
+        systemConfigMapper.delete(new LambdaQueryWrapper<SystemConfig>()
+                .likeRight(SystemConfig::getConfigKey, "notification.smtp."));
+    }
 
     @Test
     void shouldInitializeSystem() {
@@ -74,9 +98,6 @@ class SystemInitServiceTest {
         StorageSpace primarySpace = spaces.get(0);
         assertEquals(1, primarySpace.getIsPrimary());
 
-        // 系统数据空间 ID 写入配置
-        assertEquals(primarySpace.getId(), systemConfigService.getValue("system.storage.space.id", null));
-
         // 已存在用户被统一绑定到主空间
         User bound = userMapper.selectById(user.getId());
         assertEquals(primarySpace.getId(), bound.getStorageSpaceId());
@@ -95,7 +116,6 @@ class SystemInitServiceTest {
         SystemInitDto dto = new SystemInitDto();
         dto.setSpaces(List.of());
         dto.setPrimaryIndex(0);
-        dto.setSystemDataIndex(0);
 
         assertThrows(BusinessException.class, () -> systemInitService.initialize(dto));
     }
@@ -115,6 +135,56 @@ class SystemInitServiceTest {
         assertEquals(false, status.getAdmin());
     }
 
+    /**
+     * 不带邮箱配置初始化：正常完成，且不写入任何 SMTP 配置。
+     */
+    @Test
+    void shouldInitializeWithoutSmtpConfig() {
+        systemInitService.initialize(buildDto());
+
+        assertTrue(systemInitService.getInitStatus().getInitialized());
+        assertFalse(smtpConfigSupport.isConfigured());
+    }
+
+    /**
+     * 带完整邮箱配置初始化：配置随初始化落库，密码密文存储、读取解密回明文。
+     */
+    @Test
+    void shouldInitializeWithSmtpConfig() {
+        SystemInitDto dto = buildDto();
+        dto.setSmtp(buildSmtpDto());
+
+        systemInitService.initialize(dto);
+
+        assertTrue(systemInitService.getInitStatus().getInitialized());
+        assertTrue(smtpConfigSupport.isConfigured());
+
+        SmtpConfig config = smtpConfigSupport.load();
+        assertEquals("smtp.example.com", config.getHost());
+        assertEquals(465, config.getPort());
+        assertEquals("user@example.com", config.getUsername());
+        assertEquals("secret-pass", config.getPassword());
+        assertEquals(SmtpConfigSupport.ENCRYPTION_SSL, config.getEncryption());
+        assertEquals("no-reply@example.com", config.getFromAddress());
+        assertEquals("jcloud", config.getFromName());
+
+        String stored = systemConfigService.getValue(SmtpConfigSupport.CONFIG_KEY_PASSWORD, "");
+        assertNotEquals("secret-pass", stored);
+        assertEquals("secret-pass", remoteConfigCrypto.decrypt(stored));
+    }
+
+    private SmtpConfigDto buildSmtpDto() {
+        SmtpConfigDto smtp = new SmtpConfigDto();
+        smtp.setHost("smtp.example.com");
+        smtp.setPort(465);
+        smtp.setUsername("user@example.com");
+        smtp.setPassword("secret-pass");
+        smtp.setEncryption(SmtpConfigSupport.ENCRYPTION_SSL);
+        smtp.setFromAddress("no-reply@example.com");
+        smtp.setFromName("jcloud");
+        return smtp;
+    }
+
     private SystemInitDto buildDto() {
         SystemInitDto.InitSpaceItem item = new SystemInitDto.InitSpaceItem();
         item.setName("初始化空间");
@@ -123,7 +193,6 @@ class SystemInitServiceTest {
         SystemInitDto dto = new SystemInitDto();
         dto.setSpaces(List.of(item));
         dto.setPrimaryIndex(0);
-        dto.setSystemDataIndex(0);
         return dto;
     }
 

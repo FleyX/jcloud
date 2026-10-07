@@ -4,7 +4,6 @@ import {
   createStorageSpace,
   deleteStorageSpace,
   fetchStorageSpacePage,
-  fetchSystemStorageConfig,
   refreshStorageSpace,
   updateStorageSpace,
 } from '@/api/storage-space'
@@ -12,14 +11,12 @@ import { cn } from '@/utils/cn'
 import { useConfirmStore } from '@/store/confirm'
 import { useNotificationStore } from '@/store/notification'
 import StorageSpaceDialog from './components/StorageSpaceDialog.vue'
-import SystemStorageConfigDialog from './components/SystemStorageConfigDialog.vue'
 import type { PageResult } from '@/types/auth'
 import type {
   StorageSpacePageQuery,
   StorageSpaceSaveDto,
   StorageSpaceUpdateDto,
   StorageSpaceVo,
-  SystemStorageConfigVo,
 } from '@/types/storage-space'
 import {
   Database,
@@ -28,7 +25,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Plus,
-  Settings,
   RefreshCw,
 } from '@lucide/vue'
 
@@ -54,18 +50,10 @@ const notificationStore = useNotificationStore()
 const dialogOpen = ref(false)
 const editingSpace = ref<StorageSpaceVo | null>(null)
 
-const configDialogOpen = ref(false)
-const systemConfig = ref<SystemStorageConfigVo>({})
-
 async function loadSpaces() {
   loading.value = true
   try {
-    const [data, config] = await Promise.all([
-      fetchStorageSpacePage(query),
-      fetchSystemStorageConfig(),
-    ])
-    pageData.value = data
-    systemConfig.value = config
+    pageData.value = await fetchStorageSpacePage(query)
   } finally {
     loading.value = false
   }
@@ -89,14 +77,6 @@ function openCreateDialog() {
 function openEditDialog(space: StorageSpaceVo) {
   editingSpace.value = space
   dialogOpen.value = true
-}
-
-function openConfigDialog() {
-  configDialogOpen.value = true
-}
-
-async function handleConfigUpdated() {
-  await loadSpaces()
 }
 
 async function handleRefresh(space: StorageSpaceVo) {
@@ -221,13 +201,6 @@ onMounted(() => {
           <Plus class="h-4 w-4" />
           新增存储空间
         </button>
-        <button
-          class="flex items-center gap-1 rounded-xl bg-surface-100 px-4 py-2 text-sm font-medium text-surface-700 shadow-soft transition-colors hover:bg-surface-200"
-          @click="openConfigDialog"
-        >
-          <Settings class="h-4 w-4" />
-          配置系统目录
-        </button>
       </div>
     </div>
 
@@ -274,12 +247,6 @@ onMounted(() => {
                     class="rounded-md bg-primary-50 px-2 py-0.5 text-xs text-primary-600"
                   >
                     主空间
-                  </span>
-                  <span
-                    v-if="systemConfig.systemSpaceId === space.id"
-                    class="rounded-md bg-emerald-50 px-2 py-0.5 text-xs text-emerald-600"
-                  >
-                    系统目录
                   </span>
                 </div>
               </td>
@@ -364,12 +331,6 @@ onMounted(() => {
       :editing-space="editingSpace"
       :submitting="submitting"
       @submit="handleSubmit"
-    />
-
-    <SystemStorageConfigDialog
-      v-model:open="configDialogOpen"
-      :config="systemConfig"
-      @updated="handleConfigUpdated"
     />
   </div>
 </template>

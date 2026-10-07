@@ -71,11 +71,11 @@ class PublicShareControllerTest {
     }
 
     /**
-     * POST /{code}/access 校验密码：service 收到 (code, password)，返回 token 放入 data。
+     * POST /{code}/access 校验密码：service 收到 (code, password, clientIp)，返回 token 放入 data。
      */
     @Test
     void shouldValidateAccessPassword() throws Exception {
-        when(publicShareService.validateAccess("c1", "pw")).thenReturn("token-abc");
+        when(publicShareService.validateAccess("c1", "pw", "127.0.0.1")).thenReturn("token-abc");
 
         mockMvc.perform(post("/jcloud/api/s/c1/access")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -84,7 +84,7 @@ class PublicShareControllerTest {
                 .andExpect(jsonPath("$.code").value(200))
                 .andExpect(jsonPath("$.data").value("token-abc"));
 
-        verify(publicShareService).validateAccess(eq("c1"), eq("pw"));
+        verify(publicShareService).validateAccess(eq("c1"), eq("pw"), eq("127.0.0.1"));
     }
 
     /**

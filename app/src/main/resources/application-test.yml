@@ -13,9 +13,15 @@ spring:
       database: 1
 
 jcloud:
+  auth:
+    # 测试环境开启公开注册，避免影响既有 auth 相关测试；关闭分支的用例在测试内显式改值
+    registration-enabled: true
   media:
     # 测试环境关闭启动硬解探测，避免触发真实 ffmpeg 编码（无 GPU 的 CI 可跑）
     hwaccel-probe-enabled: false
   preview:
     # 测试环境缩小转换上限，便于验证大小闸门
     office-max-convert-size: 2048
+  system:
+    # 测试统一落在 target 下，由 mvn clean 清理，避免污染工作区
+    cache-dir: ./target/test-system-cache

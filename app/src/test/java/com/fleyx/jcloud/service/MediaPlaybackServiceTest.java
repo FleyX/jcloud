@@ -28,7 +28,6 @@ import com.fleyx.jcloud.model.po.MediaSubtitle;
 import com.fleyx.jcloud.model.vo.FileNodeVo;
 import com.fleyx.jcloud.model.vo.MediaPlaybackInfoVo;
 import com.fleyx.jcloud.model.vo.MediaSubtitleItemVo;
-import com.fleyx.jcloud.model.vo.StorageSpaceVo;
 import com.fleyx.jcloud.model.vo.UserVo;
 import com.fleyx.jcloud.service.support.MediaSubtitleSupport;
 import org.junit.jupiter.api.Test;
@@ -114,9 +113,6 @@ class MediaPlaybackServiceTest extends MediaScanTestBase {
 
     @Autowired
     private FileMapper fileMapper;
-
-    @Autowired
-    private SystemConfigService systemConfigService;
 
     @MockitoBean
     private MediaScrapeService mediaScrapeService;
@@ -830,10 +826,5 @@ class MediaPlaybackServiceTest extends MediaScanTestBase {
 
     private MultipartFile buildFile(String name, byte[] content) {
         return new MockMultipartFile("file", name, "application/octet-stream", content);
-    }
-
-    @Override
-    protected void afterSpaceCreated(StorageSpaceVo space) {
-        systemConfigService.setValue("system.storage.space.id", String.valueOf(space.getId()));
     }
 }

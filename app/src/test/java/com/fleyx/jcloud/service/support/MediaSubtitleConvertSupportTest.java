@@ -7,9 +7,8 @@ import com.fleyx.jcloud.common.exception.SystemException;
 import com.fleyx.jcloud.config.MediaProperties;
 import com.fleyx.jcloud.model.po.FileNode;
 import com.fleyx.jcloud.model.po.MediaSubtitle;
-import com.fleyx.jcloud.model.po.StorageSpace;
 import com.fleyx.jcloud.service.RemoteFileService;
-import com.fleyx.jcloud.service.SystemStorageSpaceProvider;
+import com.fleyx.jcloud.service.support.SystemCacheDirProvider;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -34,10 +33,10 @@ class MediaSubtitleConvertSupportTest {
 
     private final MediaProperties mediaProperties = mock(MediaProperties.class);
     private final RemoteFileService remoteFileService = mock(RemoteFileService.class);
-    private final SystemStorageSpaceProvider systemStorageSpaceProvider = mock(SystemStorageSpaceProvider.class);
+    private final SystemCacheDirProvider systemCacheDirProvider = mock(SystemCacheDirProvider.class);
 
     private final MediaSubtitleConvertSupport support =
-            new MediaSubtitleConvertSupport(mediaProperties, remoteFileService, systemStorageSpaceProvider);
+            new MediaSubtitleConvertSupport(mediaProperties, remoteFileService, systemCacheDirProvider);
 
     @TempDir
     Path tempDir;
@@ -61,12 +60,10 @@ class MediaSubtitleConvertSupportTest {
     }
 
     /**
-     * 系统空间桩：缓存目录 = tempDir/system/media/subtitles。
+     * 系统缓存目录桩：缓存根 = tempDir，字幕落在 tempDir/media/subtitles 下。
      */
-    private void stubSystemSpace() {
-        StorageSpace space = new StorageSpace();
-        space.setPath(tempDir.toString());
-        when(systemStorageSpaceProvider.getSystemSpace()).thenReturn(space);
+    private void stubCacheDir() {
+        when(systemCacheDirProvider.getCacheDir()).thenReturn(tempDir);
     }
 
     /**
@@ -95,7 +92,7 @@ class MediaSubtitleConvertSupportTest {
         Path result = support.resolveExternalVtt(subtitle("vtt"), node, localPath, "user-1");
 
         assertEquals(localPath, result);
-        verifyNoInteractions(systemStorageSpaceProvider, remoteFileService, mediaProperties);
+        verifyNoInteractions(systemCacheDirProvider, remoteFileService, mediaProperties);
     }
 
     /**
@@ -103,9 +100,9 @@ class MediaSubtitleConvertSupportTest {
      */
     @Test
     void shouldReturnCachedVttOnCacheHit() throws Exception {
-        stubSystemSpace();
+        stubCacheDir();
         FileNode node = subtitleNode("sub-1", FileNodeConstants.SOURCE_LOCAL);
-        Path cached = tempDir.resolve("system/media/subtitles/ext_sub-1_h1.vtt");
+        Path cached = tempDir.resolve("media/subtitles/ext_sub-1_h1.vtt");
         Files.createDirectories(cached.getParent());
         Files.writeString(cached, "WEBVTT");
 
@@ -121,7 +118,7 @@ class MediaSubtitleConvertSupportTest {
      */
     @Test
     void shouldConvertLocalSrtToCachedVtt() throws Exception {
-        stubSystemSpace();
+        stubCacheDir();
         fakeFfmpegSuccess();
         FileNode node = subtitleNode("sub-1", FileNodeConstants.SOURCE_LOCAL);
         Path localPath = tempDir.resolve("movie.chs.srt");
@@ -129,7 +126,7 @@ class MediaSubtitleConvertSupportTest {
 
         Path result = support.resolveExternalVtt(subtitle("srt"), node, localPath, "user-1");
 
-        Path expected = tempDir.resolve("system/media/subtitles/ext_sub-1_h1.vtt");
+        Path expected = tempDir.resolve("media/subtitles/ext_sub-1_h1.vtt");
         assertEquals(expected, result);
         assertEquals("WEBVTT\n", Files.readString(result));
     }
@@ -139,7 +136,7 @@ class MediaSubtitleConvertSupportTest {
      */
     @Test
     void shouldCopyRemoteVttToSystemCache() throws Exception {
-        stubSystemSpace();
+        stubCacheDir();
         FileNode node = subtitleNode("sub-9", FileNodeConstants.SOURCE_REMOTE);
         node.setName("movie.chs.vtt");
         when(remoteFileService.download(node, "user-1"))
@@ -149,7 +146,7 @@ class MediaSubtitleConvertSupportTest {
 
         Path result = support.resolveExternalVtt(subtitle("vtt"), node, null, "user-1");
 
-        Path expected = tempDir.resolve("system/media/subtitles/ext_sub-9_h1.vtt");
+        Path expected = tempDir.resolve("media/subtitles/ext_sub-9_h1.vtt");
         assertEquals(expected, result);
         assertEquals("WEBVTT\n", Files.readString(result));
     }
@@ -159,7 +156,7 @@ class MediaSubtitleConvertSupportTest {
      */
     @Test
     void shouldRejectWhenFfmpegExitsNonZero() throws Exception {
-        stubSystemSpace();
+        stubCacheDir();
         Path script = tempDir.resolve("fake-ffmpeg-fail.sh");
         Files.writeString(script, "#!/bin/sh\nexit 1\n");
         script.toFile().setExecutable(true);
@@ -180,7 +177,7 @@ class MediaSubtitleConvertSupportTest {
      */
     @Test
     void shouldFallbackContentVersionToSizeAndMtime() throws Exception {
-        stubSystemSpace();
+        stubCacheDir();
         fakeFfmpegSuccess();
         FileNode node = subtitleNode("sub-2", FileNodeConstants.SOURCE_LOCAL);
         node.setHash(null);
@@ -191,7 +188,7 @@ class MediaSubtitleConvertSupportTest {
 
         Path result = support.resolveExternalVtt(subtitle("srt"), node, localPath, "user-1");
 
-        assertEquals(tempDir.resolve("system/media/subtitles/ext_sub-2_size100_mtime1700000000000.vtt"),
+        assertEquals(tempDir.resolve("media/subtitles/ext_sub-2_size100_mtime1700000000000.vtt"),
                 result);
     }
 
@@ -201,7 +198,7 @@ class MediaSubtitleConvertSupportTest {
      */
     @Test
     void shouldWriteOffsetVttAndReuseExisting() throws Exception {
-        stubSystemSpace();
+        stubCacheDir();
         FileNode node = subtitleNode("sub-1", FileNodeConstants.SOURCE_LOCAL);
         Path canonical = tempDir.resolve("ext_sub-1_h1.vtt");
         Files.writeString(canonical,
@@ -209,7 +206,7 @@ class MediaSubtitleConvertSupportTest {
 
         Path result = support.resolveOffsetVtt(node, canonical, 30_000L);
 
-        Path expected = tempDir.resolve("system/media/subtitles/ext_sub-1_h1_off30000.vtt");
+        Path expected = tempDir.resolve("media/subtitles/ext_sub-1_h1_off30000.vtt");
         assertEquals(expected, result);
         String offset = Files.readString(result);
         // 会话起点 30s：31s 的 cue 偏移到 1s；1s 的过期 cue 被移除
@@ -227,7 +224,7 @@ class MediaSubtitleConvertSupportTest {
      */
     @Test
     void shouldWrapMissingCanonicalAsSystemException() {
-        stubSystemSpace();
+        stubCacheDir();
         FileNode node = subtitleNode("sub-1", FileNodeConstants.SOURCE_LOCAL);
         Path missing = tempDir.resolve("not-exist.vtt");
 

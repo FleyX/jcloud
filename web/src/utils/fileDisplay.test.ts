@@ -35,8 +35,9 @@ describe('fileDisplay', () => {
   })
 
   describe('formatSize', () => {
-    it('returns dash for zero or undefined', () => {
-      expect(formatSize(0)).toBe('-')
+    it('returns 0 for zero and dash for undefined or empty', () => {
+      expect(formatSize(0)).toBe('0')
+      expect(formatSize('0')).toBe('0')
       expect(formatSize(undefined)).toBe('-')
       expect(formatSize('')).toBe('-')
     })

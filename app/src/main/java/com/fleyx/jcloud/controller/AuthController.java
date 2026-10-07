@@ -7,6 +7,7 @@ import com.fleyx.jcloud.common.context.CurrentUser;
 import com.fleyx.jcloud.common.context.UserContext;
 import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.exception.BusinessException;
+import com.fleyx.jcloud.config.AuthProperties;
 import com.fleyx.jcloud.model.dto.TokenRefreshDto;
 import com.fleyx.jcloud.model.dto.UserLoginDto;
 import com.fleyx.jcloud.model.dto.UserRegisterDto;
@@ -16,6 +17,7 @@ import com.fleyx.jcloud.model.vo.TokenPairVo;
 import com.fleyx.jcloud.model.vo.UserVo;
 import com.fleyx.jcloud.service.AuthService;
 import com.fleyx.jcloud.service.support.AuthCookieSupport;
+import com.fleyx.jcloud.util.ClientIpUtil;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
@@ -42,6 +44,15 @@ public class AuthController {
 
     private final AuthService authService;
     private final AuthCookieSupport authCookieSupport;
+    private final AuthProperties authProperties;
+
+    /**
+     * 查询注册开关（匿名可读）：供登录页决定是否展示注册入口。
+     */
+    @GetMapping("/registration-enabled")
+    public R<Boolean> registrationEnabled() {
+        return R.ok(authProperties.isRegistrationEnabled());
+    }
 
     /**
      * 用户注册。
@@ -57,8 +68,9 @@ public class AuthController {
     @PostMapping("/login")
     public R<LoginVo> login(@Valid @RequestBody UserLoginDto dto,
                             @RequestHeader(value = "User-Agent", required = false) String userAgent,
+                            HttpServletRequest request,
                             HttpServletResponse response) {
-        LoginVo vo = authService.login(dto, userAgent);
+        LoginVo vo = authService.login(dto, userAgent, ClientIpUtil.resolve(request));
         authCookieSupport.writeTokenCookies(response, vo.getToken(), vo.getRefreshToken());
         return R.ok(vo);
     }
