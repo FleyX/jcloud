@@ -78,7 +78,7 @@ docker compose -f deploy/docker-compose.yml down
 
 ## 附录 A：使用外部 PostgreSQL / Redis
 
-已有 PostgreSQL 与 Redis 时，用 `.env` 指定连接信息，并只启动 jcloud 主服务：
+已有 PostgreSQL 与 Redis 时，用 `.env` 指定连接信息，并只启动 jcloud 主服务（`--no-deps` 阻止 compose 连带启动内置 postgres/redis）：
 
 ```bash
 cat > deploy/.env <<EOF
@@ -92,7 +92,7 @@ EOF
 ```
 
 ```bash
-docker compose -f deploy/docker-compose.yml up -d jcloud
+docker compose -f deploy/docker-compose.yml up -d --no-deps jcloud
 ```
 
 ## 附录 B：指定运行用户（PUID/PGID）
