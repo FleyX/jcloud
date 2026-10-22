@@ -8,7 +8,12 @@ spring:
       host: localhost
       database: 0
 
+mybatis-plus:
+  configuration:
+    # 仅 dev 显式开启 SQL 日志，基础配置默认 NoLoggingImpl（生产安全默认）
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
+
 logging:
   level:
-    # dev 下业务包 debug；mapper 作为子包继承 debug，MyBatis SQL 日志（Slf4jImpl，debug 级别）随之输出
+    # dev 下业务包 debug；mapper 作为子包继承 debug，经上面的 Slf4jImpl 以 debug 级别输出 SQL
     com.fleyx.jcloud: debug

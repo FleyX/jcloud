@@ -76,7 +76,8 @@ mybatis-plus:
   configuration:
     map-underscore-to-camel-case: true
     cache-enabled: false
-    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
+    # 默认关闭 SQL 日志，作为生产安全默认值；本地调试需要时由 application-dev.yml 显式开启
+    log-impl: org.apache.ibatis.logging.nologging.NoLoggingImpl
   global-config:
     db-config:
       id-type: assign_id
