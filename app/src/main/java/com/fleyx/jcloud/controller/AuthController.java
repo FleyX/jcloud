@@ -71,7 +71,7 @@ public class AuthController {
                             HttpServletRequest request,
                             HttpServletResponse response) {
         LoginVo vo = authService.login(dto, userAgent, ClientIpUtil.resolve(request));
-        authCookieSupport.writeTokenCookies(response, vo.getToken(), vo.getRefreshToken());
+        authCookieSupport.writeTokenCookies(request, response, vo.getToken(), vo.getRefreshToken());
         return R.ok(vo);
     }
 
@@ -93,7 +93,7 @@ public class AuthController {
         TokenRefreshDto resolvedDto = dto == null ? new TokenRefreshDto() : dto;
         resolvedDto.setRefreshToken(refreshToken);
         TokenPairVo vo = authService.refresh(resolvedDto);
-        authCookieSupport.writeTokenCookies(response, vo.getToken(), vo.getRefreshToken());
+        authCookieSupport.writeTokenCookies(request, response, vo.getToken(), vo.getRefreshToken());
         return R.ok(vo);
     }
 
@@ -109,7 +109,7 @@ public class AuthController {
         String refreshToken = authCookieSupport.resolveRefreshToken(request,
                 dto == null ? null : dto.getRefreshToken());
         authService.logout(refreshToken);
-        authCookieSupport.clearTokenCookies(response);
+        authCookieSupport.clearTokenCookies(request, response);
         return R.ok();
     }
 
