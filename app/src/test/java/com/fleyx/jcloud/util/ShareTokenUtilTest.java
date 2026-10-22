@@ -1,11 +1,16 @@
 package com.fleyx.jcloud.util;
 
 import com.fleyx.jcloud.config.JwtProperties;
+import com.fleyx.jcloud.config.SystemProperties;
+import com.fleyx.jcloud.service.support.SystemSecretSupport;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.security.SignatureException;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -17,7 +22,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class ShareTokenUtilTest {
 
-    private static final String SECRET = "test-secret-key-must-be-at-least-32-characters-long";
+    @TempDir
+    Path secretDir;
 
     private ShareTokenUtil buildUtil() {
         return buildUtil("jcloud-test");
@@ -25,9 +31,10 @@ class ShareTokenUtilTest {
 
     private ShareTokenUtil buildUtil(String issuer) {
         JwtProperties properties = new JwtProperties();
-        properties.setSecret(SECRET);
         properties.setIssuer(issuer);
-        return new ShareTokenUtil(properties);
+        SystemProperties systemProperties = new SystemProperties();
+        systemProperties.setSecretDir(secretDir.toString());
+        return new ShareTokenUtil(properties, new SystemSecretSupport(systemProperties));
     }
 
     @Test

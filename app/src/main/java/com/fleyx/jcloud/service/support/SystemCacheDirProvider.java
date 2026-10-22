@@ -2,7 +2,7 @@ package com.fleyx.jcloud.service.support;
 
 import com.fleyx.jcloud.common.enums.ResultCode;
 import com.fleyx.jcloud.common.exception.SystemException;
-import com.fleyx.jcloud.config.SystemCacheProperties;
+import com.fleyx.jcloud.config.SystemProperties;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -21,7 +21,7 @@ import java.nio.file.Path;
 @RequiredArgsConstructor
 public class SystemCacheDirProvider {
 
-    private final SystemCacheProperties systemCacheProperties;
+    private final SystemProperties systemProperties;
 
     /**
      * 启动时创建缓存根目录，避免首次写入时目录缺失。
@@ -41,6 +41,6 @@ public class SystemCacheDirProvider {
      * 系统缓存根目录。
      */
     public Path getCacheDir() {
-        return Path.of(systemCacheProperties.getCacheDir());
+        return Path.of(systemProperties.getCacheDir());
     }
 }

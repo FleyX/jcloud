@@ -1,23 +1,33 @@
 package com.fleyx.jcloud.util;
 
-import com.fleyx.jcloud.config.RemoteProperties;
+import com.fleyx.jcloud.config.SystemProperties;
+import com.fleyx.jcloud.service.support.SystemSecretSupport;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
  * 远程挂载配置加密工具测试。
  */
 class RemoteConfigCryptoTest {
 
+    @TempDir
+    Path secretDir;
+
+    private RemoteConfigCrypto buildCrypto() {
+        SystemProperties systemProperties = new SystemProperties();
+        systemProperties.setSecretDir(secretDir.toString());
+        return new RemoteConfigCrypto(new SystemSecretSupport(systemProperties));
+    }
+
     @Test
     void shouldEncryptAndDecrypt() {
-        RemoteProperties properties = new RemoteProperties();
-        properties.setEncryptionKey("test-encryption-key");
-        RemoteConfigCrypto crypto = new RemoteConfigCrypto(properties);
+        RemoteConfigCrypto crypto = buildCrypto();
 
         String plain = "my-secret-password";
         String cipher = crypto.encrypt(plain);
@@ -28,17 +38,9 @@ class RemoteConfigCryptoTest {
 
     @Test
     void shouldReturnNullForNullInput() {
-        RemoteProperties properties = new RemoteProperties();
-        properties.setEncryptionKey("test-encryption-key");
-        RemoteConfigCrypto crypto = new RemoteConfigCrypto(properties);
+        RemoteConfigCrypto crypto = buildCrypto();
 
         assertNull(crypto.encrypt(null));
         assertNull(crypto.decrypt(null));
-    }
-
-    @Test
-    void shouldRejectEmptyEncryptionKey() {
-        RemoteProperties properties = new RemoteProperties();
-        assertThrows(IllegalArgumentException.class, () -> new RemoteConfigCrypto(properties));
     }
 }

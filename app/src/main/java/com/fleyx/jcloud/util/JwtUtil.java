@@ -3,6 +3,7 @@ package com.fleyx.jcloud.util;
 import cn.hutool.core.date.DateUtil;
 import cn.hutool.core.util.StrUtil;
 import com.fleyx.jcloud.config.JwtProperties;
+import com.fleyx.jcloud.service.support.SystemSecretSupport;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
@@ -22,6 +23,7 @@ import java.util.Date;
 public class JwtUtil {
 
     private final JwtProperties jwtProperties;
+    private final SystemSecretSupport systemSecretSupport;
 
     private static final String CLAIM_USER_ID = "userId";
     private static final String CLAIM_USER_CODE = "userCode";
@@ -110,6 +112,6 @@ public class JwtUtil {
     }
 
     private SecretKey getSecretKey() {
-        return Keys.hmacShaKeyFor(jwtProperties.getSecret().getBytes(StandardCharsets.UTF_8));
+        return Keys.hmacShaKeyFor(systemSecretSupport.getTokenSecret().getBytes(StandardCharsets.UTF_8));
     }
 }

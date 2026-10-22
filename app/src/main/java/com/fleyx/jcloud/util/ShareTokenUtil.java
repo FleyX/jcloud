@@ -2,6 +2,7 @@ package com.fleyx.jcloud.util;
 
 import cn.hutool.core.date.DateUtil;
 import com.fleyx.jcloud.config.JwtProperties;
+import com.fleyx.jcloud.service.support.SystemSecretSupport;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
@@ -23,6 +24,7 @@ public class ShareTokenUtil {
     private static final String CLAIM_SHARE_CODE = "shareCode";
 
     private final JwtProperties jwtProperties;
+    private final SystemSecretSupport systemSecretSupport;
 
     /**
      * 生成分享访问 Token，默认有效期 1 小时。
@@ -80,6 +82,6 @@ public class ShareTokenUtil {
     }
 
     private SecretKey getSecretKey() {
-        return Keys.hmacShaKeyFor(jwtProperties.getSecret().getBytes(StandardCharsets.UTF_8));
+        return Keys.hmacShaKeyFor(systemSecretSupport.getTokenSecret().getBytes(StandardCharsets.UTF_8));
     }
 }
