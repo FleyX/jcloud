@@ -72,6 +72,15 @@ ENV LC_ALL=C.UTF-8
 # jellyfin-ffmpeg 二进制不进 PATH，通过 Spring 宽松绑定注入 ffmpeg/ffprobe 路径（jcloud.media.ffmpeg-path/ffprobe-path）
 ENV JCLOUD_MEDIA_FFMPEG_PATH=/usr/lib/jellyfin-ffmpeg/ffmpeg
 ENV JCLOUD_MEDIA_FFPROBE_PATH=/usr/lib/jellyfin-ffmpeg/ffprobe
+# 容器内可能无 PUID 对应的 passwd 条目，caddy/LibreOffice 需要可写 HOME
+ENV HOME=/tmp
+# 容器即生产形态；基础 application.yml 默认为 dev
+ENV SPRING_PROFILES_ACTIVE=prod
+# 系统缓存目录（可再生的预览/字幕/转码/ZIP 缓存）固定为容器内路径，对应 compose 中的卷映射
+ENV JCLOUD_SYSTEM_CACHE_DIR=/data/system-cache
+# 密钥目录（JWT 签名密钥、远程存储凭据加密密钥）：首次启动自动生成且不可再生成，
+# 必须落盘持久化，丢失 = token 全失效 + 远程凭据不可解密
+ENV JCLOUD_SYSTEM_SECRET_DIR=/data/system
 
 # 国内镜像加速：阿里云 Debian 镜像源（deb822 格式，文件存在才替换，防御基础镜像变化）
 RUN if [ "$CN_MIRROR" = "true" ] && [ -f /etc/apt/sources.list.d/debian.sources ]; then \
