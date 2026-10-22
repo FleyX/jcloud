@@ -4,6 +4,8 @@
 # 数据落盘在 dev 库主存储空间路径（t_storage_space.path）对应的宿主机目录，以 rslave 传播挂入容器：
 # 该目录下的子挂载（如 files/admin/动漫 的 NFS 挂载，含容器启动后新出现的）自动传入容器。
 # 容器进程以 uid:gid 1000:1000 运行（与宿主机当前用户一致），写入存储空间/NFS 的文件归属正确。
+# 密钥目录（JWT 签名密钥等，容器内 /data/system）挂载到 .scratch/docker-test-system：
+# 容器重建后密钥保留，已有登录态不失效；如需重置登录态/密钥，删除该目录即可。
 #
 # 环境变量：
 #   STORAGE_PATH  主存储空间路径（宿主机目录，1:1 挂载进容器）。已设置时直接使用，
@@ -18,7 +20,6 @@ SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 
 CONTAINER_NAME=jcloud-docker-test
 PORT=8088
-JWT_SECRET="change-me-in-production-jcloud-secret-key-2026"
 JCLOUD_APP_PORT=8083
 
 # 1. 构建 dev 镜像（release.sh 本地模式，自动享受 ping 探测与 jellyfin-ffmpeg deb 缓存）
@@ -43,6 +44,9 @@ fi
 
 # 3. 清理旧容器（不存在时忽略）
 docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
+
+# 3.1 预建密钥目录：Docker 自动创建的 bind 源目录属 root，容器以 1000:1000 运行会写不进去
+mkdir -p "$SCRIPT_DIR/.scratch/docker-test-system"
 
 # 4. 存在 /dev/dri 时映射 GPU 渲染节点
 DEVICE_ARGS=()
@@ -89,9 +93,8 @@ docker run -d \
   -e SPRING_DATASOURCE_PASSWORD=postgres \
   -e REDIS_HOST=localhost \
   -e REDIS_PORT=6379 \
-  -e JCLOUD_JWT_SECRET="$JWT_SECRET" \
-  -e SPRING_PROFILES_ACTIVE=prod \
   -e TZ=Asia/Shanghai \
+  -v "$SCRIPT_DIR/.scratch/docker-test-system:/data/system" \
   --mount "type=bind,source=${STORAGE_PATH},target=${STORAGE_PATH},bind-propagation=rslave" \
   ${DEVICE_ARGS[@]+"${DEVICE_ARGS[@]}"} \
   ${NVIDIA_ARGS[@]+"${NVIDIA_ARGS[@]}"} \
