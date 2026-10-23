@@ -2,14 +2,18 @@
 #
 # 构建 jcloud 镜像。
 # --push 时自动从 GitHub 获取最新 tag 作为镜像版本标签，并同时打 latest 标签。
+# 推送目标为 DockerHub 与阿里云镜像库双仓库；推送前需分别登录：
+#   docker login
+#   docker login registry.cn-hangzhou.aliyuncs.com
 #
 # 用法：
 #   ./deploy/release.sh        # 构建当前平台镜像到本地（dev 标签），不推送
-#   ./deploy/release.sh --push # 构建多架构镜像并推送到 DockerHub
-#   ./deploy/release.sh --test # 构建多架构镜像，仅推送 test 标签到 DockerHub 作为测试镜像
+#   ./deploy/release.sh --push # 构建多架构镜像并推送到 DockerHub 与阿里云
+#   ./deploy/release.sh --test # 构建多架构镜像，仅推送 test 标签到 DockerHub 与阿里云作为测试镜像
 #
 # 环境变量：
 #   DOCKERHUB_REPO    DockerHub 仓库名，默认 fleyx/jcloud
+#   ALIYUN_REPO       阿里云镜像库仓库名，默认 registry.cn-hangzhou.aliyuncs.com/az3/jcloud
 #   GITHUB_REPO       GitHub 仓库名（owner/repo），默认从 git remote 推断
 #   CN_MIRROR         true/false 强制指定是否使用国内镜像源；未设置时构建前自动
 #                     ping 119.29.29.29 探测：能通且平均延迟 <40ms 判定为需要镜像加速
@@ -33,10 +37,16 @@ while [ $# -gt 0 ]; do
         -h|--help)
             echo "用法："
             echo "  ./deploy/release.sh        # 构建当前平台镜像到本地（dev 标签），不推送"
-            echo "  ./deploy/release.sh --push # 构建多架构镜像并推送到 DockerHub"
-            echo "  ./deploy/release.sh --test # 构建多架构镜像，仅推送 test 标签到 DockerHub 作为测试镜像"
+            echo "  ./deploy/release.sh --push # 构建多架构镜像并推送到 DockerHub 与阿里云"
+            echo "  ./deploy/release.sh --test # 构建多架构镜像，仅推送 test 标签到 DockerHub 与阿里云作为测试镜像"
+            echo ""
+            echo "推送前需分别登录两个仓库："
+            echo "  docker login"
+            echo "  docker login registry.cn-hangzhou.aliyuncs.com"
             echo ""
             echo "环境变量："
+            echo "  DOCKERHUB_REPO DockerHub 仓库名，默认 fleyx/jcloud"
+            echo "  ALIYUN_REPO    阿里云镜像库仓库名，默认 registry.cn-hangzhou.aliyuncs.com/az3/jcloud"
             echo "  CN_MIRROR true/false 强制指定是否使用国内镜像源；"
             echo "            未设置时自动 ping 119.29.29.29 探测（能通且平均延迟 <40ms 判定为需要加速）"
             exit 0
@@ -56,8 +66,10 @@ if [ "${PUSH}" = true ] && [ "${TEST}" = true ]; then
 fi
 
 DOCKERHUB_REPO="${DOCKERHUB_REPO:-fleyx/jcloud}"
+ALIYUN_REPO="${ALIYUN_REPO:-registry.cn-hangzhou.aliyuncs.com/az3/jcloud}"
 
 echo "DockerHub 仓库: ${DOCKERHUB_REPO}"
+echo "阿里云仓库: ${ALIYUN_REPO}"
 
 # 获取 GitHub 最新 release tag
 get_latest_github_tag() {
@@ -253,10 +265,12 @@ if [ "${TEST}" = true ]; then
         -f deploy/Dockerfile \
         --build-arg "CN_MIRROR=${CN_MIRROR}" \
         -t "${DOCKERHUB_REPO}:test" \
+        -t "${ALIYUN_REPO}:test" \
         --push .
 
     echo "测试镜像推送完成："
     echo "  ${DOCKERHUB_REPO}:test"
+    echo "  ${ALIYUN_REPO}:test"
 elif [ "${PUSH}" = true ]; then
     echo "开始构建并推送多架构镜像..."
     docker buildx build \
@@ -265,11 +279,15 @@ elif [ "${PUSH}" = true ]; then
         --build-arg "CN_MIRROR=${CN_MIRROR}" \
         -t "${DOCKERHUB_REPO}:${VERSION_TAG}" \
         -t "${DOCKERHUB_REPO}:latest" \
+        -t "${ALIYUN_REPO}:${VERSION_TAG}" \
+        -t "${ALIYUN_REPO}:latest" \
         --push .
 
     echo "发布完成："
     echo "  ${DOCKERHUB_REPO}:${VERSION_TAG}"
     echo "  ${DOCKERHUB_REPO}:latest"
+    echo "  ${ALIYUN_REPO}:${VERSION_TAG}"
+    echo "  ${ALIYUN_REPO}:latest"
 else
     echo "开始构建当前平台镜像到本地（不推送）..."
     # 本机未安装 buildx 插件，使用 dockerd 内置的 BuildKit（DOCKER_BUILDKIT=1），仅构建当前平台
