@@ -6,6 +6,10 @@
 #   docker login
 #   docker login registry.cn-hangzhou.aliyuncs.com
 #
+# 注意：buildx 推送时默认附加 provenance/sbom attestation 清单
+# （application/vnd.oci.empty.v1+json），阿里云 ACR 不支持该 manifest class 会拒绝推送，
+# 因此推送命令统一携带 --provenance=false --sbom=false。
+#
 # 用法：
 #   ./deploy/release.sh        # 构建当前平台镜像到本地（dev 标签），不推送
 #   ./deploy/release.sh --push # 构建多架构镜像并推送到 DockerHub 与阿里云
@@ -264,6 +268,8 @@ if [ "${TEST}" = true ]; then
         --platform linux/amd64,linux/arm64 \
         -f deploy/Dockerfile \
         --build-arg "CN_MIRROR=${CN_MIRROR}" \
+        --provenance=false \
+        --sbom=false \
         -t "${DOCKERHUB_REPO}:test" \
         -t "${ALIYUN_REPO}:test" \
         --push .
@@ -277,6 +283,8 @@ elif [ "${PUSH}" = true ]; then
         --platform linux/amd64,linux/arm64 \
         -f deploy/Dockerfile \
         --build-arg "CN_MIRROR=${CN_MIRROR}" \
+        --provenance=false \
+        --sbom=false \
         -t "${DOCKERHUB_REPO}:${VERSION_TAG}" \
         -t "${DOCKERHUB_REPO}:latest" \
         -t "${ALIYUN_REPO}:${VERSION_TAG}" \
