@@ -15,14 +15,21 @@ docker compose -f deploy/docker-compose.yml up -d
 
 一条命令启动 jcloud 与内置 PostgreSQL、Redis。等待健康检查通过后访问 `http://<服务器IP>`（默认 80 端口），首次访问会引导完成系统初始化。
 
-需要改端口、数据目录或运行用户时，在 `deploy/` 下创建 `.env` 覆盖下表变量即可（与 compose 文件同目录）。
+镜像默认使用 DockerHub 的 `fleyx/jcloud`。国内网络拉取缓慢时，在 `deploy/.env` 中指定阿里云镜像库（两侧镜像同步发布、内容一致）：
+
+```bash
+JCLOUD_IMAGE=registry.cn-hangzhou.aliyuncs.com/az3/jcloud:latest
+```
+
+需要改端口、数据目录、文件存储目录或运行用户时，在 `deploy/` 下创建 `.env` 覆盖下表变量即可（与 compose 文件同目录）。
 
 ## 环境变量
 
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
 | `JCLOUD_PORT` | `80` | 对外访问端口 |
-| `JCLOUD_DATA_PATH` | `./data` | 数据存放目录，相对 `deploy/`，即 `deploy/data` |
+| `JCLOUD_DATA_PATH` | `./data` | 数据目录（系统数据：密钥、缓存、内置数据库），相对 `deploy/` |
+| `JCLOUD_STORAGE_PATH` | `./storage` | 文件存储目录，用户文件的物理根，相对 `deploy/` |
 | `PUID` | `0` | 容器运行用户 uid（详见附录 B） |
 | `PGID` | `0` | 容器运行用户组 gid（详见附录 B） |
 | `TZ` | `Asia/Shanghai` | 容器时区，设置宿主机 `TZ` 时透传 |
@@ -31,11 +38,14 @@ docker compose -f deploy/docker-compose.yml up -d
 
 ## 数据持久化
 
-默认数据目录为 `deploy/data`：
+默认分两个目录：文件存储目录 `deploy/storage` 存放用户文件数据，数据目录 `deploy/data` 存放系统数据。两者相互独立，可分盘部署。
 
 ```
-deploy/data/
-├── jcloud/              # 用户文件数据
+deploy/storage/          # 文件存储目录：用户文件数据的物理根（默认存储空间）
+```
+
+```
+deploy/data/             # 数据目录（系统数据）
 ├── system/              # 密钥（token 签名、远程存储凭据加密）
 ├── system-cache/        # 系统缓存（全部可再生成，可整体清空）
 │   ├── previews/        # 预览图（图片、文本、Office 转换 PDF）
@@ -49,7 +59,33 @@ deploy/data/
 - `system/`：密钥首次启动自动生成，**不可再生成**。删除或丢失会导致全部登录态失效、远程挂载凭据不可解密（需重新登录并重新填写凭据），务必纳入备份。
 - `system-cache/`：内容全部可再生成。磁盘紧张时可直接清空整个目录，系统会在后续预览、播放、下载时按需重建，不影响用户文件。
 
-数据目录可通过 `JCLOUD_DATA_PATH` 修改，例如放到项目根目录：`JCLOUD_DATA_PATH=../data`。
+两个目录可分别在 `.env` 中修改，例如都放到项目根目录：
+
+```bash
+JCLOUD_DATA_PATH=../data
+JCLOUD_STORAGE_PATH=../storage
+```
+
+### 从旧版本迁移
+
+旧版本把用户文件放在数据目录下的 `deploy/data/jcloud`，新版本默认改到文件存储目录 `deploy/storage`。升级后二选一：
+
+- **迁移到新目录（推荐）**：先停止服务，再把旧目录内容移到新目录：
+
+```bash
+docker compose -f deploy/docker-compose.yml down
+mkdir -p deploy/storage
+mv deploy/data/jcloud/* deploy/storage/
+rmdir deploy/data/jcloud
+```
+
+- **原地不动**：在 `deploy/.env` 中把文件存储目录指回旧位置，不搬数据：
+
+```bash
+JCLOUD_STORAGE_PATH=./data/jcloud
+```
+
+> 使用非 root 的 `PUID`/`PGID` 时，迁移后的文件归属仍是旧 uid/gid，需按附录 B 重新 `chown` 文件存储目录。
 
 ## 升级与维护
 
@@ -97,7 +133,7 @@ docker compose -f deploy/docker-compose.yml up -d --no-deps jcloud
 
 ## 附录 B：指定运行用户（PUID/PGID）
 
-默认容器内进程以 root 运行，bind mount 数据目录中的文件在宿主机上归属 root。在 NAS（TrueNAS/群晖/UNRAID 等）或多用户宿主机上，可通过 `PUID`/`PGID` 让容器以指定用户运行：
+默认容器内进程以 root 运行，bind mount 的文件存储目录与数据目录中的文件在宿主机上归属 root。在 NAS（TrueNAS/群晖/UNRAID 等）或多用户宿主机上，可通过 `PUID`/`PGID` 让容器以指定用户运行：
 
 ```bash
 cat >> deploy/.env <<EOF
@@ -109,10 +145,10 @@ docker compose -f deploy/docker-compose.yml up -d
 
 注意事项：
 
-- **存量数据需先改归属**：从默认 root 切换到非 root 前，先在宿主机执行（路径按 `JCLOUD_DATA_PATH` 调整；不要改动 `postgres/`、`redis/`）：
+- **存量数据需先改归属**：从默认 root 切换到非 root 前，先在宿主机执行（路径按 `JCLOUD_STORAGE_PATH`、`JCLOUD_DATA_PATH` 调整；不要改动 `postgres/`、`redis/`）：
 
 ```bash
-sudo chown -R 1000:1000 deploy/data/jcloud deploy/data/system deploy/data/system-cache
+sudo chown -R 1000:1000 deploy/storage deploy/data/system deploy/data/system-cache
 ```
 
 - **GPU 硬解**：非 root 运行时需把宿主机 `/dev/dri` 节点的 video/render 组加入容器。先用 `stat -c '%g' /dev/dri/renderD128 /dev/dri/card0` 查询 gid，再取消 `deploy/docker-compose.yml` 中 jcloud 服务 `group_add` 注释段并替换为查到的 gid。
