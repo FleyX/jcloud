@@ -74,6 +74,12 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      - uses: docker/login-action@v3
+        with:
+          registry: registry.cn-hangzhou.aliyuncs.com
+          username: ${{ secrets.ALIYUN_REGISTRY_USERNAME }}
+          password: ${{ secrets.ALIYUN_REGISTRY_PASSWORD }}
+
       # release 触发：版本号取 tag（去前导 v）；其余触发：test 标签
       - name: 计算镜像版本标签
         id: meta
@@ -84,8 +90,8 @@ jobs:
             echo "tag=test" >> "$GITHUB_OUTPUT"
           fi
 
-      # 单架构 tag 只推 Docker Hub，作为 merge 步骤的输入；
-      # 阿里云只接收 merge 产出的多架构标签，避免多一次签名/清单兼容性失败点。
+      # 单架构 tag 同时推两个仓库：两个架构的镜像层在构建阶段就并行上传到阿里云，
+      # 使 merge 步骤只需改标签、无需再串行上传数 GB 镜像层。
       # provenance/sbom 必须关闭：buildx 默认附加的 attestation 清单包含
       # application/vnd.oci.empty.v1+json，阿里云 ACR 不支持会直接拒绝推送。
       - name: 构建并推送 ${{ matrix.suffix }} 镜像
@@ -100,6 +106,7 @@ jobs:
           sbom: false
           tags: |
             ${{ env.DOCKERHUB_REPO }}:${{ steps.meta.outputs.tag }}-${{ matrix.suffix }}
+            ${{ env.ALIYUN_REPO }}:${{ steps.meta.outputs.tag }}-${{ matrix.suffix }}
           cache-from: type=gha,scope=${{ matrix.suffix }}
           cache-to: type=gha,mode=max,scope=${{ matrix.suffix }}
 
