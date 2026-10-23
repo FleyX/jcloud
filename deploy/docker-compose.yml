@@ -2,9 +2,9 @@ services:
   jcloud:
     image: ${JCLOUD_IMAGE:-fleyx/jcloud:latest}
     container_name: jcloud
-    # 指定运行用户：PUID/PGID 设为宿主机用户的 uid/gid，使数据目录落盘文件归属该用户；
+    # 指定运行用户：PUID/PGID 设为宿主机用户的 uid/gid，使数据目录与文件存储目录落盘文件归属该用户；
     # 默认 0:0（root）保持向后兼容。从 root 切换到非 root 前，需先在宿主机
-    # chown -R PUID:PGID 数据目录（详见 deploy.md「指定运行用户」）
+    # chown -R PUID:PGID 数据目录与文件存储目录（详见 deploy.md「指定运行用户」）
     user: "${PUID:-0}:${PGID:-0}"
     ports:
       - "${JCLOUD_PORT:-80}:${JCLOUD_PORT:-80}"
@@ -22,7 +22,8 @@ services:
       # 与下方 deploy 块一起取消注释启用（TrueNAS SCALE 24.10+ 先在 Apps → Configure → Settings 勾选 Install NVIDIA Drivers）
       # - NVIDIA_DRIVER_CAPABILITIES=all
     volumes:
-      - ${JCLOUD_DATA_PATH:-./data}/jcloud:/data/jcloud
+      # 文件存储目录：用户文件的物理根，默认挂载为容器的默认存储空间 /data/jcloud
+      - ${JCLOUD_STORAGE_PATH:-./storage}:/data/jcloud
       # 系统缓存目录：可再生的预览/字幕/转码/ZIP 缓存，可整体清空，系统会按需重建
       - ${JCLOUD_DATA_PATH:-./data}/system-cache:/data/system-cache
       # 密钥目录：JWT 签名密钥与远程存储凭据加密密钥，首次启动自动生成且不可再生成，
