@@ -2,15 +2,13 @@ services:
   jcloud:
     image: ${JCLOUD_IMAGE:-fleyx/jcloud:latest}
     container_name: jcloud
-    # 指定运行用户：PUID/PGID 设为宿主机用户的 uid/gid，使数据目录落盘文件归属该用户；
+    # 指定运行用户：PUID/PGID 设为宿主机用户的 uid/gid，使数据目录与文件存储目录落盘文件归属该用户；
     # 默认 0:0（root）保持向后兼容。从 root 切换到非 root 前，需先在宿主机
-    # chown -R PUID:PGID 数据目录（详见 deploy.md「指定运行用户」）
+    # chown -R PUID:PGID 数据目录与文件存储目录（详见 deploy.md「指定运行用户」）
     user: "${PUID:-0}:${PGID:-0}"
     ports:
       - "${JCLOUD_PORT:-80}:${JCLOUD_PORT:-80}"
     environment:
-      # 容器内无 PUID 对应的 passwd 条目，caddy/LibreOffice 需要可写 HOME
-      - HOME=/tmp
       # 时区：透传宿主机 TZ 环境变量，未设置时默认 Asia/Shanghai
       - TZ=${TZ:-Asia/Shanghai}
       - JCLOUD_PORT=${JCLOUD_PORT:-80}
@@ -20,23 +18,17 @@ services:
       - REDIS_HOST=${REDIS_HOST:-redis}
       - REDIS_PORT=${REDIS_PORT:-6379}
       - REDIS_DB=${REDIS_DB:-0}
-      - JCLOUD_JWT_SECRET=${JCLOUD_JWT_SECRET:-change-me-in-production-jcloud-secret-key-2026}
-      # 认证 cookie Secure 标记：公网拓扑（外部代理卸载 TLS，浏览器侧 HTTPS）下必须 true；
-      # 纯 HTTP 局域网部署可显式置 false
-      - JCLOUD_AUTH_COOKIE_SECURE=${JCLOUD_AUTH_COOKIE_SECURE:-true}
-      - spring.profiles.active=prod
-      # 系统缓存目录（预览图、字幕、转码切片、ZIP 临时包）固定为容器内 /data/system-cache，
-      # 不提供环境变量覆盖；如需调整，须同步修改下方同名 volumes 映射的容器侧路径
-      - JCLOUD_SYSTEM_CACHE_DIR=/data/system-cache
-      # 关闭 MyBatis SQL 日志（application.yml 默认 StdOutImpl）
-      - mybatis-plus.configuration.log-impl=org.apache.ibatis.logging.nologging.NoLoggingImpl
       # 视频转码硬件加速（NVIDIA NVENC/NVDEC）：需宿主机已安装 nvidia-container-toolkit，
       # 与下方 deploy 块一起取消注释启用（TrueNAS SCALE 24.10+ 先在 Apps → Configure → Settings 勾选 Install NVIDIA Drivers）
       # - NVIDIA_DRIVER_CAPABILITIES=all
     volumes:
-      - ${JCLOUD_DATA_PATH:-./data}/jcloud:/data/jcloud
+      # 文件存储目录：用户文件的物理根，默认挂载为容器的默认存储空间 /data/jcloud
+      - ${JCLOUD_STORAGE_PATH:-./storage}:/data/jcloud
       # 系统缓存目录：可再生的预览/字幕/转码/ZIP 缓存，可整体清空，系统会按需重建
       - ${JCLOUD_DATA_PATH:-./data}/system-cache:/data/system-cache
+      # 密钥目录：JWT 签名密钥与远程存储凭据加密密钥，首次启动自动生成且不可再生成，
+      # 丢失 = token 全失效 + 远程凭据不可解密；与可清空的 system-cache 不同，必须备份
+      - ${JCLOUD_DATA_PATH:-./data}/system:/data/system
     # 视频转码硬件加速（VAAPI/QSV）：映射 GPU 渲染节点；无核显/独显时可删除
     devices:
       - /dev/dri:/dev/dri
@@ -77,8 +69,6 @@ services:
       timeout: 5s
       retries: 5
     restart: unless-stopped
-    profiles:
-      - db
 
   redis:
     image: redis:7-alpine
@@ -91,5 +81,3 @@ services:
       timeout: 5s
       retries: 5
     restart: unless-stopped
-    profiles:
-      - cache

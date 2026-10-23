@@ -3,7 +3,7 @@ package com.fleyx.jcloud.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fleyx.jcloud.common.IntegrationTestBase;
 import com.fleyx.jcloud.common.enums.PreviewType;
-import com.fleyx.jcloud.config.SystemCacheProperties;
+import com.fleyx.jcloud.config.SystemProperties;
 import com.fleyx.jcloud.mapper.PreviewFileMapper;
 import com.fleyx.jcloud.model.bo.PreviewResult;
 import com.fleyx.jcloud.model.po.PreviewFile;
@@ -48,7 +48,7 @@ class FilePreviewServiceTest extends IntegrationTestBase {
     private PreviewFileMapper previewFileMapper;
 
     @Autowired
-    private SystemCacheProperties systemCacheProperties;
+    private SystemProperties systemCacheProperties;
 
     @Test
     void shouldGenerateImageThumbnail() throws Exception {

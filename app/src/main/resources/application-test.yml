@@ -25,3 +25,5 @@ jcloud:
   system:
     # 测试统一落在 target 下，由 mvn clean 清理，避免污染工作区
     cache-dir: ./target/test-system-cache
+    # 同上：密钥也落到 target，防止 Spring 上下文测试把密钥写进工作区 ./data
+    secret-dir: ./target/test-system

@@ -3,7 +3,7 @@ package com.fleyx.jcloud.util;
 import cn.hutool.crypto.SecureUtil;
 import cn.hutool.crypto.digest.DigestUtil;
 import cn.hutool.crypto.symmetric.AES;
-import com.fleyx.jcloud.config.RemoteProperties;
+import com.fleyx.jcloud.service.support.SystemSecretSupport;
 import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
@@ -11,19 +11,16 @@ import java.nio.charset.StandardCharsets;
 /**
  * 远程挂载配置敏感字段加密工具。
  * <p>
- * 使用 AES-256 对密码、accessKey 等字段进行加密存储；解密密钥来自配置。
+ * 使用 AES-256 对密码、accessKey 等字段进行加密存储；解密密钥来自系统密钥目录。
  */
 @Component
 public class RemoteConfigCrypto {
 
     private final AES aes;
 
-    public RemoteConfigCrypto(RemoteProperties remoteProperties) {
-        String secret = remoteProperties.getEncryptionKey();
-        if (secret == null || secret.isBlank()) {
-            throw new IllegalArgumentException("jcloud.remote.encryption-key 未配置");
-        }
-        byte[] keyBytes = DigestUtil.sha256(secret.getBytes(StandardCharsets.UTF_8));
+    public RemoteConfigCrypto(SystemSecretSupport systemSecretSupport) {
+        // 密钥由 SystemSecretSupport 生成并持久化，启动时必定非空，无需再做空值校验
+        byte[] keyBytes = DigestUtil.sha256(systemSecretSupport.getRemoteEncryptionKey().getBytes(StandardCharsets.UTF_8));
         this.aes = SecureUtil.aes(keyBytes);
     }
 

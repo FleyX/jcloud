@@ -9,21 +9,17 @@ server:
 
 jcloud:
   jwt:
-    secret: ${JCLOUD_JWT_SECRET:change-me-in-production-jcloud-secret-key-2026}
     expire-hours: 2
     issuer: jcloud
   auth:
     refresh-expire-days: 30
     rotation-grace-seconds: 30
-    cookie-secure: false
   upload:
     chunk-size: 67108864
   download:
     zip-stream-threshold-size: 104857600
     zip-stream-threshold-count: 100
     zip-task-ttl-minutes: 60
-  remote:
-    encryption-key: ${JCLOUD_REMOTE_ENC_KEY:change-me-remote-enc-key}
   preview:
     libreoffice-path: ${JCLOUD_LIBREOFFICE_PATH:soffice}
     office-max-convert-size: 52428800
@@ -31,6 +27,7 @@ jcloud:
     max-concurrent-conversions: 2
   system:
     cache-dir: ${JCLOUD_SYSTEM_CACHE_DIR:./data/system-cache}
+    secret-dir: ${JCLOUD_SYSTEM_SECRET_DIR:./data/system}
 
 spring:
   application:
@@ -76,7 +73,8 @@ mybatis-plus:
   configuration:
     map-underscore-to-camel-case: true
     cache-enabled: false
-    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
+    # 默认关闭 SQL 日志，作为生产安全默认值；本地调试需要时由 application-dev.yml 显式开启
+    log-impl: org.apache.ibatis.logging.nologging.NoLoggingImpl
   global-config:
     db-config:
       id-type: assign_id

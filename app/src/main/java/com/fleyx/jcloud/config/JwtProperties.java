@@ -13,11 +13,6 @@ import org.springframework.stereotype.Component;
 public class JwtProperties {
 
     /**
-     * 签名密钥。
-     */
-    private String secret;
-
-    /**
      * 过期时间（小时）。
      */
     private long expireHours = 24;

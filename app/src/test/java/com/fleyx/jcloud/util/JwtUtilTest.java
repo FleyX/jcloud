@@ -1,13 +1,17 @@
 package com.fleyx.jcloud.util;
 
 import com.fleyx.jcloud.config.JwtProperties;
+import com.fleyx.jcloud.config.SystemProperties;
+import com.fleyx.jcloud.service.support.SystemSecretSupport;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.security.SignatureException;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.util.Base64;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -20,18 +24,23 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
  */
 class JwtUtilTest {
 
-    private static final String SECRET = "test-secret-key-must-be-at-least-32-characters-long";
+    @TempDir
+    Path secretDir;
+
+    @TempDir
+    Path otherSecretDir;
 
     private JwtUtil buildJwtUtil() {
-        return buildJwtUtil(SECRET, 1);
+        return buildJwtUtil(secretDir, 1);
     }
 
-    private JwtUtil buildJwtUtil(String secret, long expireHours) {
+    private JwtUtil buildJwtUtil(Path dir, long expireHours) {
         JwtProperties properties = new JwtProperties();
-        properties.setSecret(secret);
         properties.setIssuer("jcloud-test");
         properties.setExpireHours(expireHours);
-        return new JwtUtil(properties);
+        SystemProperties systemProperties = new SystemProperties();
+        systemProperties.setSecretDir(dir.toString());
+        return new JwtUtil(properties, new SystemSecretSupport(systemProperties));
     }
 
     @Test
@@ -69,7 +78,7 @@ class JwtUtilTest {
 
     @Test
     void expiredTokenShouldThrowExpiredJwtException() {
-        JwtUtil util = buildJwtUtil(SECRET, -1);
+        JwtUtil util = buildJwtUtil(secretDir, -1);
         String token = util.generateToken("123", "testUser");
 
         assertThrows(ExpiredJwtException.class, () -> util.parseToken(token));
@@ -78,7 +87,7 @@ class JwtUtilTest {
     @Test
     void tokenSignedWithDifferentKeyShouldThrowSignatureException() {
         JwtUtil util = buildJwtUtil();
-        JwtUtil other = buildJwtUtil("another-secret-key-at-least-32-characters", 1);
+        JwtUtil other = buildJwtUtil(otherSecretDir, 1);
         String token = other.generateToken("123", "testUser");
 
         assertThrows(SignatureException.class, () -> util.parseToken(token));

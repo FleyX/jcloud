@@ -1,7 +1,7 @@
 package com.fleyx.jcloud.service.support;
 
 import com.fleyx.jcloud.common.exception.SystemException;
-import com.fleyx.jcloud.config.SystemCacheProperties;
+import com.fleyx.jcloud.config.SystemProperties;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -21,7 +21,7 @@ class SystemCacheDirProviderTest {
     Path tempDir;
 
     private SystemCacheDirProvider providerOf(String cacheDir) {
-        SystemCacheProperties properties = new SystemCacheProperties();
+        SystemProperties properties = new SystemProperties();
         properties.setCacheDir(cacheDir);
         return new SystemCacheDirProvider(properties);
     }
